@@ -1,0 +1,25 @@
+# Python cache and virtual environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Generated DeFiLlama artifacts
+/data/raw/defillama/**
+/data/normalized/defillama/**
+/reports/daily/*.md
+
+# Keep directory anchors
+!/data/raw/defillama/
+!/data/raw/defillama/.gitkeep
+!/data/normalized/defillama/
+!/data/normalized/defillama/.gitkeep
+!/reports/daily/
+!/reports/daily/.gitkeep
+
+# Local OS/editor noise
+.DS_Store
+*.swp

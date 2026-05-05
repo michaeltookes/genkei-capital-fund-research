@@ -1,0 +1,80 @@
+{
+  "schema_version": "1.0",
+  "defillama_base_urls": {
+    "core": "https://api.llama.fi",
+    "coins": "https://coins.llama.fi",
+    "stablecoins": "https://stablecoins.llama.fi"
+  },
+  "target_assets": [
+    {
+      "symbol": "BTC",
+      "name": "Bitcoin",
+      "coingecko_id": "bitcoin",
+      "primary_chain_labels": ["Bitcoin"],
+      "ecosystem": "Bitcoin ecosystem"
+    },
+    {
+      "symbol": "ETH",
+      "name": "Ethereum",
+      "coingecko_id": "ethereum",
+      "primary_chain_labels": ["Ethereum"],
+      "ecosystem": "Ethereum ecosystem"
+    },
+    {
+      "symbol": "SOL",
+      "name": "Solana",
+      "coingecko_id": "solana",
+      "primary_chain_labels": ["Solana"],
+      "ecosystem": "Solana ecosystem"
+    },
+    {
+      "symbol": "LINK",
+      "name": "Chainlink",
+      "coingecko_id": "chainlink",
+      "primary_chain_labels": ["Chainlink"],
+      "ecosystem": "Oracle infrastructure"
+    },
+    {
+      "symbol": "SUI",
+      "name": "Sui",
+      "coingecko_id": "sui",
+      "primary_chain_labels": ["Sui"],
+      "ecosystem": "Sui ecosystem"
+    }
+  ],
+  "chain_focus": ["Bitcoin", "Ethereum", "Solana", "Sui"],
+  "bitcoin_ecosystem_labels": [
+    "Bitcoin",
+    "Lightning Network",
+    "Lightning",
+    "Stacks",
+    "Rootstock",
+    "RSK",
+    "Babylon",
+    "Botanix",
+    "Merlin",
+    "B² Network",
+    "Bitlayer",
+    "BOB"
+  ],
+  "collection_endpoints": [
+    {
+      "name": "protocols",
+      "base": "core",
+      "path": "/protocols",
+      "description": "Protocol-level TVL, chain exposure, and short-window TVL changes."
+    },
+    {
+      "name": "chains",
+      "base": "core",
+      "path": "/v2/chains",
+      "description": "Chain-level TVL and day/week/month TVL change metrics."
+    },
+    {
+      "name": "stablecoins",
+      "base": "stablecoins",
+      "path": "/stablecoins?includePrices=true",
+      "description": "Stablecoin supply context used as a money-flow proxy."
+    }
+  ]
+}
