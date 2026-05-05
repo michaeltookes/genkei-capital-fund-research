@@ -11,13 +11,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 DEFAULT_CONFIG_PATH = Path("config/defillama.sources.json")
 DEFAULT_OUTPUT_DIR = Path("data/raw/defillama")
 REQUEST_TIMEOUT_SECONDS = 30
 USER_AGENT = "genkei-capital-fund-research/0.1"
+ALLOWED_URL_SCHEMES = {"https", "http"}
 
 JsonObject = dict[str, Any]
 
@@ -75,14 +76,18 @@ def build_collection_targets(config: JsonObject) -> list[CollectionTarget]:
         raise SystemExit("collection_endpoints must be a list.")
 
     targets = [build_price_target(config)]
+    seen_names = {targets[0].name}
     for endpoint in endpoints:
         if not isinstance(endpoint, dict):
             raise SystemExit("Each collection endpoint must be an object.")
         name = require_string(endpoint, "name")
+        if name in seen_names:
+            raise SystemExit(f"Duplicate collection endpoint name: {name}")
         base_key = require_string(endpoint, "base")
         path = require_string(endpoint, "path")
         if base_key not in base_urls:
             raise SystemExit(f"Unknown base URL key for endpoint {name}: {base_key}")
+        seen_names.add(name)
         targets.append(CollectionTarget(name, f"{base_urls[base_key]}{path}"))
     return targets
 
@@ -105,6 +110,10 @@ def require_string(source: JsonObject, key: str) -> str:
 
 def fetch_json(url: str) -> Any:
     """Fetch JSON from a public API endpoint."""
+    parsed_url = urlparse(url)
+    if parsed_url.scheme not in ALLOWED_URL_SCHEMES:
+        scheme = parsed_url.scheme or "missing"
+        raise RuntimeError(f"Unsupported URL scheme for {url}: {scheme}")
     request = Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:

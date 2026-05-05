@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +35,34 @@ def latest_normalized_file(normalized_dir: Path) -> Path:
     if not candidates:
         raise SystemExit(f"No normalized daily files found in {normalized_dir}")
     return candidates[-1]
+
+
+def parse_iso_date(value: Any, context: str) -> date:
+    """Parse an ISO date or datetime value into a date."""
+    if not isinstance(value, str) or not value:
+        raise SystemExit(f"Missing normalized date in {context}.")
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).date()
+        except ValueError as exc:
+            raise SystemExit(f"Invalid normalized date in {context}: {value}") from exc
+
+
+def normalized_date_stamp(data: JsonObject, normalized_path: Path) -> str:
+    """Return the dataset date for a normalized artifact."""
+    if "snapshot_date" in data:
+        return parse_iso_date(data["snapshot_date"], "snapshot_date").isoformat()
+
+    stem = normalized_path.stem
+    if stem.startswith("daily-"):
+        return parse_iso_date(stem.removeprefix("daily-"), str(normalized_path)).isoformat()
+
+    if "generated_at" in data:
+        return parse_iso_date(data["generated_at"], "generated_at").isoformat()
+
+    raise SystemExit(f"Cannot determine normalized date for {normalized_path}")
 
 
 def format_usd(value: Any) -> str:
@@ -138,7 +166,14 @@ def build_protocol_lines(protocols: list[JsonObject], limit: int) -> list[str]:
         return ["- No matching protocol exposure found in this snapshot."]
     lines = []
     for protocol in protocols[:limit]:
-        chains = ", ".join(protocol.get("matched_chains", [])) or "n/a"
+        matched_chains = protocol.get("matched_chains")
+        if (
+            matched_chains is None
+            or isinstance(matched_chains, (str, bytes))
+            or not hasattr(matched_chains, "__iter__")
+        ):
+            matched_chains = []
+        chains = ", ".join(str(chain) for chain in matched_chains if chain is not None) or "n/a"
         lines.append(
             "- {name} ({chains}): TVL {tvl}; 7D {change}; {momentum}.".format(
                 name=protocol.get("name", "n/a"),
@@ -233,7 +268,7 @@ def build_daily_report(normalized_path: Path, output_dir: Path) -> Path:
     data = load_json(normalized_path)
     if not isinstance(data, dict):
         raise SystemExit("Normalized data root must be a JSON object.")
-    date_stamp = datetime.now(timezone.utc).date().isoformat()
+    date_stamp = normalized_date_stamp(data, normalized_path)
     output_path = output_dir / f"defillama-daily-{date_stamp}.md"
     write_text(output_path, build_report(data))
     return output_path

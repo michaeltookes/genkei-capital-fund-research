@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -91,10 +92,28 @@ def require_string(source: JsonObject, key: str) -> str:
 
 def latest_snapshot_dir(raw_dir: Path) -> Path:
     """Find the latest raw snapshot directory containing a manifest."""
+    if not raw_dir.exists() or not raw_dir.is_dir():
+        raise SystemExit(f"Raw snapshots directory {raw_dir} not found")
     candidates = [path for path in raw_dir.iterdir() if path.is_dir() and (path / "manifest.json").exists()]
     if not candidates:
         raise SystemExit(f"No raw snapshot directories found in {raw_dir}")
     return sorted(candidates)[-1]
+
+
+def parse_manifest_date(manifest: Any) -> str:
+    """Return the UTC collection date encoded in a raw snapshot manifest."""
+    if not isinstance(manifest, dict):
+        raise SystemExit("Raw manifest must be a JSON object.")
+    collected_at = manifest.get("collected_at")
+    if not isinstance(collected_at, str) or not collected_at:
+        raise SystemExit("Raw manifest must include collected_at.")
+    try:
+        parsed = datetime.fromisoformat(collected_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise SystemExit(f"Invalid raw manifest collected_at: {collected_at}") from exc
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc)
+    return parsed.date().isoformat()
 
 
 def load_raw_snapshot(snapshot_dir: Path) -> JsonObject:
@@ -282,6 +301,20 @@ def as_float(value: Any) -> float | None:
         return None
 
 
+def validate_list_of_strings(value: Any, field_name: str) -> list[str]:
+    """Validate that a config field is an iterable container of strings."""
+    if value is None:
+        return []
+    if isinstance(value, (str, bytes)) or isinstance(value, Mapping) or not isinstance(value, Iterable):
+        raise TypeError(f"{field_name} must be a list, tuple, or set of strings.")
+    strings = []
+    for item in value:
+        if not isinstance(item, str):
+            raise TypeError(f"{field_name} must contain only strings.")
+        strings.append(item)
+    return strings
+
+
 def normalize_snapshot(config_path: Path, raw_dir: Path, output_dir: Path) -> Path:
     """Normalize the latest raw snapshot into a daily JSON artifact."""
     config = load_json(config_path)
@@ -290,12 +323,20 @@ def normalize_snapshot(config_path: Path, raw_dir: Path, output_dir: Path) -> Pa
     snapshot_dir = latest_snapshot_dir(raw_dir)
     raw_snapshot = load_raw_snapshot(snapshot_dir)
     assets = parse_target_assets(config)
-    chain_focus = {str(chain) for chain in config.get("chain_focus", [])}
-    bitcoin_labels = {str(chain) for chain in config.get("bitcoin_ecosystem_labels", [])}
+    chain_focus = set(validate_list_of_strings(config.get("chain_focus", []), "chain_focus"))
+    bitcoin_labels = {
+        chain
+        for chain in validate_list_of_strings(
+            config.get("bitcoin_ecosystem_labels", []),
+            "bitcoin_ecosystem_labels",
+        )
+    }
+    snapshot_date = parse_manifest_date(raw_snapshot["manifest"])
 
     normalized = {
         "schema_version": "1.0",
         "generated_at": utc_now_iso(),
+        "snapshot_date": snapshot_date,
         "raw_snapshot": str(snapshot_dir),
         "scope": {
             "target_assets": [asset.symbol for asset in assets],
@@ -307,7 +348,7 @@ def normalize_snapshot(config_path: Path, raw_dir: Path, output_dir: Path) -> Pa
         "protocol_exposure": normalize_protocols(raw_snapshot["protocols"], assets),
         "bitcoin_ecosystem": normalize_bitcoin_ecosystem(raw_snapshot["protocols"], bitcoin_labels),
     }
-    output_path = output_dir / f"daily-{datetime.now(timezone.utc).date().isoformat()}.json"
+    output_path = output_dir / f"daily-{snapshot_date}.json"
     write_json(output_path, normalized)
     return output_path
 

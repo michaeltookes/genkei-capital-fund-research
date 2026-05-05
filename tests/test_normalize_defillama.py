@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+import json
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from scripts.normalize_defillama import (
     TargetAsset,
     classify_momentum,
     classify_zombie_risk,
+    latest_snapshot_dir,
     normalize_bitcoin_ecosystem,
     normalize_prices,
+    normalize_snapshot,
     normalize_stablecoins,
+    validate_list_of_strings,
 )
 
 
@@ -82,6 +88,58 @@ class NormalizeDefillamaTests(unittest.TestCase):
             ],
             records,
         )
+
+    def test_latest_snapshot_dir_reports_missing_raw_directory(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            missing_dir = Path(temp_dir) / "missing"
+
+            with self.assertRaisesRegex(SystemExit, "Raw snapshots directory"):
+                latest_snapshot_dir(missing_dir)
+
+    def test_validate_list_of_strings_rejects_strings_and_mappings(self) -> None:
+        with self.assertRaisesRegex(TypeError, "chain_focus"):
+            validate_list_of_strings("Ethereum", "chain_focus")
+
+        with self.assertRaisesRegex(TypeError, "bitcoin_ecosystem_labels"):
+            validate_list_of_strings({"name": "Bitcoin"}, "bitcoin_ecosystem_labels")
+
+    def test_normalize_snapshot_uses_manifest_date_for_output_filename(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config_path = root / "config.json"
+            raw_dir = root / "raw"
+            snapshot_dir = raw_dir / "20260504T120000Z"
+            output_dir = root / "normalized"
+            snapshot_dir.mkdir(parents=True)
+
+            config = {
+                "target_assets": [
+                    {
+                        "symbol": "BTC",
+                        "name": "Bitcoin",
+                        "coingecko_id": "bitcoin",
+                        "primary_chain_labels": ["Bitcoin"],
+                        "ecosystem": "Bitcoin ecosystem",
+                    }
+                ],
+                "chain_focus": ["Bitcoin"],
+                "bitcoin_ecosystem_labels": ["Bitcoin"],
+            }
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+            (snapshot_dir / "manifest.json").write_text(
+                json.dumps({"collected_at": "2026-05-04T23:59:00+00:00"}),
+                encoding="utf-8",
+            )
+            (snapshot_dir / "prices_current.json").write_text(json.dumps({"coins": {}}), encoding="utf-8")
+            (snapshot_dir / "chains.json").write_text(json.dumps([]), encoding="utf-8")
+            (snapshot_dir / "protocols.json").write_text(json.dumps([]), encoding="utf-8")
+            (snapshot_dir / "stablecoins.json").write_text(json.dumps({"peggedAssets": []}), encoding="utf-8")
+
+            output_path = normalize_snapshot(config_path, raw_dir, output_dir)
+
+            self.assertEqual(output_dir / "daily-2026-05-04.json", output_path)
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual("2026-05-04", payload["snapshot_date"])
 
 
 if __name__ == "__main__":

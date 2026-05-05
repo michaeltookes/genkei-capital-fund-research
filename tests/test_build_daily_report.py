@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
-from scripts.build_daily_report import build_report
+from scripts.build_daily_report import build_daily_report, build_report
 
 
 class BuildDailyReportTests(unittest.TestCase):
@@ -50,6 +52,31 @@ class BuildDailyReportTests(unittest.TestCase):
         self.assertIn("## Bitcoin ecosystem", report)
         self.assertIn("Stacks DEX", report)
         self.assertIn("Twitter-only sentiment", report)
+
+    def test_build_report_handles_invalid_matched_chains(self) -> None:
+        data = {
+            "protocol_exposure": [
+                {"name": "None DEX", "matched_chains": None},
+                {"name": "Mixed DEX", "matched_chains": ["Ethereum", 123, None]},
+            ],
+            "bitcoin_ecosystem": [],
+        }
+
+        report = build_report(data)
+
+        self.assertIn("None DEX (n/a)", report)
+        self.assertIn("Mixed DEX (Ethereum, 123)", report)
+
+    def test_build_daily_report_uses_normalized_snapshot_date_for_filename(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            normalized_path = root / "daily-2026-05-04.json"
+            normalized_path.write_text('{"snapshot_date": "2026-05-04"}', encoding="utf-8")
+
+            output_path = build_daily_report(normalized_path, root / "reports")
+
+            self.assertEqual(root / "reports" / "defillama-daily-2026-05-04.md", output_path)
+            self.assertTrue(output_path.exists())
 
 
 if __name__ == "__main__":
