@@ -70,12 +70,16 @@ def parse_target_assets(config: JsonObject) -> list[TargetAsset]:
         chain_labels = raw_asset.get("primary_chain_labels", [])
         if not isinstance(chain_labels, list):
             raise SystemExit("primary_chain_labels must be a list.")
+        for label in chain_labels:
+            if not isinstance(label, str):
+                symbol = raw_asset.get("symbol", "unknown")
+                raise SystemExit(f"primary_chain_labels for target asset {symbol} must contain only strings.")
         assets.append(
             TargetAsset(
                 symbol=require_string(raw_asset, "symbol"),
                 name=require_string(raw_asset, "name"),
                 coingecko_id=require_string(raw_asset, "coingecko_id"),
-                primary_chain_labels=tuple(str(label) for label in chain_labels),
+                primary_chain_labels=tuple(label for label in chain_labels),
                 ecosystem=require_string(raw_asset, "ecosystem"),
             )
         )
@@ -323,14 +327,17 @@ def normalize_snapshot(config_path: Path, raw_dir: Path, output_dir: Path) -> Pa
     snapshot_dir = latest_snapshot_dir(raw_dir)
     raw_snapshot = load_raw_snapshot(snapshot_dir)
     assets = parse_target_assets(config)
-    chain_focus = set(validate_list_of_strings(config.get("chain_focus", []), "chain_focus"))
-    bitcoin_labels = {
-        chain
-        for chain in validate_list_of_strings(
-            config.get("bitcoin_ecosystem_labels", []),
-            "bitcoin_ecosystem_labels",
-        )
-    }
+    try:
+        chain_focus = set(validate_list_of_strings(config.get("chain_focus", []), "chain_focus"))
+        bitcoin_labels = {
+            chain
+            for chain in validate_list_of_strings(
+                config.get("bitcoin_ecosystem_labels", []),
+                "bitcoin_ecosystem_labels",
+            )
+        }
+    except TypeError as exc:
+        raise SystemExit(f"Invalid config: {exc}") from exc
     snapshot_date = parse_manifest_date(raw_snapshot["manifest"])
 
     normalized = {

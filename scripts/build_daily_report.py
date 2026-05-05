@@ -202,9 +202,19 @@ def build_dca_timing_notes(data: JsonObject) -> list[str]:
     return notes
 
 
+def focused_assets_text(data: JsonObject) -> str:
+    """Return a display string for the report's focused target assets."""
+    scope = data.get("scope", {})
+    target_assets = scope.get("target_assets") if isinstance(scope, dict) else None
+    if isinstance(target_assets, list) and target_assets:
+        return ", ".join(str(asset) for asset in target_assets)
+    return "BTC, ETH, SOL, LINK, SUI"
+
+
 def build_report(data: JsonObject) -> str:
     """Build the complete analyst-style market brief."""
     generated_at = data.get("generated_at", datetime.now(timezone.utc).isoformat())
+    focused_assets = focused_assets_text(data)
     lines = [
         "# DeFiLlama Daily Market Brief",
         "",
@@ -212,7 +222,7 @@ def build_report(data: JsonObject) -> str:
         "",
         "## Scope",
         "",
-        "Focused assets: BTC, ETH, SOL, LINK, SUI. Non-target assets are ignored unless needed ",
+        f"Focused assets: {focused_assets}. Non-target assets are ignored unless needed ",
         "as ecosystem context. This brief is DeFiLlama-only and intentionally avoids ",
         "Twitter-only sentiment.",
         "",

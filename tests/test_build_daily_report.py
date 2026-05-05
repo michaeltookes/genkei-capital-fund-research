@@ -15,6 +15,7 @@ class BuildDailyReportTests(unittest.TestCase):
     def test_build_report_uses_analyst_sections_and_target_scope(self) -> None:
         data = {
             "generated_at": "2026-05-05T18:00:00+00:00",
+            "scope": {"target_assets": ["BTC", "ETH", "SOL"]},
             "asset_prices": [
                 {"symbol": "BTC", "ecosystem": "Bitcoin ecosystem", "price_usd": 64000}
             ],
@@ -47,11 +48,16 @@ class BuildDailyReportTests(unittest.TestCase):
         report = build_report(data)
 
         self.assertIn("# DeFiLlama Daily Market Brief", report)
-        self.assertIn("Focused assets: BTC, ETH, SOL, LINK, SUI", report)
+        self.assertIn("Focused assets: BTC, ETH, SOL", report)
         self.assertIn("## DCA timing support", report)
         self.assertIn("## Bitcoin ecosystem", report)
         self.assertIn("Stacks DEX", report)
         self.assertIn("Twitter-only sentiment", report)
+
+    def test_build_report_falls_back_to_default_target_scope(self) -> None:
+        report = build_report({})
+
+        self.assertIn("Focused assets: BTC, ETH, SOL, LINK, SUI", report)
 
     def test_build_report_handles_invalid_matched_chains(self) -> None:
         data = {

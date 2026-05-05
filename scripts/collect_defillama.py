@@ -13,6 +13,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
+from uuid import uuid4
 
 DEFAULT_CONFIG_PATH = Path("config/defillama.sources.json")
 DEFAULT_OUTPUT_DIR = Path("data/raw/defillama")
@@ -33,7 +34,13 @@ class CollectionTarget:
 
 def utc_now_iso() -> str:
     """Return an ISO-8601 UTC timestamp suitable for artifact metadata."""
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(timezone.utc).isoformat()
+
+
+def build_run_id(timestamp: str) -> str:
+    """Build a filesystem-safe snapshot run identifier from a timestamp."""
+    safe_timestamp = timestamp.replace(":", "").replace("+", "Z")
+    return f"{safe_timestamp}-{uuid4().hex[:8]}"
 
 
 def load_config(path: Path) -> JsonObject:
@@ -64,6 +71,8 @@ def build_price_target(config: JsonObject) -> CollectionTarget:
         coin_keys.append(f"coingecko:{asset['coingecko_id']}")
 
     base_urls = read_base_urls(config)
+    if "coins" not in base_urls:
+        raise SystemExit("defillama_base_urls.coins is missing")
     joined_keys = quote(",".join(coin_keys), safe=":,")
     return CollectionTarget("prices_current", f"{base_urls['coins']}/prices/current/{joined_keys}")
 
@@ -138,7 +147,7 @@ def collect_snapshots(config_path: Path, output_dir: Path) -> Path:
     """Collect configured API snapshots and return the manifest path."""
     config = load_config(config_path)
     timestamp = utc_now_iso()
-    run_id = timestamp.replace(":", "").replace("+", "Z")
+    run_id = build_run_id(timestamp)
     target_dir = output_dir / run_id
     manifest_entries = []
 

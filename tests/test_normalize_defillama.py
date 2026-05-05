@@ -15,6 +15,7 @@ from scripts.normalize_defillama import (
     normalize_bitcoin_ecosystem,
     normalize_prices,
     normalize_snapshot,
+    parse_target_assets,
     normalize_stablecoins,
     validate_list_of_strings,
 )
@@ -45,6 +46,22 @@ class NormalizeDefillamaTests(unittest.TestCase):
         self.assertEqual(1, len(records))
         self.assertEqual("BTC", records[0]["symbol"])
         self.assertEqual(64000.0, records[0]["price_usd"])
+
+    def test_parse_target_assets_rejects_non_string_primary_chain_labels(self) -> None:
+        config = {
+            "target_assets": [
+                {
+                    "symbol": "BTC",
+                    "name": "Bitcoin",
+                    "coingecko_id": "bitcoin",
+                    "primary_chain_labels": ["Bitcoin", 123],
+                    "ecosystem": "Bitcoin ecosystem",
+                }
+            ]
+        }
+
+        with self.assertRaisesRegex(SystemExit, "primary_chain_labels for target asset BTC"):
+            parse_target_assets(config)
 
     def test_classify_momentum_flags_loss_threshold(self) -> None:
         self.assertEqual("momentum loss", classify_momentum(-5.0))
@@ -140,6 +157,41 @@ class NormalizeDefillamaTests(unittest.TestCase):
             self.assertEqual(output_dir / "daily-2026-05-04.json", output_path)
             payload = json.loads(output_path.read_text(encoding="utf-8"))
             self.assertEqual("2026-05-04", payload["snapshot_date"])
+
+    def test_normalize_snapshot_reports_invalid_chain_focus_without_traceback(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config_path = root / "config.json"
+            raw_dir = root / "raw"
+            snapshot_dir = raw_dir / "20260504T120000Z"
+            output_dir = root / "normalized"
+            snapshot_dir.mkdir(parents=True)
+
+            config = {
+                "target_assets": [
+                    {
+                        "symbol": "BTC",
+                        "name": "Bitcoin",
+                        "coingecko_id": "bitcoin",
+                        "primary_chain_labels": ["Bitcoin"],
+                        "ecosystem": "Bitcoin ecosystem",
+                    }
+                ],
+                "chain_focus": "Bitcoin",
+                "bitcoin_ecosystem_labels": ["Bitcoin"],
+            }
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+            (snapshot_dir / "manifest.json").write_text(
+                json.dumps({"collected_at": "2026-05-04T23:59:00+00:00"}),
+                encoding="utf-8",
+            )
+            (snapshot_dir / "prices_current.json").write_text(json.dumps({"coins": {}}), encoding="utf-8")
+            (snapshot_dir / "chains.json").write_text(json.dumps([]), encoding="utf-8")
+            (snapshot_dir / "protocols.json").write_text(json.dumps([]), encoding="utf-8")
+            (snapshot_dir / "stablecoins.json").write_text(json.dumps({"peggedAssets": []}), encoding="utf-8")
+
+            with self.assertRaisesRegex(SystemExit, "Invalid config: chain_focus"):
+                normalize_snapshot(config_path, raw_dir, output_dir)
 
 
 if __name__ == "__main__":
