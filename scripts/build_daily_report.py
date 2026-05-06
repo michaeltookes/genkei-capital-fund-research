@@ -222,19 +222,19 @@ def build_dca_timing_notes(data: JsonObject) -> list[str]:
     stablecoin_status = stablecoin_quality_status(data)
     label = classify_dca_signal(expanding, losing, acute, stablecoin_status)
     notes = [f"- Signal label: **{label}**."]
-    if expanding:
+    if expanding and label == "constructive":
         names = ", ".join(chain.get("name", "n/a") for chain in expanding)
         notes.append(
             f"- Constructive: TVL momentum is expanding for {names}; "
             "use as context, not an auto-buy rule."
         )
-    if losing:
+    if losing and label == "caution":
         names = ", ".join(chain.get("name", "n/a") for chain in losing)
         notes.append(
             "- Caution: TVL momentum loss argues against increasing allocation "
             f"without confirmation: {names}."
         )
-    if acute:
+    if acute and label == "caution":
         names = ", ".join(chain.get("name", "n/a") for chain in acute)
         notes.append(f"- Wait-for-confirmation: acute outflow pressure is present on {names}.")
     if stablecoin_status != "available":

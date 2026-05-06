@@ -34,6 +34,14 @@ class NormalizeDefillamaTests(unittest.TestCase):
     def test_normalize_prices_keeps_only_configured_assets(self) -> None:
         assets = [
             TargetAsset(
+                symbol="ETH",
+                priority=2,
+                name="Ethereum",
+                coingecko_id="ethereum",
+                primary_chain_labels=("Ethereum",),
+                ecosystem="Ethereum ecosystem",
+            ),
+            TargetAsset(
                 symbol="BTC",
                 priority=1,
                 name="Bitcoin",
@@ -45,15 +53,17 @@ class NormalizeDefillamaTests(unittest.TestCase):
         payload = {
             "coins": {
                 "coingecko:bitcoin": {"price": 64000, "timestamp": 123},
+                "coingecko:ethereum": {"price": 3000, "timestamp": 123},
                 "coingecko:dogecoin": {"price": 0.15, "timestamp": 123},
             }
         }
 
         records = normalize_prices(payload, assets)
 
-        self.assertEqual(1, len(records))
+        self.assertEqual(2, len(records))
         self.assertEqual("BTC", records[0]["symbol"])
         self.assertEqual(64000.0, records[0]["price_usd"])
+        self.assertEqual("ETH", records[1]["symbol"])
 
     def test_parse_target_assets_rejects_non_string_primary_chain_labels(self) -> None:
         config = {
@@ -89,6 +99,23 @@ class NormalizeDefillamaTests(unittest.TestCase):
         assets = parse_target_assets(config)
 
         self.assertEqual(4, assets[0].priority)
+
+    def test_parse_target_assets_rejects_non_integral_priority(self) -> None:
+        config = {
+            "target_assets": [
+                {
+                    "priority": 1.5,
+                    "symbol": "BTC",
+                    "name": "Bitcoin",
+                    "coingecko_id": "bitcoin",
+                    "primary_chain_labels": ["Bitcoin"],
+                    "ecosystem": "Bitcoin ecosystem",
+                }
+            ]
+        }
+
+        with self.assertRaisesRegex(SystemExit, "Asset priority must be a positive integer"):
+            parse_target_assets(config)
 
     def test_classify_momentum_flags_loss_threshold(self) -> None:
         self.assertEqual("momentum loss", classify_momentum(-5.0))
@@ -147,6 +174,25 @@ class NormalizeDefillamaTests(unittest.TestCase):
         records = normalize_protocols(protocols, assets)
 
         self.assertEqual(["Bitcoin Lending"], [record["name"] for record in records])
+
+    def test_normalize_protocols_keeps_non_bitcoin_name_keyword_matches(self) -> None:
+        assets = [
+            TargetAsset(
+                symbol="ETH",
+                priority=2,
+                name="Ethereum",
+                coingecko_id="ethereum",
+                primary_chain_labels=("Ethereum",),
+                ecosystem="Ethereum ecosystem",
+            )
+        ]
+        protocols = [
+            {"name": "Wrapped Yield", "category": "Dexes", "chains": ["Ethereum"], "tvl": 10_000},
+        ]
+
+        records = normalize_protocols(protocols, assets)
+
+        self.assertEqual(["Wrapped Yield"], [record["name"] for record in records])
 
     def test_normalize_bitcoin_ecosystem_excludes_generic_cex_exposure(self) -> None:
         protocols = [

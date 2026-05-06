@@ -76,6 +76,7 @@ class BuildDailyReportTests(unittest.TestCase):
 
         self.assertIn("Stablecoin chain data status: **unavailable**", report)
         self.assertIn("Signal label: **neutral**", report)
+        self.assertNotIn("Constructive: TVL momentum is expanding", report)
         self.assertIn("money-flow conviction is capped", report)
 
     def test_build_report_separates_bitcoin_cex_custody_exposure(self) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -114,10 +115,12 @@ def parse_priority(source: JsonObject) -> int:
     value = source.get("priority", 999)
     if isinstance(value, bool):
         raise SystemExit("Asset priority must be a positive integer.")
-    try:
+    if isinstance(value, int):
+        priority = value
+    elif isinstance(value, str) and re.fullmatch(r"[+-]?\d+", value):
         priority = int(value)
-    except (TypeError, ValueError) as exc:
-        raise SystemExit("Asset priority must be a positive integer.") from exc
+    else:
+        raise SystemExit("Asset priority must be a positive integer.")
     if priority < 1:
         raise SystemExit("Asset priority must be a positive integer.")
     return priority
@@ -180,7 +183,8 @@ def normalize_prices(prices_payload: JsonObject, assets: list[TargetAsset]) -> l
         return []
 
     records = []
-    for asset in assets:
+    assets_sorted = sorted(assets, key=lambda asset: asset.priority)
+    for asset in assets_sorted:
         coin_key = f"coingecko:{asset.coingecko_id}"
         price_record = coins.get(coin_key, {})
         if not isinstance(price_record, dict):
@@ -336,7 +340,7 @@ def normalize_protocols(protocols_payload: Any, assets: list[TargetAsset]) -> li
         if not isinstance(chains, list):
             continue
         matched_chains = sorted({str(chain) for chain in chains if str(chain) in chain_labels})
-        if not matched_chains or is_cex_or_custody_protocol(protocol):
+        if not matched_chains or is_category_cex_or_custody_protocol(protocol):
             continue
         records.append(build_protocol_record(protocol, matched_chains, "Target ecosystem"))
     return sort_protocol_records(records)
@@ -398,6 +402,12 @@ def is_cex_or_custody_protocol(protocol: JsonObject) -> bool:
     category_match = any(keyword in category for keyword in BITCOIN_EXCLUDED_CATEGORY_KEYWORDS)
     name_match = any(keyword in name for keyword in BITCOIN_EXCLUDED_NAME_KEYWORDS)
     return category_match or name_match
+
+
+def is_category_cex_or_custody_protocol(protocol: JsonObject) -> bool:
+    """Return whether protocol category is CEX or custody exposure."""
+    category = str(protocol.get("category", "")).lower()
+    return any(keyword in category for keyword in BITCOIN_EXCLUDED_CATEGORY_KEYWORDS)
 
 
 def is_custody_like_protocol(protocol: JsonObject) -> bool:
