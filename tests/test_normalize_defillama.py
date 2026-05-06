@@ -22,6 +22,7 @@ from scripts.normalize_defillama import (
     normalize_prices,
     normalize_protocols,
     normalize_snapshot,
+    parse_history_timestamp,
     parse_target_assets,
     normalize_stablecoins,
     validate_list_of_strings,
@@ -220,14 +221,51 @@ class NormalizeDefillamaTests(unittest.TestCase):
                 "chains": ["Bitcoin"],
                 "tvl": 2_000_000,
             },
+            {
+                "name": "Wrapped Stacks App",
+                "category": "Dexes",
+                "chains": ["Stacks"],
+                "tvl": 3_000_000,
+            },
+            {
+                "name": "WBTC Vault",
+                "category": "Yield",
+                "chains": ["Bitcoin"],
+                "tvl": 4_000_000,
+            },
         ]
 
         ecosystem = normalize_bitcoin_ecosystem(protocols, {"Bitcoin", "Stacks"})
         excluded = normalize_excluded_bitcoin_exposure(protocols, {"Bitcoin", "Stacks"})
 
-        self.assertEqual(["Bitcoin Native Lending", "Stacks DEX"], [record["name"] for record in ecosystem])
-        self.assertEqual(["Binance BTC", "Gate"], [record["name"] for record in excluded])
+        self.assertEqual(
+            ["Wrapped Stacks App", "Bitcoin Native Lending", "Stacks DEX"],
+            [record["name"] for record in ecosystem],
+        )
+        self.assertEqual(["Binance BTC", "WBTC Vault", "Gate"], [record["name"] for record in excluded])
         self.assertIn("not Bitcoin DeFi ecosystem", excluded[0]["exclusion_reason"])
+
+    def test_generic_bitcoin_name_keywords_exclude_only_generic_bitcoin_records(self) -> None:
+        protocols = [
+            {
+                "name": "WBTC Vault",
+                "category": "Yield",
+                "chains": ["Bitcoin"],
+                "tvl": 4_000_000,
+            },
+            {
+                "name": "Wrapped Stacks App",
+                "category": "Dexes",
+                "chains": ["Stacks"],
+                "tvl": 3_000_000,
+            },
+        ]
+
+        ecosystem = normalize_bitcoin_ecosystem(protocols, {"Bitcoin", "Stacks"})
+        excluded = normalize_excluded_bitcoin_exposure(protocols, {"Bitcoin", "Stacks"})
+
+        self.assertEqual(["Wrapped Stacks App"], [record["name"] for record in ecosystem])
+        self.assertEqual(["WBTC Vault"], [record["name"] for record in excluded])
 
     def test_build_data_quality_flags_partial_stablecoin_coverage(self) -> None:
         quality = build_data_quality([{"chain": "Ethereum"}], ["Bitcoin", "Ethereum"])
@@ -285,6 +323,9 @@ class NormalizeDefillamaTests(unittest.TestCase):
 
         self.assertEqual(["Rootstock RSK", "BOB", "RSK"], [record["name"] for record in records])
         self.assertEqual([10.0, 10.0, 10.0], [record["change_1d_pct"] for record in records])
+
+    def test_parse_history_timestamp_skips_out_of_range_numeric_values(self) -> None:
+        self.assertIsNone(parse_history_timestamp(10**1000))
 
     def test_build_priority_order_uses_configured_asset_priorities(self) -> None:
         assets = [

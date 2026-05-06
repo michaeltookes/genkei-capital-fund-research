@@ -89,6 +89,14 @@ def format_pct(value: Any) -> str:
     return f"{number:+.2f}%"
 
 
+def format_share_pct(value: Any) -> str:
+    """Format a share percentage without a directional sign."""
+    number = as_float(value)
+    if number is None:
+        return "n/a"
+    return f"{number:.2f}%"
+
+
 def as_float(value: Any) -> float | None:
     """Convert a JSON value to float if it is numeric."""
     if isinstance(value, bool) or value is None:
@@ -153,7 +161,7 @@ def build_stablecoin_section(data: JsonObject) -> list[str]:
             "- {chain}: {supply} stablecoin supply ({share} of focused-chain supply); {label}.".format(
                 chain=flow.get("chain", "n/a"),
                 supply=format_usd(flow.get("stablecoin_supply_usd")),
-                share=format_pct(flow.get("focus_supply_share_pct")),
+                share=format_share_pct(flow.get("focus_supply_share_pct")),
                 label=flow.get("money_flow_label", "flow label unavailable"),
             )
         )

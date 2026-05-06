@@ -62,6 +62,8 @@ class BuildDailyReportTests(unittest.TestCase):
         self.assertIn("Twitter-only sentiment", report)
         self.assertIn("not financial advice", report)
         self.assertIn("deep stablecoin liquidity", report)
+        self.assertIn("(100.00% of focused-chain supply)", report)
+        self.assertNotIn("(+100.00% of focused-chain supply)", report)
         self.assertIn("Signal label: **caution**", report)
 
     def test_build_report_caveats_dca_when_stablecoin_data_unavailable(self) -> None:

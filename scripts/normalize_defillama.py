@@ -38,7 +38,8 @@ BITCOIN_EXCLUDED_NAME_KEYWORDS = (
     "fbtc",
     "lbtc",
     "solvbtc",
-    "wrapped",
+    "wrapped btc",
+    "wrapped-btc",
 )
 
 JsonObject = dict[str, Any]
@@ -282,7 +283,10 @@ def parse_history_timestamp(value: Any) -> datetime | None:
     if isinstance(value, bool) or value is None:
         return None
     if isinstance(value, (int, float)):
-        return datetime.fromtimestamp(float(value), tz=timezone.utc)
+        try:
+            return datetime.fromtimestamp(float(value), tz=timezone.utc)
+        except (ValueError, OverflowError, OSError):
+            return None
     if isinstance(value, str):
         try:
             return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
@@ -390,24 +394,29 @@ def split_bitcoin_ecosystem_protocols(
 def is_generic_bitcoin_cex_or_custody(protocol: JsonObject, matched_chains: list[str]) -> bool:
     """Return whether a Bitcoin match should be excluded from ecosystem signal."""
     matched_label_set = set(matched_chains)
-    if is_cex_or_custody_protocol(protocol):
+    if is_category_cex_or_custody_protocol(protocol):
         return True
-    return not bool(matched_label_set - BITCOIN_GENERIC_LABELS) and is_custody_like_protocol(protocol)
+    is_generic_bitcoin = not bool(matched_label_set - BITCOIN_GENERIC_LABELS)
+    return is_generic_bitcoin and (
+        has_bitcoin_custody_name_keyword(protocol) or is_custody_like_protocol(protocol)
+    )
 
 
 def is_cex_or_custody_protocol(protocol: JsonObject) -> bool:
     """Return whether a protocol looks like CEX or custody exposure."""
-    category = str(protocol.get("category", "")).lower()
-    name = str(protocol.get("name", "")).lower()
-    category_match = any(keyword in category for keyword in BITCOIN_EXCLUDED_CATEGORY_KEYWORDS)
-    name_match = any(keyword in name for keyword in BITCOIN_EXCLUDED_NAME_KEYWORDS)
-    return category_match or name_match
+    return is_category_cex_or_custody_protocol(protocol) or has_bitcoin_custody_name_keyword(protocol)
 
 
 def is_category_cex_or_custody_protocol(protocol: JsonObject) -> bool:
     """Return whether protocol category is CEX or custody exposure."""
     category = str(protocol.get("category", "")).lower()
     return any(keyword in category for keyword in BITCOIN_EXCLUDED_CATEGORY_KEYWORDS)
+
+
+def has_bitcoin_custody_name_keyword(protocol: JsonObject) -> bool:
+    """Return whether protocol name matches a Bitcoin custody keyword."""
+    name = str(protocol.get("name", "")).lower()
+    return any(keyword in name for keyword in BITCOIN_EXCLUDED_NAME_KEYWORDS)
 
 
 def is_custody_like_protocol(protocol: JsonObject) -> bool:
