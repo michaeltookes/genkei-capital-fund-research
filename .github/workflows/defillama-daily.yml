@@ -1,0 +1,49 @@
+name: DeFiLlama Daily Brief
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 12:15 UTC daily. Generated outputs are uploaded as workflow artifacts, not committed.
+    - cron: "15 12 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  build-daily-brief:
+    name: Build daily DeFiLlama brief
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run deterministic validation
+        run: |
+          python3 -m unittest discover -s tests
+          python3 -m compileall scripts tests
+
+      - name: Collect public DeFiLlama snapshot
+        run: python3 scripts/collect_defillama.py
+
+      - name: Normalize snapshot
+        run: python3 scripts/normalize_defillama.py
+
+      - name: Build analyst brief
+        run: python3 scripts/build_daily_report.py
+
+      - name: Upload generated brief artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: defillama-daily-brief
+          path: |
+            reports/daily/defillama-daily-*.md
+            data/normalized/defillama/daily-*.json
+          if-no-files-found: error
+          retention-days: 30

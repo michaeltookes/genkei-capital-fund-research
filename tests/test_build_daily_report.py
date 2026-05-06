@@ -31,6 +31,7 @@ class BuildDailyReportTests(unittest.TestCase):
                     "zombie_risk": "normal",
                 }
             ],
+            "data_quality": {"stablecoin_chain_data": "available", "missing_stablecoin_chains": []},
             "stablecoin_flows": [
                 {
                     "chain": "Ethereum",
@@ -61,6 +62,37 @@ class BuildDailyReportTests(unittest.TestCase):
         self.assertIn("Twitter-only sentiment", report)
         self.assertIn("not financial advice", report)
         self.assertIn("deep stablecoin liquidity", report)
+        self.assertIn("Signal label: **caution**", report)
+
+    def test_build_report_caveats_dca_when_stablecoin_data_unavailable(self) -> None:
+        data = {
+            "data_quality": {"stablecoin_chain_data": "unavailable"},
+            "chain_tvl": [
+                {"name": "Ethereum", "momentum_label": "expanding", "trend_label": "confirmed uptrend"}
+            ],
+        }
+
+        report = build_report(data)
+
+        self.assertIn("Stablecoin chain data status: **unavailable**", report)
+        self.assertIn("Signal label: **neutral**", report)
+        self.assertIn("money-flow conviction is capped", report)
+
+    def test_build_report_separates_bitcoin_cex_custody_exposure(self) -> None:
+        data = {
+            "bitcoin_ecosystem": [
+                {"name": "Stacks DEX", "matched_chains": ["Stacks"], "tvl_usd": 1_000_000}
+            ],
+            "bitcoin_excluded_exposure": [
+                {"name": "Binance BTC", "matched_chains": ["Bitcoin"], "tvl_usd": 5_000_000_000}
+            ],
+        }
+
+        report = build_report(data)
+
+        self.assertIn("## Bitcoin CEX/custody exposure excluded from ecosystem signal", report)
+        self.assertIn("Binance BTC", report)
+        self.assertIn("not Bitcoin-native DeFi demand", report)
 
     def test_build_report_falls_back_to_default_target_scope(self) -> None:
         report = build_report({})

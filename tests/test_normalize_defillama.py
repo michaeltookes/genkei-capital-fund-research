@@ -9,6 +9,7 @@ from tempfile import TemporaryDirectory
 
 from scripts.normalize_defillama import (
     TargetAsset,
+    build_data_quality,
     classify_money_flow,
     classify_momentum,
     classify_trend,
@@ -16,7 +17,9 @@ from scripts.normalize_defillama import (
     latest_snapshot_dir,
     normalize_bitcoin_ecosystem,
     normalize_chains,
+    normalize_excluded_bitcoin_exposure,
     normalize_prices,
+    normalize_protocols,
     normalize_snapshot,
     parse_target_assets,
     normalize_stablecoins,
@@ -122,6 +125,70 @@ class NormalizeDefillamaTests(unittest.TestCase):
         self.assertEqual(1, len(records))
         self.assertEqual("Stacks DEX", records[0]["name"])
         self.assertEqual("Bitcoin ecosystem", records[0]["bucket"])
+
+
+
+    def test_normalize_protocols_excludes_cex_custody_from_target_exposure(self) -> None:
+        assets = [
+            TargetAsset(
+                symbol="BTC",
+                priority=1,
+                name="Bitcoin",
+                coingecko_id="bitcoin",
+                primary_chain_labels=("Bitcoin",),
+                ecosystem="Bitcoin ecosystem",
+            )
+        ]
+        protocols = [
+            {"name": "Binance CEX", "category": "CEX", "chains": ["Bitcoin"], "tvl": 10_000},
+            {"name": "Bitcoin Lending", "category": "Lending", "chains": ["Bitcoin"], "tvl": 5_000},
+        ]
+
+        records = normalize_protocols(protocols, assets)
+
+        self.assertEqual(["Bitcoin Lending"], [record["name"] for record in records])
+
+    def test_normalize_bitcoin_ecosystem_excludes_generic_cex_exposure(self) -> None:
+        protocols = [
+            {
+                "name": "Binance BTC",
+                "category": "CEX",
+                "chains": ["Bitcoin"],
+                "tvl": 5_000_000_000,
+            },
+            {
+                "name": "Stacks DEX",
+                "category": "Dexes",
+                "chains": ["Stacks"],
+                "tvl": 1_000_000,
+            },
+            {
+                "name": "Gate",
+                "category": "CEX",
+                "chains": ["Stacks"],
+                "tvl": 2_000_000,
+            },
+            {
+                "name": "Bitcoin Native Lending",
+                "category": "Lending",
+                "chains": ["Bitcoin"],
+                "tvl": 2_000_000,
+            },
+        ]
+
+        ecosystem = normalize_bitcoin_ecosystem(protocols, {"Bitcoin", "Stacks"})
+        excluded = normalize_excluded_bitcoin_exposure(protocols, {"Bitcoin", "Stacks"})
+
+        self.assertEqual(["Bitcoin Native Lending", "Stacks DEX"], [record["name"] for record in ecosystem])
+        self.assertEqual(["Binance BTC", "Gate"], [record["name"] for record in excluded])
+        self.assertIn("not Bitcoin DeFi ecosystem", excluded[0]["exclusion_reason"])
+
+    def test_build_data_quality_flags_partial_stablecoin_coverage(self) -> None:
+        quality = build_data_quality([{"chain": "Ethereum"}], ["Bitcoin", "Ethereum"])
+
+        self.assertEqual("partial", quality["stablecoin_chain_data"])
+        self.assertEqual(["Bitcoin"], quality["missing_stablecoin_chains"])
+        self.assertTrue(quality["completeness_notes"])
 
     def test_normalize_chains_calculates_historical_changes_in_focus_order(self) -> None:
         chains = [

@@ -28,6 +28,8 @@ scripts/collect_defillama.py       Collect raw public API snapshots
 scripts/normalize_defillama.py     Normalize raw snapshots into focused daily JSON
 scripts/build_daily_report.py      Build analyst-style Markdown daily brief
 docs/defillama-mvp.md              Design notes and operating boundaries
+docs/defillama-daily-review.md     Review checklist and acceptance standard
+.github/workflows/defillama-daily.yml Scheduled/manual daily brief builder
 data/raw/defillama/.gitkeep        Raw artifact directory anchor
 data/normalized/defillama/.gitkeep Normalized artifact directory anchor
 reports/daily/.gitkeep             Generated daily report directory anchor
@@ -61,3 +63,14 @@ python3 -m compileall scripts tests
 ```
 
 Unit tests are deterministic and do not hit the network.
+
+## Scheduled run
+
+`.github/workflows/defillama-daily.yml` runs daily at 12:15 UTC and can also be started
+manually with `workflow_dispatch`. The workflow validates tests, collects public
+DeFiLlama data, normalizes it, builds the analyst brief, and uploads the generated
+Markdown/normalized JSON as workflow artifacts. It does **not** commit generated raw,
+normalized, or report artifacts.
+
+Before using a daily brief for decision support, apply
+`docs/defillama-daily-review.md`.

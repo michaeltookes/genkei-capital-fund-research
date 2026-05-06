@@ -19,6 +19,26 @@ MOMENTUM_LOSS_THRESHOLD = -5.0
 ZOMBIE_TVL_THRESHOLD = 10_000_000.0
 ZOMBIE_WEEKLY_CHANGE_THRESHOLD = -10.0
 FLOW_STRESS_THRESHOLD = -5.0
+BITCOIN_GENERIC_LABELS = {"Bitcoin"}
+BITCOIN_EXCLUDED_CATEGORY_KEYWORDS = (
+    "cex",
+    "centralized exchange",
+    "custody",
+    "custodian",
+)
+BITCOIN_EXCLUDED_NAME_KEYWORDS = (
+    "binance",
+    "coinbase",
+    "kraken",
+    "okx",
+    "bybit",
+    "bitfinex",
+    "wbtc",
+    "fbtc",
+    "lbtc",
+    "solvbtc",
+    "wrapped",
+)
 
 JsonObject = dict[str, Any]
 
@@ -309,7 +329,7 @@ def normalize_protocols(protocols_payload: Any, assets: list[TargetAsset]) -> li
         if not isinstance(chains, list):
             continue
         matched_chains = sorted({str(chain) for chain in chains if str(chain) in chain_labels})
-        if not matched_chains:
+        if not matched_chains or is_cex_or_custody_protocol(protocol):
             continue
         records.append(build_protocol_record(protocol, matched_chains, "Target ecosystem"))
     return sort_protocol_records(records)
@@ -317,9 +337,24 @@ def normalize_protocols(protocols_payload: Any, assets: list[TargetAsset]) -> li
 
 def normalize_bitcoin_ecosystem(protocols_payload: Any, labels: set[str]) -> list[JsonObject]:
     """Normalize Bitcoin-adjacent protocols under a Bitcoin ecosystem bucket."""
+    records, _excluded = split_bitcoin_ecosystem_protocols(protocols_payload, labels)
+    return records
+
+
+def normalize_excluded_bitcoin_exposure(protocols_payload: Any, labels: set[str]) -> list[JsonObject]:
+    """Return generic Bitcoin CEX/custody exposure excluded from ecosystem signal."""
+    _records, excluded = split_bitcoin_ecosystem_protocols(protocols_payload, labels)
+    return excluded
+
+
+def split_bitcoin_ecosystem_protocols(
+    protocols_payload: Any, labels: set[str]
+) -> tuple[list[JsonObject], list[JsonObject]]:
+    """Split Bitcoin-adjacent protocols from generic CEX/custody exposure."""
     if not isinstance(protocols_payload, list):
-        return []
+        return [], []
     records = []
+    excluded = []
     for protocol in protocols_payload:
         if not isinstance(protocol, dict):
             continue
@@ -327,9 +362,42 @@ def normalize_bitcoin_ecosystem(protocols_payload: Any, labels: set[str]) -> lis
         if not isinstance(chains, list):
             continue
         matched_chains = sorted({str(chain) for chain in chains if str(chain) in labels})
-        if matched_chains:
-            records.append(build_protocol_record(protocol, matched_chains, "Bitcoin ecosystem"))
-    return sort_protocol_records(records)
+        if not matched_chains:
+            continue
+        record = build_protocol_record(protocol, matched_chains, "Bitcoin ecosystem")
+        if is_generic_bitcoin_cex_or_custody(protocol, matched_chains):
+            record["bucket"] = "Bitcoin CEX/custody exposure (excluded)"
+            record["exclusion_reason"] = (
+                "Generic Bitcoin CEX/custody exposure is not Bitcoin DeFi ecosystem signal."
+            )
+            excluded.append(record)
+            continue
+        records.append(record)
+    return sort_protocol_records(records), sort_protocol_records(excluded)
+
+
+def is_generic_bitcoin_cex_or_custody(protocol: JsonObject, matched_chains: list[str]) -> bool:
+    """Return whether a Bitcoin match should be excluded from ecosystem signal."""
+    matched_label_set = set(matched_chains)
+    if is_cex_or_custody_protocol(protocol):
+        return True
+    return not bool(matched_label_set - BITCOIN_GENERIC_LABELS) and is_custody_like_protocol(protocol)
+
+
+def is_cex_or_custody_protocol(protocol: JsonObject) -> bool:
+    """Return whether a protocol looks like CEX or custody exposure."""
+    category = str(protocol.get("category", "")).lower()
+    name = str(protocol.get("name", "")).lower()
+    category_match = any(keyword in category for keyword in BITCOIN_EXCLUDED_CATEGORY_KEYWORDS)
+    name_match = any(keyword in name for keyword in BITCOIN_EXCLUDED_NAME_KEYWORDS)
+    return category_match or name_match
+
+
+def is_custody_like_protocol(protocol: JsonObject) -> bool:
+    """Return whether a protocol is custody-like by category metadata."""
+    category = str(protocol.get("category", "")).lower()
+    custody_keywords = ("custody", "custodian")
+    return any(keyword in category for keyword in custody_keywords)
 
 
 def build_protocol_record(protocol: JsonObject, matched_chains: list[str], bucket: str) -> JsonObject:
@@ -441,6 +509,25 @@ def classify_money_flow(stablecoin_supply_usd: Any) -> str:
     return "thin stablecoin liquidity"
 
 
+def build_data_quality(stablecoin_flows: list[JsonObject], chain_focus: list[str]) -> JsonObject:
+    """Build report-quality guardrails for incomplete external data."""
+    stablecoin_chains = {str(flow.get("chain")) for flow in stablecoin_flows}
+    missing_stablecoin_chains = [chain for chain in chain_focus if chain not in stablecoin_chains]
+    stablecoin_status = "available" if not missing_stablecoin_chains else "partial"
+    if not stablecoin_flows:
+        stablecoin_status = "unavailable"
+    completeness_notes = []
+    if stablecoin_status != "available":
+        completeness_notes.append(
+            "Stablecoin chain data is incomplete; money-flow and DCA wording must stay caveated."
+        )
+    return {
+        "stablecoin_chain_data": stablecoin_status,
+        "missing_stablecoin_chains": missing_stablecoin_chains,
+        "completeness_notes": completeness_notes,
+    }
+
+
 def classify_zombie_risk(tvl: Any, change_7d: Any) -> str:
     """Classify early zombie-chain or dead-liquidity risk from TVL and momentum."""
     tvl_value = as_float(tvl)
@@ -523,7 +610,12 @@ def normalize_snapshot(config_path: Path, raw_dir: Path, output_dir: Path) -> Pa
         "stablecoin_flows": normalize_stablecoins(raw_snapshot["stablecoins"], chain_focus),
         "protocol_exposure": normalize_protocols(raw_snapshot["protocols"], assets),
         "bitcoin_ecosystem": normalize_bitcoin_ecosystem(raw_snapshot["protocols"], bitcoin_labels),
+        "bitcoin_excluded_exposure": normalize_excluded_bitcoin_exposure(
+            raw_snapshot["protocols"],
+            bitcoin_labels,
+        ),
     }
+    normalized["data_quality"] = build_data_quality(normalized["stablecoin_flows"], chain_focus)
     output_path = output_dir / f"daily-{snapshot_date}.json"
     write_json(output_path, normalized)
     return output_path
