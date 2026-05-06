@@ -5,7 +5,7 @@ SOL, LINK, and SUI**.
 
 The MVP is designed for:
 
-- trend insight from TVL and stablecoin-flow proxies;
+- trend insight from current and historical TVL plus stablecoin-flow proxies;
 - DCA timing support;
 - early zombie-chain / momentum-loss warnings;
 - avoiding Twitter-only sentiment as an input source.

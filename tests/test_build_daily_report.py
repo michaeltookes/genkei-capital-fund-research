@@ -27,11 +27,17 @@ class BuildDailyReportTests(unittest.TestCase):
                     "change_7d_pct": -6,
                     "change_1m_pct": 2,
                     "momentum_label": "momentum loss",
+                    "trend_label": "short-term deterioration",
                     "zombie_risk": "normal",
                 }
             ],
             "stablecoin_flows": [
-                {"chain": "Ethereum", "stablecoin_supply_usd": 1_000_000_000}
+                {
+                    "chain": "Ethereum",
+                    "stablecoin_supply_usd": 1_000_000_000,
+                    "focus_supply_share_pct": 100,
+                    "money_flow_label": "deep stablecoin liquidity",
+                }
             ],
             "protocol_exposure": [],
             "bitcoin_ecosystem": [
@@ -53,6 +59,8 @@ class BuildDailyReportTests(unittest.TestCase):
         self.assertIn("## Bitcoin ecosystem", report)
         self.assertIn("Stacks DEX", report)
         self.assertIn("Twitter-only sentiment", report)
+        self.assertIn("not financial advice", report)
+        self.assertIn("deep stablecoin liquidity", report)
 
     def test_build_report_falls_back_to_default_target_scope(self) -> None:
         report = build_report({})

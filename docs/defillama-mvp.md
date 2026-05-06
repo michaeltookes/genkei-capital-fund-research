@@ -32,7 +32,8 @@ and configured equivalents.
 Configured in `config/defillama.sources.json`:
 
 - `coins.llama.fi/prices/current/...` for current target asset prices;
-- `api.llama.fi/v2/chains` for chain-level TVL and momentum;
+- `api.llama.fi/v2/chains` for chain-level current TVL;
+- `api.llama.fi/v2/historicalChainTvl/{chain}` for 1D, 7D, and 30D TVL changes;
 - `api.llama.fi/protocols` for protocol-level ecosystem exposure;
 - `stablecoins.llama.fi/stablecoins?includePrices=true` for stablecoin supply context.
 
@@ -48,7 +49,7 @@ No account, paid API key, private credential, or browser session is required.
 2. `scripts/normalize_defillama.py`
    - Loads the latest raw manifest directory.
    - Keeps only BTC, ETH, SOL, LINK, and SUI price records.
-   - Keeps focused chain TVL records.
+   - Keeps focused chain TVL records and derives 1D, 7D, and 30D trend changes.
    - Extracts stablecoin supply context for focused chains when exposed.
    - Labels Bitcoin-adjacent protocol exposure under `Bitcoin ecosystem`.
    - Emits `data/normalized/defillama/daily-YYYY-MM-DD.json`.

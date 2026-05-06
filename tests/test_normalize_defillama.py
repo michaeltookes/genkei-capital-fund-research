@@ -9,10 +9,13 @@ from tempfile import TemporaryDirectory
 
 from scripts.normalize_defillama import (
     TargetAsset,
+    classify_money_flow,
     classify_momentum,
+    classify_trend,
     classify_zombie_risk,
     latest_snapshot_dir,
     normalize_bitcoin_ecosystem,
+    normalize_chains,
     normalize_prices,
     normalize_snapshot,
     parse_target_assets,
@@ -28,6 +31,7 @@ class NormalizeDefillamaTests(unittest.TestCase):
         assets = [
             TargetAsset(
                 symbol="BTC",
+                priority=1,
                 name="Bitcoin",
                 coingecko_id="bitcoin",
                 primary_chain_labels=("Bitcoin",),
@@ -51,6 +55,7 @@ class NormalizeDefillamaTests(unittest.TestCase):
         config = {
             "target_assets": [
                 {
+                    "priority": 1,
                     "symbol": "BTC",
                     "name": "Bitcoin",
                     "coingecko_id": "bitcoin",
@@ -62,6 +67,24 @@ class NormalizeDefillamaTests(unittest.TestCase):
 
         with self.assertRaisesRegex(SystemExit, "primary_chain_labels for target asset BTC"):
             parse_target_assets(config)
+
+    def test_parse_target_assets_reads_priority_order(self) -> None:
+        config = {
+            "target_assets": [
+                {
+                    "priority": 4,
+                    "symbol": "SUI",
+                    "name": "Sui",
+                    "coingecko_id": "sui",
+                    "primary_chain_labels": ["Sui"],
+                    "ecosystem": "Sui ecosystem",
+                }
+            ]
+        }
+
+        assets = parse_target_assets(config)
+
+        self.assertEqual(4, assets[0].priority)
 
     def test_classify_momentum_flags_loss_threshold(self) -> None:
         self.assertEqual("momentum loss", classify_momentum(-5.0))
@@ -75,6 +98,19 @@ class NormalizeDefillamaTests(unittest.TestCase):
         self.assertEqual("normal", classify_zombie_risk(100_000_000, 1.0))
         self.assertEqual("unknown", classify_zombie_risk(None, 1.0))
 
+    def test_classify_trend_compares_short_and_monthly_direction(self) -> None:
+        self.assertEqual("reversal attempt", classify_trend(1.0, 2.0, -5.0))
+        self.assertEqual("short-term deterioration", classify_trend(-1.0, -2.0, 5.0))
+        self.assertEqual("acute outflow pressure", classify_trend(-6.0, -2.0, -5.0))
+        self.assertEqual("confirmed uptrend", classify_trend(1.0, 2.0, 5.0))
+        self.assertEqual("unknown", classify_trend(1.0, None, 5.0))
+
+    def test_classify_money_flow_labels_supply_depth(self) -> None:
+        self.assertEqual("deep stablecoin liquidity", classify_money_flow(1_000_000_000))
+        self.assertEqual("usable stablecoin liquidity", classify_money_flow(100_000_000))
+        self.assertEqual("thin stablecoin liquidity", classify_money_flow(99_999_999))
+        self.assertEqual("unavailable", classify_money_flow(None))
+
     def test_normalize_bitcoin_ecosystem_labels_matching_protocols(self) -> None:
         protocols = [
             {"name": "Stacks DEX", "chains": ["Stacks"], "tvl": 1_000_000, "change_7d": 3},
@@ -87,6 +123,34 @@ class NormalizeDefillamaTests(unittest.TestCase):
         self.assertEqual("Stacks DEX", records[0]["name"])
         self.assertEqual("Bitcoin ecosystem", records[0]["bucket"])
 
+    def test_normalize_chains_calculates_historical_changes_in_focus_order(self) -> None:
+        chains = [
+            {"name": "Ethereum", "tvl": 110},
+            {"name": "Bitcoin", "tvl": 220},
+            {"name": "Dogecoin", "tvl": 999},
+        ]
+        day_seconds = 86_400
+        histories = {
+            "ethereum": [
+                {"date": 0, "tvl": 100},
+                {"date": 23 * day_seconds, "tvl": 100},
+                {"date": 29 * day_seconds, "tvl": 100},
+                {"date": 30 * day_seconds, "tvl": 110},
+            ],
+            "bitcoin": [
+                {"date": 0, "tvl": 200},
+                {"date": 23 * day_seconds, "tvl": 200},
+                {"date": 29 * day_seconds, "tvl": 200},
+                {"date": 30 * day_seconds, "tvl": 220},
+            ],
+        }
+
+        records = normalize_chains(chains, histories, ["Bitcoin", "Ethereum"])
+
+        self.assertEqual(["Bitcoin", "Ethereum"], [record["name"] for record in records])
+        self.assertEqual(10.0, records[0]["change_1d_pct"])
+        self.assertEqual("confirmed uptrend", records[0]["trend_label"])
+
     def test_normalize_stablecoins_sums_focused_chain_balances(self) -> None:
         payload = {
             "peggedAssets": [
@@ -95,13 +159,28 @@ class NormalizeDefillamaTests(unittest.TestCase):
             ]
         }
 
-        records = normalize_stablecoins(payload, {"Ethereum", "Solana", "Sui"})
+        records = normalize_stablecoins(payload, ["Ethereum", "Solana", "Sui"])
 
         self.assertEqual(
             [
-                {"chain": "Ethereum", "stablecoin_supply_usd": 125.0},
-                {"chain": "Solana", "stablecoin_supply_usd": 50.0},
-                {"chain": "Sui", "stablecoin_supply_usd": 10.0},
+                {
+                    "chain": "Ethereum",
+                    "stablecoin_supply_usd": 125.0,
+                    "focus_supply_share_pct": 67.57,
+                    "money_flow_label": "thin stablecoin liquidity",
+                },
+                {
+                    "chain": "Solana",
+                    "stablecoin_supply_usd": 50.0,
+                    "focus_supply_share_pct": 27.03,
+                    "money_flow_label": "thin stablecoin liquidity",
+                },
+                {
+                    "chain": "Sui",
+                    "stablecoin_supply_usd": 10.0,
+                    "focus_supply_share_pct": 5.41,
+                    "money_flow_label": "thin stablecoin liquidity",
+                },
             ],
             records,
         )
@@ -132,6 +211,7 @@ class NormalizeDefillamaTests(unittest.TestCase):
             config = {
                 "target_assets": [
                     {
+                        "priority": 1,
                         "symbol": "BTC",
                         "name": "Bitcoin",
                         "coingecko_id": "bitcoin",
@@ -170,6 +250,7 @@ class NormalizeDefillamaTests(unittest.TestCase):
             config = {
                 "target_assets": [
                     {
+                        "priority": 1,
                         "symbol": "BTC",
                         "name": "Bitcoin",
                         "coingecko_id": "bitcoin",

@@ -7,6 +7,7 @@
   },
   "target_assets": [
     {
+      "priority": 1,
       "symbol": "BTC",
       "name": "Bitcoin",
       "coingecko_id": "bitcoin",
@@ -14,6 +15,7 @@
       "ecosystem": "Bitcoin ecosystem"
     },
     {
+      "priority": 2,
       "symbol": "ETH",
       "name": "Ethereum",
       "coingecko_id": "ethereum",
@@ -21,6 +23,7 @@
       "ecosystem": "Ethereum ecosystem"
     },
     {
+      "priority": 2,
       "symbol": "SOL",
       "name": "Solana",
       "coingecko_id": "solana",
@@ -28,6 +31,7 @@
       "ecosystem": "Solana ecosystem"
     },
     {
+      "priority": 3,
       "symbol": "LINK",
       "name": "Chainlink",
       "coingecko_id": "chainlink",
@@ -35,6 +39,7 @@
       "ecosystem": "Oracle infrastructure"
     },
     {
+      "priority": 4,
       "symbol": "SUI",
       "name": "Sui",
       "coingecko_id": "sui",
@@ -50,12 +55,22 @@
     "Stacks",
     "Rootstock",
     "RSK",
+    "Rootstock RSK",
     "Babylon",
+    "Babylon Genesis",
     "Botanix",
     "Merlin",
+    "Merlin Chain",
     "B² Network",
+    "B2 Network",
     "Bitlayer",
-    "BOB"
+    "BOB",
+    "Liquid Network",
+    "Mezo",
+    "Citrea",
+    "Core",
+    "Lorenzo",
+    "Nubit"
   ],
   "collection_endpoints": [
     {
