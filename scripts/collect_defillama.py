@@ -30,6 +30,7 @@ class CollectionTarget:
 
     name: str
     url: str
+    required: bool = True
 
 
 def utc_now_iso() -> str:
@@ -123,6 +124,7 @@ def build_chain_history_targets(config: JsonObject) -> list[CollectionTarget]:
             CollectionTarget(
                 chain_history_target_name(chain_name),
                 f"{base_urls['core']}/v2/historicalChainTvl/{encoded_chain}",
+                required=False,
             )
         )
     return targets
@@ -185,10 +187,20 @@ def collect_snapshots(config_path: Path, output_dir: Path) -> Path:
     manifest_entries = []
 
     for target in build_collection_targets(config):
-        payload = fetch_json(target.url)
         file_path = target_dir / f"{target.name}.json"
+        try:
+            payload = fetch_json(target.url)
+            status = "ok"
+        except RuntimeError as exc:
+            if target.required:
+                raise
+            print(f"Warning: partial data for {target.name}: {exc}", file=sys.stderr)
+            payload = {"partial": True, "error": str(exc), "url": target.url}
+            status = "partial"
         write_json(file_path, payload)
-        manifest_entries.append({"name": target.name, "url": target.url, "path": str(file_path)})
+        manifest_entries.append(
+            {"name": target.name, "url": target.url, "path": str(file_path), "status": status}
+        )
 
     manifest = {
         "schema_version": "1.0",

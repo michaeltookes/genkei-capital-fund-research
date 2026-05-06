@@ -207,7 +207,7 @@ def normalize_chains(
     if not isinstance(chains_payload, list):
         return []
     chain_priority = {name: index for index, name in enumerate(chain_focus)}
-    history_by_chain = normalize_chain_history_payloads(chain_history_payloads)
+    history_by_chain = normalize_chain_history_payloads(chain_history_payloads, chain_focus)
     records = []
     for chain in chains_payload:
         if not isinstance(chain, dict):
@@ -235,14 +235,26 @@ def normalize_chains(
     return sorted(records, key=lambda item: chain_priority.get(str(item["name"]), len(chain_priority)))
 
 
-def normalize_chain_history_payloads(payloads: Mapping[str, Any]) -> dict[str, list[tuple[datetime, float]]]:
+def normalize_chain_history_payloads(
+    payloads: Mapping[str, Any],
+    chain_focus: list[str],
+) -> dict[str, list[tuple[datetime, float]]]:
     """Normalize captured chain TVL history payloads by chain name."""
+    chain_names_by_stem = {chain_history_stem(chain_name): chain_name for chain_name in chain_focus}
     histories = {}
     for safe_chain_name, payload in payloads.items():
+        chain_name = chain_names_by_stem.get(safe_chain_name)
+        if chain_name is None:
+            continue
         records = parse_chain_history(payload)
         if records:
-            histories[restore_chain_name(safe_chain_name)] = records
+            histories[chain_name] = records
     return histories
+
+
+def chain_history_stem(chain_name: str) -> str:
+    """Return the collector filename stem suffix for a chain TVL history."""
+    return "".join(character if character.isalnum() else "_" for character in chain_name.lower())
 
 
 def parse_chain_history(payload: Any) -> list[tuple[datetime, float]]:
@@ -309,11 +321,6 @@ def first_float(*values: Any) -> float | None:
         if converted is not None:
             return converted
     return None
-
-
-def restore_chain_name(safe_chain_name: str) -> str:
-    """Restore a chain display name from the collector filename stem."""
-    return " ".join(part.capitalize() for part in safe_chain_name.split("_") if part)
 
 
 def normalize_protocols(protocols_payload: Any, assets: list[TargetAsset]) -> list[JsonObject]:
@@ -484,12 +491,12 @@ def classify_trend(change_1d: Any, change_7d: Any, change_1m: Any) -> str:
     month = as_float(change_1m)
     if seven_day is None or month is None:
         return "unknown"
+    if one_day is not None and one_day <= FLOW_STRESS_THRESHOLD and seven_day < 0:
+        return "acute outflow pressure"
     if seven_day >= 0 and month < 0:
         return "reversal attempt"
     if seven_day < 0 and month >= 0:
         return "short-term deterioration"
-    if one_day is not None and one_day <= FLOW_STRESS_THRESHOLD and seven_day < 0:
-        return "acute outflow pressure"
     if seven_day > 0 and month > 0:
         return "confirmed uptrend"
     if seven_day < 0 and month < 0:
@@ -570,6 +577,17 @@ def validate_list_of_strings(value: Any, field_name: str) -> list[str]:
     return strings
 
 
+def build_priority_order(assets: list[TargetAsset]) -> list[str]:
+    """Build configured asset priority labels for normalized scope metadata."""
+    symbols_by_priority: dict[int, list[str]] = {}
+    for asset in assets:
+        symbols_by_priority.setdefault(asset.priority, []).append(asset.symbol)
+    return [
+        f"{priority} {' + '.join(symbols_by_priority[priority])}"
+        for priority in sorted(symbols_by_priority)
+    ]
+
+
 def normalize_snapshot(config_path: Path, raw_dir: Path, output_dir: Path) -> Path:
     """Normalize the latest raw snapshot into a daily JSON artifact."""
     config = load_json(config_path)
@@ -590,6 +608,10 @@ def normalize_snapshot(config_path: Path, raw_dir: Path, output_dir: Path) -> Pa
     except TypeError as exc:
         raise SystemExit(f"Invalid config: {exc}") from exc
     snapshot_date = parse_manifest_date(raw_snapshot["manifest"])
+    bitcoin_ecosystem, bitcoin_excluded_exposure = split_bitcoin_ecosystem_protocols(
+        raw_snapshot["protocols"],
+        bitcoin_labels,
+    )
 
     normalized = {
         "schema_version": "1.0",
@@ -598,7 +620,7 @@ def normalize_snapshot(config_path: Path, raw_dir: Path, output_dir: Path) -> Pa
         "raw_snapshot": str(snapshot_dir),
         "scope": {
             "target_assets": [asset.symbol for asset in sorted(assets, key=lambda asset: asset.priority)],
-            "priority_order": ["1 BTC", "2 ETH + SOL", "3 LINK", "4 SUI"],
+            "priority_order": build_priority_order(assets),
             "non_target_assets_policy": "ignored unless used as ecosystem context",
         },
         "asset_prices": normalize_prices(raw_snapshot["prices_current"], assets),
@@ -609,11 +631,8 @@ def normalize_snapshot(config_path: Path, raw_dir: Path, output_dir: Path) -> Pa
         ),
         "stablecoin_flows": normalize_stablecoins(raw_snapshot["stablecoins"], chain_focus),
         "protocol_exposure": normalize_protocols(raw_snapshot["protocols"], assets),
-        "bitcoin_ecosystem": normalize_bitcoin_ecosystem(raw_snapshot["protocols"], bitcoin_labels),
-        "bitcoin_excluded_exposure": normalize_excluded_bitcoin_exposure(
-            raw_snapshot["protocols"],
-            bitcoin_labels,
-        ),
+        "bitcoin_ecosystem": bitcoin_ecosystem,
+        "bitcoin_excluded_exposure": bitcoin_excluded_exposure,
     }
     normalized["data_quality"] = build_data_quality(normalized["stablecoin_flows"], chain_focus)
     output_path = output_dir / f"daily-{snapshot_date}.json"

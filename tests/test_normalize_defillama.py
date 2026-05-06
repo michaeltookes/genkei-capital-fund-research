@@ -10,6 +10,7 @@ from tempfile import TemporaryDirectory
 from scripts.normalize_defillama import (
     TargetAsset,
     build_data_quality,
+    build_priority_order,
     classify_money_flow,
     classify_momentum,
     classify_trend,
@@ -104,6 +105,7 @@ class NormalizeDefillamaTests(unittest.TestCase):
     def test_classify_trend_compares_short_and_monthly_direction(self) -> None:
         self.assertEqual("reversal attempt", classify_trend(1.0, 2.0, -5.0))
         self.assertEqual("short-term deterioration", classify_trend(-1.0, -2.0, 5.0))
+        self.assertEqual("acute outflow pressure", classify_trend(-6.0, -2.0, 5.0))
         self.assertEqual("acute outflow pressure", classify_trend(-6.0, -2.0, -5.0))
         self.assertEqual("confirmed uptrend", classify_trend(1.0, 2.0, 5.0))
         self.assertEqual("unknown", classify_trend(1.0, None, 5.0))
@@ -125,8 +127,6 @@ class NormalizeDefillamaTests(unittest.TestCase):
         self.assertEqual(1, len(records))
         self.assertEqual("Stacks DEX", records[0]["name"])
         self.assertEqual("Bitcoin ecosystem", records[0]["bucket"])
-
-
 
     def test_normalize_protocols_excludes_cex_custody_from_target_exposure(self) -> None:
         assets = [
@@ -217,6 +217,37 @@ class NormalizeDefillamaTests(unittest.TestCase):
         self.assertEqual(["Bitcoin", "Ethereum"], [record["name"] for record in records])
         self.assertEqual(10.0, records[0]["change_1d_pct"])
         self.assertEqual("confirmed uptrend", records[0]["trend_label"])
+
+    def test_normalize_chains_preserves_exact_chain_names_for_history_join(self) -> None:
+        chains = [
+            {"name": "Rootstock RSK", "tvl": 110},
+            {"name": "BOB", "tvl": 220},
+            {"name": "RSK", "tvl": 330},
+        ]
+        day_seconds = 86_400
+        history = [
+            {"date": 29 * day_seconds, "tvl": 100},
+            {"date": 30 * day_seconds, "tvl": 110},
+        ]
+        histories = {
+            "rootstock_rsk": history,
+            "bob": history,
+            "rsk": history,
+        }
+
+        records = normalize_chains(chains, histories, ["Rootstock RSK", "BOB", "RSK"])
+
+        self.assertEqual(["Rootstock RSK", "BOB", "RSK"], [record["name"] for record in records])
+        self.assertEqual([10.0, 10.0, 10.0], [record["change_1d_pct"] for record in records])
+
+    def test_build_priority_order_uses_configured_asset_priorities(self) -> None:
+        assets = [
+            TargetAsset("SOL", 2, "Solana", "solana", ("Solana",), "Solana ecosystem"),
+            TargetAsset("BTC", 1, "Bitcoin", "bitcoin", ("Bitcoin",), "Bitcoin ecosystem"),
+            TargetAsset("ETH", 2, "Ethereum", "ethereum", ("Ethereum",), "Ethereum ecosystem"),
+        ]
+
+        self.assertEqual(["1 BTC", "2 SOL + ETH"], build_priority_order(assets))
 
     def test_normalize_stablecoins_sums_focused_chain_balances(self) -> None:
         payload = {

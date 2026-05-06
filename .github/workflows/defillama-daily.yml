@@ -45,5 +45,6 @@ jobs:
           path: |
             reports/daily/defillama-daily-*.md
             data/normalized/defillama/daily-*.json
+            data/raw/defillama/*/manifest.json
           if-no-files-found: error
           retention-days: 30

@@ -12,7 +12,7 @@ Use this checklist before treating a generated brief as decision support. The br
 2. **Data freshness and completeness**
    - `Generated` timestamp and snapshot date are current for the intended daily review.
    - Chain TVL table has focused-chain records for Bitcoin, Ethereum, Solana, and Sui where DeFiLlama exposes them.
-   - Money-flow section states stablecoin chain-data status as `available`, `partial`, or `unavailable`.
+   - Money-flow section states stablecoin chain-data status as `available`, `partial`, `unavailable`, or `unknown` when normalized metadata is absent.
    - If stablecoin data is partial/unavailable, DCA and money-flow language stays caveated.
 
 3. **Bitcoin ecosystem signal quality**

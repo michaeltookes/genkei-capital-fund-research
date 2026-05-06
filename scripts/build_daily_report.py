@@ -281,6 +281,7 @@ def build_excluded_bitcoin_section(data: JsonObject) -> list[str]:
     lines.extend(build_protocol_lines(excluded, TOP_EXCLUDED_BITCOIN_LIMIT))
     return lines
 
+
 def focused_assets_text(data: JsonObject) -> str:
     """Return a display string for the report's focused target assets."""
     scope = data.get("scope", {})

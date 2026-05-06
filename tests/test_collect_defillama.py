@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
+import json
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
-from scripts.collect_defillama import build_collection_targets, build_run_id, fetch_json
+from scripts.collect_defillama import build_collection_targets, build_run_id, collect_snapshots, fetch_json
 
 
 class CollectDefillamaTests(unittest.TestCase):
@@ -62,6 +68,40 @@ class CollectDefillamaTests(unittest.TestCase):
 
         self.assertNotEqual(first, second)
         self.assertIn(".123456", first)
+
+    def test_collect_snapshots_records_partial_chain_history_failure(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config_path = root / "config.json"
+            output_dir = root / "raw"
+            config = {
+                "defillama_base_urls": {
+                    "core": "https://api.llama.fi",
+                    "coins": "https://coins.llama.fi",
+                },
+                "target_assets": [{"coingecko_id": "bitcoin"}],
+                "chain_focus": ["Rootstock RSK"],
+                "collection_endpoints": [],
+            }
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+
+            def fake_fetch(url: str) -> object:
+                if "historicalChainTvl" in url:
+                    raise RuntimeError("HTTP 404 while fetching history")
+                return {"ok": True}
+
+            with (
+                patch("scripts.collect_defillama.fetch_json", side_effect=fake_fetch),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                manifest_path = collect_snapshots(config_path, output_dir)
+
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            entries = {entry["name"]: entry for entry in manifest["entries"]}
+            history_entry = entries["chain_tvl_history_rootstock_rsk"]
+            self.assertEqual("partial", history_entry["status"])
+            placeholder = json.loads(Path(history_entry["path"]).read_text(encoding="utf-8"))
+            self.assertTrue(placeholder["partial"])
 
     def test_fetch_json_rejects_unsupported_url_scheme(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "Unsupported URL scheme"):
