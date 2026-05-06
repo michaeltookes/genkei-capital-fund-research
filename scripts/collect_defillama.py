@@ -30,6 +30,7 @@ class CollectionTarget:
 
     name: str
     url: str
+    required: bool = True
 
 
 def utc_now_iso() -> str:
@@ -85,7 +86,12 @@ def build_collection_targets(config: JsonObject) -> list[CollectionTarget]:
         raise SystemExit("collection_endpoints must be a list.")
 
     targets = [build_price_target(config)]
-    seen_names = {targets[0].name}
+    targets.extend(build_chain_history_targets(config))
+    seen_names = set()
+    for target in targets:
+        if target.name in seen_names:
+            raise SystemExit(f"Duplicate collection endpoint name: {target.name}")
+        seen_names.add(target.name)
     for endpoint in endpoints:
         if not isinstance(endpoint, dict):
             raise SystemExit("Each collection endpoint must be an object.")
@@ -99,6 +105,35 @@ def build_collection_targets(config: JsonObject) -> list[CollectionTarget]:
         seen_names.add(name)
         targets.append(CollectionTarget(name, f"{base_urls[base_key]}{path}"))
     return targets
+
+
+def build_chain_history_targets(config: JsonObject) -> list[CollectionTarget]:
+    """Build historical TVL URLs for configured focus chains."""
+    base_urls = read_base_urls(config)
+    if "core" not in base_urls:
+        raise SystemExit("defillama_base_urls.core is missing")
+    chain_focus = config.get("chain_focus", [])
+    if not isinstance(chain_focus, list):
+        raise SystemExit("chain_focus must be a list.")
+    targets = []
+    for chain_name in chain_focus:
+        if not isinstance(chain_name, str) or not chain_name:
+            raise SystemExit("chain_focus must contain only non-empty strings.")
+        encoded_chain = quote(chain_name, safe="")
+        targets.append(
+            CollectionTarget(
+                chain_history_target_name(chain_name),
+                f"{base_urls['core']}/v2/historicalChainTvl/{encoded_chain}",
+                required=False,
+            )
+        )
+    return targets
+
+
+def chain_history_target_name(chain_name: str) -> str:
+    """Return a stable raw snapshot filename stem for a chain TVL history."""
+    safe_name = "".join(character if character.isalnum() else "_" for character in chain_name.lower())
+    return f"chain_tvl_history_{safe_name}"
 
 
 def read_base_urls(config: JsonObject) -> dict[str, str]:
@@ -152,10 +187,20 @@ def collect_snapshots(config_path: Path, output_dir: Path) -> Path:
     manifest_entries = []
 
     for target in build_collection_targets(config):
-        payload = fetch_json(target.url)
         file_path = target_dir / f"{target.name}.json"
+        try:
+            payload = fetch_json(target.url)
+            status = "ok"
+        except RuntimeError as exc:
+            if target.required:
+                raise
+            print(f"Warning: partial data for {target.name}: {exc}", file=sys.stderr)
+            payload = {"partial": True, "error": str(exc), "url": target.url}
+            status = "partial"
         write_json(file_path, payload)
-        manifest_entries.append({"name": target.name, "url": target.url, "path": str(file_path)})
+        manifest_entries.append(
+            {"name": target.name, "url": target.url, "path": str(file_path), "status": status}
+        )
 
     manifest = {
         "schema_version": "1.0",

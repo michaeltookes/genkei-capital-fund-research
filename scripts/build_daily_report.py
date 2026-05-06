@@ -14,6 +14,7 @@ DEFAULT_NORMALIZED_DIR = Path("data/normalized/defillama")
 DEFAULT_OUTPUT_DIR = Path("reports/daily")
 TOP_PROTOCOL_LIMIT = 8
 TOP_BITCOIN_ECOSYSTEM_LIMIT = 10
+TOP_EXCLUDED_BITCOIN_LIMIT = 5
 
 JsonObject = dict[str, Any]
 
@@ -88,6 +89,14 @@ def format_pct(value: Any) -> str:
     return f"{number:+.2f}%"
 
 
+def format_share_pct(value: Any) -> str:
+    """Format a share percentage without a directional sign."""
+    number = as_float(value)
+    if number is None:
+        return "n/a"
+    return f"{number:.2f}%"
+
+
 def as_float(value: Any) -> float | None:
     """Convert a JSON value to float if it is numeric."""
     if isinstance(value, bool) or value is None:
@@ -115,18 +124,19 @@ def build_asset_table(data: JsonObject) -> list[str]:
 def build_chain_table(data: JsonObject) -> list[str]:
     """Build the chain TVL and momentum table lines."""
     lines = [
-        "| Chain | TVL | 1D | 7D | 1M | Momentum | Zombie risk |",
-        "| --- | ---: | ---: | ---: | ---: | --- | --- |",
+        "| Chain | TVL | 1D | 7D | 1M | Momentum | Trend | Zombie risk |",
+        "| --- | ---: | ---: | ---: | ---: | --- | --- | --- |",
     ]
     for chain in data.get("chain_tvl", []):
         lines.append(
-            "| {name} | {tvl} | {one_day} | {seven_day} | {month} | {momentum} | {risk} |".format(
+            "| {name} | {tvl} | {one_day} | {seven_day} | {month} | {momentum} | {trend} | {risk} |".format(
                 name=chain.get("name", "n/a"),
                 tvl=format_usd(chain.get("tvl_usd")),
                 one_day=format_pct(chain.get("change_1d_pct")),
                 seven_day=format_pct(chain.get("change_7d_pct")),
                 month=format_pct(chain.get("change_1m_pct")),
                 momentum=chain.get("momentum_label", "unknown"),
+                trend=chain.get("trend_label", "unknown"),
                 risk=chain.get("zombie_risk", "unknown"),
             )
         )
@@ -134,14 +144,32 @@ def build_chain_table(data: JsonObject) -> list[str]:
 
 
 def build_stablecoin_section(data: JsonObject) -> list[str]:
-    """Build stablecoin money-flow context lines."""
+    """Build stablecoin money-flow context lines with quality guardrails."""
     flows = data.get("stablecoin_flows", [])
+    quality = data.get("data_quality", {})
+    status = (
+        quality.get("stablecoin_chain_data", "unknown")
+        if isinstance(quality, dict)
+        else "unknown"
+    )
+    lines = [f"- Stablecoin chain data status: **{status}**."]
     if not flows:
-        return ["- Stablecoin chain data unavailable in this snapshot."]
-    return [
-        f"- {flow.get('chain', 'n/a')}: {format_usd(flow.get('stablecoin_supply_usd'))} stablecoin supply"
-        for flow in flows
-    ]
+        lines.append("- Stablecoin chain data unavailable in this snapshot; do not infer money-flow direction.")
+        return lines
+    for flow in flows:
+        lines.append(
+            "- {chain}: {supply} stablecoin supply ({share} of focused-chain supply); {label}.".format(
+                chain=flow.get("chain", "n/a"),
+                supply=format_usd(flow.get("stablecoin_supply_usd")),
+                share=format_share_pct(flow.get("focus_supply_share_pct")),
+                label=flow.get("money_flow_label", "flow label unavailable"),
+            )
+        )
+    missing = quality.get("missing_stablecoin_chains", []) if isinstance(quality, dict) else []
+    if missing:
+        missing_chains = ", ".join(str(chain) for chain in missing)
+        lines.append(f"- Missing focused-chain stablecoin coverage: {missing_chains}.")
+    return lines
 
 
 def build_risk_section(data: JsonObject) -> list[str]:
@@ -187,19 +215,79 @@ def build_protocol_lines(protocols: list[JsonObject], limit: int) -> list[str]:
 
 
 def build_dca_timing_notes(data: JsonObject) -> list[str]:
-    """Build DCA timing support notes from TVL momentum signals."""
-    expanding = [chain for chain in data.get("chain_tvl", []) if chain.get("momentum_label") == "expanding"]
-    losing = [chain for chain in data.get("chain_tvl", []) if chain.get("momentum_label") == "momentum loss"]
-    notes = []
-    if expanding:
+    """Build DCA timing support notes from TVL momentum and data completeness."""
+    expanding = [
+        chain for chain in data.get("chain_tvl", []) if chain.get("momentum_label") == "expanding"
+    ]
+    losing = [
+        chain for chain in data.get("chain_tvl", []) if chain.get("momentum_label") == "momentum loss"
+    ]
+    acute = [
+        chain
+        for chain in data.get("chain_tvl", [])
+        if chain.get("trend_label") == "acute outflow pressure"
+    ]
+    stablecoin_status = stablecoin_quality_status(data)
+    label = classify_dca_signal(expanding, losing, acute, stablecoin_status)
+    notes = [f"- Signal label: **{label}**."]
+    if expanding and label == "constructive":
         names = ", ".join(chain.get("name", "n/a") for chain in expanding)
-        notes.append(f"- Favor patient accumulation bias where price weakness conflicts with expanding TVL: {names}.")
-    if losing:
+        notes.append(
+            f"- Constructive: TVL momentum is expanding for {names}; "
+            "use as context, not an auto-buy rule."
+        )
+    if losing and label == "caution":
         names = ", ".join(chain.get("name", "n/a") for chain in losing)
-        notes.append(f"- Avoid increasing allocation into TVL drawdowns until momentum stabilizes: {names}.")
-    if not notes:
-        notes.append("- DCA bias is neutral from TVL alone; wait for clearer flow divergence.")
+        notes.append(
+            "- Caution: TVL momentum loss argues against increasing allocation "
+            f"without confirmation: {names}."
+        )
+    if acute and label == "caution":
+        names = ", ".join(chain.get("name", "n/a") for chain in acute)
+        notes.append(f"- Wait-for-confirmation: acute outflow pressure is present on {names}.")
+    if stablecoin_status != "available":
+        notes.append("- Data caveat: stablecoin coverage is incomplete, so money-flow conviction is capped.")
+    if len(notes) == 1:
+        notes.append("- Neutral: TVL alone does not show a decisive DCA timing edge today.")
+    notes.append("- Research signal only; this is not financial advice or a trade recommendation.")
     return notes
+
+
+def stablecoin_quality_status(data: JsonObject) -> str:
+    """Return stablecoin data quality status from normalized metadata."""
+    quality = data.get("data_quality", {})
+    if isinstance(quality, dict):
+        status = quality.get("stablecoin_chain_data")
+        if isinstance(status, str) and status:
+            return status
+    return "unknown"
+
+
+def classify_dca_signal(
+    expanding: list[JsonObject],
+    losing: list[JsonObject],
+    acute: list[JsonObject],
+    stablecoin_status: str,
+) -> str:
+    """Classify DCA context without turning it into financial advice."""
+    if acute or losing:
+        return "caution"
+    if expanding and stablecoin_status == "available":
+        return "constructive"
+    return "neutral"
+
+
+def build_excluded_bitcoin_section(data: JsonObject) -> list[str]:
+    """Build caveated Bitcoin exposure lines excluded from ecosystem signal."""
+    excluded = data.get("bitcoin_excluded_exposure", [])
+    if not excluded:
+        return ["- No generic Bitcoin CEX/custody exposure was separated in this snapshot."]
+    lines = [
+        "- These records are separated from Bitcoin ecosystem signal because CEX/custody "
+        "TVL can reflect custody or venue activity, not Bitcoin-native DeFi demand."
+    ]
+    lines.extend(build_protocol_lines(excluded, TOP_EXCLUDED_BITCOIN_LIMIT))
+    return lines
 
 
 def focused_assets_text(data: JsonObject) -> str:
@@ -258,8 +346,13 @@ def build_report(data: JsonObject) -> str:
         "",
         *build_protocol_lines(data.get("bitcoin_ecosystem", []), TOP_BITCOIN_ECOSYSTEM_LIMIT),
         "",
+        "## Bitcoin CEX/custody exposure excluded from ecosystem signal",
+        "",
+        *build_excluded_bitcoin_section(data),
+        "",
         "## Caveats",
         "",
+        "- This is research signal only, not financial advice.",
         "- DeFiLlama TVL and stablecoin data are useful flow proxies, not complete order-flow data.",
         "- Price action, liquidity depth, unlocks, and macro catalysts require separate validation.",
         "- This scaffold does not use social sentiment inputs by design.",

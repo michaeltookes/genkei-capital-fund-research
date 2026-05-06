@@ -9,12 +9,20 @@ from tempfile import TemporaryDirectory
 
 from scripts.normalize_defillama import (
     TargetAsset,
+    build_data_quality,
+    build_priority_order,
+    classify_money_flow,
     classify_momentum,
+    classify_trend,
     classify_zombie_risk,
     latest_snapshot_dir,
     normalize_bitcoin_ecosystem,
+    normalize_chains,
+    normalize_excluded_bitcoin_exposure,
     normalize_prices,
+    normalize_protocols,
     normalize_snapshot,
+    parse_history_timestamp,
     parse_target_assets,
     normalize_stablecoins,
     validate_list_of_strings,
@@ -27,7 +35,16 @@ class NormalizeDefillamaTests(unittest.TestCase):
     def test_normalize_prices_keeps_only_configured_assets(self) -> None:
         assets = [
             TargetAsset(
+                symbol="ETH",
+                priority=2,
+                name="Ethereum",
+                coingecko_id="ethereum",
+                primary_chain_labels=("Ethereum",),
+                ecosystem="Ethereum ecosystem",
+            ),
+            TargetAsset(
                 symbol="BTC",
+                priority=1,
                 name="Bitcoin",
                 coingecko_id="bitcoin",
                 primary_chain_labels=("Bitcoin",),
@@ -37,20 +54,23 @@ class NormalizeDefillamaTests(unittest.TestCase):
         payload = {
             "coins": {
                 "coingecko:bitcoin": {"price": 64000, "timestamp": 123},
+                "coingecko:ethereum": {"price": 3000, "timestamp": 123},
                 "coingecko:dogecoin": {"price": 0.15, "timestamp": 123},
             }
         }
 
         records = normalize_prices(payload, assets)
 
-        self.assertEqual(1, len(records))
+        self.assertEqual(2, len(records))
         self.assertEqual("BTC", records[0]["symbol"])
         self.assertEqual(64000.0, records[0]["price_usd"])
+        self.assertEqual("ETH", records[1]["symbol"])
 
     def test_parse_target_assets_rejects_non_string_primary_chain_labels(self) -> None:
         config = {
             "target_assets": [
                 {
+                    "priority": 1,
                     "symbol": "BTC",
                     "name": "Bitcoin",
                     "coingecko_id": "bitcoin",
@@ -61,6 +81,41 @@ class NormalizeDefillamaTests(unittest.TestCase):
         }
 
         with self.assertRaisesRegex(SystemExit, "primary_chain_labels for target asset BTC"):
+            parse_target_assets(config)
+
+    def test_parse_target_assets_reads_priority_order(self) -> None:
+        config = {
+            "target_assets": [
+                {
+                    "priority": 4,
+                    "symbol": "SUI",
+                    "name": "Sui",
+                    "coingecko_id": "sui",
+                    "primary_chain_labels": ["Sui"],
+                    "ecosystem": "Sui ecosystem",
+                }
+            ]
+        }
+
+        assets = parse_target_assets(config)
+
+        self.assertEqual(4, assets[0].priority)
+
+    def test_parse_target_assets_rejects_non_integral_priority(self) -> None:
+        config = {
+            "target_assets": [
+                {
+                    "priority": 1.5,
+                    "symbol": "BTC",
+                    "name": "Bitcoin",
+                    "coingecko_id": "bitcoin",
+                    "primary_chain_labels": ["Bitcoin"],
+                    "ecosystem": "Bitcoin ecosystem",
+                }
+            ]
+        }
+
+        with self.assertRaisesRegex(SystemExit, "Asset priority must be a positive integer"):
             parse_target_assets(config)
 
     def test_classify_momentum_flags_loss_threshold(self) -> None:
@@ -75,6 +130,20 @@ class NormalizeDefillamaTests(unittest.TestCase):
         self.assertEqual("normal", classify_zombie_risk(100_000_000, 1.0))
         self.assertEqual("unknown", classify_zombie_risk(None, 1.0))
 
+    def test_classify_trend_compares_short_and_monthly_direction(self) -> None:
+        self.assertEqual("reversal attempt", classify_trend(1.0, 2.0, -5.0))
+        self.assertEqual("short-term deterioration", classify_trend(-1.0, -2.0, 5.0))
+        self.assertEqual("acute outflow pressure", classify_trend(-6.0, -2.0, 5.0))
+        self.assertEqual("acute outflow pressure", classify_trend(-6.0, -2.0, -5.0))
+        self.assertEqual("confirmed uptrend", classify_trend(1.0, 2.0, 5.0))
+        self.assertEqual("unknown", classify_trend(1.0, None, 5.0))
+
+    def test_classify_money_flow_labels_supply_depth(self) -> None:
+        self.assertEqual("deep stablecoin liquidity", classify_money_flow(1_000_000_000))
+        self.assertEqual("usable stablecoin liquidity", classify_money_flow(100_000_000))
+        self.assertEqual("thin stablecoin liquidity", classify_money_flow(99_999_999))
+        self.assertEqual("unavailable", classify_money_flow(None))
+
     def test_normalize_bitcoin_ecosystem_labels_matching_protocols(self) -> None:
         protocols = [
             {"name": "Stacks DEX", "chains": ["Stacks"], "tvl": 1_000_000, "change_7d": 3},
@@ -87,6 +156,186 @@ class NormalizeDefillamaTests(unittest.TestCase):
         self.assertEqual("Stacks DEX", records[0]["name"])
         self.assertEqual("Bitcoin ecosystem", records[0]["bucket"])
 
+    def test_normalize_protocols_excludes_cex_custody_from_target_exposure(self) -> None:
+        assets = [
+            TargetAsset(
+                symbol="BTC",
+                priority=1,
+                name="Bitcoin",
+                coingecko_id="bitcoin",
+                primary_chain_labels=("Bitcoin",),
+                ecosystem="Bitcoin ecosystem",
+            )
+        ]
+        protocols = [
+            {"name": "Binance CEX", "category": "CEX", "chains": ["Bitcoin"], "tvl": 10_000},
+            {"name": "Bitcoin Lending", "category": "Lending", "chains": ["Bitcoin"], "tvl": 5_000},
+        ]
+
+        records = normalize_protocols(protocols, assets)
+
+        self.assertEqual(["Bitcoin Lending"], [record["name"] for record in records])
+
+    def test_normalize_protocols_keeps_non_bitcoin_name_keyword_matches(self) -> None:
+        assets = [
+            TargetAsset(
+                symbol="ETH",
+                priority=2,
+                name="Ethereum",
+                coingecko_id="ethereum",
+                primary_chain_labels=("Ethereum",),
+                ecosystem="Ethereum ecosystem",
+            )
+        ]
+        protocols = [
+            {"name": "Wrapped Yield", "category": "Dexes", "chains": ["Ethereum"], "tvl": 10_000},
+        ]
+
+        records = normalize_protocols(protocols, assets)
+
+        self.assertEqual(["Wrapped Yield"], [record["name"] for record in records])
+
+    def test_normalize_bitcoin_ecosystem_excludes_generic_cex_exposure(self) -> None:
+        protocols = [
+            {
+                "name": "Binance BTC",
+                "category": "CEX",
+                "chains": ["Bitcoin"],
+                "tvl": 5_000_000_000,
+            },
+            {
+                "name": "Stacks DEX",
+                "category": "Dexes",
+                "chains": ["Stacks"],
+                "tvl": 1_000_000,
+            },
+            {
+                "name": "Gate",
+                "category": "CEX",
+                "chains": ["Stacks"],
+                "tvl": 2_000_000,
+            },
+            {
+                "name": "Bitcoin Native Lending",
+                "category": "Lending",
+                "chains": ["Bitcoin"],
+                "tvl": 2_000_000,
+            },
+            {
+                "name": "Wrapped Stacks App",
+                "category": "Dexes",
+                "chains": ["Stacks"],
+                "tvl": 3_000_000,
+            },
+            {
+                "name": "WBTC Vault",
+                "category": "Yield",
+                "chains": ["Bitcoin"],
+                "tvl": 4_000_000,
+            },
+        ]
+
+        ecosystem = normalize_bitcoin_ecosystem(protocols, {"Bitcoin", "Stacks"})
+        excluded = normalize_excluded_bitcoin_exposure(protocols, {"Bitcoin", "Stacks"})
+
+        self.assertEqual(
+            ["Wrapped Stacks App", "Bitcoin Native Lending", "Stacks DEX"],
+            [record["name"] for record in ecosystem],
+        )
+        self.assertEqual(["Binance BTC", "WBTC Vault", "Gate"], [record["name"] for record in excluded])
+        self.assertIn("not Bitcoin DeFi ecosystem", excluded[0]["exclusion_reason"])
+
+    def test_generic_bitcoin_name_keywords_exclude_only_generic_bitcoin_records(self) -> None:
+        protocols = [
+            {
+                "name": "WBTC Vault",
+                "category": "Yield",
+                "chains": ["Bitcoin"],
+                "tvl": 4_000_000,
+            },
+            {
+                "name": "Wrapped Stacks App",
+                "category": "Dexes",
+                "chains": ["Stacks"],
+                "tvl": 3_000_000,
+            },
+        ]
+
+        ecosystem = normalize_bitcoin_ecosystem(protocols, {"Bitcoin", "Stacks"})
+        excluded = normalize_excluded_bitcoin_exposure(protocols, {"Bitcoin", "Stacks"})
+
+        self.assertEqual(["Wrapped Stacks App"], [record["name"] for record in ecosystem])
+        self.assertEqual(["WBTC Vault"], [record["name"] for record in excluded])
+
+    def test_build_data_quality_flags_partial_stablecoin_coverage(self) -> None:
+        quality = build_data_quality([{"chain": "Ethereum"}], ["Bitcoin", "Ethereum"])
+
+        self.assertEqual("partial", quality["stablecoin_chain_data"])
+        self.assertEqual(["Bitcoin"], quality["missing_stablecoin_chains"])
+        self.assertTrue(quality["completeness_notes"])
+
+    def test_normalize_chains_calculates_historical_changes_in_focus_order(self) -> None:
+        chains = [
+            {"name": "Ethereum", "tvl": 110},
+            {"name": "Bitcoin", "tvl": 220},
+            {"name": "Dogecoin", "tvl": 999},
+        ]
+        day_seconds = 86_400
+        histories = {
+            "ethereum": [
+                {"date": 0, "tvl": 100},
+                {"date": 23 * day_seconds, "tvl": 100},
+                {"date": 29 * day_seconds, "tvl": 100},
+                {"date": 30 * day_seconds, "tvl": 110},
+            ],
+            "bitcoin": [
+                {"date": 0, "tvl": 200},
+                {"date": 23 * day_seconds, "tvl": 200},
+                {"date": 29 * day_seconds, "tvl": 200},
+                {"date": 30 * day_seconds, "tvl": 220},
+            ],
+        }
+
+        records = normalize_chains(chains, histories, ["Bitcoin", "Ethereum"])
+
+        self.assertEqual(["Bitcoin", "Ethereum"], [record["name"] for record in records])
+        self.assertEqual(10.0, records[0]["change_1d_pct"])
+        self.assertEqual("confirmed uptrend", records[0]["trend_label"])
+
+    def test_normalize_chains_preserves_exact_chain_names_for_history_join(self) -> None:
+        chains = [
+            {"name": "Rootstock RSK", "tvl": 110},
+            {"name": "BOB", "tvl": 220},
+            {"name": "RSK", "tvl": 330},
+        ]
+        day_seconds = 86_400
+        history = [
+            {"date": 29 * day_seconds, "tvl": 100},
+            {"date": 30 * day_seconds, "tvl": 110},
+        ]
+        histories = {
+            "rootstock_rsk": history,
+            "bob": history,
+            "rsk": history,
+        }
+
+        records = normalize_chains(chains, histories, ["Rootstock RSK", "BOB", "RSK"])
+
+        self.assertEqual(["Rootstock RSK", "BOB", "RSK"], [record["name"] for record in records])
+        self.assertEqual([10.0, 10.0, 10.0], [record["change_1d_pct"] for record in records])
+
+    def test_parse_history_timestamp_skips_out_of_range_numeric_values(self) -> None:
+        self.assertIsNone(parse_history_timestamp(10**1000))
+
+    def test_build_priority_order_uses_configured_asset_priorities(self) -> None:
+        assets = [
+            TargetAsset("SOL", 2, "Solana", "solana", ("Solana",), "Solana ecosystem"),
+            TargetAsset("BTC", 1, "Bitcoin", "bitcoin", ("Bitcoin",), "Bitcoin ecosystem"),
+            TargetAsset("ETH", 2, "Ethereum", "ethereum", ("Ethereum",), "Ethereum ecosystem"),
+        ]
+
+        self.assertEqual(["1 BTC", "2 SOL + ETH"], build_priority_order(assets))
+
     def test_normalize_stablecoins_sums_focused_chain_balances(self) -> None:
         payload = {
             "peggedAssets": [
@@ -95,13 +344,28 @@ class NormalizeDefillamaTests(unittest.TestCase):
             ]
         }
 
-        records = normalize_stablecoins(payload, {"Ethereum", "Solana", "Sui"})
+        records = normalize_stablecoins(payload, ["Ethereum", "Solana", "Sui"])
 
         self.assertEqual(
             [
-                {"chain": "Ethereum", "stablecoin_supply_usd": 125.0},
-                {"chain": "Solana", "stablecoin_supply_usd": 50.0},
-                {"chain": "Sui", "stablecoin_supply_usd": 10.0},
+                {
+                    "chain": "Ethereum",
+                    "stablecoin_supply_usd": 125.0,
+                    "focus_supply_share_pct": 67.57,
+                    "money_flow_label": "thin stablecoin liquidity",
+                },
+                {
+                    "chain": "Solana",
+                    "stablecoin_supply_usd": 50.0,
+                    "focus_supply_share_pct": 27.03,
+                    "money_flow_label": "thin stablecoin liquidity",
+                },
+                {
+                    "chain": "Sui",
+                    "stablecoin_supply_usd": 10.0,
+                    "focus_supply_share_pct": 5.41,
+                    "money_flow_label": "thin stablecoin liquidity",
+                },
             ],
             records,
         )
@@ -132,6 +396,7 @@ class NormalizeDefillamaTests(unittest.TestCase):
             config = {
                 "target_assets": [
                     {
+                        "priority": 1,
                         "symbol": "BTC",
                         "name": "Bitcoin",
                         "coingecko_id": "bitcoin",
@@ -170,6 +435,7 @@ class NormalizeDefillamaTests(unittest.TestCase):
             config = {
                 "target_assets": [
                     {
+                        "priority": 1,
                         "symbol": "BTC",
                         "name": "Bitcoin",
                         "coingecko_id": "bitcoin",
