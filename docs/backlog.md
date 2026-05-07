@@ -27,7 +27,7 @@ Daily briefs and reports are emergent UIs; **the data lake is the asset**.
 - CLI tool name — see B-037.
 - Watchlist contents (25 equities, 10–20 crypto, 10 DeFi, 20 macro series) — see B-015.
 - Postgres schema/migration tool/extensions — see B-007 / B-008 / B-009.
-- Repo layout (`src/{ingest,…}` vs flat `scripts/`) — see B-013.
+- ~~Repo layout~~ → resolved 2026-05-07 (`docs/repo-layout.md`); migration interleaved with Phase 1 (B-013).
 
 ## Open items
 
@@ -150,14 +150,15 @@ The data lake doesn't exist yet; this phase makes it possible to land a single r
   - Lock-file strategy chosen (uv lock, poetry.lock, requirements-lock.txt).
   - Local + CI install path documented.
 
-### B-013 — Decide repo layout (src/ vs scripts/)
+### B-013 — Migrate codebase to chosen `src/genkei/` layout
 - **Status:** open
-- **Priority:** medium
-- **Context:** The ChatGPT-recommended `src/{ingest,normalize,cli,experiments,reports}/` layout is cleaner than the current flat `scripts/` once multiple sources land.
+- **Priority:** low
+- **Context:** Layout decision resolved on 2026-05-07 — adopting `src/genkei/{common,ingest,normalize,cli,experiments,reports}/`. The remaining work is the migration itself, which is interleaved with Phase 1 (B-017+) when DeFiLlama is refactored onto Postgres. No standalone migration PR planned.
 - **Acceptance criteria:**
-  - Decision documented with rationale.
-  - If migrating: existing DeFiLlama scripts moved as part of Phase 1, tests updated.
-  - If staying flat: convention documented for naming new files.
+  - Existing DeFiLlama scripts moved to the target paths per `docs/repo-layout.md`.
+  - Tests moved to `tests/{ingest,normalize,reports}/` and still pass.
+  - `.github/workflows/defillama-daily.yml` invokes the CLI entry point instead of `python scripts/...`.
+- **Resolved by:** `docs/repo-layout.md` (2026-05-07) — decision portion. Migration tracked here.
 
 ### B-014 — Establish `.env.example` + secret-loading pattern
 - **Status:** open

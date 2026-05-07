@@ -92,7 +92,7 @@ Tracked as backlog items so they don't block forward motion:
 - **B-007** — Postgres extensions (TimescaleDB? `pg_partman`? plain).
 - **B-008** — Schema strategy (per-source schemas + `meta`).
 - **B-009** — Migration tool.
-- **B-013** — Repo layout (`src/{ingest,…}` vs flat `scripts/`).
+- ~~**B-013** — Repo layout~~ → resolved by `docs/repo-layout.md` (2026-05-07): `src/genkei/{common,ingest,normalize,cli,experiments,reports}/`. Migration lands in Phase 1.
 - **B-015** — Watchlists. Crypto cores known (BTC/ETH/SOL/LINK); equities + macro series TBD.
 - **B-037** — CLI name (working: `genkei`).
 
