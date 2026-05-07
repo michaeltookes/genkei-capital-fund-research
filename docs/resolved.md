@@ -7,7 +7,7 @@ Completed setup and implementation decisions for the Genkei Capital research pip
 ### R-001 — DeFiLlama-only MVP scaffold merged to main
 - **Resolved:** 2026-05-06
 - **Outcome:** The DeFiLlama branch was merged into `main`.
-- **Evidence:** `origin/main` includes `.github/workflows/defillama-daily.yml`, collection, normalization, reporting scripts, tests, and docs.
+- **Evidence:** GitHub `origin/main` includes `.github/workflows/defillama-daily.yml`, collection, normalization, reporting scripts, tests, and docs.
 
 ### R-002 — Local validation passed after merge
 - **Resolved:** 2026-05-06

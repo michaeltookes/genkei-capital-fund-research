@@ -19,7 +19,7 @@ Daily briefs and reports are emergent UIs; **the data lake is the asset**.
 - **Agent data access**: A custom CLI tool (working name `genkei`) with typed subcommands per data domain. Agent composes CLI invocations via Bash. Each subcommand supports `--json` for the agent and human-readable output by default.
 - **Backfill**: First-class. Each ingester ships a backfill mode pulling multi-year history (5–10 years where the source allows).
 - **Repo visibility**: Single repo, free/open sources only. Paid APIs deferred until a private-data story exists.
-- **Existing DefiLlama MVP**: Refactored into the new architecture in Phase 1, not preserved as-is.
+- **Existing DeFiLlama MVP**: Refactored into the new architecture in Phase 1, not preserved as-is.
 
 ### Decisions still open (tracked as backlog items)
 
@@ -156,7 +156,7 @@ The data lake doesn't exist yet; this phase makes it possible to land a single r
 - **Context:** The ChatGPT-recommended `src/{ingest,normalize,cli,experiments,reports}/` layout is cleaner than the current flat `scripts/` once multiple sources land.
 - **Acceptance criteria:**
   - Decision documented with rationale.
-  - If migrating: existing DefiLlama scripts moved as part of Phase 1, tests updated.
+  - If migrating: existing DeFiLlama scripts moved as part of Phase 1, tests updated.
   - If staying flat: convention documented for naming new files.
 
 ### B-014 — Establish `.env.example` + secret-loading pattern
@@ -178,11 +178,11 @@ The data lake doesn't exist yet; this phase makes it possible to land a single r
   - Each entry has rationale (1 line) for inclusion.
   - Owner: user.
 
-## Phase 1 — Refactor DefiLlama onto Postgres
+## Phase 1 — Refactor DeFiLlama onto Postgres
 
 Migrate the existing MVP into the new foundation; it becomes the canonical pattern for every future ingester.
 
-### B-016 — Design Postgres schema for DefiLlama
+### B-016 — Design Postgres schema for DeFiLlama
 - **Status:** open
 - **Priority:** high
 - **Context:** First real schema design — sets precedent for every future source.
@@ -209,10 +209,10 @@ Migrate the existing MVP into the new foundation; it becomes the canonical patte
   - Writes normalized rows into the per-source schema.
   - Idempotent — re-running the normalizer for the same snapshot produces identical rows.
 
-### B-019 — Add backfill mode for DefiLlama
+### B-019 — Add backfill mode for DeFiLlama
 - **Status:** open
 - **Priority:** high
-- **Context:** Backfill is first-class. DefiLlama exposes historical chain TVL, stablecoin supplies, and protocol history.
+- **Context:** Backfill is first-class. DeFiLlama exposes historical chain TVL, stablecoin supplies, and protocol history.
 - **Acceptance criteria:**
   - `--backfill --since YYYY-MM-DD` flag on the collector.
   - Resumable — re-running after partial failure picks up where it left off.
@@ -235,7 +235,7 @@ Migrate the existing MVP into the new foundation; it becomes the canonical patte
   - Normalized rows include `source_endpoint`, `fetched_at`, `change_7d_source: 'history'|'api'`.
   - CLI exposes provenance via `--show-source`.
 
-### B-022 — Add retry + backoff to the DefiLlama collector
+### B-022 — Add retry + backoff to the DeFiLlama collector
 - **Status:** open
 - **Priority:** medium
 - **Context:** Single transient HTTP error currently fails the entire snapshot.
@@ -282,7 +282,7 @@ Migrate the existing MVP into the new foundation; it becomes the canonical patte
 
 ## Phase 2 — Free-data ingesters with backfill
 
-One backlog item per source. Each follows the DefiLlama-refactored pattern: collect → land in Postgres → normalize → tests → backfill mode.
+One backlog item per source. Each follows the DeFiLlama-refactored pattern: collect → land in Postgres → normalize → tests → backfill mode.
 
 ### B-027 — SEC EDGAR ingester
 - **Status:** open
@@ -372,7 +372,7 @@ One backlog item per source. Each follows the DefiLlama-refactored pattern: coll
 - **Priority:** medium
 - **Context:** Each source gets its own doc explaining endpoints, schema mapping, freshness expectations, known quirks.
 - **Acceptance criteria:**
-  - `docs/sources/<name>.md` for every ingester (DefiLlama first as the template).
+  - `docs/sources/<name>.md` for every ingester (DeFiLlama first as the template).
   - Acceptance gates included (mirroring `docs/defillama-daily-review.md` pattern).
 
 ## Phase 3 — Custom CLI
@@ -417,7 +417,7 @@ The interface the agent (and human user) uses to query the lake.
 ### B-041 — Implement `genkei tvl` subcommand
 - **Status:** open
 - **Priority:** medium
-- **Context:** DefiLlama queries: by chain, by protocol, with rolling change windows.
+- **Context:** DeFiLlama queries: by chain, by protocol, with rolling change windows.
 - **Acceptance criteria:**
   - `genkei tvl --protocol Aave --window 7d`.
   - `genkei tvl --chain Ethereum --since 2023-01-01`.
@@ -570,7 +570,7 @@ First-class — the *point* of having the data lake.
 ### B-058 — Experiment: TVL drawdown early-warning model
 - **Status:** open
 - **Priority:** medium
-- **Context:** DefiLlama + prices — does TVL change predict price drawdowns?
+- **Context:** DeFiLlama + prices — does TVL change predict price drawdowns?
 - **Acceptance criteria:**
   - Logistic or simple ML baseline + a notebook.
   - Out-of-sample validation.
@@ -600,7 +600,7 @@ First-class — the *point* of having the data lake.
 ### B-062 — Experiment: crypto protocol revenue vs token price
 - **Status:** open
 - **Priority:** medium
-- **Context:** DefiLlama + CoinGecko — fundamental link between revenue and price.
+- **Context:** DeFiLlama + CoinGecko — fundamental link between revenue and price.
 - **Acceptance criteria:**
   - Notebook + per-protocol results.
 
