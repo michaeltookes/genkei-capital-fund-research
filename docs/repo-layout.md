@@ -6,7 +6,7 @@
 
 Adopt the **`src/` layout** with a single top-level package `genkei`:
 
-```
+```text
 src/
   genkei/
     __init__.py

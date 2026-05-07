@@ -39,7 +39,7 @@ Keep missions **scoped** — one decision or one feature per file. If a backlog 
 
 ### Manually (local Claude Code)
 
-```
+```text
 /run-missions
 ```
 
@@ -49,7 +49,7 @@ The agent reads `CLAUDE.md`, switches to a feature branch (e.g. `missions-YYYY-M
 
 Use the `/schedule` skill to fire `run-missions` on a cron. Example: nightly at 2 AM:
 
-```
+```text
 /schedule run-missions cron="0 2 * * *"
 ```
 
@@ -78,7 +78,7 @@ Promote a backlog item to a mission when (a) its acceptance criteria are concret
 A mission is Blocked when it can't complete without something only the user can supply (a decision, a secret, a server spec, etc.) or when an external dependency is broken. The agent:
 
 1. Leaves the file in `missions/pending/`.
-2. Adds a `## Blocked: <one-line reason>` section at the top, with details below.
+2. Adds a `## Blocked: <one-line reason>` section after `## Context` and before `## Acceptance criteria`, with details below.
 3. Commits the blocker note (subject: `Block mission: <title>`) and moves to the next mission.
 
 Resolve a blocker by editing the mission file (remove the Blocked section, fix what's needed) and re-running the queue. Never delete a blocked mission — fix it or close it explicitly.

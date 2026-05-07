@@ -19,10 +19,10 @@ Process the project's mission queue: `missions/pending/` → execute → `missio
 
 For each mission in order, until pending is empty:
 
-1. **Read** the full mission file. Parse the title, context, checklist, and any notes.
+1. **Read** the full mission file. Parse the title, context, checklist, and any notes. If it already has a `## Blocked:` section, record it in the summary and move to the next mission without editing or committing it again.
 2. **Plan** the work. If the mission is ambiguous, conflicts with project conventions, or its acceptance criteria can't be met without user input — handle as **Blocked** (see below). Don't guess.
 3. **Execute**. Use any tools needed. Follow the conventions in `CLAUDE.md` (tests, secrets, branches, PR-body shape, short commit messages).
-4. **Validate**. If the mission touched code, run the project's test command (`python3 -m unittest discover -s tests` for this repo). Don't proceed with red tests.
+4. **Validate**. Run the project's test command (`python3 -m unittest discover -s tests` for this repo) before every mission commit, including doc-only and blocker-note commits. If tests fail, do not auto-commit, merge, revert changes, or continue autonomous work. Mark the mission as **Blocked** for test failures, include the failing test output/logs and relevant failing test names in the blocked note, then create a GitHub issue or PR comment with reproduction steps and wait for human intervention.
 5. **Mark complete**:
    - Tick every checklist box in the mission file.
    - Append a `## Completed: YYYY-MM-DD` footer with a one-line summary of what was done.
@@ -35,7 +35,7 @@ For each mission in order, until pending is empty:
 A mission is Blocked when it can't complete without something only the user can supply (a decision, a secret, a server spec, etc.) or when an external dependency is broken.
 
 - Leave the file in `missions/pending/`.
-- Prepend a `## Blocked: <one-line reason>` section above `## Acceptance criteria`. Detail what's needed below the heading.
+- Prepend a `## Blocked: <one-line reason>` section after `## Context` and above `## Acceptance criteria`. Detail what's needed below the heading.
 - Commit + push the blocker note. Subject: `Block mission: <mission title>`.
 - Move on to the next pending mission.
 
@@ -43,7 +43,7 @@ Never delete a mission file. Never silently skip one.
 
 ## Stopping
 
-Stop when `missions/pending/` contains zero files (other than `.gitkeep`).
+Stop when `missions/pending/` contains zero files (other than `.gitkeep`), or when every remaining file has a `## Blocked:` section.
 
 When stopped, print a summary:
 
