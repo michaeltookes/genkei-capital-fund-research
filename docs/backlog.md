@@ -739,3 +739,15 @@ Reliability work that grows in importance as more sources go live.
   - Decision driven by B-006 outcome.
   - If needed: runner installed on Beelink, registered, scoped to this repo.
   - Documentation + recovery steps.
+
+### B-078 — Mission queue for autonomous overnight task lists
+- **Status:** open
+- **Priority:** high
+- **Context:** Michael wants a way to queue long task lists that the agent grinds through without stopping until empty — fits the weekday/overnight working mode where he can't supervise live. Distinct from the backlog (planning) and from on-demand questions.
+- **Acceptance criteria:**
+  - Directory layout: `missions/pending/` (queued) and `missions/done/` (completed).
+  - Each mission is a single markdown file with title, context, and a checklist of acceptance criteria.
+  - Agent picks the oldest file in `pending/`, works it through, moves it to `done/` with the checklist marked, then picks the next.
+  - Agent stops cleanly when `pending/` is empty (no busy-loop).
+  - Tied to a `/schedule` Routine (per harness decision) so the user can fire the queue from a slash command.
+  - Documented in `docs/missions.md` (how to write a mission, how the queue runs, how to monitor).
