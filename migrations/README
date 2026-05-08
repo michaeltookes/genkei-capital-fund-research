@@ -1,0 +1,18 @@
+Database migrations for the Genkei Capital research-desk.
+
+Conventions (see docs/storage.md):
+
+- Hand-written only — autogenerate is disabled in env.py.
+- File naming: YYYYMMDD_<slug>.py (date prefix sorts naturally).
+- Connection URL comes from GENKEI_DATABASE_URL.
+- Every migration must implement downgrade() or raise NotImplementedError
+  with a comment explaining why a downgrade is impossible.
+- TimescaleDB-specific objects (CREATE EXTENSION, hypertables, continuous
+  aggregates) live in their own migrations, separate from base table DDL.
+
+Common commands:
+
+    GENKEI_DATABASE_URL=postgresql+psycopg://... alembic upgrade head
+    GENKEI_DATABASE_URL=postgresql+psycopg://... alembic downgrade -1
+    alembic revision -m "<short slug>"      # create a new (empty) migration
+    alembic history                          # show all revisions
