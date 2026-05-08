@@ -26,7 +26,7 @@ Daily briefs and reports are emergent UIs; **the data lake is the asset**.
 - Agent harness (Claude Code via GH Actions vs `/schedule` Routines vs manual vs hybrid) — see B-048.
 - CLI tool name — see B-037.
 - Watchlist contents (25 equities, 10–20 crypto, 10 DeFi, 20 macro series) — see B-015.
-- Postgres schema/migration tool/extensions — see B-007 / B-008 / B-009.
+- ~~Postgres schema/migration tool/extensions~~ → resolved 2026-05-07 (`docs/storage.md`); first migration lands with B-010/B-016.
 - ~~Repo layout~~ → resolved 2026-05-07 (`docs/repo-layout.md`); migration interleaved with Phase 1 (B-013).
 
 ## Open items
@@ -94,31 +94,27 @@ The data lake doesn't exist yet; this phase makes it possible to land a single r
   - Decision recorded on whether GH-hosted runners can reach the homelab or whether a self-hosted runner is needed.
 
 ### B-007 — Decide Postgres extensions and time-series strategy
-- **Status:** open
-- **Priority:** high
-- **Context:** Many series will be time-indexed (prices, TVL, macro). Choosing TimescaleDB vs `pg_partman` vs plain Postgres affects every downstream schema.
+- **Status:** open (decision portion done; first migration to install extension is the remaining work)
+- **Priority:** medium
+- **Context:** TimescaleDB chosen pending homelab verification in B-006. Extension install + first hypertable land with the first concrete migration (B-016+).
 - **Acceptance criteria:**
-  - Tradeoffs written up in `docs/storage.md`.
-  - Decision recorded with rationale.
-  - First migration installs the chosen extension(s) if needed.
+  - First migration installs `timescaledb` (or codifies the fallback to plain PG + pg_partman if homelab can't host it).
+- **Resolved by:** `docs/storage.md` (2026-05-07) — decision portion. Install lands with B-016+.
 
 ### B-008 — Define Postgres schema strategy (per-source schemas + meta)
-- **Status:** open
-- **Priority:** high
-- **Context:** Each ingester will produce its own tables. A consistent namespacing pattern prevents collisions and clarifies ownership.
-- **Acceptance criteria:**
-  - Schema-per-source pattern documented (e.g. `defillama.*`, `sec.*`, `fred.*`).
-  - Shared `meta.*` schema defined for ingest runs, manifests, snapshots, source health.
-  - Naming/casing conventions documented (snake_case, singular vs plural, primary key conventions).
+- **Status:** resolved
+- **Priority:** —
+- **Context:** Per-source schemas (`defillama.*`, `sec.*`, ...), `meta.*` for operational, `analytics.*` for cross-source views. snake_case, plural tables, composite natural keys for time-series facts, BIGSERIAL surrogates for entities. Source provenance (`source_endpoint`, `fetched_at`, `ingest_run_id`) on every fact table.
+- **Resolved by:** `docs/storage.md` (2026-05-07).
 
 ### B-009 — Choose migration tool and land first migration
-- **Status:** open
-- **Priority:** high
-- **Context:** Schemas will evolve; need a tool before the first table goes in.
+- **Status:** open (tool chosen; first migration is the remaining work)
+- **Priority:** medium
+- **Context:** Alembic with hand-written migrations only (no autogen). Migrations in `migrations/versions/` per `YYYYMMDD_NNNN_<slug>.py` naming. First concrete migration creates `meta.*` schema + `meta.ingest_runs`, lands with B-010.
 - **Acceptance criteria:**
-  - Tool chosen (Alembic, sqitch, plain SQL files, or alternative) with rationale.
   - First migration creates the `meta` schema + `meta.ingest_runs` table.
   - Migration runs cleanly against an empty Postgres and is idempotent on re-run.
+- **Resolved by:** `docs/storage.md` (2026-05-07) — tool/conventions. First migration tracked here.
 
 ### B-010 — Build shared Postgres helpers module
 - **Status:** open
