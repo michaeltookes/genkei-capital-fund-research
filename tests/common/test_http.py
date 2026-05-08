@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import unittest
 from collections.abc import Callable, Iterator
-from typing import Any
 
 import httpx
 
@@ -401,8 +400,3 @@ class RetryableStatusCodesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-# Silence "unused import" complaints when ``Any`` is referenced in this file
-# only via type comments.
-_ = Any
