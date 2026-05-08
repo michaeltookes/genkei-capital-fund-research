@@ -6,7 +6,7 @@
 
 - **Extension**: **TimescaleDB** for hypertables, continuous aggregates, compression, retention. Fallback to plain Postgres + manual quarterly partitioning if the homelab can't host it.
 - **Schema layout**: per-source schemas (`defillama.*`, `sec.*`, `fred.*`, …), `meta.*` for operational tables, `analytics.*` for cross-source materialized views. snake_case, plural tables.
-- **Migration tool**: **Alembic** with hand-written migrations only (no autogen). Migrations in `migrations/versions/`, version tracked in `meta.alembic_version`.
+- **Migration tool**: **Alembic** with hand-written migrations only (no autogen). Migrations in `migrations/versions/`, version tracked in the default `public.alembic_version` table so the first migration can create `meta.*` from a clean database.
 
 ---
 
@@ -50,7 +50,7 @@ That call is made in **B-006** when `/server-info` is loaded and we know the act
 
 ### Layout
 
-```
+```text
 defillama.*    -- raw + normalized DeFiLlama data
 sec.*          -- SEC EDGAR (filings, XBRL facts)
 fred.*         -- FRED macro series
@@ -63,7 +63,9 @@ coingecko.*    -- CoinGecko prices
 binance.*      -- Binance public market data
 
 meta.*         -- ingest_runs, raw_blobs, alerts, anomalies, signals,
-                  regimes, watchlists, schema_history, alembic_version
+                  regimes, watchlists, schema_history
+public.alembic_version
+               -- Alembic bookkeeping; stays outside meta to avoid bootstrap deadlocks
 analytics.*    -- materialized views joining multiple sources
                   (e.g. analytics.equity_prices_with_filings)
 ```
@@ -107,7 +109,7 @@ Sketched here; schemas finalized in the first migrations.
 | `meta.anomalies` | Per-series outliers from B-069. |
 | `meta.regimes` | Macro regime labels per date from B-066. |
 | `meta.api_usage` | Quota tracking per source for B-076. |
-| `meta.alembic_version` | Migration tool's bookkeeping (managed by Alembic). |
+| `public.alembic_version` | Migration tool's bookkeeping (managed by Alembic outside `meta` so fresh upgrades can create `meta` first). |
 
 ---
 
@@ -115,7 +117,7 @@ Sketched here; schemas finalized in the first migrations.
 
 ### Choice: Alembic (hand-written only)
 
-```
+```text
 migrations/
   alembic.ini
   env.py
