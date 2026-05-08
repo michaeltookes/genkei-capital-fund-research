@@ -22,12 +22,12 @@ For each mission in order, until pending is empty:
 1. **Read** the full mission file. Parse the title, context, checklist, and any notes. If it already has a `## Blocked:` section, record it in the summary and move to the next mission without editing or committing it again.
 2. **Plan** the work. If the mission is ambiguous, conflicts with project conventions, or its acceptance criteria can't be met without user input — handle as **Blocked** (see below). Don't guess.
 3. **Execute**. Use any tools needed. Follow the conventions in `CLAUDE.md` (tests, secrets, branches, PR-body shape, short commit messages).
-4. **Validate**. Run the project's test command (`python3 -m unittest discover -s tests` for this repo) before every mission commit, including doc-only and blocker-note commits. If tests fail, do not auto-commit, merge, revert changes, or continue autonomous work. Mark the mission as **Blocked** for test failures, include the failing test output/logs and relevant failing test names in the blocked note, then create a GitHub issue or PR comment with reproduction steps and wait for human intervention.
+4. **Validate**. Run the project's test command (`python3 -m unittest discover -s tests` for this repo) before every mission commit, including doc-only and blocker-note commits. If tests fail before a commit, do not edit mission files, create blocker-note commits, merge, revert changes, or continue autonomous work. Stop the queue, preserve the working tree for inspection, and create a GitHub issue or PR comment with reproduction steps, failing test output/logs, and relevant failing test names. Report the mission as blocked by red tests in the final summary and wait for human intervention.
 5. **Mark complete**:
    - Tick every checklist box in the mission file.
    - Append a `## Completed: YYYY-MM-DD` footer with a one-line summary of what was done.
    - Move the file from `missions/pending/` to `missions/done/` (use `git mv` so history is preserved).
-6. **Commit** with `Complete mission: <mission title>` as the subject. Body: 1–3 lines on what changed and the mission file path.
+6. **Commit** with `Complete mission: <mission title>` as the subject. Body: 1–3 lines explaining the intent/why, what changed, and the mission file path. Co-author trailers on automated commits are acceptable.
 7. **Push** after each commit so progress is visible.
 
 ## When a mission is Blocked
