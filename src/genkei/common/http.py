@@ -13,6 +13,7 @@ client exposes the single building block every collector needs:
     with HttpClient("defillama", rate_limit=RateLimit.per_second(5)) as http:
         protocols = http.get_json("https://api.llama.fi/protocols")
 """
+
 from __future__ import annotations
 
 import random

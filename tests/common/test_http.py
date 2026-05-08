@@ -4,6 +4,7 @@ Network is fully mocked via httpx.MockTransport. Time is controlled with a
 fake clock + recorded-sleep callable so retry/backoff/rate-limit assertions
 are deterministic.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -235,9 +236,7 @@ class RetryBehaviorTests(unittest.TestCase):
         return client, clock
 
     def test_success_on_first_try_does_not_sleep(self) -> None:
-        client, clock = self._client(
-            _handler_returning(httpx.Response(200, json={"ok": True}))
-        )
+        client, clock = self._client(_handler_returning(httpx.Response(200, json={"ok": True})))
         with client:
             response = client.get("https://example.test/x")
         self.assertEqual(response.status_code, 200)
@@ -325,9 +324,8 @@ class RetryBehaviorTests(unittest.TestCase):
             ),
             RetryPolicy(max_attempts=3, jitter=0.0, initial_backoff=1.0, backoff_multiplier=2.0),
         )
-        with self.assertRaises(httpx.ConnectError):
-            with client:
-                client.get("https://example.test/x")
+        with self.assertRaises(httpx.ConnectError), client:
+            client.get("https://example.test/x")
         # 3 attempts → 2 sleeps then re-raise
         self.assertEqual(clock.sleeps, [1.0, 2.0])
 
@@ -358,15 +356,12 @@ class GetJsonTests(unittest.TestCase):
         client = HttpClient(
             "test",
             retry=RetryPolicy(max_attempts=1, jitter=0.0),
-            transport=httpx.MockTransport(
-                _handler_returning(httpx.Response(404))
-            ),
+            transport=httpx.MockTransport(_handler_returning(httpx.Response(404))),
             sleep=clock.sleep,
             clock=clock,
         )
-        with self.assertRaises(httpx.HTTPStatusError):
-            with client:
-                client.get_json("https://example.test/x")
+        with self.assertRaises(httpx.HTTPStatusError), client:
+            client.get_json("https://example.test/x")
 
 
 class RateLimitIntegrationTests(unittest.TestCase):
