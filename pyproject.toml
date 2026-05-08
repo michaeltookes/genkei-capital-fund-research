@@ -7,7 +7,7 @@ name = "genkei"
 version = "0.1.0"
 description = "Genkei Capital research-desk: queryable financial-data lake (equities + crypto)"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "Proprietary" }
 authors = [{ name = "Michael Tookes" }]
 dependencies = [
@@ -30,7 +30,7 @@ packages = ["src/genkei"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM"]
