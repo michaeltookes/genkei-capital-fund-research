@@ -10,6 +10,8 @@ import os
 import unittest
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -24,8 +26,11 @@ class _FakeCursor:
         self.executemany_calls: list[tuple[Any, list[Any]]] = []
         self.fetch_value: tuple[Any, ...] | None = None
         self.rowcount: int | None = 0
+        self.execute_error: Exception | None = None
 
     def execute(self, query: Any, params: Any = None) -> None:
+        if self.execute_error is not None:
+            raise self.execute_error
         self.executed.append((query, params))
 
     def executemany(self, query: Any, params_seq: list[Any]) -> None:
@@ -80,12 +85,32 @@ class _FakePool:
 class ResolveUrlTests(unittest.TestCase):
     def setUp(self) -> None:
         self._saved = os.environ.pop("GENKEI_DATABASE_URL", None)
+        self._saved_user = os.environ.pop("GENKEI_DATABASE_USER", None)
+        self._saved_password = os.environ.pop("GENKEI_DATABASE_PASSWORD", None)
+        self._saved_name = os.environ.pop("GENKEI_DATABASE_NAME", None)
+        self._saved_server_info_path = os.environ.pop("GENKEI_SERVER_INFO_PATH", None)
 
     def tearDown(self) -> None:
         if self._saved is not None:
             os.environ["GENKEI_DATABASE_URL"] = self._saved
         else:
             os.environ.pop("GENKEI_DATABASE_URL", None)
+        if self._saved_user is not None:
+            os.environ["GENKEI_DATABASE_USER"] = self._saved_user
+        else:
+            os.environ.pop("GENKEI_DATABASE_USER", None)
+        if self._saved_password is not None:
+            os.environ["GENKEI_DATABASE_PASSWORD"] = self._saved_password
+        else:
+            os.environ.pop("GENKEI_DATABASE_PASSWORD", None)
+        if self._saved_name is not None:
+            os.environ["GENKEI_DATABASE_NAME"] = self._saved_name
+        else:
+            os.environ.pop("GENKEI_DATABASE_NAME", None)
+        if self._saved_server_info_path is not None:
+            os.environ["GENKEI_SERVER_INFO_PATH"] = self._saved_server_info_path
+        else:
+            os.environ.pop("GENKEI_SERVER_INFO_PATH", None)
 
     def test_explicit_argument_wins(self) -> None:
         self.assertEqual(
@@ -102,6 +127,28 @@ class ResolveUrlTests(unittest.TestCase):
     def test_falls_back_to_env_var(self) -> None:
         os.environ["GENKEI_DATABASE_URL"] = "postgresql://from/env"
         self.assertEqual(db._resolve_url(None), "postgresql://from/env")
+
+    def test_falls_back_to_server_info_specs_with_env_credentials(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            server_info = Path(temp_dir) / "SKILL.md"
+            server_info.write_text(
+                """
+## Development Server (Beelink)
+**Host:** 192.168.86.36
+
+| genkeicapital-postgres | 5440 | PostgreSQL 16-alpine |
+""",
+                encoding="utf-8",
+            )
+            os.environ["GENKEI_SERVER_INFO_PATH"] = str(server_info)
+            os.environ["GENKEI_DATABASE_USER"] = "genkei"
+            os.environ["GENKEI_DATABASE_PASSWORD"] = "secret pw"
+            os.environ["GENKEI_DATABASE_NAME"] = "research"
+
+            self.assertEqual(
+                db._resolve_url(None),
+                "postgresql://genkei:secret%20pw@192.168.86.36:5440/research",
+            )
 
     def test_raises_when_missing(self) -> None:
         with self.assertRaises(RuntimeError):
@@ -190,6 +237,27 @@ class BulkUpsertTests(unittest.TestCase):
         # exactly once with no error and the rowcount matches.
         self.assertEqual(len(conn.cursor_obj.executemany_calls), 1)
 
+    def test_requires_conflict_keys_for_non_empty_rows(self) -> None:
+        conn = _FakeConnection()
+        with self.assertRaisesRegex(ValueError, "conflict_keys"):
+            db.bulk_upsert(conn, "x.y", [{"id": 1}], conflict_keys=[])  # type: ignore[arg-type]
+
+    def test_rejects_heterogeneous_rows(self) -> None:
+        conn = _FakeConnection()
+        rows = [{"id": 1, "name": "a"}, {"id": 2, "value": "b"}]
+
+        with self.assertRaisesRegex(ValueError, "same keys"):
+            db.bulk_upsert(conn, "x.y", rows, conflict_keys=["id"])  # type: ignore[arg-type]
+
+    def test_rejects_update_cols_outside_row_columns(self) -> None:
+        conn = _FakeConnection()
+        rows = [{"id": 1, "name": "a"}]
+
+        with self.assertRaisesRegex(ValueError, "update_cols"):
+            db.bulk_upsert(  # type: ignore[arg-type]
+                conn, "x.y", rows, conflict_keys=["id"], update_cols=["missing"]
+            )
+
 
 class IngestRunTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -250,6 +318,36 @@ class IngestRunTests(unittest.TestCase):
         self.assertEqual(fail_params[1], 3)
         self.assertEqual(fail_params[2], 99)
 
+    def test_records_base_exception_interrupts_as_failed(self) -> None:
+        self._seed_returning_id(5)
+
+        with self.assertRaises(KeyboardInterrupt), db.ingest_run("sec") as run:
+            run.add_rows(2)
+            raise KeyboardInterrupt("ctrl-c")
+
+        fail_conn = self.fake_pool.connections[1]
+        fail_query, fail_params = fail_conn.cursor_obj.executed[0]
+        self.assertIn("status='failed'", fail_query)
+        self.assertEqual(fail_params, ["ctrl-c", 2, 5])
+
+    def test_failure_audit_error_preserves_original_exception(self) -> None:
+        self._seed_returning_id(12)
+        original = self.fake_pool.connection
+
+        @contextmanager
+        def failing_second_connection() -> Iterator[_FakeConnection]:
+            with original() as conn:
+                if len(self.fake_pool.connections) == 2:
+                    conn.cursor_obj.execute_error = RuntimeError("audit failed")
+                yield conn
+
+        self.fake_pool.connection = failing_second_connection  # type: ignore[assignment]
+
+        with self.assertLogs("genkei.common.db", level="ERROR"), self.assertRaisesRegex(
+            RuntimeError, "ingest failed"
+        ), db.ingest_run("sec"):
+            raise RuntimeError("ingest failed")
+
     def test_truncates_long_error_messages(self) -> None:
         self._seed_returning_id(1)
         long_msg = "x" * 20000
@@ -278,6 +376,21 @@ class IngestRunHandleTests(unittest.TestCase):
         run.add_rows(3)
         run.add_rows(4)
         self.assertEqual(run.rows_written, 7)
+
+    def test_add_rows_rejects_negative_increment(self) -> None:
+        run = db.IngestRun(id=1)
+        with self.assertRaisesRegex(ValueError, "non-negative"):
+            run.add_rows(-1)
+
+    def test_add_rows_rejects_non_integer_increment(self) -> None:
+        run = db.IngestRun(id=1)
+        with self.assertRaisesRegex(TypeError, "integer"):
+            run.add_rows(1.5)  # type: ignore[arg-type]
+
+    def test_add_rows_rejects_bool_increment(self) -> None:
+        run = db.IngestRun(id=1)
+        with self.assertRaisesRegex(TypeError, "integer"):
+            run.add_rows(True)  # type: ignore[arg-type]
 
 
 if __name__ == "__main__":

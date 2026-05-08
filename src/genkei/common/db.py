@@ -1,6 +1,8 @@
 """Postgres helpers shared by every ingester and the CLI.
 
-Reads connection URL from ``GENKEI_DATABASE_URL``. Exposes:
+Reads connection URL from ``GENKEI_DATABASE_URL`` or, when that is absent,
+builds one from non-secret host/port specs in the local ``server-info`` skill
+plus credential environment variables. Exposes:
 
 - a lazily-initialized connection pool (:func:`get_pool`, :func:`reset_pool`),
 - a :func:`connection` context manager that commits on success and rolls back
@@ -17,31 +19,80 @@ returned from the context manager exposes ``id`` for that purpose.
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import psycopg
 from psycopg import sql
 from psycopg_pool import ConnectionPool
 
 _POOL: ConnectionPool | None = None
+_LOGGER = logging.getLogger(__name__)
+_DEFAULT_SERVER_INFO_PATH = Path.home() / ".claude" / "skills" / "server-info" / "SKILL.md"
 
 
 def _resolve_url(url: str | None) -> str:
     """Return a libpq-compatible connection string."""
     if url is None:
-        url = os.environ.get("GENKEI_DATABASE_URL")
+        url = os.environ.get("GENKEI_DATABASE_URL") or _server_info_database_url()
     if not url:
         raise RuntimeError(
-            "GENKEI_DATABASE_URL is not set. Define it in your environment "
-            "(see .env.example) before invoking Postgres helpers."
+            "GENKEI_DATABASE_URL is not set and server-info-derived Postgres "
+            "settings are incomplete. Define GENKEI_DATABASE_URL or set "
+            "GENKEI_DATABASE_USER, GENKEI_DATABASE_PASSWORD, and "
+            "GENKEI_DATABASE_NAME before invoking Postgres helpers."
         )
     # Alembic / SQLAlchemy use the postgresql+psycopg:// driver prefix; psycopg
     # itself wants a plain libpq URL.
     return url.replace("postgresql+psycopg://", "postgresql://", 1)
+
+
+def _server_info_database_url() -> str | None:
+    """Build a Postgres URL from server-info host/port plus env credentials."""
+    user = os.environ.get("GENKEI_DATABASE_USER")
+    password = os.environ.get("GENKEI_DATABASE_PASSWORD")
+    database = os.environ.get("GENKEI_DATABASE_NAME")
+    if not user or not password or not database:
+        return None
+
+    server_info_path = Path(
+        os.environ.get("GENKEI_SERVER_INFO_PATH", str(_DEFAULT_SERVER_INFO_PATH))
+    ).expanduser()
+    try:
+        server_info = server_info_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+    host = _server_info_development_host(server_info)
+    port = _server_info_database_port(server_info)
+    if not host or not port:
+        return None
+    return "postgresql://{user}:{password}@{host}:{port}/{database}".format(
+        user=quote(user, safe=""),
+        password=quote(password, safe=""),
+        host=host,
+        port=port,
+        database=quote(database, safe=""),
+    )
+
+
+def _server_info_development_host(server_info: str) -> str | None:
+    """Extract the Beelink development host from server-info text."""
+    match = re.search(r"## Development Server.*?\*\*Host:\*\*\s*([^\s]+)", server_info, re.DOTALL)
+    return match.group(1) if match else None
+
+
+def _server_info_database_port(server_info: str) -> str | None:
+    """Extract the Genkei Capital Postgres host port from server-info text."""
+    match = re.search(r"\|\s*genkeicapital-postgres\s*\|\s*(\d+)\s*\|", server_info)
+    return match.group(1) if match else None
 
 
 def get_pool(
@@ -116,8 +167,16 @@ def bulk_upsert(
     """
     if not rows:
         return 0
+    if not conflict_keys:
+        raise ValueError("conflict_keys must be provided")
 
     cols = list(rows[0].keys())
+    col_set = set(cols)
+    for row in rows:
+        if set(row.keys()) != col_set:
+            raise ValueError("All rows must have the same keys")
+    if update_cols is not None and not set(update_cols).issubset(col_set):
+        raise ValueError("update_cols must be a subset of row columns")
     if update_cols is None:
         update_cols = [c for c in cols if c not in conflict_keys]
 
@@ -172,6 +231,10 @@ class IngestRun:
     rows_written: int = 0
 
     def add_rows(self, n: int) -> None:
+        if isinstance(n, bool) or not isinstance(n, int):
+            raise TypeError("rows_written increment must be an integer")
+        if n < 0:
+            raise ValueError("rows_written increment must be non-negative")
         self.rows_written += n
 
 
@@ -226,14 +289,18 @@ def ingest_run(
 
     try:
         yield handle
-    except Exception as exc:
-        with pool.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    _INGEST_RUN_FAIL,
-                    [str(exc)[:_ERROR_FIELD_LIMIT], handle.rows_written, handle.id],
-                )
-            conn.commit()
+    except BaseException as exc:
+        original_exc = exc
+        try:
+            with pool.connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        _INGEST_RUN_FAIL,
+                        [str(original_exc)[:_ERROR_FIELD_LIMIT], handle.rows_written, handle.id],
+                    )
+                conn.commit()
+        except Exception:
+            _LOGGER.exception("Failed to mark ingest run %s as failed", handle.id)
         raise
     else:
         with pool.connection() as conn:
