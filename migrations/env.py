@@ -8,6 +8,7 @@ useful for offline rendering of SQL.
 Per docs/storage.md, migrations are hand-written only — autogenerate is
 intentionally not configured (target_metadata stays None).
 """
+
 from __future__ import annotations
 
 import os

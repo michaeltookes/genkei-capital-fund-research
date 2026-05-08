@@ -1,4 +1,5 @@
 """Genkei CLI entry point. Phase 3 implementation; this file currently holds a stub."""
+
 from __future__ import annotations
 
 import sys

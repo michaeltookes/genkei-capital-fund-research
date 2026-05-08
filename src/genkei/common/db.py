@@ -13,22 +13,24 @@ Per ``docs/storage.md``, every fact table carries provenance columns and joins
 back to ``meta.ingest_runs`` via ``ingest_run_id``. The :class:`IngestRun`
 returned from the context manager exposes ``id`` for that purpose.
 """
+
 from __future__ import annotations
 
 import json
 import os
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Iterator, Mapping, Optional, Sequence
+from typing import Any
 
 import psycopg
 from psycopg import sql
 from psycopg_pool import ConnectionPool
 
-_POOL: Optional[ConnectionPool] = None
+_POOL: ConnectionPool | None = None
 
 
-def _resolve_url(url: Optional[str]) -> str:
+def _resolve_url(url: str | None) -> str:
     """Return a libpq-compatible connection string."""
     if url is None:
         url = os.environ.get("GENKEI_DATABASE_URL")
@@ -43,7 +45,7 @@ def _resolve_url(url: Optional[str]) -> str:
 
 
 def get_pool(
-    url: Optional[str] = None,
+    url: str | None = None,
     *,
     min_size: int = 1,
     max_size: int = 10,
@@ -101,7 +103,7 @@ def bulk_upsert(
     table: str,
     rows: Sequence[Mapping[str, Any]],
     conflict_keys: Sequence[str],
-    update_cols: Optional[Sequence[str]] = None,
+    update_cols: Sequence[str] | None = None,
 ) -> int:
     """``INSERT ... ON CONFLICT DO UPDATE`` for a batch of rows.
 
@@ -126,8 +128,7 @@ def bulk_upsert(
 
     if update_cols:
         update_clause = sql.SQL(", ").join(
-            sql.SQL("{col} = EXCLUDED.{col}").format(col=sql.Identifier(c))
-            for c in update_cols
+            sql.SQL("{col} = EXCLUDED.{col}").format(col=sql.Identifier(c)) for c in update_cols
         )
         query = sql.SQL(
             "INSERT INTO {table} ({cols}) VALUES ({placeholders}) "
@@ -184,9 +185,7 @@ _INGEST_RUN_FAIL = (
     "WHERE id=%s"
 )
 _INGEST_RUN_SUCCESS = (
-    "UPDATE meta.ingest_runs "
-    "SET status='success', finished_at=now(), rows_written=%s "
-    "WHERE id=%s"
+    "UPDATE meta.ingest_runs SET status='success', finished_at=now(), rows_written=%s WHERE id=%s"
 )
 _ERROR_FIELD_LIMIT = 8000
 
@@ -194,8 +193,8 @@ _ERROR_FIELD_LIMIT = 8000
 @contextmanager
 def ingest_run(
     source: str,
-    endpoint: Optional[str] = None,
-    metadata: Optional[Mapping[str, Any]] = None,
+    endpoint: str | None = None,
+    metadata: Mapping[str, Any] | None = None,
 ) -> Iterator[IngestRun]:
     """Record a pipeline execution to ``meta.ingest_runs``.
 

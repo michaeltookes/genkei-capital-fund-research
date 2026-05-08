@@ -8,16 +8,17 @@ Revision ID: 7d9d845497ae
 Revises:
 Create Date: 2026-05-08
 """
+
 from __future__ import annotations
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 from alembic import op
 
 revision: str = "7d9d845497ae"
-down_revision: Union[str, Sequence[str], None] = None
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -40,12 +41,10 @@ def upgrade() -> None:
         """
     )
     op.execute(
-        "CREATE INDEX ingest_runs_source_started_idx "
-        "ON meta.ingest_runs (source, started_at DESC)"
+        "CREATE INDEX ingest_runs_source_started_idx ON meta.ingest_runs (source, started_at DESC)"
     )
     op.execute(
-        "CREATE INDEX ingest_runs_status_started_idx "
-        "ON meta.ingest_runs (status, started_at DESC)"
+        "CREATE INDEX ingest_runs_status_started_idx ON meta.ingest_runs (status, started_at DESC)"
     )
 
 

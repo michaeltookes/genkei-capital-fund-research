@@ -3,12 +3,14 @@
 Mocks the psycopg_pool ConnectionPool so the suite stays deterministic and
 offline. Real-Postgres integration tests come with B-024 (testcontainers).
 """
+
 from __future__ import annotations
 
 import os
 import unittest
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from genkei.common import db
@@ -33,7 +35,7 @@ class _FakeCursor:
     def fetchone(self) -> tuple[Any, ...] | None:
         return self.fetch_value
 
-    def __enter__(self) -> "_FakeCursor":
+    def __enter__(self) -> _FakeCursor:
         return self
 
     def __exit__(self, *exc: Any) -> None:
@@ -153,9 +155,8 @@ class ConnectionContextManagerTests(unittest.TestCase):
         self.assertEqual(used.rollbacks, 0)
 
     def test_rolls_back_and_reraises_on_exception(self) -> None:
-        with self.assertRaises(ValueError):
-            with db.connection():
-                raise ValueError("boom")
+        with self.assertRaises(ValueError), db.connection():
+            raise ValueError("boom")
         used = self.fake_pool.connections[0]
         self.assertEqual(used.commits, 0)
         self.assertEqual(used.rollbacks, 1)
@@ -236,10 +237,9 @@ class IngestRunTests(unittest.TestCase):
     def test_records_failed_and_reraises(self) -> None:
         self._seed_returning_id(99)
 
-        with self.assertRaises(RuntimeError) as ctx:
-            with db.ingest_run("sec") as run:
-                run.add_rows(3)
-                raise RuntimeError("api blew up")
+        with self.assertRaises(RuntimeError) as ctx, db.ingest_run("sec") as run:
+            run.add_rows(3)
+            raise RuntimeError("api blew up")
         self.assertEqual(str(ctx.exception), "api blew up")
 
         self.assertEqual(len(self.fake_pool.connections), 2)
@@ -254,9 +254,8 @@ class IngestRunTests(unittest.TestCase):
         self._seed_returning_id(1)
         long_msg = "x" * 20000
 
-        with self.assertRaises(RuntimeError):
-            with db.ingest_run("fred"):
-                raise RuntimeError(long_msg)
+        with self.assertRaises(RuntimeError), db.ingest_run("fred"):
+            raise RuntimeError(long_msg)
 
         fail_conn = self.fake_pool.connections[1]
         _, fail_params = fail_conn.cursor_obj.executed[0]
