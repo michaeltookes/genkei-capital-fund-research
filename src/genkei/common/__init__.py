@@ -8,9 +8,19 @@ from genkei.common.db import (
     ingest_run,
     reset_pool,
 )
+from genkei.common.http import (
+    RETRYABLE_STATUS_CODES,
+    HttpClient,
+    RateLimit,
+    RetryPolicy,
+)
 
 __all__ = [
+    "RETRYABLE_STATUS_CODES",
+    "HttpClient",
     "IngestRun",
+    "RateLimit",
+    "RetryPolicy",
     "bulk_upsert",
     "connection",
     "get_pool",
