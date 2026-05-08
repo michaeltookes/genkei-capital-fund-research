@@ -144,8 +144,8 @@ migrations/
 
 | Tool | Why not |
 |---|---|
-| sqitch | DB-agnostic, plain SQL — nice, but adds a non-Python tool to the stack and we don't need polyglot. |
-| dbmate | Standalone Go binary, plain SQL. Same comment as sqitch. |
+| Sqitch | DB-agnostic, plain SQL — nice, but adds a non-Python tool to the stack and we don't need polyglot. |
+| dbmate | Standalone Go binary, plain SQL. Same comment as Sqitch. |
 | Flyway | JVM dep. Hard pass. |
 | Plain SQL files + custom runner | Tempting (zero deps), but we'd reinvent migration tracking, transactional safety, and downgrade plumbing. Not worth it. |
 
@@ -156,7 +156,7 @@ migrations/
 - **B-006 unblocks Phase 0**: we still need to confirm TimescaleDB can run on the homelab. Until then, treat the extension choice as recommended-but-tentative.
 - **B-010** (shared Postgres helpers) will assume Alembic-managed schema; the helper module knows which schemas to put on the search path.
 - **B-012** (`pyproject.toml`) declares `alembic`, `psycopg[binary]`, and (TBD) `sqlalchemy` as deps. Keep `sqlalchemy` optional behind an extra (`pip install -e .[orm]`) until we actually need ORM models.
-- **B-016+** (DefiLlama Postgres schema) becomes the first concrete migration set under this convention.
+- **B-016+** (DeFiLlama Postgres schema) becomes the first concrete migration set under this convention.
 - **CI / Routines / homelab**: every environment runs `alembic upgrade head` before anything else. The homelab Postgres is the system of record; ephemeral CI databases get the same migrations applied at test setup.
 
 ## Cross-references
