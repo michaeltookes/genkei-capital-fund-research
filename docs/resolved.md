@@ -33,3 +33,18 @@ Completed setup and implementation decisions for the Genkei Capital research pip
 - **Resolved:** 2026-05-08 (PR #7, merged via postgres-trio)
 - **Outcome:** Per-source schemas (`defillama.*`, `sec.*`, `fred.*`, …), `meta.*` for operational tables, `analytics.*` for cross-source materialized views, `public.alembic_version` outside `meta` for bootstrap safety. Conventions documented: snake_case, plural tables, composite natural PKs for time-series facts, `BIGSERIAL` surrogates for entity tables, source-provenance columns (`source_endpoint`, `fetched_at`, `ingest_run_id`) on every fact table.
 - **Evidence:** `docs/storage.md` §B-008. Commits `2129958`, `b6a4181`, `86710e5`.
+
+### R-007 — pyproject.toml + dependency management (B-012)
+- **Resolved:** 2026-05-08 (branch postgres-helper)
+- **Outcome:** Hatchling build backend, `src/genkei/` package layout, console-script entry point (`genkei = "genkei.cli:main"`), runtime deps (`psycopg[binary]`, `psycopg_pool`, `alembic`), `[dev]` extras (`ruff`, `testcontainers[postgres]`). Local install via `pip install -e .` (no separate lock file yet — will add when complexity justifies).
+- **Evidence:** `pyproject.toml`. Commit `526407e`.
+
+### R-008 — Migration tool + first migration (B-009)
+- **Resolved:** 2026-05-08 (branch postgres-helper)
+- **Outcome:** Alembic configured per `docs/storage.md` conventions: hand-written migrations only (autogen disabled), URL sourced from `GENKEI_DATABASE_URL`, file naming `YYYYMMDD_<slug>.py`. First migration (`20260508_create_meta_schema_and_ingest_runs.py`) creates `meta` schema and `meta.ingest_runs` table with status CHECK constraint and indexes on `(source, started_at DESC)` and `(status, started_at DESC)`. Idempotent via `CREATE SCHEMA IF NOT EXISTS`; downgrade implemented.
+- **Evidence:** `alembic.ini`, `migrations/env.py`, `migrations/versions/20260508_create_meta_schema_and_ingest_runs.py`. Commits `aa9cd5c`, `94a4e80`.
+
+### R-009 — Shared Postgres helper module (B-010)
+- **Resolved:** 2026-05-08 (branch postgres-helper)
+- **Outcome:** `src/genkei/common/db.py` exposes the lazy connection pool (`get_pool` / `reset_pool` / `set_pool`), `connection()` context manager (commits on success, rolls back on exception), `bulk_upsert()` using `INSERT ... ON CONFLICT DO UPDATE` via `executemany` with safe SQL identifier composition, and `ingest_run()` context manager that records `meta.ingest_runs` rows in three short transactions with error truncation at 8000 chars. Sixteen mock-based unit tests cover URL resolution, pool lifecycle, transaction safety, upsert defaults, ingest_run insert/success/fail/error-truncation/null-arg paths.
+- **Evidence:** `src/genkei/common/db.py`, `tests/common/test_db.py`. Commits `d304177`, `d8f4fb6`, `5ccf52e`. Real-Postgres integration tests deferred to B-024 (testcontainers); per-source provenance columns wiring deferred to per-source migrations (B-016+).
