@@ -101,12 +101,6 @@ The data lake doesn't exist yet; this phase makes it possible to land a single r
   - First migration installs `timescaledb` (or codifies the fallback to plain PG + pg_partman if homelab can't host it).
 - **Resolved by:** `docs/storage.md` (2026-05-07) — decision portion. Install lands with B-016+.
 
-### B-008 — Define Postgres schema strategy (per-source schemas + meta)
-- **Status:** resolved
-- **Priority:** —
-- **Context:** Per-source schemas (`defillama.*`, `sec.*`, ...), `meta.*` for operational, `analytics.*` for cross-source views. snake_case, plural tables, composite natural keys for time-series facts, BIGSERIAL surrogates for entities. Source provenance (`source_endpoint`, `fetched_at`, `ingest_run_id`) on every fact table.
-- **Resolved by:** `docs/storage.md` (2026-05-07).
-
 ### B-009 — Choose migration tool and land first migration
 - **Status:** open (tool chosen; first migration is the remaining work)
 - **Priority:** medium
@@ -737,14 +731,3 @@ Reliability work that grows in importance as more sources go live.
   - If needed: runner installed on Beelink, registered, scoped to this repo.
   - Documentation + recovery steps.
 
-### B-078 — Mission queue for autonomous overnight task lists
-- **Status:** open
-- **Priority:** high
-- **Context:** Michael wants a way to queue long task lists that the agent grinds through without stopping until empty — fits the weekday/overnight working mode where he can't supervise live. Distinct from the backlog (planning) and from on-demand questions.
-- **Acceptance criteria:**
-  - Directory layout: `missions/pending/` (queued) and `missions/done/` (completed).
-  - Each mission is a single markdown file with title, context, and a checklist of acceptance criteria.
-  - Agent picks the oldest file in `pending/`, works it through, moves it to `done/` with the checklist marked, then picks the next.
-  - Agent stops cleanly when `pending/` is empty (no busy-loop).
-  - Tied to a `/schedule` Routine (per harness decision) so the user can fire the queue from a slash command.
-  - Documented in `docs/missions.md` (how to write a mission, how the queue runs, how to monitor).
