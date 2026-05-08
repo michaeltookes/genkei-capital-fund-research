@@ -23,3 +23,6 @@ venv/
 # Local OS/editor noise
 .DS_Store
 *.swp
+
+# Claude Code local settings (user-specific permissions, not shared)
+.claude/settings.local.json

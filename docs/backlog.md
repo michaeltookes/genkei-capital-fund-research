@@ -27,7 +27,7 @@ Daily briefs and reports are emergent UIs; **the data lake is the asset**.
 - CLI tool name — see B-037.
 - Watchlist contents (25 equities, 10–20 crypto, 10 DeFi, 20 macro series) — see B-015.
 - Postgres schema/migration tool/extensions — see B-007 / B-008 / B-009.
-- Repo layout (`src/{ingest,…}` vs flat `scripts/`) — see B-013.
+- ~~Repo layout~~ → resolved 2026-05-07 (`docs/repo-layout.md`); migration interleaved with Phase 1 (B-013).
 
 ## Open items
 
@@ -150,14 +150,15 @@ The data lake doesn't exist yet; this phase makes it possible to land a single r
   - Lock-file strategy chosen (uv lock, poetry.lock, requirements-lock.txt).
   - Local + CI install path documented.
 
-### B-013 — Decide repo layout (src/ vs scripts/)
+### B-013 — Migrate codebase to chosen `src/genkei/` layout
 - **Status:** open
-- **Priority:** medium
-- **Context:** The ChatGPT-recommended `src/{ingest,normalize,cli,experiments,reports}/` layout is cleaner than the current flat `scripts/` once multiple sources land.
+- **Priority:** low
+- **Context:** Layout decision resolved on 2026-05-07 — adopting `src/genkei/{common,ingest,normalize,cli,experiments,reports}/`. The remaining work is the migration itself, which is interleaved with Phase 1 (B-017+) when DeFiLlama is refactored onto Postgres. No standalone migration PR planned.
 - **Acceptance criteria:**
-  - Decision documented with rationale.
-  - If migrating: existing DeFiLlama scripts moved as part of Phase 1, tests updated.
-  - If staying flat: convention documented for naming new files.
+  - Existing DeFiLlama scripts moved to the target paths per `docs/repo-layout.md`.
+  - Tests moved to `tests/{ingest,normalize,reports}/` and still pass.
+  - `.github/workflows/defillama-daily.yml` invokes the CLI entry point instead of `python scripts/...`.
+- **Resolved by:** `docs/repo-layout.md` (2026-05-07) — decision portion. Migration tracked here.
 
 ### B-014 — Establish `.env.example` + secret-loading pattern
 - **Status:** open
@@ -739,3 +740,15 @@ Reliability work that grows in importance as more sources go live.
   - Decision driven by B-006 outcome.
   - If needed: runner installed on Beelink, registered, scoped to this repo.
   - Documentation + recovery steps.
+
+### B-078 — Mission queue for autonomous overnight task lists
+- **Status:** open
+- **Priority:** high
+- **Context:** Michael wants a way to queue long task lists that the agent grinds through without stopping until empty — fits the weekday/overnight working mode where he can't supervise live. Distinct from the backlog (planning) and from on-demand questions.
+- **Acceptance criteria:**
+  - Directory layout: `missions/pending/` (queued) and `missions/done/` (completed).
+  - Each mission is a single markdown file with title, context, and a checklist of acceptance criteria.
+  - Agent picks the oldest file in `pending/`, works it through, moves it to `done/` with the checklist marked, then picks the next.
+  - Agent stops cleanly when `pending/` is empty (no busy-loop).
+  - Tied to a `/schedule` Routine (per harness decision) so the user can fire the queue from a slash command.
+  - Documented in `docs/missions.md` (how to write a mission, how the queue runs, how to monitor).
