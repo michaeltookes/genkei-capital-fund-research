@@ -341,6 +341,20 @@ class RetryBehaviorTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(clock.sleeps, [1.0, 2.0])
 
+    def test_falls_back_to_backoff_on_non_finite_retry_after(self) -> None:
+        client, clock = self._client(
+            _handler_returning(
+                httpx.Response(429, headers={"Retry-After": "inf"}),
+                httpx.Response(429, headers={"Retry-After": "1e309"}),
+                httpx.Response(200, json={"ok": True}),
+            ),
+            RetryPolicy(max_attempts=3, jitter=0.0, initial_backoff=1.0, backoff_multiplier=2.0),
+        )
+        with client:
+            response = client.get("https://example.test/x")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(clock.sleeps, [1.0, 2.0])
+
     def test_retries_network_exceptions_and_succeeds(self) -> None:
         # First call: timeout. Subsequent: 200. MockTransport's handler can
         # raise; we use a small custom handler that mixes raise + return.

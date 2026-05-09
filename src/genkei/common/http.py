@@ -16,6 +16,7 @@ client exposes the single building block every collector needs:
 
 from __future__ import annotations
 
+import math
 import random
 import time
 from collections import deque
@@ -233,7 +234,7 @@ class HttpClient:
         if retry_after is not None:
             try:
                 wait = float(retry_after)
-                if wait > 0:
+                if math.isfinite(wait) and wait > 0:
                     return wait
             except ValueError:
                 pass
