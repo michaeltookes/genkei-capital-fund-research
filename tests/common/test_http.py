@@ -88,6 +88,14 @@ class RateLimitFactoryTests(unittest.TestCase):
         self.assertEqual(rl.requests, 60)
         self.assertEqual(rl.window_seconds, 60.0)
 
+    def test_rejects_non_positive_capacity(self) -> None:
+        with self.assertRaisesRegex(ValueError, "RateLimit.requests"):
+            RateLimit(requests=0, window_seconds=1.0)
+
+    def test_rejects_non_positive_window(self) -> None:
+        with self.assertRaisesRegex(ValueError, "RateLimit.window_seconds"):
+            RateLimit(requests=1, window_seconds=0.0)
+
 
 class SlidingWindowLimiterTests(unittest.TestCase):
     def test_allows_capacity_without_sleeping(self) -> None:
@@ -185,6 +193,36 @@ class BackoffComputationTests(unittest.TestCase):
             self.assertGreaterEqual(value, 2.0)
             self.assertLessEqual(value, 3.0)
         client.close()
+
+
+class RetryPolicyValidationTests(unittest.TestCase):
+    def test_rejects_non_positive_attempts(self) -> None:
+        with self.assertRaisesRegex(ValueError, "RetryPolicy.max_attempts"):
+            RetryPolicy(max_attempts=0)
+
+    def test_rejects_non_positive_backoff_values(self) -> None:
+        with self.assertRaisesRegex(ValueError, "RetryPolicy.initial_backoff"):
+            RetryPolicy(initial_backoff=0.0)
+        with self.assertRaisesRegex(ValueError, "RetryPolicy.max_backoff"):
+            RetryPolicy(max_backoff=0.0)
+
+    def test_rejects_initial_backoff_above_max_backoff(self) -> None:
+        with self.assertRaisesRegex(ValueError, "RetryPolicy.initial_backoff"):
+            RetryPolicy(initial_backoff=5.0, max_backoff=1.0)
+
+    def test_rejects_invalid_multiplier_and_jitter(self) -> None:
+        with self.assertRaisesRegex(ValueError, "RetryPolicy.backoff_multiplier"):
+            RetryPolicy(backoff_multiplier=0.0)
+        with self.assertRaisesRegex(ValueError, "RetryPolicy.jitter"):
+            RetryPolicy(jitter=1.5)
+
+    def test_rejects_non_set_retry_statuses(self) -> None:
+        with self.assertRaisesRegex(ValueError, "RetryPolicy.retry_on_status"):
+            RetryPolicy(retry_on_status=(500, 503))  # type: ignore[arg-type]
+
+    def test_rejects_non_int_retry_statuses(self) -> None:
+        with self.assertRaisesRegex(ValueError, "RetryPolicy.retry_on_status"):
+            RetryPolicy(retry_on_status=frozenset({500, "503"}))  # type: ignore[arg-type]
 
 
 class UserAgentTests(unittest.TestCase):
@@ -289,6 +327,20 @@ class RetryBehaviorTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(clock.sleeps, [1.0])
 
+    def test_falls_back_to_backoff_on_non_positive_retry_after(self) -> None:
+        client, clock = self._client(
+            _handler_returning(
+                httpx.Response(429, headers={"Retry-After": "-1"}),
+                httpx.Response(429, headers={"Retry-After": "0"}),
+                httpx.Response(200, json={"ok": True}),
+            ),
+            RetryPolicy(max_attempts=3, jitter=0.0, initial_backoff=1.0, backoff_multiplier=2.0),
+        )
+        with client:
+            response = client.get("https://example.test/x")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(clock.sleeps, [1.0, 2.0])
+
     def test_retries_network_exceptions_and_succeeds(self) -> None:
         # First call: timeout. Subsequent: 200. MockTransport's handler can
         # raise; we use a small custom handler that mixes raise + return.
@@ -333,6 +385,39 @@ class RetryBehaviorTests(unittest.TestCase):
         with client:
             response = client.get("https://example.test/x")
         self.assertEqual(response.status_code, 404)
+        self.assertEqual(clock.sleeps, [])
+
+    def test_does_not_retry_non_idempotent_retryable_status(self) -> None:
+        attempts: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            attempts.append(request.method)
+            return httpx.Response(503)
+
+        client, clock = self._client(
+            handler,
+            RetryPolicy(max_attempts=3, jitter=0.0, initial_backoff=1.0, backoff_multiplier=2.0),
+        )
+        with client:
+            response = client.request("POST", "https://example.test/x", json={"value": 1})
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(attempts, ["POST"])
+        self.assertEqual(clock.sleeps, [])
+
+    def test_does_not_retry_non_idempotent_network_error(self) -> None:
+        attempts: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            attempts.append(request.method)
+            raise httpx.ConnectError("nope", request=request)
+
+        client, clock = self._client(
+            handler,
+            RetryPolicy(max_attempts=3, jitter=0.0, initial_backoff=1.0, backoff_multiplier=2.0),
+        )
+        with self.assertRaises(httpx.ConnectError), client:
+            client.request("POST", "https://example.test/x", json={"value": 1})
+        self.assertEqual(attempts, ["POST"])
         self.assertEqual(clock.sleeps, [])
 
 

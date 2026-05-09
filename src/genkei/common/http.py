@@ -21,6 +21,7 @@ import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from numbers import Real
 from typing import Any
 
 import httpx
@@ -32,6 +33,11 @@ from genkei import __version__
 #: idiosyncratic semantics (e.g. some APIs return 200 with an error body and
 #: should never be retried).
 RETRYABLE_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
+IDEMPOTENT_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def _is_positive_number(value: Any) -> bool:
+    return isinstance(value, Real) and not isinstance(value, bool) and value > 0
 
 
 @dataclass(frozen=True)
@@ -45,6 +51,14 @@ class RateLimit:
 
     requests: int
     window_seconds: float
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.requests, int) or isinstance(self.requests, bool):
+            raise ValueError("RateLimit.requests must be an integer >= 1.")
+        if self.requests < 1:
+            raise ValueError("RateLimit.requests must be an integer >= 1.")
+        if not _is_positive_number(self.window_seconds):
+            raise ValueError("RateLimit.window_seconds must be a positive number.")
 
     @classmethod
     def per_second(cls, n: int) -> RateLimit:
@@ -71,6 +85,30 @@ class RetryPolicy:
     backoff_multiplier: float = 2.0
     jitter: float = 0.5
     retry_on_status: frozenset[int] = field(default_factory=lambda: RETRYABLE_STATUS_CODES)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.max_attempts, int) or isinstance(self.max_attempts, bool):
+            raise ValueError("RetryPolicy.max_attempts must be an integer >= 1.")
+        if self.max_attempts < 1:
+            raise ValueError("RetryPolicy.max_attempts must be an integer >= 1.")
+        if not _is_positive_number(self.initial_backoff):
+            raise ValueError("RetryPolicy.initial_backoff must be a positive number.")
+        if not _is_positive_number(self.max_backoff):
+            raise ValueError("RetryPolicy.max_backoff must be a positive number.")
+        if self.initial_backoff > self.max_backoff:
+            raise ValueError("RetryPolicy.initial_backoff must be <= RetryPolicy.max_backoff.")
+        if not _is_positive_number(self.backoff_multiplier):
+            raise ValueError("RetryPolicy.backoff_multiplier must be a positive number.")
+        if not isinstance(self.jitter, Real) or isinstance(self.jitter, bool):
+            raise ValueError("RetryPolicy.jitter must be a number in [0, 1].")
+        if self.jitter < 0 or self.jitter > 1:
+            raise ValueError("RetryPolicy.jitter must be a number in [0, 1].")
+        if not isinstance(self.retry_on_status, (set, frozenset)):
+            raise ValueError("RetryPolicy.retry_on_status must be a set or frozenset of ints.")
+        if not all(
+            isinstance(code, int) and not isinstance(code, bool) for code in self.retry_on_status
+        ):
+            raise ValueError("RetryPolicy.retry_on_status must be a set or frozenset of ints.")
 
 
 class _SlidingWindowLimiter:
@@ -152,6 +190,11 @@ class HttpClient:
         exhausted; retryable status codes return the last response so the
         caller can inspect it.
         """
+        if method.upper() not in IDEMPOTENT_METHODS:
+            if self._limiter is not None:
+                self._limiter.acquire()
+            return self._client.request(method, url, **kwargs)
+
         attempt = 0
         while True:
             attempt += 1
@@ -189,7 +232,9 @@ class HttpClient:
         retry_after = response.headers.get("retry-after")
         if retry_after is not None:
             try:
-                return float(retry_after)
+                wait = float(retry_after)
+                if wait > 0:
+                    return wait
             except ValueError:
                 pass
         return self._compute_backoff(attempt)
