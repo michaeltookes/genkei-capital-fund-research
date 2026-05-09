@@ -1,19 +1,67 @@
 # Genkei Capital Fund Research
 
-DeFiLlama-only research scaffold for a small crypto market brief focused on **BTC, ETH,
-SOL, LINK, and SUI**.
+Genkei Capital research-desk: a queryable financial-data lake (equities + crypto) that backs experiments, trend analysis, inefficiency detection, and an on-demand AI researcher. See `CLAUDE.md` for the full project framing and `docs/backlog.md` for what's planned.
 
-The MVP is designed for:
+A DeFiLlama-only MVP under `scripts/` ships today (BTC/ETH/SOL/LINK/SUI focus, daily brief). It will be refactored onto Postgres in Phase 1 and become one ingester among many.
 
-- trend insight from current and historical TVL plus stablecoin-flow proxies;
-- DCA timing support;
-- early zombie-chain / momentum-loss warnings;
-- avoiding Twitter-only sentiment as an input source.
+## Setup
+
+### 1. Install
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -U pip
+.venv/bin/pip install -e ".[dev]"
+```
+
+Requires Python 3.10+.
+
+### 2. Environment variables
+
+Copy `.env.example` to `.env` and fill in values. `.env` is gitignored.
+
+```bash
+cp .env.example .env
+$EDITOR .env
+```
+
+Required:
+
+| Variable | Used by | Source |
+|---|---|---|
+| `GENKEI_DATABASE_URL` | Every Postgres helper, every ingester, Alembic migrations | Homelab Postgres (see `docs/infrastructure.md`) |
+
+Optional (uncomment in `.env` when the corresponding ingester lands):
+
+| Variable | Used by | Source |
+|---|---|---|
+| `FRED_API_KEY` | FRED ingester (B-028) | https://fred.stlouisfed.org/docs/api/api_key.html |
+| `BEA_API_KEY` | BEA ingester (B-029) | https://apps.bea.gov/API/signup/ |
+| `EIA_API_KEY` | EIA ingester (B-032) | https://www.eia.gov/opendata/register.php |
+| `COINGECKO_API_KEY` | CoinGecko Pro tier (free tier needs no key) | https://www.coingecko.com/en/api/pricing |
+
+**Loading the file** — three options, pick whichever your shell prefers:
+
+- One-shot: `set -a; source .env; set +a` before running anything.
+- Persistent: `direnv` — `cp .env .envrc && direnv allow`.
+- From Python: `from genkei.common import load_env_file; load_env_file()` at the top of an entry point. Existing env vars take precedence; safe to call unconditionally.
+
+### 3. GitHub Actions secrets
+
+CI reads each variable from a same-named GitHub Actions secret instead of `.env`. To add or update:
+
+```bash
+gh secret set GENKEI_DATABASE_URL          # paste value when prompted
+gh secret list
+```
+
+Workflows reference secrets via `${{ secrets.GENKEI_DATABASE_URL }}` in YAML.
+
+> **Note:** GitHub-hosted runners can't reach the homelab Postgres directly (private LAN, double NAT). When CI starts needing real-Postgres tests, we move to a self-hosted runner on the Beelink — see B-077 in the backlog.
 
 ## Scope
 
-Only public DeFiLlama APIs are used. There are no paid API keys, accounts, or secrets.
-Non-target assets are ignored unless they provide ecosystem context for the focused assets.
+The DeFiLlama MVP uses only public DeFiLlama APIs. New ingesters (Phase 2) target free/open sources too — paid APIs are deferred until a private-data story exists. Non-target assets are ignored unless they provide ecosystem context for the focused assets.
 
 Bitcoin-adjacent chains/projects exposed by DeFiLlama are grouped under **Bitcoin
 ecosystem** when they match configured labels such as Lightning, Stacks, Rootstock/RSK,
