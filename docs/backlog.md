@@ -83,15 +83,6 @@ Daily briefs and reports are emergent UIs; **the data lake is the asset**.
 
 The data lake doesn't exist yet; this phase makes it possible to land a single row.
 
-### B-007 — Activate TimescaleDB on the homelab Postgres
-- **Status:** open (decision made + migration written; container swap on homelab is the remaining step, owner: user)
-- **Priority:** medium
-- **Context:** Image swap to `timescale/timescaledb:latest-pg16` chosen on 2026-05-09 (see `docs/infrastructure.md`). Activation migration `migrations/versions/20260509_install_timescaledb_extension.py` is committed and idempotent — runs `CREATE EXTENSION IF NOT EXISTS timescaledb` against the new image. Per-source migrations stay plain-PG-compatible; hypertable promotion lands in dedicated follow-up migrations.
-- **Acceptance criteria:**
-  - User executes the container swap on the homelab per `docs/infrastructure.md` (`docker compose down` → edit `image:` → `docker compose up -d`).
-  - `alembic upgrade head` against the new container applies the timescaledb migration cleanly.
-  - First hypertable promotion lands with the first time-series ingester migration (B-016+).
-
 ### B-013 — Migrate codebase to chosen `src/genkei/` layout
 - **Status:** open
 - **Priority:** low
