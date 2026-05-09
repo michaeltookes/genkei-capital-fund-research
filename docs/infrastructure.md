@@ -15,7 +15,7 @@ How this repo connects to the homelab Postgres that backs the data lake.
 
 ### Connection string shape
 
-```
+```text
 postgresql+psycopg://<user>:<password>@<beelink-host>:5440/<db>
 ```
 

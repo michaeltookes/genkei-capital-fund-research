@@ -14,8 +14,6 @@
 # - `core`     = long-term hold, Buffett-style. Selling not on the table.
 # - `tactical` = turnover-eligible; signals can argue for trimming/adding.
 #
-# Equities and macro series are still TBD — see backlog item B-015.
-
 version: 1
 
 crypto:
@@ -237,7 +235,6 @@ equities:
 # (CoinGecko / equity providers) when needed — added as a placeholder
 # entry below in the dollar section.
 #
-# STARTER SET BELOW — please review and edit before we close B-015.
 macro_series:
   # Rates
   - id: DFF

@@ -25,7 +25,6 @@ Daily briefs and reports are emergent UIs; **the data lake is the asset**.
 
 - Agent harness (Claude Code via GH Actions vs `/schedule` Routines vs manual vs hybrid) — see B-048.
 - CLI tool name — see B-037.
-- ~~Watchlist contents~~ → resolved 2026-05-09 (`config/watchlists.yml`); 7 crypto + 28 equities + 20 macro series. DeFi-protocol coverage stays implicit via chain focus.
 - ~~Postgres schema/migration tool/extensions~~ → resolved 2026-05-07 (`docs/storage.md`); first migration lands with B-010/B-016.
 - ~~Repo layout~~ → resolved 2026-05-07 (`docs/repo-layout.md`); migration interleaved with Phase 1 (B-013).
 
@@ -674,4 +673,3 @@ Reliability work that grows in importance as more sources go live.
   - Self-hosted runner installed on the Beelink, registered to this repo, with Docker network access to `mission_control_net` so it can reach `genkeicapital-postgres`.
   - GH Actions workflows targeting Postgres pinned to the self-hosted runner via `runs-on:` label.
   - Recovery steps documented (how to restart, what to check if jobs queue forever).
-
