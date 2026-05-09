@@ -102,16 +102,6 @@ The data lake doesn't exist yet; this phase makes it possible to land a single r
   - `.github/workflows/defillama-daily.yml` invokes the CLI entry point instead of `python scripts/...`.
 - **Resolved by:** `docs/repo-layout.md` (2026-05-07) — decision portion. Migration tracked here.
 
-### B-014 — Establish `.env.example` + secret-loading pattern
-- **Status:** open
-- **Priority:** medium
-- **Context:** API keys (FRED, BEA, etc.) and Postgres credentials need a consistent loading pattern locally and in CI.
-- **Acceptance criteria:**
-  - `.env.example` lists every variable an ingester might need.
-  - `.env` is gitignored.
-  - GH Actions secrets documented in README.
-  - Local dev pattern documented (direnv? `python-dotenv`? export script?).
-
 ## Phase 1 — Refactor DeFiLlama onto Postgres
 
 Migrate the existing MVP into the new foundation; it becomes the canonical pattern for every future ingester.
