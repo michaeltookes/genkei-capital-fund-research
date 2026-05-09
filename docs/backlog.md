@@ -25,7 +25,7 @@ Daily briefs and reports are emergent UIs; **the data lake is the asset**.
 
 - Agent harness (Claude Code via GH Actions vs `/schedule` Routines vs manual vs hybrid) — see B-048.
 - CLI tool name — see B-037.
-- Watchlist contents — crypto piece landed in `config/watchlists.yml` 2026-05-09; equities (~25) and macro series (~20) still TBD per B-015.
+- ~~Watchlist contents~~ → resolved 2026-05-09 (`config/watchlists.yml`); 7 crypto + 28 equities + 20 macro series. DeFi-protocol coverage stays implicit via chain focus.
 - ~~Postgres schema/migration tool/extensions~~ → resolved 2026-05-07 (`docs/storage.md`); first migration lands with B-010/B-016.
 - ~~Repo layout~~ → resolved 2026-05-07 (`docs/repo-layout.md`); migration interleaved with Phase 1 (B-013).
 
@@ -112,15 +112,6 @@ The data lake doesn't exist yet; this phase makes it possible to land a single r
   - `.env` is gitignored.
   - GH Actions secrets documented in README.
   - Local dev pattern documented (direnv? `python-dotenv`? export script?).
-
-### B-015 — Define initial watchlists (equities + macro remaining)
-- **Status:** open (crypto piece landed; equities and macro series still TBD)
-- **Priority:** medium
-- **Context:** `config/watchlists.yml` exists and covers crypto: BTC/ETH/SOL/LINK/SUI primary + PYTH/RENDER secondary, with sleeve and rationale per asset. Equities and macro series still need user input. DeFi-protocol watchlist (Aave/Lido/etc.) is implicit via the existing chain focus + ecosystem mapping in the crypto watchlist; will firm up as a separate `protocols:` section if/when needed.
-- **Acceptance criteria:**
-  - `config/watchlists.yml` `equities:` populated with the initial ~25 tickers + 1-line rationale each.
-  - `config/watchlists.yml` `macro_series:` populated with ~20 FRED series IDs + 1-line rationale each.
-  - Owner: user (will share when ready).
 
 ## Phase 1 — Refactor DeFiLlama onto Postgres
 
