@@ -38,6 +38,7 @@ def upgrade() -> None:
             'defillama.chain_tvl',
             'ts',
             chunk_time_interval => INTERVAL '30 days',
+            migrate_data => TRUE,
             if_not_exists => TRUE
         )
         """
@@ -48,6 +49,7 @@ def upgrade() -> None:
             'defillama.stablecoins',
             'ts',
             chunk_time_interval => INTERVAL '30 days',
+            migrate_data => TRUE,
             if_not_exists => TRUE
         )
         """
@@ -58,6 +60,7 @@ def upgrade() -> None:
             'defillama.prices',
             'ts',
             chunk_time_interval => INTERVAL '7 days',
+            migrate_data => TRUE,
             if_not_exists => TRUE
         )
         """
