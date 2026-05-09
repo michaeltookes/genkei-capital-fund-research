@@ -36,7 +36,7 @@ Mixed across sleeves; most signals inform mid-to-long-term decisions. **Every si
 
 ## Architecture (locked decisions)
 
-- **Storage**: Existing Postgres on Michael's homelab Beelink server. Repo never holds raw vendor data. Connection specs live in the user's `/server-info` skill — load it before any Postgres work.
+- **Storage**: Existing Postgres on Michael's homelab Beelink server (`genkeicapital-postgres`, `postgres:16-alpine`, port 5440 on `mission_control_net`). Repo never holds raw vendor data. See `docs/infrastructure.md` for the full picture; full connection specs live in the user's `/server-info` skill (local-only).
 - **Agent data interface**: Custom CLI tool (working name `genkei`) with typed subcommands per data domain. Agent composes CLI invocations via Bash. Every subcommand supports `--json` for the agent + human-readable output by default.
 - **Backfill**: First-class. Each ingester ships a backfill mode pulling multi-year history (5–10 years where the source allows).
 - **Repo visibility**: Single repo, free/open sources only. Paid APIs deferred until a private-data story exists.
@@ -89,7 +89,8 @@ Briefs, alerts, and agent answers commit to the repo under `reports/`. Future mi
 
 Tracked as backlog items so they don't block forward motion:
 
-- ~~**B-007/B-008/B-009** — Postgres extensions / schema / migrations~~ → resolved by `docs/storage.md` (2026-05-07): TimescaleDB (pending homelab verification in B-006), per-source schemas + `meta.*` + `analytics.*`, Alembic with hand-written migrations.
+- ~~**B-008/B-009** — Postgres schema / migrations~~ → resolved by `docs/storage.md` (2026-05-07).
+- **B-007** — Activate TimescaleDB on the homelab — image swap to `timescale/timescaledb:latest-pg16`, or take the plain-PG `pg_partman` fallback. Until resolved, time-series migrations stay plain-PG-compatible.
 - ~~**B-013** — Repo layout~~ → resolved by `docs/repo-layout.md` (2026-05-07): `src/genkei/{common,ingest,normalize,cli,experiments,reports}/`. Migration lands in Phase 1.
 - **B-015** — Watchlists. Crypto cores known (BTC/ETH/SOL/LINK); equities + macro series TBD.
 - **B-037** — CLI name (working: `genkei`).

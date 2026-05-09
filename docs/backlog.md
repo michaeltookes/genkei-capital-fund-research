@@ -84,22 +84,14 @@ Daily briefs and reports are emergent UIs; **the data lake is the asset**.
 
 The data lake doesn't exist yet; this phase makes it possible to land a single row.
 
-### B-006 — Pull homelab Postgres connection specs from `/server-info`
+### B-007 — Activate TimescaleDB on the homelab Postgres
 - **Status:** open
-- **Priority:** high
-- **Context:** Architecture targets the user's existing Postgres on a homelab Beelink server. Connection specs (host, port, DB name, network reachability) live in the user's `/server-info` skill, which wasn't loaded when this backlog was drafted.
-- **Acceptance criteria:**
-  - Connection details documented in `docs/infrastructure.md` (or equivalent).
-  - Network reachability confirmed from a developer machine and from a GH Actions runner.
-  - Decision recorded on whether GH-hosted runners can reach the homelab or whether a self-hosted runner is needed.
-
-### B-007 — Decide Postgres extensions and time-series strategy
-- **Status:** open (decision portion done; first migration to install extension is the remaining work)
 - **Priority:** medium
-- **Context:** TimescaleDB chosen pending homelab verification in B-006. Extension install + first hypertable land with the first concrete migration (B-016+).
+- **Context:** Verified in B-006 that `genkeicapital-postgres` runs `postgres:16-alpine`, which does not include TimescaleDB. Two paths documented in `docs/infrastructure.md`: swap image to `timescale/timescaledb:latest-pg16` (recommended), or stay on plain PG with `pg_partman`. Until this lands, every time-series migration must be written to work on plain PG; a separate Timescale-activation migration follows the image swap.
 - **Acceptance criteria:**
-  - First migration installs `timescaledb` (or codifies the fallback to plain PG + pg_partman if homelab can't host it).
-- **Resolved by:** `docs/storage.md` (2026-05-07) — decision portion. Install lands with B-016+.
+  - Decision made between image swap vs plain-PG fallback.
+  - If swapping: container image updated on the homelab, migration runs `CREATE EXTENSION IF NOT EXISTS timescaledb`, hypertables created on the time-series tables that exist at swap time.
+  - If staying plain: `pg_partman` install path documented; rollup-table strategy added to `docs/storage.md`.
 
 ### B-013 — Migrate codebase to chosen `src/genkei/` layout
 - **Status:** open
@@ -686,9 +678,9 @@ Reliability work that grows in importance as more sources go live.
 ### B-077 — Self-hosted GH Actions runner if needed
 - **Status:** open
 - **Priority:** medium
-- **Context:** Cloud runners may not reach the homelab Postgres directly; if so, a self-hosted runner is the path.
+- **Context:** Confirmed in B-006 that the Beelink is on a private LAN behind double NAT — GitHub-hosted runners cannot reach it. A self-hosted runner is the recommended path; `docs/infrastructure.md` notes Cloudflare TCP tunnel as an alternative once we need cloud-runner access.
 - **Acceptance criteria:**
-  - Decision driven by B-006 outcome.
-  - If needed: runner installed on Beelink, registered, scoped to this repo.
-  - Documentation + recovery steps.
+  - Self-hosted runner installed on the Beelink, registered to this repo, with Docker network access to `mission_control_net` so it can reach `genkeicapital-postgres`.
+  - GH Actions workflows targeting Postgres pinned to the self-hosted runner via `runs-on:` label.
+  - Recovery steps documented (how to restart, what to check if jobs queue forever).
 
