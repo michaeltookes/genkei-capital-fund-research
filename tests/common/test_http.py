@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import unittest
 from collections.abc import Callable, Iterator
+from datetime import datetime, timedelta, timezone
+from email.utils import format_datetime
 
 import httpx
 
@@ -224,6 +226,15 @@ class RetryPolicyValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "RetryPolicy.retry_on_status"):
             RetryPolicy(retry_on_status=frozenset({500, "503"}))  # type: ignore[arg-type]
 
+    def test_normalizes_retry_statuses_to_frozenset(self) -> None:
+        retry_statuses = {500, 503}
+        policy = RetryPolicy(retry_on_status=retry_statuses)
+
+        retry_statuses.add(418)
+
+        self.assertEqual(policy.retry_on_status, frozenset({500, 503}))
+        self.assertIsInstance(policy.retry_on_status, frozenset)
+
 
 class UserAgentTests(unittest.TestCase):
     def test_default_user_agent_includes_source(self) -> None:
@@ -261,6 +272,7 @@ class RetryBehaviorTests(unittest.TestCase):
         self,
         handler: Callable[[httpx.Request], httpx.Response],
         retry: RetryPolicy | None = None,
+        wall_clock: Callable[[], datetime] | None = None,
     ) -> tuple[HttpClient, _FakeClock]:
         clock = _FakeClock()
         client = HttpClient(
@@ -269,6 +281,7 @@ class RetryBehaviorTests(unittest.TestCase):
             transport=httpx.MockTransport(handler),
             sleep=clock.sleep,
             clock=clock,
+            wall_clock=wall_clock,
         )
         return client, clock
 
@@ -314,6 +327,24 @@ class RetryBehaviorTests(unittest.TestCase):
             response = client.get("https://example.test/x")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(clock.sleeps, [7.0])
+
+    def test_honors_http_date_retry_after_header_on_429(self) -> None:
+        now = datetime(2026, 5, 8, 12, 0, 0, tzinfo=timezone.utc)
+        retry_at = now + timedelta(seconds=5)
+        client, clock = self._client(
+            _handler_returning(
+                httpx.Response(
+                    429,
+                    headers={"Retry-After": format_datetime(retry_at, usegmt=True)},
+                ),
+                httpx.Response(200, json={"ok": True}),
+            ),
+            wall_clock=lambda: now,
+        )
+        with client:
+            response = client.get("https://example.test/x")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(clock.sleeps, [5.0])
 
     def test_falls_back_to_backoff_on_invalid_retry_after(self) -> None:
         client, clock = self._client(
@@ -400,6 +431,34 @@ class RetryBehaviorTests(unittest.TestCase):
             response = client.get("https://example.test/x")
         self.assertEqual(response.status_code, 404)
         self.assertEqual(clock.sleeps, [])
+
+    def test_retries_put_and_delete_as_idempotent_methods(self) -> None:
+        for method in ("PUT", "DELETE"):
+            with self.subTest(method=method):
+                attempts: list[str] = []
+
+                def handler(
+                    request: httpx.Request, attempts: list[str] = attempts
+                ) -> httpx.Response:
+                    attempts.append(request.method)
+                    if len(attempts) == 1:
+                        return httpx.Response(503)
+                    return httpx.Response(200, json={"ok": True})
+
+                client, clock = self._client(
+                    handler,
+                    RetryPolicy(
+                        max_attempts=3,
+                        jitter=0.0,
+                        initial_backoff=1.0,
+                        backoff_multiplier=2.0,
+                    ),
+                )
+                with client:
+                    response = client.request(method, "https://example.test/x")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(attempts, [method, method])
+                self.assertEqual(clock.sleeps, [1.0])
 
     def test_does_not_retry_non_idempotent_retryable_status(self) -> None:
         attempts: list[str] = []

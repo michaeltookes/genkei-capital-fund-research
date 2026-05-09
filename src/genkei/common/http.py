@@ -2,9 +2,9 @@
 
 Per-source HTTP client with retry, exponential backoff + jitter, sliding-window
 rate limiting, and a configurable User-Agent. Test-friendly via
-:class:`httpx.BaseTransport` injection plus pluggable ``sleep`` / ``clock``
-callables — none of the timing logic touches a real wall clock when
-overridden.
+:class:`httpx.BaseTransport` injection plus pluggable ``sleep`` / ``clock`` /
+``wall_clock`` callables — none of the timing logic touches a real wall clock
+when overridden.
 
 Each ingester instantiates its own client with a source-specific
 :class:`RateLimit` (e.g. SEC's 10 req/sec) and :class:`RetryPolicy`. The
@@ -18,10 +18,13 @@ from __future__ import annotations
 
 import math
 import random
+import threading
 import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from numbers import Real
 from typing import Any
 
@@ -34,7 +37,7 @@ from genkei import __version__
 #: idiosyncratic semantics (e.g. some APIs return 200 with an error body and
 #: should never be retried).
 RETRYABLE_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
-IDEMPOTENT_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+IDEMPOTENT_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "PUT", "DELETE"})
 
 
 def _is_positive_number(value: Any) -> bool:
@@ -110,6 +113,7 @@ class RetryPolicy:
             isinstance(code, int) and not isinstance(code, bool) for code in self.retry_on_status
         ):
             raise ValueError("RetryPolicy.retry_on_status must be a set or frozenset of ints.")
+        object.__setattr__(self, "retry_on_status", frozenset(self.retry_on_status))
 
 
 class _SlidingWindowLimiter:
@@ -127,6 +131,7 @@ class _SlidingWindowLimiter:
         self._sleep = sleep
         self._clock = clock
         self._timestamps: deque[float] = deque()
+        self._lock = threading.Lock()
 
     def _evict(self, now: float) -> None:
         cutoff = now - self._limit.window_seconds
@@ -134,16 +139,20 @@ class _SlidingWindowLimiter:
             self._timestamps.popleft()
 
     def acquire(self) -> None:
-        now = self._clock()
-        self._evict(now)
-        if len(self._timestamps) >= self._limit.requests:
-            oldest = self._timestamps[0]
-            wait = oldest + self._limit.window_seconds - now
-            if wait > 0:
-                self._sleep(wait)
+        while True:
+            wait = 0.0
+            with self._lock:
                 now = self._clock()
                 self._evict(now)
-        self._timestamps.append(now)
+                if len(self._timestamps) < self._limit.requests:
+                    self._timestamps.append(now)
+                    return
+
+                oldest = self._timestamps[0]
+                wait = oldest + self._limit.window_seconds - now
+
+            if wait > 0:
+                self._sleep(wait)
 
 
 class HttpClient:
@@ -165,12 +174,14 @@ class HttpClient:
         transport: httpx.BaseTransport | None = None,
         sleep: Callable[[float], None] | None = None,
         clock: Callable[[], float] | None = None,
+        wall_clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.source_name = source_name
         self.user_agent = user_agent or f"genkei/{__version__} (+{source_name})"
         self.retry = retry or RetryPolicy()
         self._sleep = sleep or time.sleep
         self._clock = clock or time.monotonic
+        self._wall_clock = wall_clock or (lambda: datetime.now(timezone.utc))
         self._limiter = (
             _SlidingWindowLimiter(rate_limit, sleep=self._sleep, clock=self._clock)
             if rate_limit is not None
@@ -228,17 +239,34 @@ class HttpClient:
         return response.json()
 
     def _wait_after_retryable_status(self, response: httpx.Response, attempt: int) -> float:
-        """Honor a numeric ``Retry-After`` header when present; otherwise
+        """Honor a valid ``Retry-After`` header when present; otherwise
         fall back to the policy's exponential backoff."""
         retry_after = response.headers.get("retry-after")
         if retry_after is not None:
             try:
                 wait = float(retry_after)
-                if math.isfinite(wait) and wait > 0:
-                    return wait
             except ValueError:
-                pass
+                wait = self._wait_until_retry_after_date(retry_after)
+            if wait is not None and math.isfinite(wait) and wait > 0:
+                return wait
         return self._compute_backoff(attempt)
+
+    def _wait_until_retry_after_date(self, retry_after: str) -> float | None:
+        try:
+            retry_at = parsedate_to_datetime(retry_after)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=timezone.utc)
+        else:
+            retry_at = retry_at.astimezone(timezone.utc)
+
+        now = self._wall_clock()
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        else:
+            now = now.astimezone(timezone.utc)
+        return (retry_at - now).total_seconds()
 
     def _compute_backoff(self, attempt: int) -> float:
         backoff = min(
