@@ -28,7 +28,9 @@ Operating *as if* a real fund — data hygiene, archival, audit trail at fund-gr
 
 - **Equity core** — long-only, buy-and-hold quality companies (Buffett mentality: buy great, never sell while income covers expenses). **No short-term equity sleeve.**
 - **Crypto core (long-term hold)** — BTC, ETH, SOL, LINK.
-- **Crypto tactical (turnover-eligible)** — anything outside the four cores.
+- **Crypto tactical (turnover-eligible)** — SUI (primary watchlist), PYTH, RENDER (secondary watchlist), and any future alts.
+
+The **crypto watchlist** lives in `config/watchlists.yml`. Tier (primary/secondary) and sleeve (core/tactical) are orthogonal: tier is how much *coverage* the data lake gives an asset; sleeve is how the user *trades* it.
 
 ### Horizons
 
@@ -92,7 +94,7 @@ Tracked as backlog items so they don't block forward motion:
 - ~~**B-008/B-009** — Postgres schema / migrations~~ → resolved by `docs/storage.md` (2026-05-07).
 - **B-007** — Activate TimescaleDB on the homelab — image swap to `timescale/timescaledb:latest-pg16`, or take the plain-PG `pg_partman` fallback. Until resolved, time-series migrations stay plain-PG-compatible.
 - ~~**B-013** — Repo layout~~ → resolved by `docs/repo-layout.md` (2026-05-07): `src/genkei/{common,ingest,normalize,cli,experiments,reports}/`. Migration lands in Phase 1.
-- **B-015** — Watchlists. Crypto cores known (BTC/ETH/SOL/LINK); equities + macro series TBD.
+- **B-015** — Watchlists. Crypto piece landed (`config/watchlists.yml` covers BTC/ETH/SOL/LINK/SUI primary + PYTH/RENDER secondary). Equities and macro series still TBD.
 - **B-037** — CLI name (working: `genkei`).
 
 ## References

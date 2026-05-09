@@ -1,0 +1,74 @@
+# Genkei Capital research-desk — watchlists
+#
+# Single source of truth for which assets the data lake tracks. Loaded by
+# every crypto ingester (CoinGecko, Binance, DefiLlama, etc.) and mirrored
+# into `meta.watchlists` in Postgres at ingest time.
+#
+# Tiers explained:
+# - `primary`   = full coverage. Prices, on-chain/TVL exposure where
+#                 relevant, backfill, and every signal pipeline by default.
+# - `secondary` = lighter coverage. Prices + core metrics; not pulled into
+#                 every cross-source signal automatically.
+#
+# Sleeves (orthogonal to tier — see CLAUDE.md):
+# - `core`     = long-term hold, Buffett-style. Selling not on the table.
+# - `tactical` = turnover-eligible; signals can argue for trimming/adding.
+#
+# Equities and macro series are still TBD — see backlog item B-015.
+
+version: 1
+
+crypto:
+  primary:
+    - symbol: BTC
+      name: Bitcoin
+      coingecko_id: bitcoin
+      ecosystem: Bitcoin
+      sleeve: core
+      rationale: Long-term core. Reserve asset; macro hedge thesis.
+    - symbol: ETH
+      name: Ethereum
+      coingecko_id: ethereum
+      ecosystem: Ethereum
+      sleeve: core
+      rationale: Long-term core. Settlement layer for the broader DeFi/L2 economy.
+    - symbol: SOL
+      name: Solana
+      coingecko_id: solana
+      ecosystem: Solana
+      sleeve: core
+      rationale: Long-term core. High-throughput L1, dominant non-EVM venue.
+    - symbol: LINK
+      name: Chainlink
+      coingecko_id: chainlink
+      ecosystem: Ethereum
+      sleeve: core
+      rationale: Long-term core. Oracle infrastructure across every major chain.
+    - symbol: SUI
+      name: Sui
+      coingecko_id: sui
+      ecosystem: Sui
+      sleeve: tactical
+      rationale: Primary-tier coverage, tactical sleeve. Move-based L1 worth tracking closely.
+  secondary:
+    - symbol: PYTH
+      name: Pyth Network
+      coingecko_id: pyth-network
+      ecosystem: Solana
+      sleeve: tactical
+      rationale: Oracle competitor to LINK; relevant to the Solana stack.
+    - symbol: RENDER
+      name: Render
+      coingecko_id: render-token
+      ecosystem: Solana
+      sleeve: tactical
+      rationale: Compute marketplace; AI-adjacent narrative; recently migrated to Solana.
+
+# Equities watchlist — TBD per B-015 follow-up.
+equities:
+  primary: []
+  secondary: []
+
+# Macro series watchlist — TBD per B-015 follow-up.
+# Format will mirror FRED series IDs (e.g. DGS10, CPIAUCSL).
+macro_series: []
