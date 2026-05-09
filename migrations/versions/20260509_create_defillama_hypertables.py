@@ -67,11 +67,6 @@ def downgrade() -> None:
     # Hypertable conversion is not reversible in place; the only safe
     # downgrade for a single table is to copy rows to a plain table and
     # swap. Since the parent migration drops these tables on its own
-    # downgrade, we raise here to make the intent explicit: roll back
-    # the schema migration to remove hypertables, don't try to peel off
-    # the Timescale layer alone.
-    raise NotImplementedError(
-        "Hypertables cannot be reverted in place. Downgrade the parent "
-        "schema migration (ff3f33d2105d) to drop the underlying tables "
-        "instead."
-    )
+    # downgrade, this revision is a no-op so Alembic can continue down
+    # to ff3f33d2105d.
+    return None
