@@ -43,7 +43,7 @@ Optional (uncomment in `.env` when the corresponding ingester lands):
 **Loading the file** — three options, pick whichever your shell prefers:
 
 - One-shot: `set -a; source .env; set +a` before running anything.
-- Persistent: `direnv` — `cp .env .envrc && direnv allow`.
+- Persistent: `direnv` — keep secrets only in gitignored `.env`, create a minimal `.envrc` containing `dotenv .env`, then run `direnv allow`. Do not paste full secrets into `.envrc`.
 - From Python: `from genkei.common import load_env_file; load_env_file()` at the top of an entry point. Existing env vars take precedence; safe to call unconditionally.
 
 ### 3. GitHub Actions secrets

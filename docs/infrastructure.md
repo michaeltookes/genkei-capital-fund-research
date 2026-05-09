@@ -7,7 +7,7 @@ How this repo connects to the homelab Postgres that backs the data lake.
 ## Postgres
 
 **Container:** `genkeicapital-postgres`
-**Image:** `postgres:16-alpine`
+**Image:** `timescale/timescaledb:latest-pg16`
 **Host (LAN):** `<beelink-host>`
 **Port:** `5440`
 **Docker network:** `mission_control_net`
@@ -25,7 +25,7 @@ Credentials live in `.env` files on the homelab server (never in this repo). Pul
 
 ## TimescaleDB status
 
-**Decision (2026-05-09):** swap the homelab container image from `postgres:16-alpine` to `timescale/timescaledb:latest-pg16`. The repo migration that activates the extension is already committed (`migrations/versions/20260509_install_timescaledb_extension.py`).
+**Decision (2026-05-09):** the homelab container runs `timescale/timescaledb:latest-pg16`. The repo migration that activates the extension is already committed (`migrations/versions/20260509_install_timescaledb_extension.py`).
 
 ### Container swap (manual step on the homelab)
 

@@ -38,7 +38,7 @@ Mixed across sleeves; most signals inform mid-to-long-term decisions. **Every si
 
 ## Architecture (locked decisions)
 
-- **Storage**: Existing Postgres on Michael's homelab Beelink server (`genkeicapital-postgres`, `postgres:16-alpine`, port 5440 on `mission_control_net`). Repo never holds raw vendor data. See `docs/infrastructure.md` for the full picture; full connection specs live in the user's `/server-info` skill (local-only).
+- **Storage**: Existing TimescaleDB-backed Postgres on Michael's homelab Beelink server (`genkeicapital-postgres`, `timescale/timescaledb:latest-pg16`, port 5440 on `mission_control_net`). `shared_preload_libraries = 'timescaledb'` was set via `ALTER SYSTEM`, and `timescaledb 2.26.4` is installed against the `genkei_capital` database. Repo never holds raw vendor data. See `docs/infrastructure.md` for the full picture; full connection specs live in the user's `/server-info` skill (local-only).
 - **Agent data interface**: Custom CLI tool (working name `genkei`) with typed subcommands per data domain. Agent composes CLI invocations via Bash. Every subcommand supports `--json` for the agent + human-readable output by default.
 - **Backfill**: First-class. Each ingester ships a backfill mode pulling multi-year history (5–10 years where the source allows).
 - **Repo visibility**: Single repo, free/open sources only. Paid APIs deferred until a private-data story exists.

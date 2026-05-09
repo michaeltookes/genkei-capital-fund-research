@@ -27,6 +27,7 @@ venv/
 # Local environment files — never commit, see .env.example
 .env
 .env.*
+.envrc
 !.env.example
 
 # Claude Code local settings (user-specific permissions, not shared)
