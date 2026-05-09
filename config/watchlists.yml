@@ -64,11 +64,257 @@ crypto:
       sleeve: tactical
       rationale: Compute marketplace; AI-adjacent narrative; recently migrated to Solana.
 
-# Equities watchlist — TBD per B-015 follow-up.
+# Equities watchlist.
+#
+# All entries are sleeve `core` per CLAUDE.md — Michael's equity stance is
+# long-only Buffett-style buy-and-hold. The `tactical` sleeve does not exist
+# for equities right now.
 equities:
-  primary: []
+  primary:
+    # Mega-cap tech compounders
+    - symbol: AAPL
+      name: Apple Inc.
+      sector: Consumer technology
+      sleeve: core
+      rationale: Mega-cap compounder; durable consumer hardware + services franchise.
+    - symbol: MSFT
+      name: Microsoft Corporation
+      sector: Software / cloud
+      sleeve: core
+      rationale: Cloud + enterprise software duopoly position; AI distribution leader.
+    - symbol: GOOG
+      name: Alphabet Inc. (Class C)
+      sector: Internet / cloud / AI
+      sleeve: core
+      rationale: Search cash flow + cloud + AI optionality; held alongside GOOGL.
+    - symbol: GOOGL
+      name: Alphabet Inc. (Class A)
+      sector: Internet / cloud / AI
+      sleeve: core
+      rationale: Voting share class of Alphabet; same thesis as GOOG.
+    - symbol: AMZN
+      name: Amazon.com, Inc.
+      sector: E-commerce / cloud
+      sleeve: core
+      rationale: AWS cash flow + retail margin recovery; long-term compounder.
+    - symbol: META
+      name: Meta Platforms, Inc.
+      sector: Internet / advertising / AI
+      sleeve: core
+      rationale: Advertising cash flow funding AI capex; durable user base.
+
+    # Semiconductors / AI compute
+    - symbol: NVDA
+      name: NVIDIA Corporation
+      sector: Semiconductors
+      sleeve: core
+      rationale: Dominant AI training/inference compute supplier.
+    - symbol: AMD
+      name: Advanced Micro Devices, Inc.
+      sector: Semiconductors
+      sleeve: core
+      rationale: Second-source AI accelerator + CPU share-take story.
+    - symbol: AVGO
+      name: Broadcom Inc.
+      sector: Semiconductors / software
+      sleeve: core
+      rationale: Custom silicon (XPU) + diversified semis + VMware cash flow.
+    - symbol: MU
+      name: Micron Technology, Inc.
+      sector: Semiconductors / memory
+      sleeve: core
+      rationale: Memory cycle exposure; HBM demand from AI training clusters.
+    - symbol: SMCI
+      name: Super Micro Computer, Inc.
+      sector: Server systems
+      sleeve: core
+      rationale: AI server integrator; NVIDIA partner exposure.
+    - symbol: TSM
+      name: Taiwan Semiconductor Manufacturing Company
+      sector: Semiconductors / foundry
+      sleeve: core
+      rationale: Foundry monopoly for leading-edge nodes; entire AI supply chain depends on it.
+
+    # Software / data / defense
+    - symbol: CRM
+      name: Salesforce, Inc.
+      sector: Enterprise software
+      sleeve: core
+      rationale: Enterprise CRM incumbent; AI agent/Copilot monetization.
+    - symbol: PLTR
+      name: Palantir Technologies Inc.
+      sector: Data / defense software
+      sleeve: core
+      rationale: Government + commercial AIP momentum; widening commercial book.
+    - symbol: DOCN
+      name: DigitalOcean Holdings, Inc.
+      sector: Cloud infrastructure
+      sleeve: core
+      rationale: SMB-focused cloud + GPU droplet expansion; smaller-cap optionality.
+
+    # Financials / payments / fintech
+    - symbol: JPM
+      name: JPMorgan Chase & Co.
+      sector: Banking
+      sleeve: core
+      rationale: Best-of-breed money-center bank; rates and credit-cycle exposure.
+    - symbol: V
+      name: Visa Inc.
+      sector: Payments
+      sleeve: core
+      rationale: Global payments duopoly; secular cash-to-card migration.
+    - symbol: SOFI
+      name: SoFi Technologies, Inc.
+      sector: Consumer fintech
+      sleeve: core
+      rationale: Bank-charter fintech; deposit + lending growth optionality.
+    - symbol: HOOD
+      name: Robinhood Markets, Inc.
+      sector: Brokerage / fintech
+      sleeve: core
+      rationale: Retail brokerage with crypto + derivatives growth tailwind.
+
+    # Crypto-adjacent equities
+    - symbol: COIN
+      name: Coinbase Global, Inc.
+      sector: Crypto exchange
+      sleeve: core
+      rationale: Largest US-regulated crypto venue; secular crypto adoption proxy.
+    - symbol: MSTR
+      name: Strategy (formerly MicroStrategy Incorporated)
+      sector: Bitcoin treasury
+      sleeve: core
+      rationale: Leveraged BTC treasury play; tracks bitcoin with corporate-finance overlay.
+    - symbol: BMNR
+      name: BitMine Immersion Technologies, Inc.
+      sector: Bitcoin mining
+      sleeve: core
+      rationale: Bitcoin mining infrastructure; leveraged BTC exposure with operational risk.
+    - symbol: CLSK
+      name: CleanSpark, Inc.
+      sector: Bitcoin mining
+      sleeve: core
+      rationale: Bitcoin mining; sustainable energy mix differentiates within the cohort.
+
+    # Mobility / energy / materials
+    - symbol: TSLA
+      name: Tesla, Inc.
+      sector: EV / energy
+      sleeve: core
+      rationale: EV manufacturer with energy storage + AI/robotics optionality.
+    - symbol: UBER
+      name: Uber Technologies, Inc.
+      sector: Mobility
+      sleeve: core
+      rationale: Mobility + delivery network; profitable scale, AV optionality.
+    - symbol: CCJ
+      name: Cameco Corporation
+      sector: Mining / uranium
+      sleeve: core
+      rationale: Uranium pure-play; nuclear-renaissance + AI-power-demand thesis.
+    - symbol: XOM
+      name: Exxon Mobil Corporation
+      sector: Oil & gas
+      sleeve: core
+      rationale: Integrated oil major; cash-flow + dividend through commodity cycles.
+
+    - symbol: SUIG
+      name: Sui Group Holdings
+      sector: Sui treasury
+      sleeve: core
+      rationale: Leveraged SUI exposure via corporate treasury — Sui equivalent of MSTR's bitcoin-treasury playbook.
   secondary: []
 
-# Macro series watchlist — TBD per B-015 follow-up.
-# Format will mirror FRED series IDs (e.g. DGS10, CPIAUCSL).
-macro_series: []
+# Macro series watchlist.
+#
+# Format mirrors FRED series IDs (e.g. DGS10, CPIAUCSL). Macro is the spine
+# of the investment philosophy (CLAUDE.md), so this set should grow first
+# when something feels under-covered.
+#
+# Note on DXY: the ICE U.S. Dollar Index (DXY) isn't a FRED series. The
+# closest equivalents are DTWEXBGS (broad trade-weighted) or DTWEXAFEGS
+# (advanced foreign economies). DXY itself is sourced from market data
+# (CoinGecko / equity providers) when needed — added as a placeholder
+# entry below in the dollar section.
+#
+# STARTER SET BELOW — please review and edit before we close B-015.
+macro_series:
+  # Rates
+  - id: DFF
+    name: Federal Funds Effective Rate
+    rationale: Fed policy stance; the entire short end of the curve pivots off this.
+  - id: DGS2
+    name: 2-Year Treasury Yield
+    rationale: Market's expected path of the policy rate.
+  - id: DGS10
+    name: 10-Year Treasury Yield
+    rationale: Risk-free benchmark; equity discount-rate input; growth signal.
+  - id: T10Y2Y
+    name: 10Y-2Y Treasury Spread
+    rationale: Yield-curve slope; recession-signal proxy.
+  - id: DGS30
+    name: 30-Year Treasury Yield
+    rationale: Long-end inflation/term-premium read.
+
+  # Inflation
+  - id: CPIAUCSL
+    name: Consumer Price Index (All Urban Consumers)
+    rationale: Headline inflation; drives Fed policy expectations.
+  - id: PCEPI
+    name: PCE Price Index
+    rationale: Fed's preferred inflation gauge.
+
+  # Growth + labor
+  - id: GDPC1
+    name: Real GDP
+    rationale: Quarterly growth pulse; regime-classifier input.
+  - id: UNRATE
+    name: Unemployment Rate
+    rationale: Labor-market slack; Fed dual-mandate input.
+  - id: PAYEMS
+    name: Total Nonfarm Payrolls
+    rationale: Monthly employment momentum.
+  - id: INDPRO
+    name: Industrial Production Index
+    rationale: Real-economy activity in goods-producing sectors.
+
+  # Liquidity / money
+  - id: WALCL
+    name: Federal Reserve Balance Sheet (All Liabilities and Capital)
+    rationale: Fed liquidity provision; risk-asset tide.
+  - id: M2SL
+    name: M2 Money Supply
+    rationale: Broad money aggregate; long-run inflation/asset-price input.
+
+  # Dollar
+  - id: DTWEXBGS
+    name: Trade-Weighted U.S. Dollar Index (Broad, Goods + Services)
+    rationale: Closest FRED equivalent to DXY; risk-asset crosswind.
+
+  # Credit
+  - id: BAMLH0A0HYM2
+    name: ICE BofA US High Yield Index Option-Adjusted Spread
+    rationale: HY credit spread; risk appetite + recession signal.
+
+  # Volatility / risk
+  - id: VIXCLS
+    name: CBOE VIX Volatility Index
+    rationale: Equity-vol regime indicator.
+
+  # Housing
+  - id: HOUST
+    name: Housing Starts
+    rationale: Rate-sensitive sector pulse; consumer-cycle input.
+
+  # Sentiment
+  - id: UMCSENT
+    name: University of Michigan Consumer Sentiment
+    rationale: Consumer mood; spending leading indicator.
+
+  # Commodities
+  - id: DCOILWTICO
+    name: WTI Crude Oil Spot Price
+    rationale: Inflation + global-growth signal; energy-equity input.
+  - id: GOLDAMGBD228NLBM
+    name: Gold (London PM fix)
+    rationale: Real-rate / debasement hedge; macro regime cross-check.
