@@ -84,13 +84,13 @@ Daily briefs and reports are emergent UIs; **the data lake is the asset**.
 The data lake doesn't exist yet; this phase makes it possible to land a single row.
 
 ### B-007 — Activate TimescaleDB on the homelab Postgres
-- **Status:** open
+- **Status:** open (decision made + migration written; container swap on homelab is the remaining step, owner: user)
 - **Priority:** medium
-- **Context:** Verified in B-006 that `genkeicapital-postgres` runs `postgres:16-alpine`, which does not include TimescaleDB. Two paths documented in `docs/infrastructure.md`: swap image to `timescale/timescaledb:latest-pg16` (recommended), or stay on plain PG with `pg_partman`. Until this lands, every time-series migration must be written to work on plain PG; a separate Timescale-activation migration follows the image swap.
+- **Context:** Image swap to `timescale/timescaledb:latest-pg16` chosen on 2026-05-09 (see `docs/infrastructure.md`). Activation migration `migrations/versions/20260509_install_timescaledb_extension.py` is committed and idempotent — runs `CREATE EXTENSION IF NOT EXISTS timescaledb` against the new image. Per-source migrations stay plain-PG-compatible; hypertable promotion lands in dedicated follow-up migrations.
 - **Acceptance criteria:**
-  - Decision made between image swap vs plain-PG fallback.
-  - If swapping: container image updated on the homelab, migration runs `CREATE EXTENSION IF NOT EXISTS timescaledb`, hypertables created on the time-series tables that exist at swap time.
-  - If staying plain: `pg_partman` install path documented; rollup-table strategy added to `docs/storage.md`.
+  - User executes the container swap on the homelab per `docs/infrastructure.md` (`docker compose down` → edit `image:` → `docker compose up -d`).
+  - `alembic upgrade head` against the new container applies the timescaledb migration cleanly.
+  - First hypertable promotion lands with the first time-series ingester migration (B-016+).
 
 ### B-013 — Migrate codebase to chosen `src/genkei/` layout
 - **Status:** open
