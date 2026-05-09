@@ -97,15 +97,6 @@ The data lake doesn't exist yet; this phase makes it possible to land a single r
 
 Migrate the existing MVP into the new foundation; it becomes the canonical pattern for every future ingester.
 
-### B-016 — Design Postgres schema for DeFiLlama
-- **Status:** open
-- **Priority:** high
-- **Context:** First real schema design — sets precedent for every future source.
-- **Acceptance criteria:**
-  - Tables: `defillama.protocols`, `defillama.chain_tvl`, `defillama.stablecoins`, `defillama.prices`.
-  - Time-series tables use the chosen partitioning/Timescale strategy from B-007.
-  - Migration committed and tested.
-
 ### B-017 — Refactor `collect_defillama.py` to write to Postgres
 - **Status:** open
 - **Priority:** high
