@@ -101,17 +101,6 @@ The data lake doesn't exist yet; this phase makes it possible to land a single r
   - First migration installs `timescaledb` (or codifies the fallback to plain PG + pg_partman if homelab can't host it).
 - **Resolved by:** `docs/storage.md` (2026-05-07) — decision portion. Install lands with B-016+.
 
-### B-011 — Build shared HTTP client with retry, backoff, rate limiting
-- **Status:** open
-- **Priority:** high
-- **Context:** Every ingester hits an external API. Reinventing retry/backoff per source guarantees inconsistency.
-- **Acceptance criteria:**
-  - Single client used by all ingesters.
-  - Configurable per-source rate limit (e.g. SEC 10 req/sec).
-  - Exponential backoff with jitter; bounded retries.
-  - User-Agent header set per source.
-  - Unit tests cover retry behavior and rate-limit enforcement.
-
 ### B-013 — Migrate codebase to chosen `src/genkei/` layout
 - **Status:** open
 - **Priority:** low
