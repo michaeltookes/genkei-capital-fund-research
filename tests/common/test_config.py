@@ -1,4 +1,5 @@
 """Unit tests for genkei.common.config."""
+
 from __future__ import annotations
 
 import os
@@ -48,9 +49,7 @@ class LoadEnvFileTests(unittest.TestCase):
 
     def test_skips_comments_and_blanks(self) -> None:
         self._track("GENKEI_TEST_KEY")
-        path = self._write(
-            "\n# a comment\n\nGENKEI_TEST_KEY=value\n# trailing\n"
-        )
+        path = self._write("\n# a comment\n\nGENKEI_TEST_KEY=value\n# trailing\n")
         self.assertEqual(config.load_env_file(path), 1)
         self.assertEqual(os.environ["GENKEI_TEST_KEY"], "value")
 
@@ -82,9 +81,7 @@ class LoadEnvFileTests(unittest.TestCase):
 
     def test_value_containing_equals_is_preserved(self) -> None:
         self._track("GENKEI_TEST_URL")
-        path = self._write(
-            "GENKEI_TEST_URL=postgresql://u:pw@host/db?option=value\n"
-        )
+        path = self._write("GENKEI_TEST_URL=postgresql://u:pw@host/db?option=value\n")
         config.load_env_file(path)
         self.assertEqual(
             os.environ["GENKEI_TEST_URL"],
@@ -99,9 +96,7 @@ class LoadEnvFileTests(unittest.TestCase):
         # One key already set; second is new. Count should be 1.
         self._track("GENKEI_TEST_EXISTING", "GENKEI_TEST_NEW")
         os.environ["GENKEI_TEST_EXISTING"] = "preserved"
-        path = self._write(
-            "GENKEI_TEST_EXISTING=overwritten\nGENKEI_TEST_NEW=new\n"
-        )
+        path = self._write("GENKEI_TEST_EXISTING=overwritten\nGENKEI_TEST_NEW=new\n")
         self.assertEqual(config.load_env_file(path), 1)
         self.assertEqual(os.environ["GENKEI_TEST_EXISTING"], "preserved")
         self.assertEqual(os.environ["GENKEI_TEST_NEW"], "new")

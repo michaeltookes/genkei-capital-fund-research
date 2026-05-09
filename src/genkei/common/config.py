@@ -12,6 +12,7 @@ Usage:
     load_env_file()                     # default: .env in cwd
     load_env_file(".env.local")         # explicit path
 """
+
 from __future__ import annotations
 
 import os
