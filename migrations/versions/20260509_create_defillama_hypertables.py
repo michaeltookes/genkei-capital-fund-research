@@ -1,8 +1,9 @@
 """Convert DeFiLlama time-series tables to TimescaleDB hypertables.
 
 Separates the Timescale-specific layer from the table DDL (per
-docs/storage.md) so the hypertable conversion can be reverted without
-dropping the underlying tables.
+docs/storage.md). downgrade() in this file is intentionally a no-op so
+Alembic can continue to the parent migration, whose downgrade may drop
+the underlying tables.
 
 Hypertables created:
   - defillama.chain_tvl    chunk_time_interval => 30 days
