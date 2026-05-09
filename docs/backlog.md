@@ -159,15 +159,6 @@ Migrate the existing MVP into the new foundation; it becomes the canonical patte
   - Report banner / CLI warning when stale.
   - `meta.ingest_runs` queryable for staleness.
 
-### B-024 — Migrate tests to Postgres-aware fixtures
-- **Status:** open
-- **Priority:** high
-- **Context:** Tests currently mock JSON files; with Postgres they need a test DB strategy.
-- **Acceptance criteria:**
-  - Test container (testcontainers-python) or transaction-rollback fixture chosen.
-  - All 35 existing tests passing under the new fixture.
-  - CI runs tests against ephemeral Postgres.
-
 ### B-025 — Decide fate of existing daily-brief markdown report
 - **Status:** open
 - **Priority:** medium
