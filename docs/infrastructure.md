@@ -7,7 +7,7 @@ How this repo connects to the homelab Postgres that backs the data lake.
 ## Postgres
 
 **Container:** `genkeicapital-postgres`
-**Image:** `postgres:16-alpine`
+**Image:** `timescale/timescaledb:2.26.4-pg16`
 **Host (LAN):** `<beelink-host>`
 **Port:** `5440`
 **Docker network:** `mission_control_net`
@@ -25,14 +25,38 @@ Credentials live in `.env` files on the homelab server (never in this repo). Pul
 
 ## TimescaleDB status
 
-The existing container runs **plain PostgreSQL 16-alpine** — it does **not** include TimescaleDB.
+**Decision (2026-05-09):** the homelab container runs `timescale/timescaledb:2.26.4-pg16`. The repo migration that activates the extension is already committed (`migrations/versions/20260509_install_timescaledb_extension.py`).
 
-Per `docs/storage.md`, two paths forward:
+### Container swap (manual step on the homelab)
 
-1. **Switch the image** (recommended): replace `postgres:16-alpine` with `timescale/timescaledb:latest-pg16` on the homelab. Same data dir, same port, same network — drop-in replacement. After the swap, the first time-series migration runs `CREATE EXTENSION IF NOT EXISTS timescaledb;` and `SELECT create_hypertable(...)` on the appropriate tables.
-2. **Stay on plain PG**: take the fallback from `docs/storage.md` — `pg_partman` plus hand-written rollups. Acceptable interim; revisit before the data lake outgrows it.
+```bash
+ssh <beelink-host>
+cd ~/homelab/apps/mission-control/genkei-capital/postgres/
 
-**Tracked in B-007.** Until that's resolved, every new time-series migration should be written so it works on plain PG (no `create_hypertable` calls); a separate Timescale-activation migration will land alongside the image swap.
+# Edit docker-compose.yml: replace `image: postgres:16-alpine` with
+# `image: timescale/timescaledb:2.26.4-pg16`. Same data dir, same port,
+# same network — drop-in replacement.
+
+docker compose down
+docker compose up -d
+docker compose logs -f genkeicapital-postgres   # confirm it's healthy
+```
+
+Then, from a developer machine pointed at the new container:
+
+```bash
+.venv/bin/alembic upgrade head
+```
+
+The activation migration creates `timescaledb` only when the extension is not already present. If the swap didn't happen, that statement fails loudly — by design, no silent degradation.
+
+### Fallback
+
+If the swap turns out to be impractical (license concerns, homelab compatibility issue), back out by reverting the migration's effect (drop the extension on the database) and switch to `pg_partman` + hand-written rollups per the alternative path in `docs/storage.md`. Documented but not pursued unless TimescaleDB itself becomes a problem.
+
+### Hypertable activation
+
+Per `docs/storage.md`, hypertables live in their own migrations, separate from the base table DDL. Each per-source schema migration creates plain tables; a follow-up migration in the same series promotes the time-series tables to hypertables via `SELECT create_hypertable(...)`. This keeps the tables usable on plain PG even before TimescaleDB activates.
 
 ## Network reachability
 

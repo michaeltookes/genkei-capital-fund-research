@@ -1,5 +1,6 @@
 """Shared building blocks: db helpers, HTTP client, config loaders."""
 
+from genkei.common.config import load_env_file
 from genkei.common.db import (
     IngestRun,
     bulk_upsert,
@@ -25,5 +26,6 @@ __all__ = [
     "connection",
     "get_pool",
     "ingest_run",
+    "load_env_file",
     "reset_pool",
 ]

@@ -83,15 +83,6 @@ Daily briefs and reports are emergent UIs; **the data lake is the asset**.
 
 The data lake doesn't exist yet; this phase makes it possible to land a single row.
 
-### B-007 — Activate TimescaleDB on the homelab Postgres
-- **Status:** open
-- **Priority:** medium
-- **Context:** Verified in B-006 that `genkeicapital-postgres` runs `postgres:16-alpine`, which does not include TimescaleDB. Two paths documented in `docs/infrastructure.md`: swap image to `timescale/timescaledb:latest-pg16` (recommended), or stay on plain PG with `pg_partman`. Until this lands, every time-series migration must be written to work on plain PG; a separate Timescale-activation migration follows the image swap.
-- **Acceptance criteria:**
-  - Decision made between image swap vs plain-PG fallback.
-  - If swapping: container image updated on the homelab, migration runs `CREATE EXTENSION IF NOT EXISTS timescaledb`, hypertables created on the time-series tables that exist at swap time.
-  - If staying plain: `pg_partman` install path documented; rollup-table strategy added to `docs/storage.md`.
-
 ### B-013 — Migrate codebase to chosen `src/genkei/` layout
 - **Status:** open
 - **Priority:** low
@@ -101,16 +92,6 @@ The data lake doesn't exist yet; this phase makes it possible to land a single r
   - Tests moved to `tests/{ingest,normalize,reports}/` and still pass.
   - `.github/workflows/defillama-daily.yml` invokes the CLI entry point instead of `python scripts/...`.
 - **Resolved by:** `docs/repo-layout.md` (2026-05-07) — decision portion. Migration tracked here.
-
-### B-014 — Establish `.env.example` + secret-loading pattern
-- **Status:** open
-- **Priority:** medium
-- **Context:** API keys (FRED, BEA, etc.) and Postgres credentials need a consistent loading pattern locally and in CI.
-- **Acceptance criteria:**
-  - `.env.example` lists every variable an ingester might need.
-  - `.env` is gitignored.
-  - GH Actions secrets documented in README.
-  - Local dev pattern documented (direnv? `python-dotenv`? export script?).
 
 ## Phase 1 — Refactor DeFiLlama onto Postgres
 
