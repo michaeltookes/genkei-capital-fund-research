@@ -7,7 +7,7 @@ How this repo connects to the homelab Postgres that backs the data lake.
 ## Postgres
 
 **Container:** `genkeicapital-postgres`
-**Image:** `timescale/timescaledb:latest-pg16`
+**Image:** `timescale/timescaledb:2.26.4-pg16`
 **Host (LAN):** `<beelink-host>`
 **Port:** `5440`
 **Docker network:** `mission_control_net`
@@ -25,7 +25,7 @@ Credentials live in `.env` files on the homelab server (never in this repo). Pul
 
 ## TimescaleDB status
 
-**Decision (2026-05-09):** the homelab container runs `timescale/timescaledb:latest-pg16`. The repo migration that activates the extension is already committed (`migrations/versions/20260509_install_timescaledb_extension.py`).
+**Decision (2026-05-09):** the homelab container runs `timescale/timescaledb:2.26.4-pg16`. The repo migration that activates the extension is already committed (`migrations/versions/20260509_install_timescaledb_extension.py`).
 
 ### Container swap (manual step on the homelab)
 
@@ -34,7 +34,7 @@ ssh <beelink-host>
 cd ~/homelab/apps/mission-control/genkei-capital/postgres/
 
 # Edit docker-compose.yml: replace `image: postgres:16-alpine` with
-# `image: timescale/timescaledb:latest-pg16`. Same data dir, same port,
+# `image: timescale/timescaledb:2.26.4-pg16`. Same data dir, same port,
 # same network — drop-in replacement.
 
 docker compose down
@@ -48,7 +48,7 @@ Then, from a developer machine pointed at the new container:
 .venv/bin/alembic upgrade head
 ```
 
-The activation migration runs `CREATE EXTENSION IF NOT EXISTS timescaledb`. If the swap didn't happen, that statement fails loudly — by design, no silent degradation.
+The activation migration creates `timescaledb` only when the extension is not already present. If the swap didn't happen, that statement fails loudly — by design, no silent degradation.
 
 ### Fallback
 
