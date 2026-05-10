@@ -39,6 +39,12 @@ except ImportError:
 
 TIMESCALE_IMAGE = "timescale/timescaledb:2.26.4-pg16"
 USER_TABLE_SCHEMAS = ("defillama", "meta")
+USER_TABLES_SQL = """
+SELECT format('%%I.%%I', table_schema, table_name)
+FROM information_schema.tables
+WHERE table_schema = ANY(%s)
+  AND table_type = 'BASE TABLE'
+"""
 
 _HARNESS: PostgresHarness | None = None
 
@@ -114,15 +120,7 @@ class PostgresHarness:
         ``meta.ingest_runs.id`` predictability holds) and follows FKs.
         """
         with psycopg.connect(self.url) as conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT format('%I.%I', table_schema, table_name)
-                FROM information_schema.tables
-                WHERE table_schema = ANY(%s)
-                  AND table_type = 'BASE TABLE'
-                """,
-                [list(USER_TABLE_SCHEMAS)],
-            )
+            cur.execute(USER_TABLES_SQL, [list(USER_TABLE_SCHEMAS)])
             tables = [row[0] for row in cur.fetchall()]
             if tables:
                 cur.execute(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY CASCADE")
