@@ -54,6 +54,20 @@ class LoadSeriesTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "macro_series"):
                 load_series(path)
 
+    def test_rejects_duplicate_macro_series_ids(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(
+                "macro_series:\n"
+                "  - id: DGS10\n"
+                "    name: 10-Year Treasury Yield\n"
+                "  - id: DGS10\n"
+                "    name: Duplicate 10-Year Treasury Yield\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(SystemExit, "Duplicate macro_series id: DGS10"):
+                load_series(path)
+
     def test_rejects_missing_file(self) -> None:
         with self.assertRaisesRegex(SystemExit, "Watchlist file not found"):
             load_series(Path("/no/such/path.yml"))

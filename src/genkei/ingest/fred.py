@@ -81,6 +81,7 @@ def load_series(path: Path) -> list[SeriesTarget]:
     if not isinstance(raw, list) or not raw:
         raise SystemExit("watchlists.yml is missing macro_series or it is empty.")
     out: list[SeriesTarget] = []
+    seen_ids: set[str] = set()
     for entry in raw:
         if not isinstance(entry, dict):
             raise SystemExit("Each macro_series entry must be a mapping.")
@@ -88,6 +89,9 @@ def load_series(path: Path) -> list[SeriesTarget]:
         name = entry.get("name")
         if not isinstance(sid, str) or not sid:
             raise SystemExit("macro_series entry is missing a string `id`.")
+        if sid in seen_ids:
+            raise SystemExit(f"Duplicate macro_series id: {sid}")
+        seen_ids.add(sid)
         if not isinstance(name, str) or not name:
             raise SystemExit(f"macro_series entry {sid!r} is missing a string `name`.")
         rationale = entry.get("rationale")
@@ -199,9 +203,10 @@ def _fetch_series_pair(
         try:
             payload = http.get_json(url)
         except Exception as exc:
-            LOGGER.warning("FRED fetch failed for %s: %s", endpoint_name, exc)
+            safe_error = _redact_key(str(exc), api_key)
+            LOGGER.warning("FRED fetch failed for %s: %s", endpoint_name, safe_error)
             failures.append(
-                {"name": endpoint_name, "url": _redact_key(url, api_key), "error": str(exc)}
+                {"name": endpoint_name, "url": _redact_key(url, api_key), "error": safe_error}
             )
             continue
         # Persist the redacted URL so raw_blobs.url can't leak the key.

@@ -176,8 +176,12 @@ class FredIntegrationTests(unittest.TestCase):
             self.assertEqual(cur.fetchone()[0], 3)  # 2 vintages + 1 daily
 
     def test_all_fetch_failures_mark_collector_run_failed(self) -> None:
-        def failing_route(_request: httpx.Request) -> httpx.Response:
-            raise httpx.ConnectError("network down")
+        def failing_route(request: httpx.Request) -> httpx.Response:
+            raise httpx.HTTPStatusError(
+                f"401 unauthorized for {request.url}",
+                request=request,
+                response=httpx.Response(401, request=request),
+            )
 
         with HttpClient("fred-test", transport=httpx.MockTransport(failing_route)) as http:
             with self.assertRaisesRegex(RuntimeError, "All FRED fetches failed"):
@@ -197,6 +201,10 @@ class FredIntegrationTests(unittest.TestCase):
         self.assertIn("All FRED fetches failed", error)
         self.assertEqual(raw_blob_count, 0)
         self.assertEqual(len(metadata["partial_endpoints"]), 4)
+        for failure in metadata["partial_endpoints"]:
+            self.assertNotIn("TESTKEY", failure["url"])
+            self.assertNotIn("TESTKEY", failure["error"])
+            self.assertIn("api_key=***", failure["error"])
 
 
 if __name__ == "__main__":
