@@ -9,7 +9,9 @@ from genkei.ingest.defillama import (
     build_collection_targets,
     build_price_target,
     chain_history_target_name,
+    main,
     read_base_urls,
+    target_asset_coin_keys,
 )
 
 
@@ -42,6 +44,17 @@ class BuildTargetsTests(unittest.TestCase):
                 {
                     "defillama_base_urls": {"core": "https://api.llama.fi"},
                     "target_assets": [{"coingecko_id": "bitcoin"}],
+                }
+            )
+
+    def test_target_asset_coin_keys_require_every_asset_to_have_coingecko_id(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "Each target asset must include coingecko_id"):
+            target_asset_coin_keys(
+                {
+                    "target_assets": [
+                        {"coingecko_id": "bitcoin"},
+                        {"symbol": "ETH"},
+                    ]
                 }
             )
 
@@ -117,6 +130,13 @@ class BuildTargetsTests(unittest.TestCase):
             {"defillama_base_urls": {"core": "https://api.llama.fi/", "coins": "https://x/"}}
         )
         self.assertEqual(urls, {"core": "https://api.llama.fi", "coins": "https://x"})
+
+    def test_main_rejects_backfill_only_flags_for_daily_collection(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "--since/--endpoint only valid with --backfill"):
+            main(["--since", "2026-05-01"])
+
+        with self.assertRaisesRegex(SystemExit, "--since/--endpoint only valid with --backfill"):
+            main(["--endpoint", "prices"])
 
 
 if __name__ == "__main__":

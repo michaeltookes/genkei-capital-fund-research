@@ -27,6 +27,7 @@ import json
 import logging
 import sys
 from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -37,11 +38,26 @@ from genkei.common.http import HttpClient, RateLimit
 DEFAULT_CONFIG_PATH = Path("config/defillama.sources.json")
 SOURCE_NAME = "defillama"
 COLLECT_ENDPOINT_LABEL = "collect"
+BACKFILL_ENDPOINT_LABEL = "backfill"
 RAW_BLOBS_INSERT = (
     "INSERT INTO meta.raw_blobs (ingest_run_id, endpoint_name, url, payload) "
     "VALUES (%s, %s, %s, %s::jsonb) "
     "ON CONFLICT (ingest_run_id, endpoint_name) DO NOTHING"
 )
+RAW_BLOBS_COPY_INSERT = (
+    "INSERT INTO meta.raw_blobs (ingest_run_id, endpoint_name, url, payload, fetched_at) "
+    "VALUES (%s, %s, %s, %s::jsonb, %s) "
+    "ON CONFLICT (ingest_run_id, endpoint_name) DO NOTHING"
+)
+# Backfill-blob naming. Uniqueness is per (ingest_run_id, endpoint_name);
+# these prefixes also drive normalizer dispatch.
+PRICE_HISTORICAL_PREFIX = "prices_historical_"
+PROTOCOL_HISTORY_PREFIX = "protocol_"
+STABLECOIN_HISTORY_PREFIX = "stablecoin_"
+# Resumability: skip URLs we've fetched within this window. Long enough
+# that crashed-then-resumed runs stay efficient; short enough that data
+# eventually refreshes if the user re-runs the same backfill weeks later.
+RESUME_WINDOW = timedelta(days=14)
 JsonObject = dict[str, Any]
 LOGGER = logging.getLogger(__name__)
 
@@ -93,6 +109,16 @@ def chain_history_target_name(chain_name: str) -> str:
 
 def build_price_target(config: JsonObject) -> CollectionTarget:
     """Build the bulk price URL for the configured target assets."""
+    coin_keys = target_asset_coin_keys(config)
+    base_urls = read_base_urls(config)
+    if "coins" not in base_urls:
+        raise SystemExit("defillama_base_urls.coins is missing")
+    joined = quote(",".join(coin_keys), safe=":,")
+    return CollectionTarget("prices_current", f"{base_urls['coins']}/prices/current/{joined}")
+
+
+def target_asset_coin_keys(config: JsonObject) -> list[str]:
+    """Return configured target assets as DeFiLlama coin keys."""
     assets = config.get("target_assets", [])
     if not isinstance(assets, list) or not assets:
         raise SystemExit("Config must define at least one target asset.")
@@ -101,11 +127,7 @@ def build_price_target(config: JsonObject) -> CollectionTarget:
         if not isinstance(asset, dict) or not asset.get("coingecko_id"):
             raise SystemExit("Each target asset must include coingecko_id.")
         coin_keys.append(f"coingecko:{asset['coingecko_id']}")
-    base_urls = read_base_urls(config)
-    if "coins" not in base_urls:
-        raise SystemExit("defillama_base_urls.coins is missing")
-    joined = quote(",".join(coin_keys), safe=":,")
-    return CollectionTarget("prices_current", f"{base_urls['coins']}/prices/current/{joined}")
+    return coin_keys
 
 
 def build_chain_history_targets(config: JsonObject) -> list[CollectionTarget]:
@@ -225,19 +247,289 @@ def _record_partial(ingest_run_id: int, partial: list[dict[str, str]]) -> None:
         )
 
 
+# ---------------------------------------------------------------------------
+# Backfill mode (B-019)
+# ---------------------------------------------------------------------------
+#
+# DeFiLlama exposes per-endpoint historical depth that varies by source:
+#   prices       — `/coins/prices/historical/{ts}/{keys}` per timestamp.
+#                  Major assets (BTC/ETH) go back ~5y; newer assets less.
+#                  We walk daily timestamps from --since to today.
+#   protocols    — `/protocol/{slug}` returns full per-chain TVL series.
+#                  Most major protocols cover 3-5y.
+#   stablecoins  — `/stablecoin/{id}` returns per-chain peggedUSD series.
+#                  Major stablecoins (USDT/USDC) cover ~3-5y.
+#   chain_tvl    — already covered by the daily collector pulling
+#                  `/v2/historicalChainTvl/{chain}` in full on every run
+#                  (G-012). Backfill is a no-op here.
+#
+# Resumability: every prospective fetch checks meta.raw_blobs for a
+# matching URL within RESUME_WINDOW (14d). Already-fetched URLs are
+# skipped, so a crashed backfill resumes from where it left off without
+# refetching what's already on disk.
+#
+# All three backfillable endpoints are best-effort per item: a single
+# failed protocol/stablecoin/date doesn't tank the whole run; it's
+# logged and recorded in meta.ingest_runs.metadata.partial_endpoints.
+
+DEFAULT_BACKFILL_RATE_LIMIT = RateLimit.per_second(5)
+BACKFILLABLE_ENDPOINTS = ("prices", "protocols", "stablecoins")
+
+
+def parse_since_date(value: str) -> date:
+    """Parse a YYYY-MM-DD argument."""
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"--since must be YYYY-MM-DD: {value}") from exc
+
+
+def _cached_blob(url: str) -> tuple[Any, datetime] | None:
+    """Return the newest recent blob for ``url`` if it is inside the resume window."""
+    cutoff = datetime.now(timezone.utc) - RESUME_WINDOW
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT payload, fetched_at FROM meta.raw_blobs "
+            "WHERE url = %s AND fetched_at >= %s "
+            "ORDER BY fetched_at DESC LIMIT 1",
+            [url, cutoff],
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    payload, fetched_at = row
+    return payload, fetched_at
+
+
+def _store_blob_for_run(ingest_run_id: int, endpoint_name: str, url: str, payload: Any) -> None:
+    """INSERT one raw_blobs row keyed to a backfill ingest_run."""
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(RAW_BLOBS_INSERT, [ingest_run_id, endpoint_name, url, json.dumps(payload)])
+
+
+def _copy_cached_blob_for_run(
+    ingest_run_id: int,
+    endpoint_name: str,
+    url: str,
+    payload: Any,
+    fetched_at: datetime,
+) -> None:
+    """Copy a resumed raw blob into the current backfill run."""
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            RAW_BLOBS_COPY_INSERT,
+            [ingest_run_id, endpoint_name, url, json.dumps(payload), fetched_at],
+        )
+
+
+def _fetch_with_resume(
+    url: str,
+    endpoint_name: str,
+    ingest_run_id: int,
+    http: HttpClient,
+    failures: list[dict[str, str]],
+) -> bool:
+    """Fetch one URL into raw_blobs; skip if recently cached. Return True on row written."""
+    cached = _cached_blob(url)
+    if cached is not None:
+        payload, fetched_at = cached
+        _copy_cached_blob_for_run(ingest_run_id, endpoint_name, url, payload, fetched_at)
+        LOGGER.debug("reuse %s (already fetched within %s)", endpoint_name, RESUME_WINDOW)
+        return True
+    try:
+        payload = http.get_json(url)
+    except Exception as exc:
+        LOGGER.warning("backfill fetch failed for %s: %s", endpoint_name, exc)
+        failures.append({"name": endpoint_name, "url": url, "error": str(exc)})
+        return False
+    _store_blob_for_run(ingest_run_id, endpoint_name, url, payload)
+    return True
+
+
+def _backfill_prices(
+    config: JsonObject,
+    since: date,
+    http: HttpClient,
+    ingest_run_id: int,
+    failures: list[dict[str, str]],
+) -> int:
+    """Walk daily timestamps and fetch /coins/prices/historical/{ts}/{keys}."""
+    base_urls = read_base_urls(config)
+    if "coins" not in base_urls:
+        raise SystemExit("defillama_base_urls.coins is missing")
+    coin_keys = quote(",".join(target_asset_coin_keys(config)), safe=":,")
+    written = 0
+    today = date.today()
+    cursor = since
+    while cursor <= today:
+        ts = int(datetime.combine(cursor, datetime.min.time(), tzinfo=timezone.utc).timestamp())
+        url = f"{base_urls['coins']}/prices/historical/{ts}/{coin_keys}"
+        endpoint_name = f"{PRICE_HISTORICAL_PREFIX}{cursor.isoformat()}"
+        if _fetch_with_resume(url, endpoint_name, ingest_run_id, http, failures):
+            written += 1
+        cursor += timedelta(days=1)
+    return written
+
+
+def _backfill_protocols(
+    config: JsonObject,
+    http: HttpClient,
+    ingest_run_id: int,
+    failures: list[dict[str, str]],
+) -> int:
+    """Iterate every known protocol slug, fetch /protocol/{slug}."""
+    base_urls = read_base_urls(config)
+    if "core" not in base_urls:
+        raise SystemExit("defillama_base_urls.core is missing")
+    slugs = _known_protocol_slugs()
+    if not slugs:
+        LOGGER.warning("no protocols in defillama.protocols — run the daily collector first")
+        return 0
+    written = 0
+    for index, slug in enumerate(slugs):
+        url = f"{base_urls['core']}/protocol/{quote(slug, safe='')}"
+        endpoint_name = f"{PROTOCOL_HISTORY_PREFIX}{slug}"
+        if _fetch_with_resume(url, endpoint_name, ingest_run_id, http, failures):
+            written += 1
+        if (index + 1) % 100 == 0:
+            LOGGER.info("protocols backfill progress: %s/%s", index + 1, len(slugs))
+    return written
+
+
+def _backfill_stablecoins(
+    config: JsonObject,
+    http: HttpClient,
+    ingest_run_id: int,
+    failures: list[dict[str, str]],
+) -> int:
+    """Iterate every known stablecoin id, fetch /stablecoin/{id}."""
+    base_urls = read_base_urls(config)
+    if "stablecoins" not in base_urls:
+        raise SystemExit("defillama_base_urls.stablecoins is missing")
+    asset_ids = _known_stablecoin_ids()
+    if not asset_ids:
+        LOGGER.warning("no stablecoins in defillama.stablecoins — run the daily collector first")
+        return 0
+    written = 0
+    for index, asset_id in enumerate(asset_ids):
+        url = f"{base_urls['stablecoins']}/stablecoin/{quote(asset_id, safe='')}"
+        endpoint_name = f"{STABLECOIN_HISTORY_PREFIX}{asset_id}"
+        if _fetch_with_resume(url, endpoint_name, ingest_run_id, http, failures):
+            written += 1
+        if (index + 1) % 50 == 0:
+            LOGGER.info("stablecoins backfill progress: %s/%s", index + 1, len(asset_ids))
+    return written
+
+
+def _known_protocol_slugs() -> list[str]:
+    """Slugs we've seen at least once in defillama.protocols."""
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT slug FROM defillama.protocols ORDER BY slug")
+        return [r[0] for r in cur.fetchall()]
+
+
+def _known_stablecoin_ids() -> list[str]:
+    """Distinct stablecoin asset_ids seen in defillama.stablecoins."""
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT asset_id FROM defillama.stablecoins ORDER BY asset_id")
+        return [r[0] for r in cur.fetchall()]
+
+
+def backfill(
+    config_path: Path,
+    *,
+    since: date,
+    endpoints: list[str] | None = None,
+    http: HttpClient | None = None,
+) -> int:
+    """Run the historical backfill once and return the meta.ingest_runs id.
+
+    `endpoints` filters to a subset of {'prices', 'protocols', 'stablecoins'}.
+    None = all three. chain_tvl is intentionally not backfillable here —
+    the daily collector already pulls full chain history every run.
+
+    Returns the backfill run's ingest_run id. Resumability via
+    meta.raw_blobs.url lookup means re-running after a partial failure
+    skips already-fetched URLs (within RESUME_WINDOW).
+    """
+    config = load_config(config_path)
+    selected = list(endpoints) if endpoints else list(BACKFILLABLE_ENDPOINTS)
+    invalid = [e for e in selected if e not in BACKFILLABLE_ENDPOINTS]
+    if invalid:
+        raise SystemExit(f"unknown backfill endpoints: {invalid}")
+
+    owns_http = http is None
+    if http is None:
+        http = HttpClient(SOURCE_NAME, rate_limit=DEFAULT_BACKFILL_RATE_LIMIT)
+
+    failures: list[dict[str, str]] = []
+    try:
+        with db.ingest_run(
+            SOURCE_NAME,
+            endpoint=BACKFILL_ENDPOINT_LABEL,
+            metadata={
+                "config_path": str(config_path),
+                "since": since.isoformat(),
+                "endpoints": selected,
+            },
+        ) as run:
+            total = 0
+            if "prices" in selected:
+                total += _backfill_prices(config, since, http, run.id, failures)
+            if "protocols" in selected:
+                total += _backfill_protocols(config, http, run.id, failures)
+            if "stablecoins" in selected:
+                total += _backfill_stablecoins(config, http, run.id, failures)
+            run.add_rows(total)
+            if failures:
+                _record_partial(run.id, failures)
+            return run.id
+    finally:
+        if owns_http:
+            http.close()
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Collect DeFiLlama public API snapshots into Postgres."
     )
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    parser.add_argument(
+        "--backfill",
+        action="store_true",
+        help="Run historical backfill instead of the daily snapshot.",
+    )
+    parser.add_argument(
+        "--since",
+        type=parse_since_date,
+        default=None,
+        help="Backfill start date (YYYY-MM-DD). Required with --backfill.",
+    )
+    parser.add_argument(
+        "--endpoint",
+        action="append",
+        choices=BACKFILLABLE_ENDPOINTS,
+        help=(
+            "Backfill a subset of endpoints. Repeatable; default = all "
+            f"({', '.join(BACKFILLABLE_ENDPOINTS)})."
+        ),
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     args = parse_args(argv or sys.argv[1:])
-    run_id = collect(args.config)
-    print(f"DeFiLlama collector wrote ingest_run_id={run_id}")
+    if not args.backfill and (args.since is not None or args.endpoint):
+        raise SystemExit("--since/--endpoint only valid with --backfill")
+    if args.backfill:
+        if args.since is None:
+            raise SystemExit("--since YYYY-MM-DD is required with --backfill")
+        run_id = backfill(args.config, since=args.since, endpoints=args.endpoint)
+        print(f"DeFiLlama backfill wrote ingest_run_id={run_id}")
+    else:
+        run_id = collect(args.config)
+        print(f"DeFiLlama collector wrote ingest_run_id={run_id}")
     return 0
 
 

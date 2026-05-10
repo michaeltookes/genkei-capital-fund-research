@@ -343,9 +343,11 @@ class IngestRunTests(unittest.TestCase):
 
         self.fake_pool.connection = failing_second_connection  # type: ignore[assignment]
 
-        with self.assertLogs("genkei.common.db", level="ERROR"), self.assertRaisesRegex(
-            RuntimeError, "ingest failed"
-        ), db.ingest_run("sec"):
+        with (
+            self.assertLogs("genkei.common.db", level="ERROR"),
+            self.assertRaisesRegex(RuntimeError, "ingest failed"),
+            db.ingest_run("sec"),
+        ):
             raise RuntimeError("ingest failed")
 
     def test_truncates_long_error_messages(self) -> None:
