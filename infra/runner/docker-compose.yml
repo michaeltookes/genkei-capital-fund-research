@@ -19,7 +19,12 @@
 
 services:
   genkei-runner:
-    image: myoung34/github-runner:2.320.0
+    # Tracking :latest deliberately. GitHub rolls deprecation on older
+    # runner versions every few months — a pinned tag silently goes
+    # Offline once it's deprecated. DISABLE_AUTO_UPDATE below still
+    # prevents the runner self-updating mid-job; image-level updates
+    # only happen on `docker compose pull && docker compose up -d`.
+    image: myoung34/github-runner:latest
     container_name: genkei-runner
     restart: unless-stopped
     environment:
