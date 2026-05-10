@@ -50,8 +50,6 @@ OBSERVATIONS_BLOB_PREFIX = "observations_"
 # (1 req / sec) since 20 series × 2 calls = 40 calls per run completes
 # in under a minute either way.
 DEFAULT_RATE_LIMIT = RateLimit.per_second(1)
-# Earliest documented FRED realtime_start.
-EARLIEST_REALTIME = "1776-07-04"
 OBSERVATIONS_PAGE_LIMIT = 100_000
 RAW_BLOBS_INSERT = (
     "INSERT INTO meta.raw_blobs (ingest_run_id, endpoint_name, url, payload) "
@@ -133,14 +131,12 @@ def build_observations_url(
     limit: int = OBSERVATIONS_PAGE_LIMIT,
     offset: int = 0,
 ) -> str:
-    """Build the URL for the full-vintage observations endpoint."""
+    """Build the URL for the latest-vintage observations endpoint."""
     return (
         f"{FRED_BASE_URL}/series/observations"
         f"?series_id={series_id}"
         f"&api_key={api_key}"
         f"&file_type=json"
-        f"&realtime_start={EARLIEST_REALTIME}"
-        f"&realtime_end=9999-12-31"
         f"&limit={limit}"
         f"&offset={offset}"
     )
