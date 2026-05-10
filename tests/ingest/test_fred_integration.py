@@ -177,7 +177,8 @@ class FredIntegrationTests(unittest.TestCase):
 
     def test_any_fetch_failures_mark_collector_run_failed(self) -> None:
         def failing_route(request: httpx.Request) -> httpx.Response:
-            if request.url.path.endswith("/series") and request.url.params.get("series_id") == "DGS10":
+            sid = request.url.params.get("series_id")
+            if request.url.path.endswith("/series") and sid == "DGS10":
                 return _route(request)
             raise httpx.HTTPStatusError(
                 f"401 unauthorized for {request.url}",
@@ -185,9 +186,11 @@ class FredIntegrationTests(unittest.TestCase):
                 response=httpx.Response(401, request=request),
             )
 
-        with HttpClient("fred-test", transport=httpx.MockTransport(failing_route)) as http:
-            with self.assertRaisesRegex(RuntimeError, "FRED fetch failed for 3 endpoint"):
-                self._run_collect(http)
+        with (
+            HttpClient("fred-test", transport=httpx.MockTransport(failing_route)) as http,
+            self.assertRaisesRegex(RuntimeError, "FRED fetch failed for 3 endpoint"),
+        ):
+            self._run_collect(http)
 
         with db.connection() as conn, conn.cursor() as cur:
             cur.execute(

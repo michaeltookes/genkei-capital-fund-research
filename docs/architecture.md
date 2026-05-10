@@ -388,11 +388,15 @@ Append-only. Each entry: **what**, **why**, **alternative considered**, **what w
 **Alternative:** Latest-only PK `(series_id, ts)` with overwrites. Rejected — smaller storage but lossy; retrofitting from latest-only to vintage-aware requires re-fetching everything.
 **What would change our mind:** If FRED storage outgrows the homelab (unlikely — revisions are sparse), we could prune old vintages older than N years.
 
+**Amendment (2026-05-10, smoke test):** the schema decision stays vintage-aware, and the collector still requests the full realtime window (`realtime_start=1776-07-04&realtime_end=9999-12-31`). That matches the schema intent, but it also means G-019 is an active upstream limit for long daily series until we add a real mitigation such as vintage-window pagination or a separate latest-only mode.
+
 ### D-014 — FRED is single-mode: no `--backfill` flag, daily run pulls full history
 **Date:** 2026-05-10 · **In:** R-027
 **Decision:** `python -m genkei.ingest.fred` always fetches full-vintage observations for every configured series. There is no separate `--backfill` flag.
 **Why:** FRED's `/series/observations` endpoint returns the entire history per call. No date-walker needed; daily and backfill are the same code path. The vintage-aware schema (D-013) means re-running just upserts any new revisions as new rows.
 **Alternative:** Mirror DeFiLlama's `--backfill --since` flag for consistency. Rejected — adds a code path with no consumer; the FRED endpoint shape doesn't reward it. Per-source ingester shape can differ from per-source ingester shape; that's fine.
+
+**Amendment (2026-05-10, smoke test):** "full history per call" is still what the collector requests on both the *observation date* axis and the *vintage* axis. G-019 documents the upstream 2000-vintage cap this can hit for long daily series. Daily and backfill remain the same code path; the no-`--backfill`-flag decision stands.
 
 ---
 
@@ -506,3 +510,15 @@ Append-only. Each entry: **what bit us**, **how we resolved it**, **how to avoid
 **Symptom:** The `/series` endpoint wraps its single result in `{"seriess": [...]}` — note the double-s. Easy to miss when reading the API docs and easier to typo when writing the parser.
 **Resolution:** `normalize_series` reads `payload["seriess"]` (the typo is canonical and stable across the FRED API).
 **Avoid next time:** When the FRED docs say a key looks weird, trust them — don't "correct" it. Same goes for any similar quirks in other sources.
+
+### G-019 — FRED's JSON file type caps responses at 2000 vintage dates
+**Hit:** 2026-05-10 (B-028 first live smoke test against FRED)
+**Symptom:** The first scheduled run failed for 6 observation endpoints: every daily-frequency series with decades of history (T10Y2Y, DGS2, DGS10, DGS30, DFF, VIXCLS) returned `400 Bad Request` with the message `"There are 3033 vintage dates in the specified real-time period: 1776-07-04 to 9999-12-31. This exceeds the maximum number of vintage dates allowed for this file type (2000)."` The `build_observations_url` default passes `realtime_start=1776-07-04` and `realtime_end=9999-12-31` to grab every vintage; FRED's JSON serializer can't fit that many in one response for those long daily series.
+**Current state:** `build_observations_url` still passes `realtime_start=1776-07-04` and `realtime_end=9999-12-31`. This preserves the intended vintage-aware request shape, but it does **not** mitigate the 2000-vintage JSON cap. Long daily series can still fail until we implement a real mitigation such as vintage-window pagination, per-series fallbacks, or an explicit latest-only collection mode.
+**Avoid next time:** Smoke-test against the real upstream API on the *first* live run, not just mocked-HTTP integration tests. Mocks can't surface upstream-side limits like vintage-count caps. Same lesson applies to any future ingester whose API has per-response limits we won't hit until the live data hits them.
+
+### G-020 — FRED retired `GOLDAMGBD228NLBM` (London PM gold fix); no clean spot-gold replacement on FRED
+**Hit:** 2026-05-10 (B-028 first live smoke test)
+**Symptom:** The watchlist's gold series returned `400 Bad Request` with `"The series does not exist."` on both `/series` and `/series/observations`. The London Bullion Market Association data feed FRED used to host appears to have been retired.
+**Resolution:** Dropped from `config/watchlists.yml` with a comment explaining what we tried. The closest live FRED alternatives (`GVZCLS` gold volatility, `IQ12260` monthly gold export-price index) aren't spot prices. Plan: re-add a real spot-gold series via a commodities feed when one lands in Phase 2 or beyond.
+**Avoid next time:** Periodically audit watchlist series IDs for retirements — FRED occasionally sunsets feeds when the source provider changes terms. Worth wiring into B-072 (schema-drift detection) when that lands.
