@@ -10,14 +10,14 @@ Endpoints collected (driven by ``config/defillama.sources.json``):
 
   - ``prices_current``               coins.llama.fi /prices/current
   - ``protocols``                    api.llama.fi /protocols
-  - ``chains``                       api.llama.fi /v2/chains
+  - ``chains``                       api.llama.fi /v2/chains (optional; not normalized)
   - ``stablecoins``                  stablecoins.llama.fi /stablecoins
   - ``chain_tvl_history_<chain>``    one per ``chain_focus`` entry
 
-Required endpoints (everything except chain history) raise on failure
-and the run is marked ``failed``. Per-chain history failures are logged
-and recorded in run metadata under ``partial_endpoints`` so the run
-still completes — historical TVL is best-effort upstream.
+Required normalized endpoints raise on failure and the run is marked
+``failed``. Optional endpoints such as ``chains`` and per-chain history are
+logged and recorded in run metadata under ``partial_endpoints`` so the run
+still completes.
 """
 
 from __future__ import annotations
@@ -143,7 +143,7 @@ def build_collection_targets(config: JsonObject) -> list[CollectionTarget]:
         if not isinstance(endpoint, dict):
             raise SystemExit("Each collection endpoint must be an object.")
         config_endpoint_names.add(require_string(endpoint, "name"))
-    missing = {"protocols", "chains", "stablecoins"} - config_endpoint_names
+    missing = {"protocols", "stablecoins"} - config_endpoint_names
     if missing:
         raise SystemExit(f"Missing required collection endpoints: {', '.join(sorted(missing))}")
 
@@ -159,7 +159,9 @@ def build_collection_targets(config: JsonObject) -> list[CollectionTarget]:
         if base_key not in base_urls:
             raise SystemExit(f"Unknown base URL key for endpoint {name}: {base_key}")
         seen.add(name)
-        targets.append(CollectionTarget(name, f"{base_urls[base_key]}{path}"))
+        targets.append(
+            CollectionTarget(name, f"{base_urls[base_key]}{path}", required=name != "chains")
+        )
     return targets
 
 

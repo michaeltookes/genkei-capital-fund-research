@@ -87,9 +87,30 @@ class BuildTargetsTests(unittest.TestCase):
             ],
         }
         with self.assertRaisesRegex(
-            SystemExit, "Missing required collection endpoints: chains, stablecoins"
+            SystemExit, "Missing required collection endpoints: stablecoins"
         ):
             build_collection_targets(config)
+
+    def test_build_collection_targets_marks_chains_optional(self) -> None:
+        config = {
+            "defillama_base_urls": {
+                "core": "https://api.llama.fi",
+                "coins": "https://coins.llama.fi",
+                "stablecoins": "https://stablecoins.llama.fi",
+            },
+            "target_assets": [{"coingecko_id": "bitcoin"}],
+            "chain_focus": [],
+            "collection_endpoints": [
+                {"name": "protocols", "base": "core", "path": "/protocols"},
+                {"name": "stablecoins", "base": "stablecoins", "path": "/stablecoins"},
+                {"name": "chains", "base": "core", "path": "/v2/chains"},
+            ],
+        }
+        targets = build_collection_targets(config)
+        by_name = {target.name: target for target in targets}
+        self.assertFalse(by_name["chains"].required)
+        self.assertTrue(by_name["protocols"].required)
+        self.assertTrue(by_name["stablecoins"].required)
 
     def test_read_base_urls_strips_trailing_slash(self) -> None:
         urls = read_base_urls(

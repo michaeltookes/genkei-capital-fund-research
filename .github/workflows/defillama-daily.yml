@@ -1,12 +1,9 @@
 name: DeFiLlama Daily Brief
 
-# B-017 + B-018 moved the pipeline onto Postgres. The workflow can no
-# longer read/write JSON artifacts from a GH-hosted runner because
-# GH-hosted runners cannot reach the homelab Postgres (double NAT). The
-# scheduled trigger is restored, but DB-dependent steps are skipped on
-# GH-hosted runners until B-077 lands a self-hosted runner on the Beelink.
-# The daily-brief render step also stays disabled pending B-025 (decide
-# fate of the legacy markdown brief).
+# B-017 + B-018 moved the pipeline onto Postgres, so the scheduled job
+# runs on the self-hosted runner that can reach the homelab database.
+# The daily-brief render step stays disabled pending B-025 (decide fate
+# of the legacy markdown brief).
 
 on:
   schedule:
@@ -19,13 +16,10 @@ permissions:
 jobs:
   pipeline:
     name: DeFiLlama collect + normalize (Postgres-backed)
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 15
     env:
       GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
-    # When B-077 lands the self-hosted runner, switch this to:
-    #   runs-on: [self-hosted, beelink]
-    # and re-enable the schedule above.
 
     steps:
       - name: Check out repository
@@ -42,11 +36,9 @@ jobs:
           python3 -m pip install -e .
 
       - name: Collect raw payloads into meta.raw_blobs
-        if: ${{ runner.environment == 'self-hosted' && env.GENKEI_DATABASE_URL != '' }}
         run: python3 -m genkei.ingest.defillama
 
       - name: Normalize raw payloads into defillama.* tables
-        if: ${{ runner.environment == 'self-hosted' && env.GENKEI_DATABASE_URL != '' }}
         run: python3 -m genkei.normalize.defillama
 
       # Daily-brief render step intentionally omitted: B-025 will decide
