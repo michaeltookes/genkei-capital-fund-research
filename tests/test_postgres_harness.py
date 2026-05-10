@@ -21,8 +21,9 @@ class PostgresHarnessHelperTests(unittest.TestCase):
             "postgresql+psycopg://test:test@localhost:5432/test",
         )
 
-    def test_user_table_sql_escapes_postgres_format_placeholders(self) -> None:
-        self.assertIn("format('%%I.%%I'", _postgres.USER_TABLES_SQL)
+    def test_user_table_sql_returns_schema_and_table_names(self) -> None:
+        self.assertIn("SELECT table_schema, table_name", _postgres.USER_TABLES_SQL)
+        self.assertNotIn("%I", _postgres.USER_TABLES_SQL)
 
     @patch("tests._postgres.subprocess.run")
     @patch("tests._postgres.shutil.which", return_value="/usr/bin/docker")

@@ -31,6 +31,7 @@ from typing import Any
 
 try:
     import psycopg
+    from psycopg import sql
     from testcontainers.postgres import PostgresContainer
 
     _IMPORTS_OK = True
@@ -40,7 +41,7 @@ except ImportError:
 TIMESCALE_IMAGE = "timescale/timescaledb:2.26.4-pg16"
 USER_TABLE_SCHEMAS = ("defillama", "meta")
 USER_TABLES_SQL = """
-SELECT format('%%I.%%I', table_schema, table_name)
+SELECT table_schema, table_name
 FROM information_schema.tables
 WHERE table_schema = ANY(%s)
   AND table_type = 'BASE TABLE'
@@ -121,9 +122,14 @@ class PostgresHarness:
         """
         with psycopg.connect(self.url) as conn, conn.cursor() as cur:
             cur.execute(USER_TABLES_SQL, [list(USER_TABLE_SCHEMAS)])
-            tables = [row[0] for row in cur.fetchall()]
+            tables = cur.fetchall()
             if tables:
-                cur.execute(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY CASCADE")
+                table_identifiers = sql.SQL(", ").join(
+                    sql.Identifier(schema, table) for schema, table in tables
+                )
+                cur.execute(
+                    sql.SQL("TRUNCATE {} RESTART IDENTITY CASCADE").format(table_identifiers)
+                )
             conn.commit()
 
     def stop(self) -> None:
