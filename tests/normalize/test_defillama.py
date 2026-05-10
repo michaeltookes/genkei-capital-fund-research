@@ -6,6 +6,7 @@ import unittest
 from datetime import datetime, timezone
 
 from genkei.normalize.defillama import (
+    _rows_for,
     _stablecoin_supply,
     as_float,
     chain_history_stem,
@@ -48,6 +49,10 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(_stablecoin_supply(99), 99.0)
         self.assertIsNone(_stablecoin_supply({"current": {"other": "x"}}))
 
+    def test_rows_for_requires_blob(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "Missing required raw blob.*protocols"):
+            _rows_for({}, "protocols", normalize_protocols, 1, 99)
+
 
 class NormalizeProtocolsTests(unittest.TestCase):
     def test_returns_one_row_per_named_protocol(self) -> None:
@@ -77,6 +82,7 @@ class NormalizeProtocolsTests(unittest.TestCase):
         self.assertEqual(row["last_updated_at"], NOW)
         self.assertEqual(row["fetched_at"], NOW)
         self.assertEqual(row["ingest_run_id"], 42)
+        self.assertEqual(row["source_endpoint"], "https://api.llama.fi/protocols")
         self.assertNotIn("first_seen_at", row)  # DB default fires on insert
 
     def test_handles_non_list_chains(self) -> None:
@@ -105,6 +111,10 @@ class NormalizeChainTvlHistoryTests(unittest.TestCase):
         self.assertEqual(rows[0]["chain"], "Ethereum")
         self.assertEqual(rows[0]["tvl_usd"], 100.0)
         self.assertEqual(rows[1]["tvl_usd"], 110.5)
+        for row in rows:
+            self.assertEqual(
+                row["source_endpoint"], "https://api.llama.fi/v2/historicalChainTvl/Ethereum"
+            )
 
 
 class NormalizeStablecoinsTests(unittest.TestCase):
@@ -138,6 +148,7 @@ class NormalizeStablecoinsTests(unittest.TestCase):
             self.assertEqual(row["asset_id"], "1")
             self.assertEqual(row["ts"], NOW)
             self.assertEqual(row["ingest_run_id"], 7)
+            self.assertEqual(row["source_endpoint"], "https://stablecoins.llama.fi/stablecoins")
 
 
 class NormalizePricesTests(unittest.TestCase):
@@ -168,11 +179,13 @@ class NormalizePricesTests(unittest.TestCase):
         self.assertEqual(row["symbol"], "BTC")
         self.assertEqual(row["decimals"], 8)
         self.assertAlmostEqual(row["confidence"], 0.99)
+        self.assertEqual(row["source_endpoint"], "https://coins.llama.fi/prices/current/x")
 
-    def test_falls_back_to_now_without_timestamp(self) -> None:
+    def test_falls_back_to_provided_default_without_timestamp(self) -> None:
         payload = {"coins": {"coingecko:foo": {"price": 1.0}}}
         rows = normalize_prices(payload, source_endpoint="x", ingest_run_id=1, now=NOW)
         self.assertEqual(rows[0]["ts"], NOW)
+        self.assertEqual(rows[0]["source_endpoint"], "x")
 
 
 if __name__ == "__main__":

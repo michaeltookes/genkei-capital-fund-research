@@ -41,6 +41,7 @@ NORMALIZE_ENDPOINT_LABEL = "normalize"
 COLLECT_ENDPOINT_LABEL = "collect"
 CHAIN_HISTORY_PREFIX = "chain_tvl_history_"
 JsonObject = dict[str, Any]
+RawBlob = tuple[str, Any, datetime]
 LOGGER = logging.getLogger(__name__)
 
 
@@ -292,17 +293,18 @@ def latest_collector_run_id() -> int:
     return int(row[0])
 
 
-def fetch_raw_blobs(source_run_id: int) -> dict[str, tuple[str, Any]]:
-    """Return ``{endpoint_name: (url, payload)}`` for a collector run."""
+def fetch_raw_blobs(source_run_id: int) -> dict[str, RawBlob]:
+    """Return ``{endpoint_name: (url, payload, fetched_at)}`` for a collector run."""
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT endpoint_name, url, payload FROM meta.raw_blobs WHERE ingest_run_id = %s",
+            "SELECT endpoint_name, url, payload, fetched_at "
+            "FROM meta.raw_blobs WHERE ingest_run_id = %s",
             [source_run_id],
         )
         rows = cur.fetchall()
     if not rows:
         raise SystemExit(f"No raw blobs found for ingest_run_id={source_run_id}.")
-    return {name: (url, payload) for name, url, payload in rows}
+    return {name: (url, payload, fetched_at) for name, url, payload, fetched_at in rows}
 
 
 def normalize(config_path: Path, *, source_run_id: int | None = None) -> int:
@@ -319,12 +321,12 @@ def normalize(config_path: Path, *, source_run_id: int | None = None) -> int:
         endpoint=NORMALIZE_ENDPOINT_LABEL,
         metadata={"source_run_id": source_run_id},
     ) as run:
-        now = datetime.now(timezone.utc)
-
-        protocol_rows = _rows_for(blobs, "protocols", normalize_protocols, run.id, now)
-        chain_tvl_rows = _chain_tvl_rows(blobs, chain_focus, run.id, now)
-        stablecoin_rows = _rows_for(blobs, "stablecoins", normalize_stablecoins, run.id, now)
-        price_rows = _rows_for(blobs, "prices_current", normalize_prices, run.id, now)
+        protocol_rows = _rows_for(blobs, "protocols", normalize_protocols, run.id, source_run_id)
+        chain_tvl_rows = _chain_tvl_rows(blobs, chain_focus, run.id)
+        stablecoin_rows = _rows_for(
+            blobs, "stablecoins", normalize_stablecoins, run.id, source_run_id
+        )
+        price_rows = _rows_for(blobs, "prices_current", normalize_prices, run.id, source_run_id)
 
         with db.connection() as conn:
             run.add_rows(
@@ -353,33 +355,34 @@ def normalize(config_path: Path, *, source_run_id: int | None = None) -> int:
 
 
 def _rows_for(
-    blobs: dict[str, tuple[str, Any]],
+    blobs: dict[str, RawBlob],
     endpoint_name: str,
     normalizer: Any,
     ingest_run_id: int,
-    now: datetime,
+    source_run_id: int,
 ) -> list[JsonObject]:
-    """Run a per-endpoint normalizer if its blob is present; else return []."""
+    """Run a per-endpoint normalizer for a required blob."""
     blob = blobs.get(endpoint_name)
     if blob is None:
-        LOGGER.warning("no raw blob for endpoint %s; skipping", endpoint_name)
-        return []
-    url, payload = blob
+        raise RuntimeError(
+            f"Missing required raw blob for endpoint {endpoint_name!r} "
+            f"in ingest_run_id={source_run_id}."
+        )
+    url, payload, fetched_at = blob
     return list(
         normalizer(
             payload,
             source_endpoint=url,
             ingest_run_id=ingest_run_id,
-            now=now,
+            now=fetched_at,
         )
     )
 
 
 def _chain_tvl_rows(
-    blobs: dict[str, tuple[str, Any]],
+    blobs: dict[str, RawBlob],
     chain_focus: Iterable[str],
     ingest_run_id: int,
-    now: datetime,
 ) -> list[JsonObject]:
     """Concatenate chain TVL history rows across every focus chain."""
     rows: list[JsonObject] = []
@@ -389,14 +392,14 @@ def _chain_tvl_rows(
         if blob is None:
             LOGGER.info("no chain history blob for %s; skipping", chain_name)
             continue
-        url, payload = blob
+        url, payload, fetched_at = blob
         rows.extend(
             normalize_chain_tvl_history(
                 payload,
                 chain_name=chain_name,
                 source_endpoint=url,
                 ingest_run_id=ingest_run_id,
-                now=now,
+                now=fetched_at,
             )
         )
     return rows
@@ -449,7 +452,7 @@ def _stablecoin_supply(balance: Any) -> float | None:
 
 
 def _price_timestamp(value: Any, *, default: datetime) -> datetime:
-    """Parse the per-coin price timestamp; fall back to the run's ``now``."""
+    """Parse the per-coin price timestamp; fall back to blob ``fetched_at``."""
     parsed = parse_history_timestamp(value)
     return parsed if parsed is not None else default
 

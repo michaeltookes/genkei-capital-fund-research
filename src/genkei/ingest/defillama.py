@@ -138,12 +138,19 @@ def build_collection_targets(config: JsonObject) -> list[CollectionTarget]:
     if not isinstance(endpoints, list):
         raise SystemExit("collection_endpoints must be a list.")
 
+    config_endpoint_names: set[str] = set()
+    for endpoint in endpoints:
+        if not isinstance(endpoint, dict):
+            raise SystemExit("Each collection endpoint must be an object.")
+        config_endpoint_names.add(require_string(endpoint, "name"))
+    missing = {"protocols", "chains", "stablecoins"} - config_endpoint_names
+    if missing:
+        raise SystemExit(f"Missing required collection endpoints: {', '.join(sorted(missing))}")
+
     targets: list[CollectionTarget] = [build_price_target(config)]
     targets.extend(build_chain_history_targets(config))
     seen = {target.name for target in targets}
     for endpoint in endpoints:
-        if not isinstance(endpoint, dict):
-            raise SystemExit("Each collection endpoint must be an object.")
         name = require_string(endpoint, "name")
         if name in seen:
             raise SystemExit(f"Duplicate collection endpoint name: {name}")
