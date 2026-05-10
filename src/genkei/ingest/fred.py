@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import httpx
 import yaml
 
 from genkei.common import db
@@ -202,7 +203,12 @@ def _fetch_series_pair(
         endpoint_name = f"{blob_prefix}{target.series_id}"
         try:
             payload = http.get_json(url)
-        except Exception as exc:
+        except (
+            httpx.TimeoutException,
+            httpx.NetworkError,
+            httpx.HTTPStatusError,
+            json.JSONDecodeError,
+        ) as exc:
             safe_error = _redact_key(str(exc), api_key)
             LOGGER.warning("FRED fetch failed for %s: %s", endpoint_name, safe_error)
             failures.append(

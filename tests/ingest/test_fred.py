@@ -12,6 +12,7 @@ from genkei.ingest.fred import (
     DEFAULT_RATE_LIMIT,
     EARLIEST_REALTIME,
     SeriesTarget,
+    _fetch_series_pair,
     _redact_key,
     build_observations_url,
     build_series_url,
@@ -101,6 +102,20 @@ class UrlBuilderTests(unittest.TestCase):
 
     def test_redact_key_handles_missing_key(self) -> None:
         self.assertEqual(_redact_key("http://x", ""), "http://x")
+
+    def test_fetch_series_pair_does_not_swallow_unexpected_errors(self) -> None:
+        class BuggyHttp:
+            def get_json(self, _url: str) -> object:
+                raise RuntimeError("programming bug")
+
+        with self.assertRaisesRegex(RuntimeError, "programming bug"):
+            _fetch_series_pair(
+                SeriesTarget("DGS10", "10-Year Treasury Yield"),
+                "KEY123",
+                BuggyHttp(),  # type: ignore[arg-type]
+                1,
+                [],
+            )
 
 
 class RequireApiKeyTests(unittest.TestCase):

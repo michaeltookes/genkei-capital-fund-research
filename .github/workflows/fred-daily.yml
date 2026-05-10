@@ -40,7 +40,16 @@ jobs:
         run: alembic upgrade head
 
       - name: Collect FRED series + observations into meta.raw_blobs
-        run: python3 -m genkei.ingest.fred
+        id: collect
+        run: |
+          output="$(python3 -m genkei.ingest.fred)"
+          echo "$output"
+          source_run_id="${output##*=}"
+          if [ -z "$source_run_id" ] || [ "$source_run_id" = "$output" ]; then
+            echo "Could not parse FRED collector run id from output: $output" >&2
+            exit 1
+          fi
+          echo "source_run_id=$source_run_id" >> "$GITHUB_OUTPUT"
 
       - name: Normalize raw payloads into fred.* tables
-        run: python3 -m genkei.normalize.fred
+        run: python3 -m genkei.normalize.fred --source-run-id "${{ steps.collect.outputs.source_run_id }}"
