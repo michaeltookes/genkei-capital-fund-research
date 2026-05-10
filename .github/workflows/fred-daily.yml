@@ -1,0 +1,56 @@
+name: FRED Daily Macro
+
+# B-028 — pulls FRED series metadata + full-vintage observations once a
+# day on the self-hosted Beelink runner (so the ingest can reach the
+# homelab Postgres on mission_control_net). 11:00 UTC = after the
+# typical morning publication window for daily series.
+
+on:
+  schedule:
+    - cron: "0 11 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    name: FRED collect + normalize (Postgres-backed)
+    runs-on: [self-hosted, beelink]
+    timeout-minutes: 15
+    env:
+      GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+
+      - name: Apply database migrations
+        run: alembic upgrade head
+
+      - name: Collect FRED series + observations into meta.raw_blobs
+        id: collect
+        run: |
+          output="$(python3 -m genkei.ingest.fred)"
+          echo "$output"
+          run_id_line="$(printf '%s\n' "$output" | grep 'ingest_run_id=' | tail -n 1 || true)"
+          source_run_id="${run_id_line##*=}"
+          if [ -z "$source_run_id" ] || [ "$source_run_id" = "$run_id_line" ]; then
+            echo "Could not parse FRED collector run id from output: $output" >&2
+            exit 1
+          fi
+          echo "source_run_id=$source_run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Normalize raw payloads into fred.* tables
+        run: python3 -m genkei.normalize.fred --source-run-id "${{ steps.collect.outputs.source_run_id }}"
