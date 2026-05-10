@@ -118,16 +118,6 @@ Migrate the existing MVP into the new foundation; it becomes the canonical patte
 
 One backlog item per source. Each follows the DeFiLlama-refactored pattern: collect → land in Postgres → normalize → tests → backfill mode.
 
-### B-027 — SEC EDGAR ingester
-- **Status:** open
-- **Priority:** high
-- **Context:** Filings + XBRL facts are the backbone of equity research. Forms 10-K, 10-Q, 8-K, S-1, Form 4, 13F.
-- **Acceptance criteria:**
-  - Honors 10 req/sec fair-access limit.
-  - Tables for company submissions, individual filings, XBRL facts.
-  - Backfill: full filing history per ticker on the watchlist.
-  - Tests covering filing-type filtering, XBRL parse, error paths.
-
 ### B-029 — BEA ingester
 - **Status:** open
 - **Priority:** medium
