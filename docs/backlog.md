@@ -128,16 +128,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Backfill: full filing history per ticker on the watchlist.
   - Tests covering filing-type filtering, XBRL parse, error paths.
 
-### B-028 — FRED macro-series ingester
-- **Status:** open
-- **Priority:** high
-- **Context:** Rates, CPI, unemployment, GDP, yields — the macro spine for regime analysis.
-- **Acceptance criteria:**
-  - API key in GH Actions secrets.
-  - `config/macro_series.yml` drives the series list.
-  - Backfill: full series history per series.
-  - Tests covering series fetch + revision handling.
-
 ### B-029 — BEA ingester
 - **Status:** open
 - **Priority:** medium
