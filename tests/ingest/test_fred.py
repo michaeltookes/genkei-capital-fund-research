@@ -12,6 +12,8 @@ from unittest.mock import patch
 from genkei.ingest import fred
 from genkei.ingest.fred import (
     DEFAULT_RATE_LIMIT,
+    EARLIEST_REALTIME,
+    LATEST_REALTIME,
     SeriesTarget,
     _fetch_observations_payload,
     _fetch_series_pair,
@@ -90,11 +92,11 @@ class UrlBuilderTests(unittest.TestCase):
         self.assertIn("api_key=KEY123", url)
         self.assertIn("file_type=json", url)
 
-    def test_observations_url_omits_realtime_params_for_latest_vintage(self) -> None:
+    def test_observations_url_uses_explicit_realtime_window(self) -> None:
         url = build_observations_url("KEY123", "GDPC1")
         self.assertIn("series_id=GDPC1", url)
-        self.assertNotIn("realtime_start", url)
-        self.assertNotIn("realtime_end", url)
+        self.assertIn(f"realtime_start={EARLIEST_REALTIME}", url)
+        self.assertIn(f"realtime_end={LATEST_REALTIME}", url)
         self.assertIn("limit=100000", url)
         self.assertIn("offset=0", url)
 

@@ -12,12 +12,11 @@ path. Each daily run upserts the latest state of every observation
 including any new vintages — D-013's vintage-aware schema means new
 revisions land as new rows rather than overwriting historical values.
 
-Vintage handling: every observations call fetches the *latest vintage*
-only (no ``realtime_start`` / ``realtime_end`` params). The schema is
-vintage-aware (D-013) so daily runs that find a revised value land it
-as a new row keyed on the fresh ``realtime_start`` returned by FRED.
-The full pre-existing revision history is forfeit because FRED's JSON
-file type caps responses at 2000 vintage dates — see G-019.
+Vintage handling: every observations call sends an explicit full
+realtime window (``realtime_start=1776-07-04`` /
+``realtime_end=9999-12-31``). The schema is vintage-aware (D-013), so
+revisions land as new rows keyed by FRED's observation
+``realtime_start`` rather than by the request date.
 
 API key: the free FRED API key lives in the ``FRED_API_KEY`` env var.
 Register at https://fredaccount.stlouisfed.org/apikeys.
@@ -50,6 +49,9 @@ OBSERVATIONS_BLOB_PREFIX = "observations_"
 # (1 req / sec) since 20 series × 2 calls = 40 calls per run completes
 # in under a minute either way.
 DEFAULT_RATE_LIMIT = RateLimit.per_second(1)
+# Earliest documented FRED realtime_start.
+EARLIEST_REALTIME = "1776-07-04"
+LATEST_REALTIME = "9999-12-31"
 OBSERVATIONS_PAGE_LIMIT = 100_000
 RAW_BLOBS_INSERT = (
     "INSERT INTO meta.raw_blobs (ingest_run_id, endpoint_name, url, payload) "
@@ -131,12 +133,14 @@ def build_observations_url(
     limit: int = OBSERVATIONS_PAGE_LIMIT,
     offset: int = 0,
 ) -> str:
-    """Build the URL for the latest-vintage observations endpoint."""
+    """Build the URL for the full-vintage observations endpoint."""
     return (
         f"{FRED_BASE_URL}/series/observations"
         f"?series_id={series_id}"
         f"&api_key={api_key}"
         f"&file_type=json"
+        f"&realtime_start={EARLIEST_REALTIME}"
+        f"&realtime_end={LATEST_REALTIME}"
         f"&limit={limit}"
         f"&offset={offset}"
     )
