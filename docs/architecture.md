@@ -9,7 +9,7 @@ The point of the bottom half: when context gets cleared, the next session (Claud
 
 **Updating discipline:** any commit that makes a non-obvious choice (a tradeoff with a real alternative) or surfaces a non-obvious surprise (a thing future-you wouldn't predict) appends an entry below in the same commit. If the entry is missing, the commit is incomplete.
 
-**Last updated:** 2026-05-10 (Phase 1 essentially closed; B-019 backfill landed on `phase1-cleanup`)
+**Last updated:** 2026-05-10 (Phase 2 underway; B-028 FRED ingester landed on `fred-macro`)
 
 > **Read this first if you're new (or future-you after weeks away).** Then dive into the per-component docs at the bottom for depth.
 
@@ -116,6 +116,8 @@ The normalizer is **data-lake-shaped**, not report-shaped. It writes the raw sha
 | **`defillama.protocol_tvl`** | Time-series fact, hypertable, PK `(slug, chain, ts)`, FK to `protocols(slug)`, 30-day chunks. Per-protocol per-chain TVL series — populated by backfill walking `/protocol/{slug}`. | R-023 |
 | **Compression policies** | All four `defillama.*` hypertables compress chunks > 30 days old via TimescaleDB native compression (~10x savings). Segmentby = the most-filtered column per table; orderby = `ts DESC`. | R-023 |
 | **`meta.raw_blobs` retention** | Daily TimescaleDB job (`add_job`) deletes blobs > 90 days old. The normalized lake tables are the system of record; raw is audit/replay only. | R-023 |
+| **`fred.series`** | Entity dim for FRED macro series, PK `series_id`, holds `title` / `units` / `frequency` / `last_updated` / `popularity` / `observation_start_end` metadata. | R-027 |
+| **`fred.observations`** | Time-series fact, hypertable, PK `(series_id, ts, realtime_start)`, 90-day chunks, compression on chunks > 30 days old. **Vintage-aware** — every FRED revision lands as a distinct row keyed on `realtime_start` so as-of backtests can reconstruct what was known on any given date. | R-027 |
 | **Provenance trio** | Every fact row carries `source_endpoint TEXT NOT NULL`, `fetched_at TIMESTAMPTZ NOT NULL`, `ingest_run_id BIGINT NOT NULL REFERENCES meta.ingest_runs(id)`. | R-021 |
 | **Migration tool** | Alembic, hand-written migrations only (no autogen). Files at `migrations/versions/YYYYMMDD_<slug>.py`. URL from `GENKEI_DATABASE_URL`. | R-008, `docs/storage.md` § B-009 |
 
@@ -145,6 +147,8 @@ src/genkei/
 | `genkei.common.config` | `load_env_file(path)` — stdlib-only `.env` loader, no python-dotenv dep. | R-013 |
 | `genkei.ingest.defillama` | DeFiLlama collector + backfill (`--backfill --since YYYY-MM-DD --endpoint X`). Daily mode INSERTs raw blobs per endpoint; backfill mode walks daily timestamps for prices, iterates known slugs/asset_ids for protocols/stablecoins. Resumability via `meta.raw_blobs.url` lookup within a 14-day window. | R-017, R-023 |
 | `genkei.normalize.defillama` | Reads raw blobs and `bulk_upsert`s. Daily mode (`normalize`) handles snapshot blobs into all four lake tables; backfill mode (`normalize_backfill`) dispatches by `endpoint_name` prefix into `defillama.prices`, `defillama.protocol_tvl`, `defillama.stablecoins`. Idempotent throughout. | R-018, R-023 |
+| `genkei.ingest.fred` | FRED collector. Reads `macro_series:` from `config/watchlists.yml`, hits `/series` + `/series/observations` per series with `realtime_start=1776-07-04&realtime_end=9999-12-31` for full-vintage payloads. Lands two raw blobs per series (`series_<id>`, `observations_<id>`). Redacts the API key from the URL stored in `meta.raw_blobs`. Single-mode (D-014) — no separate `--backfill` flag. | R-027 |
+| `genkei.normalize.fred` | Reads FRED raw blobs by source_run_id, dispatches by prefix into `fred.series` (one row per series) and `fred.observations` (one row per `(series_id, ts, realtime_start)`). Idempotent. | R-027 |
 
 ### Process layer
 
@@ -242,7 +246,7 @@ Each mission is one markdown file: title, context, checklist of acceptance crite
 |---|---|---|
 | **Phase 0** — Foundation: Postgres + project scaffolding | ✅ complete | All 11 items resolved (R-005 through R-013, R-016, R-019). |
 | **Phase 1** — Refactor DeFiLlama onto Postgres | ✅ effectively complete | 9/9 high-priority items done. Three medium items remain: B-020 (config-driven exclusion keywords) and B-023 (freshness check) are follow-ups when consumers need them; B-025 (daily brief fate) is a deferred decision. |
-| **Phase 2** — Free-data ingesters with backfill | ⚪ not started | 10 items (B-027 SEC EDGAR through B-036 per-source docs). FRED is the obvious next ingester — macro is the spine. |
+| **Phase 2** — Free-data ingesters with backfill | 🟡 in progress | 1/10 done — B-028 FRED landed (R-027). Next obvious move: B-027 SEC EDGAR (equity backbone) or B-034 CoinGecko (crypto cross-check). |
 | **Phase 3** — Custom CLI | ⚪ not started | 11 items (B-037 through B-047). `genkei` is the working name. |
 | **Phase 4** — Agent layer | ⚪ not started | 6 items (B-048 through B-053). Harness decision pending. |
 | **Phase 5** — Experiments framework | ⚪ not started | 10 items (B-054 through B-063). Notebooks + reproducibility pattern + concrete experiments. |
@@ -377,6 +381,19 @@ Append-only. Each entry: **what**, **why**, **alternative considered**, **what w
 **Why:** Mirrors the existing collect/normalize split — same mental model for daily and backfill flows. Lets you re-normalize without re-fetching, debug normalizer issues against fixed input, and parallelize fetching across multiple invocations if rate-limit headroom exists later.
 **Alternative:** One-shot `backfill` that collects + normalizes in a single pass. Rejected — couples two concerns whose failure modes differ (network failure vs schema mismatch vs upsert error).
 
+### D-013 — FRED observations are vintage-aware (PK includes `realtime_start`)
+**Date:** 2026-05-10 · **In:** R-027, `migrations/versions/20260510_create_fred_schema.py`
+**Decision:** `fred.observations` PK is `(series_id, ts, realtime_start)`. Each FRED revision lands as its own row keyed on the date the value first became current. `realtime_end` carries forward (`9999-12-31` for the current value).
+**Why:** Backtest correctness. FRED revises macro values constantly — Q1 GDP first published in late April gets revised in May, June, and again at the annual revision. A latest-only schema silently corrupts as-of backtests by leaking revised data into historical "knowledge." For a research-desk operating *as if* a real fund (CLAUDE.md), this matters.
+**Alternative:** Latest-only PK `(series_id, ts)` with overwrites. Rejected — smaller storage but lossy; retrofitting from latest-only to vintage-aware requires re-fetching everything.
+**What would change our mind:** If FRED storage outgrows the homelab (unlikely — revisions are sparse), we could prune old vintages older than N years.
+
+### D-014 — FRED is single-mode: no `--backfill` flag, daily run pulls full history
+**Date:** 2026-05-10 · **In:** R-027
+**Decision:** `python -m genkei.ingest.fred` always fetches full-vintage observations for every configured series. There is no separate `--backfill` flag.
+**Why:** FRED's `/series/observations` endpoint returns the entire history per call. No date-walker needed; daily and backfill are the same code path. The vintage-aware schema (D-013) means re-running just upserts any new revisions as new rows.
+**Alternative:** Mirror DeFiLlama's `--backfill --since` flag for consistency. Rejected — adds a code path with no consumer; the FRED endpoint shape doesn't reward it. Per-source ingester shape can differ from per-source ingester shape; that's fine.
+
 ---
 
 # Gotchas & lessons learned
@@ -465,3 +482,27 @@ Append-only. Each entry: **what bit us**, **how we resolved it**, **how to avoid
 **Symptom:** `ruff check src/ tests/` (broad surface) flagged 7 lines too long in `src/genkei/reports/defillama_daily.py`. The file came over from `scripts/build_daily_report.py` via `git mv` in R-019 and was never re-formatted because we'd been running ruff on touched files only.
 **Resolution:** Refactored the long lines (split format strings, hoisted templates). The module is awaiting B-025's decision on retire-vs-rewrite, but it's still alive in the package and lint should apply uniformly.
 **Avoid next time:** Run `ruff check src/ tests/` (not just changed files) periodically — at minimum at the start of each branch — to catch latent issues before they compound.
+
+### G-015 — FRED API key in URL: must be redacted before landing in `meta.raw_blobs`
+**Hit:** 2026-05-10 (B-028 collector design)
+**Symptom:** FRED authenticates via `?api_key=<KEY>` query param. The literal URL going into `meta.raw_blobs.url` would expose the key to anyone with read access to the audit table — and the audit table is supposed to be safe to share for replay/debug.
+**Resolution:** `_redact_key(url, api_key)` replaces the key with `***` before the URL is INSERTed. Tests assert the literal key never appears in any stored URL.
+**Avoid next time:** Any future ingester that puts auth in the URL needs the same treatment. Header-based auth (Bearer tokens, etc.) is preferred when available because the URL stays clean by default.
+
+### G-016 — FRED `last_updated` uses non-ISO short timezone offsets like `-05`
+**Hit:** 2026-05-10 (B-028 normalizer)
+**Symptom:** FRED returns timestamps like `"2026-05-09 15:18:01-05"` — the offset has no minutes, so `datetime.fromisoformat()` rejects it.
+**Resolution:** `parse_fred_datetime` normalises by appending `:00` when it detects a 3-character offset, then parses. Falls back to date-only parsing if the string is just `YYYY-MM-DD`.
+**Avoid next time:** When parsing third-party timestamps, sniff the actual format from a real response — don't assume strict ISO 8601. Probably safer to use `dateutil.parser.parse` for anything outside our own data.
+
+### G-017 — FRED `value` field is `"."` for missing observations, not `null`
+**Hit:** 2026-05-10 (B-028 normalizer)
+**Symptom:** FRED's JSON serializes missing observations as a string `"."` rather than JSON `null`. A naive `float()` on the value would throw; a coercion that defaults to 0 would silently corrupt the data.
+**Resolution:** `parse_fred_value` returns `None` for `"."`, empty string, or any non-numeric input. Missing observations land as `value IS NULL` in `fred.observations` — the (series_id, ts, realtime_start) row still exists so consumers know FRED *had* a row, just no value.
+**Avoid next time:** Always check the source's missing-value sentinel before the first ingest. `.`, `"--"`, `""`, `-9999`, `NaN`, `null` — every API picks a different one.
+
+### G-018 — FRED's payload shape uses `"seriess"` (sic) as the array key for series metadata
+**Hit:** 2026-05-10 (B-028 normalizer)
+**Symptom:** The `/series` endpoint wraps its single result in `{"seriess": [...]}` — note the double-s. Easy to miss when reading the API docs and easier to typo when writing the parser.
+**Resolution:** `normalize_series` reads `payload["seriess"]` (the typo is canonical and stable across the FRED API).
+**Avoid next time:** When the FRED docs say a key looks weird, trust them — don't "correct" it. Same goes for any similar quirks in other sources.

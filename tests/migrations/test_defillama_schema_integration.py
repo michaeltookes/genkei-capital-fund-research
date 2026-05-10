@@ -29,7 +29,9 @@ class DefillamaSchemaIntegrationTests(unittest.TestCase):
                 "WHERE table_schema = 'defillama' ORDER BY table_name"
             )
             tables = [row[0] for row in cur.fetchall()]
-        self.assertEqual(tables, ["chain_tvl", "prices", "protocol_tvl", "protocols", "stablecoins"])
+        self.assertEqual(
+            tables, ["chain_tvl", "prices", "protocol_tvl", "protocols", "stablecoins"]
+        )
 
     def test_time_series_tables_are_hypertables(self) -> None:
         with self.harness.connection() as conn, conn.cursor() as cur:
