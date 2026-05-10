@@ -1,19 +1,27 @@
 name: DeFiLlama Daily Brief
 
+# B-017 + B-018 moved the pipeline onto Postgres. The workflow can no
+# longer read/write JSON artifacts from a GH-hosted runner because
+# GH-hosted runners cannot reach the homelab Postgres (double NAT). The
+# scheduled trigger is intentionally disabled until B-077 lands a
+# self-hosted runner on the Beelink. The daily-brief render step also
+# stays disabled pending B-025 (decide fate of the legacy markdown
+# brief). Until then this workflow is dispatch-only and a no-op.
+
 on:
   workflow_dispatch:
-  schedule:
-    # 12:15 UTC daily. Generated outputs are uploaded as workflow artifacts, not committed.
-    - cron: "15 12 * * *"
 
 permissions:
   contents: read
 
 jobs:
-  build-daily-brief:
-    name: Build daily DeFiLlama brief
+  pipeline:
+    name: DeFiLlama collect + normalize (Postgres-backed)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # When B-077 lands the self-hosted runner, switch this to:
+    #   runs-on: [self-hosted, beelink]
+    # and re-enable the schedule above.
 
     steps:
       - name: Check out repository
@@ -24,27 +32,21 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Run deterministic validation
+      - name: Install package
         run: |
-          python3 -m unittest discover -s tests
-          python3 -m compileall scripts tests
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
 
-      - name: Collect public DeFiLlama snapshot
-        run: python3 scripts/collect_defillama.py
+      - name: Collect raw payloads into meta.raw_blobs
+        env:
+          GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+        run: python3 -m genkei.ingest.defillama
 
-      - name: Normalize snapshot
-        run: python3 scripts/normalize_defillama.py
+      - name: Normalize raw payloads into defillama.* tables
+        env:
+          GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+        run: python3 -m genkei.normalize.defillama
 
-      - name: Build analyst brief
-        run: python3 scripts/build_daily_report.py
-
-      - name: Upload generated brief artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: defillama-daily-brief
-          path: |
-            reports/daily/defillama-daily-*.md
-            data/normalized/defillama/daily-*.json
-            data/raw/defillama/*/manifest.json
-          if-no-files-found: error
-          retention-days: 30
+      # Daily-brief render step intentionally omitted: B-025 will decide
+      # whether the markdown brief gets rewritten against Postgres or
+      # retired entirely.

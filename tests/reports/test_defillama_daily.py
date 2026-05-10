@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from scripts.build_daily_report import build_daily_report, build_report
+from genkei.reports.defillama_daily import build_daily_report, build_report
 
 
 class BuildDailyReportTests(unittest.TestCase):
@@ -70,7 +70,11 @@ class BuildDailyReportTests(unittest.TestCase):
         data = {
             "data_quality": {"stablecoin_chain_data": "unavailable"},
             "chain_tvl": [
-                {"name": "Ethereum", "momentum_label": "expanding", "trend_label": "confirmed uptrend"}
+                {
+                    "name": "Ethereum",
+                    "momentum_label": "expanding",
+                    "trend_label": "confirmed uptrend",
+                }
             ],
         }
 
