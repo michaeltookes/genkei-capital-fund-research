@@ -1,7 +1,7 @@
 """Integration tests for the DeFiLlama schema migrations (B-016 + B-024).
 
 Verifies the live shape of the database after ``alembic upgrade head``:
-the four tables exist, the three time-series tables are TimescaleDB
+the five tables exist, the four time-series tables are TimescaleDB
 hypertables, primary keys and uniqueness constraints behave, and the
 ``ingest_run_id`` foreign key back to ``meta.ingest_runs`` is enforced.
 
@@ -22,14 +22,14 @@ class DefillamaSchemaIntegrationTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.harness = get_harness()
 
-    def test_four_tables_exist(self) -> None:
+    def test_defillama_tables_exist(self) -> None:
         with self.harness.connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT table_name FROM information_schema.tables "
                 "WHERE table_schema = 'defillama' ORDER BY table_name"
             )
             tables = [row[0] for row in cur.fetchall()]
-        self.assertEqual(tables, ["chain_tvl", "prices", "protocols", "stablecoins"])
+        self.assertEqual(tables, ["chain_tvl", "prices", "protocol_tvl", "protocols", "stablecoins"])
 
     def test_time_series_tables_are_hypertables(self) -> None:
         with self.harness.connection() as conn, conn.cursor() as cur:
@@ -38,7 +38,7 @@ class DefillamaSchemaIntegrationTests(unittest.TestCase):
                 "WHERE hypertable_schema = 'defillama' ORDER BY hypertable_name"
             )
             hypertables = [row[0] for row in cur.fetchall()]
-        self.assertEqual(hypertables, ["chain_tvl", "prices", "stablecoins"])
+        self.assertEqual(hypertables, ["chain_tvl", "prices", "protocol_tvl", "stablecoins"])
 
     def test_protocols_slug_is_unique(self) -> None:
         with self.harness.connection() as conn, conn.cursor() as cur:
