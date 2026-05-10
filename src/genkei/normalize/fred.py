@@ -64,8 +64,11 @@ def parse_fred_datetime(value: Any) -> datetime | None:
     try:
         parsed = datetime.fromisoformat(cleaned)
     except ValueError:
-        return parse_fred_date(value) and datetime.combine(
-            parse_fred_date(value), datetime.min.time(), tzinfo=timezone.utc
+        fred_date = parse_fred_date(value)
+        return (
+            datetime.combine(fred_date, datetime.min.time(), tzinfo=timezone.utc)
+            if fred_date is not None
+            else None
         )
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)

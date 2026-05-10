@@ -98,6 +98,7 @@ class FredIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         from psycopg_pool import ConnectionPool
 
+        self.harness.truncate_all()
         db.reset_pool()
         self._pool = ConnectionPool(conninfo=self.harness.url, min_size=1, max_size=2, open=True)
         db.set_pool(self._pool)
@@ -173,6 +174,29 @@ class FredIntegrationTests(unittest.TestCase):
             self.assertEqual(cur.fetchone()[0], 2)
             cur.execute("SELECT count(*) FROM fred.observations")
             self.assertEqual(cur.fetchone()[0], 3)  # 2 vintages + 1 daily
+
+    def test_all_fetch_failures_mark_collector_run_failed(self) -> None:
+        def failing_route(_request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("network down")
+
+        with HttpClient("fred-test", transport=httpx.MockTransport(failing_route)) as http:
+            with self.assertRaisesRegex(RuntimeError, "All FRED fetches failed"):
+                self._run_collect(http)
+
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT status, rows_written, error, metadata FROM meta.ingest_runs "
+                "WHERE source = 'fred' AND endpoint = 'collect'"
+            )
+            status, rows_written, error, metadata = cur.fetchone()
+            cur.execute("SELECT count(*) FROM meta.raw_blobs")
+            raw_blob_count = cur.fetchone()[0]
+
+        self.assertEqual(status, "failed")
+        self.assertEqual(rows_written, 0)
+        self.assertIn("All FRED fetches failed", error)
+        self.assertEqual(raw_blob_count, 0)
+        self.assertEqual(len(metadata["partial_endpoints"]), 4)
 
 
 if __name__ == "__main__":

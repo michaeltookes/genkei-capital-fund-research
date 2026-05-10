@@ -174,7 +174,9 @@ class NormalizeObservationsTests(unittest.TestCase):
         )
         self.assertEqual(len(rows), 2)
         # The "missing value" row keeps NULL value but still lands.
-        missing = [r for r in rows if r["ts"].date() == date(2024, 1, 16)][0]
+        matches = [r for r in rows if r["ts"].date() == date(2024, 1, 16)]
+        self.assertTrue(matches)
+        missing = matches[0]
         self.assertIsNone(missing["value"])
 
     def test_returns_empty_for_malformed_payload(self) -> None:

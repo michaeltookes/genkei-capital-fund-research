@@ -166,13 +166,15 @@ def collect(
             metadata={"watchlist_path": str(config_path), "series_count": len(series)},
         ) as run:
             written = 0
-            for target in series:
+            for target_index, target in enumerate(series, start=1):
                 written += _fetch_series_pair(target, key, http, run.id, failures)
-                if (target_index := series.index(target) + 1) % 5 == 0:
+                if target_index % 5 == 0:
                     LOGGER.info("FRED collect progress: %s/%s", target_index, len(series))
             run.add_rows(written)
             if failures:
                 _record_partial(run.id, failures)
+            if written == 0 and failures:
+                raise RuntimeError("All FRED fetches failed; no raw blobs written.")
             return run.id
     finally:
         if owns_http:

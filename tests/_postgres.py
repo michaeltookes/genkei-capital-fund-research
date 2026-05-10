@@ -39,7 +39,7 @@ except ImportError:
     _IMPORTS_OK = False
 
 TIMESCALE_IMAGE = "timescale/timescaledb:2.26.4-pg16"
-USER_TABLE_SCHEMAS = ("defillama", "meta")
+USER_TABLE_SCHEMAS = ("defillama", "fred", "meta")
 USER_TABLES_SQL = """
 SELECT table_schema, table_name
 FROM information_schema.tables
