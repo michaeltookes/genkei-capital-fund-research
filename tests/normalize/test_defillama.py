@@ -126,7 +126,7 @@ class NormalizeStablecoinsTests(unittest.TestCase):
                     "name": "Tether",
                     "symbol": "USDT",
                     "pegType": "peggedUSD",
-                    "chainBalances": {
+                    "chainCirculating": {
                         "Ethereum": {"current": {"peggedUSD": 50_000_000_000}},
                         "Tron": {"current": {"peggedUSD": 30_000_000_000}},
                         "EmptyChain": {"current": {}},  # no usable supply -> dropped
