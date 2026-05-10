@@ -426,3 +426,14 @@ Append-only. Each entry: **what bit us**, **how we resolved it**, **how to avoid
 **Symptom:** The Postgres-backed workflow finishes successfully but produces no markdown report — the `build_daily_report.py` step was removed because it reads JSON files that no longer exist.
 **Resolution:** Documented in the workflow YAML as an explicit comment. B-025 will rewrite the report against Postgres or retire it outright.
 **Avoid next time:** When deleting a downstream consumer of a refactored module, file the follow-up B-item explicitly so the gap doesn't quietly become forgotten.
+
+### G-011 — TimescaleDB renamed compression policies to "Columnstore Policy" in tooling output
+**Hit:** 2026-05-10 (B-019 hygiene migrations)
+**Symptom:** Verifying the new compression policies via `SELECT * FROM timescaledb_information.jobs WHERE application_name LIKE 'Compression%'` returns empty — but the policies *are* registered. They show up as `application_name = 'Columnstore Policy [<job_id>]'`, `proc_schema = '_timescaledb_functions'`, `proc_name = 'policy_compression'`.
+**Resolution:** Filter by `proc_name = 'policy_compression'` (the SQL function name didn't change) when querying for diagnostic purposes. The user-facing API is still `add_compression_policy(...)`, `compress_segmentby`, `compress_orderby` — only the surface naming in `timescaledb_information.jobs` shifted.
+**Avoid next time:** Don't filter by `application_name` when querying TimescaleDB job state; use `proc_schema + proc_name` instead. The `application_name` column is meant to be human-readable and the maintainers reserve the right to rename it.
+
+### G-012 — `defillama.chain_tvl` already had 106 chunks before compression policy landed
+**Hit:** 2026-05-10 (B-019 hygiene migrations applied)
+**Symptom:** Expected protocol_tvl/stablecoins/prices to have 0–1 chunks each (greenfield); chain_tvl had 106. Not actually a problem — those chunks accumulated organically because the daily collector pulls full history from `/v2/historicalChainTvl/{chain}` on every run. The compression policy will auto-compress chunks > 30 days old next time the background worker runs (every 12h).
+**Lesson:** The daily collector's "always full history" behaviour for chain TVL means there's already 5+ years of focus-chain TVL in the lake without any explicit backfill. Worth knowing: when B-019 runs, it'll add price/stablecoin/protocol history but skip chain TVL as a no-op (already covered).
