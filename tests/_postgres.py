@@ -22,8 +22,8 @@ migration chain succeeds without extra wiring.
 from __future__ import annotations
 
 import atexit
-import os
 import shutil
+import subprocess
 import unittest
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -48,7 +48,22 @@ def _docker_available() -> bool:
     if shutil.which("docker") is None:
         return False
     # `docker info` is the canonical "is the daemon up" probe.
-    return os.system("docker info > /dev/null 2>&1") == 0
+    proc = subprocess.run(
+        ["docker", "info"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return proc.returncode == 0
+
+
+def _sqlalchemy_url(url: str) -> str:
+    """Return a SQLAlchemy URL that uses the installed psycopg 3 driver."""
+    if url.startswith("postgresql+psycopg2://"):
+        return url.replace("postgresql+psycopg2://", "postgresql+psycopg://", 1)
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+psycopg://", 1)
+    return url
 
 
 def postgres_required(obj: Any) -> Any:
@@ -75,7 +90,7 @@ class PostgresHarness:
         from alembic.config import Config
 
         cfg = Config("alembic.ini")
-        cfg.set_main_option("sqlalchemy.url", self.url)
+        cfg.set_main_option("sqlalchemy.url", _sqlalchemy_url(self.url))
         command.upgrade(cfg, "head")
 
     @contextmanager
