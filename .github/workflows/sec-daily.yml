@@ -1,0 +1,49 @@
+name: SEC EDGAR Daily
+
+# B-027 — pulls the SEC submissions index + XBRL company facts for every
+# equity in the watchlist once a day on the self-hosted Beelink runner.
+# 11:30 UTC chosen to land just after FRED finishes (11:00 UTC) so we
+# don't run two ingesters in parallel on the same runner. SEC filings
+# come in throughout the day; daily is a deliberate trade-off — we
+# accept up-to-24h latency on new filings in exchange for a single
+# scheduled call per company per day.
+
+on:
+  schedule:
+    - cron: "30 11 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    name: SEC collect + normalize (Postgres-backed)
+    runs-on: [self-hosted, beelink]
+    timeout-minutes: 20
+    env:
+      GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+
+      - name: Apply database migrations
+        run: alembic upgrade head
+
+      - name: Collect SEC submissions + XBRL facts into meta.raw_blobs
+        run: python3 -m genkei.ingest.sec
+
+      - name: Normalize raw payloads into sec.* tables
+        run: python3 -m genkei.normalize.sec
