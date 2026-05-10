@@ -105,23 +105,6 @@ Migrate the existing MVP into the new foundation; it becomes the canonical patte
   - Normalizer reads keywords from config.
   - Existing tests still pass.
 
-### B-021 — Add provenance columns to normalized rows
-- **Status:** open
-- **Priority:** medium
-- **Context:** Analyst trust + debugging require knowing whether a value came from `historicalChainTvl` or the rolled-up `chains` endpoint, and when it was fetched.
-- **Acceptance criteria:**
-  - Normalized rows include `source_endpoint`, `fetched_at`, `change_7d_source: 'history'|'api'`.
-  - CLI exposes provenance via `--show-source`.
-
-### B-022 — Add retry + backoff to the DeFiLlama collector
-- **Status:** open
-- **Priority:** medium
-- **Context:** Single transient HTTP error currently fails the entire snapshot.
-- **Acceptance criteria:**
-  - Use the shared HTTP client from B-011.
-  - Per-endpoint retry budget (e.g. 3 retries, exponential).
-  - Failed endpoints don't tank the run unless required.
-
 ### B-023 — Add data-freshness check + visible warning
 - **Status:** open
 - **Priority:** medium
@@ -139,15 +122,6 @@ Migrate the existing MVP into the new foundation; it becomes the canonical patte
   - Decision recorded in `docs/defillama-mvp.md`.
   - If retired: workflow + script removed, B-001/B-002 closed or rescoped.
   - If kept: it now reads from Postgres via the CLI helpers.
-
-### B-026 — Update `defillama-daily.yml` GH Action to new pipeline
-- **Status:** open
-- **Priority:** medium
-- **Context:** Workflow currently runs the file-based pipeline; needs to point at the Postgres-backed one and may need a self-hosted runner if cloud runners can't reach the homelab.
-- **Acceptance criteria:**
-  - Workflow updated to invoke the refactored collector + normalizer.
-  - Runner choice resolved (depends on B-006).
-  - Smoke run successful end-to-end.
 
 ## Phase 2 — Free-data ingesters with backfill
 
