@@ -1,0 +1,145 @@
+"""Postgres integration-test harness (B-024).
+
+Spins up an ephemeral TimescaleDB container via testcontainers, applies the
+project's Alembic migrations, and exposes:
+
+- :func:`postgres_required` — decorator/skip wrapper for tests that need a
+  live database. Skips cleanly when Docker or testcontainers isn't usable
+  so the offline mock-based suite still runs everywhere.
+- :func:`get_harness` — lazy singleton; the same container is reused across
+  tests in a process for speed (image pull + startup ≈ 10–20 s).
+- :class:`PostgresHarness` — exposes ``url``, ``connection()`` (auto-rolling
+  back), and ``truncate_all()`` for cleanup between tests that go through
+  ``genkei.common.db`` helpers (which manage their own commits and so cannot
+  be isolated with a transaction).
+
+Image pinned to the same Timescale build the homelab runs (R-014). On a
+fresh data dir the image's entrypoint sets ``shared_preload_libraries`` to
+``timescaledb`` automatically, so ``CREATE EXTENSION timescaledb`` in the
+migration chain succeeds without extra wiring.
+"""
+
+from __future__ import annotations
+
+import atexit
+import shutil
+import subprocess
+import unittest
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any
+
+try:
+    import psycopg
+    from psycopg import sql
+    from testcontainers.postgres import PostgresContainer
+
+    _IMPORTS_OK = True
+except ImportError:
+    _IMPORTS_OK = False
+
+TIMESCALE_IMAGE = "timescale/timescaledb:2.26.4-pg16"
+USER_TABLE_SCHEMAS = ("defillama", "meta")
+USER_TABLES_SQL = """
+SELECT table_schema, table_name
+FROM information_schema.tables
+WHERE table_schema = ANY(%s)
+  AND table_type = 'BASE TABLE'
+"""
+
+_HARNESS: PostgresHarness | None = None
+
+
+def _docker_available() -> bool:
+    """Return True if a Docker CLI is on PATH and the daemon responds."""
+    if shutil.which("docker") is None:
+        return False
+    # `docker info` is the canonical "is the daemon up" probe.
+    proc = subprocess.run(
+        ["docker", "info"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return proc.returncode == 0
+
+
+def _sqlalchemy_url(url: str) -> str:
+    """Return a SQLAlchemy URL that uses the installed psycopg 3 driver."""
+    if url.startswith("postgresql+psycopg2://"):
+        return url.replace("postgresql+psycopg2://", "postgresql+psycopg://", 1)
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+psycopg://", 1)
+    return url
+
+
+def postgres_required(obj: Any) -> Any:
+    """Skip the wrapped test/class when Docker + testcontainers aren't usable."""
+    return unittest.skipUnless(
+        _IMPORTS_OK and _docker_available(),
+        "Docker + testcontainers required for Postgres integration tests",
+    )(obj)
+
+
+class PostgresHarness:
+    """Owns a running TimescaleDB container with migrations applied."""
+
+    def __init__(self) -> None:
+        self._container = PostgresContainer(TIMESCALE_IMAGE, driver=None)
+        self._container.start()
+        self.url = self._container.get_connection_url()
+        self._apply_migrations()
+
+    def _apply_migrations(self) -> None:
+        # Imported lazily so harness import doesn't pull alembic into every
+        # offline test run.
+        from alembic import command
+        from alembic.config import Config
+
+        cfg = Config("alembic.ini")
+        cfg.set_main_option("sqlalchemy.url", _sqlalchemy_url(self.url))
+        command.upgrade(cfg, "head")
+
+    @contextmanager
+    def connection(self) -> Iterator[psycopg.Connection]:
+        """Yield a raw psycopg connection that always rolls back on exit.
+
+        Use this for tests that exercise SQL directly. Tests that go through
+        ``genkei.common.db`` helpers (which commit on their own) should call
+        :meth:`truncate_all` in tearDown instead.
+        """
+        with psycopg.connect(self.url) as conn:
+            try:
+                yield conn
+            finally:
+                conn.rollback()
+
+    def truncate_all(self) -> None:
+        """Truncate every user table so the next test starts clean.
+
+        ``RESTART IDENTITY CASCADE`` resets ``BIGSERIAL`` counters (so
+        ``meta.ingest_runs.id`` predictability holds) and follows FKs.
+        """
+        with psycopg.connect(self.url) as conn, conn.cursor() as cur:
+            cur.execute(USER_TABLES_SQL, [list(USER_TABLE_SCHEMAS)])
+            tables = cur.fetchall()
+            if tables:
+                table_identifiers = sql.SQL(", ").join(
+                    sql.Identifier(schema, table) for schema, table in tables
+                )
+                cur.execute(
+                    sql.SQL("TRUNCATE {} RESTART IDENTITY CASCADE").format(table_identifiers)
+                )
+            conn.commit()
+
+    def stop(self) -> None:
+        self._container.stop()
+
+
+def get_harness() -> PostgresHarness:
+    """Return the process-wide harness, building it on first call."""
+    global _HARNESS
+    if _HARNESS is None:
+        _HARNESS = PostgresHarness()
+        atexit.register(_HARNESS.stop)
+    return _HARNESS
