@@ -1,0 +1,52 @@
+# Self-hosted GitHub Actions runner for genkei-capital-fund-research (B-077).
+#
+# Drop this file into ~/homelab/apps/mission-control/genkei-capital/genkei-runner/
+# on the Beelink alongside a sibling .env (use .env.example here as the
+# template). Bring it up with `docker compose up -d`. The runner attaches
+# to mission_control_net so it can reach genkeicapital-postgres by name
+# at port 5432 (in-network) — workflows still resolve the same
+# GENKEI_DATABASE_URL secret you already pasted in the repo, so the host
+# half of that URL points at the LAN IP and works either way.
+#
+# Token model: ACCESS_TOKEN is a fine-grained Personal Access Token with
+# repo + Manage runners permissions. The myoung34/github-runner image
+# uses it to mint and rotate the short-lived runner registration tokens
+# automatically — no need to re-issue every hour.
+#
+# Per docs/infrastructure.md, this compose file is a template — secrets
+# never get committed. The Beelink-side .env is the only place the PAT
+# lives.
+
+services:
+  genkei-runner:
+    # Tracking :latest deliberately. GitHub rolls deprecation on older
+    # runner versions every few months — a pinned tag silently goes
+    # Offline once it's deprecated. DISABLE_AUTO_UPDATE below still
+    # prevents the runner self-updating mid-job; image-level updates
+    # only happen on `docker compose pull && docker compose up -d`.
+    image: myoung34/github-runner:latest
+    container_name: genkei-runner
+    restart: unless-stopped
+    environment:
+      REPO_URL: ${REPO_URL}
+      ACCESS_TOKEN: ${ACCESS_TOKEN}
+      RUNNER_NAME: ${RUNNER_NAME:-beelink-genkei-1}
+      RUNNER_SCOPE: repo
+      LABELS: self-hosted,beelink,linux,x64
+      EPHEMERAL: "false"
+      DISABLE_AUTO_UPDATE: "true"
+    volumes:
+      # Persistent runner state (work dir, _diag/, _tool/) so the runner
+      # survives container restarts without re-registering or re-pulling
+      # toolchains every time.
+      - genkei_runner_data:/tmp/runner
+    networks:
+      - mission_control_net
+
+networks:
+  mission_control_net:
+    external: true
+
+volumes:
+  genkei_runner_data:
+    name: genkei_runner_data

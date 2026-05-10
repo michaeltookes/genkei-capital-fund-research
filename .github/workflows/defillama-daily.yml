@@ -16,7 +16,7 @@ permissions:
 jobs:
   pipeline:
     name: DeFiLlama collect + normalize (Postgres-backed)
-    runs-on: self-hosted
+    runs-on: [self-hosted, beelink]
     timeout-minutes: 15
     env:
       GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}

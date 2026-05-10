@@ -62,14 +62,97 @@ Per `docs/storage.md`, hypertables live in their own migrations, separate from t
 
 The Beelink is on a private LAN behind a double-NAT path (Google Nest Wifi → OPNsense → ISP). **GitHub-hosted Action runners cannot reach the homelab from the internet.**
 
-Two options for CI:
-
-1. **Self-hosted GH Actions runner** on the Beelink — already tracked as **B-077**. Runner has direct Docker-network access to `genkeicapital-postgres`. Lowest moving parts, no public exposure.
-2. **Cloudflare TCP tunnel** to expose Postgres at a public hostname behind an Access policy. The homelab already runs `cloudflared`, so the building blocks are present. Adds blast-radius (any auth misconfig exposes the DB) and isn't necessary until we actually need cloud runners.
-
-**Decision:** start with a self-hosted runner (B-077) when CI starts needing real-Postgres tests (B-024). Skip the tunnel for now.
+**Decision (2026-05-09):** the daily DeFiLlama pipeline runs on a self-hosted runner installed on the Beelink (B-077). The runner attaches to `mission_control_net`, so it reaches `genkeicapital-postgres` directly by container name with zero public exposure. Cloudflare TCP tunnel was considered as an alternative — building blocks are present (`cloudflared` already runs on the Beelink) but the tunnel adds blast-radius and isn't needed unless cloud runners come back into scope.
 
 For developer machines on the same LAN, direct connection to `<beelink-host>:5440` works once the password is in `.env`.
+
+## Self-hosted GitHub Actions runner
+
+The runner that hosts the scheduled DeFiLlama pipeline lives on the Beelink and is managed via Docker Compose alongside the Postgres container.
+
+### One-time install
+
+1. **Create a fine-grained PAT.** GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens. Scope it to *this single repo* with these permissions:
+   - **Administration:** Read and write (so the runner image can mint short-lived registration tokens)
+   - **Metadata:** Read (default)
+
+   Set an explicit expiration (90 days is reasonable). Save the token — you will not see it again.
+
+2. **Drop the compose template onto the Beelink.**
+
+   ```bash
+   ssh <beelink-host>
+   mkdir -p ~/homelab/apps/mission-control/genkei-capital/genkei-runner/
+   cd ~/homelab/apps/mission-control/genkei-capital/genkei-runner/
+
+   # From this repo:
+   #   infra/runner/docker-compose.yml -> docker-compose.yml
+   #   infra/runner/.env.example       -> .env  (then fill in ACCESS_TOKEN)
+   ```
+
+3. **Start the runner.**
+
+   ```bash
+   docker compose up -d
+   docker compose logs -f genkei-runner   # wait for "Listening for Jobs"
+   ```
+
+4. **Verify in GitHub.** Repo → Settings → Actions → Runners. Look for `beelink-genkei-1` with status `Idle`. Labels should read `self-hosted, beelink, linux, x64`.
+
+5. **Smoke test.** Trigger the workflow manually: Actions → DeFiLlama Daily Brief → Run workflow. Job should pick up within a few seconds, run `alembic upgrade head`, then collect + normalize against the homelab Postgres.
+
+### Restart procedure
+
+Bring the runner down and back up cleanly without losing state:
+
+```bash
+ssh <beelink-host>
+cd ~/homelab/apps/mission-control/genkei-capital/genkei-runner/
+docker compose restart genkei-runner
+docker compose logs -f genkei-runner
+```
+
+The `genkei_runner_data` volume preserves the work directory and tool cache, so `actions/setup-python@v5` doesn't re-download Python on every restart.
+
+### "Jobs queue forever" diagnostic
+
+If a workflow run stays in `Queued` for more than ~30 seconds, walk this list in order:
+
+1. **Runner reachable?** `docker ps --filter name=genkei-runner` on the Beelink. If the container is gone or restarting, check `docker compose logs genkei-runner` for the failure reason.
+2. **Runner online in GitHub?** Repo → Settings → Actions → Runners. Status should be `Idle`. If it's `Offline`, the runner has lost connectivity (DNS, outbound HTTPS to api.github.com).
+3. **Labels match?** The workflow uses `runs-on: [self-hosted, beelink]`. The runner advertises `self-hosted, beelink, linux, x64`. If you renamed the runner without updating its labels, jobs go unmatched.
+4. **PAT expired?** When the registration token call fails, the container logs an HTTP 401 on startup. Rotate the PAT (next section), update `.env`, `docker compose up -d --force-recreate`.
+5. **Egress blocked?** OPNsense or upstream firewall blocking `https://api.github.com`. Test from inside the container: `docker compose exec genkei-runner curl -I https://api.github.com`.
+
+### PAT rotation
+
+Tokens have an explicit expiry. To rotate without downtime:
+
+```bash
+# 1. Mint a new PAT in GitHub (same scopes as install).
+# 2. On the Beelink:
+ssh <beelink-host>
+cd ~/homelab/apps/mission-control/genkei-capital/genkei-runner/
+$EDITOR .env                                  # paste the new ACCESS_TOKEN
+docker compose up -d --force-recreate         # picks up the new env
+docker compose logs -f genkei-runner          # confirm "Listening for Jobs"
+# 3. Revoke the old PAT in GitHub Settings → Developer settings.
+```
+
+If the old PAT expires before rotation completes, the runner stays registered (the registration token it last minted is good for ~1 hour) but cannot mint a new one — restart it after the new PAT is in place.
+
+### Removing the runner
+
+If the runner is being decommissioned:
+
+```bash
+ssh <beelink-host>
+cd ~/homelab/apps/mission-control/genkei-capital/genkei-runner/
+docker compose down
+docker volume rm genkei_runner_data   # only if you're sure
+```
+
+GitHub will mark the runner `Offline` after a few minutes; you can delete it from Settings → Actions → Runners once it's no longer needed.
 
 ## Local development
 

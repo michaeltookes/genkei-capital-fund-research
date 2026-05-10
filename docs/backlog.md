@@ -600,11 +600,3 @@ Reliability work that grows in importance as more sources go live.
   - Per-source quota tracked in `meta.api_usage`.
   - CLI + dashboard query.
 
-### B-077 — Self-hosted GH Actions runner if needed
-- **Status:** open
-- **Priority:** medium
-- **Context:** Confirmed in B-006 that the Beelink is on a private LAN behind double NAT — GitHub-hosted runners cannot reach it. A self-hosted runner is the recommended path; `docs/infrastructure.md` notes Cloudflare TCP tunnel as an alternative once we need cloud-runner access.
-- **Acceptance criteria:**
-  - Self-hosted runner installed on the Beelink, registered to this repo, with Docker network access to `mission_control_net` so it can reach `genkeicapital-postgres`.
-  - GH Actions workflows targeting Postgres pinned to the self-hosted runner via `runs-on:` label.
-  - Recovery steps documented (how to restart, what to check if jobs queue forever).

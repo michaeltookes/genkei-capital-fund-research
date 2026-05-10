@@ -1,0 +1,6 @@
+self-hosted-runner:
+  labels:
+    - self-hosted
+    - beelink
+    - linux
+    - x64

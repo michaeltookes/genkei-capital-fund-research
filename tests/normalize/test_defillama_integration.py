@@ -42,7 +42,7 @@ STABLECOINS_PAYLOAD = {
             "name": "Tether",
             "symbol": "USDT",
             "pegType": "peggedUSD",
-            "chainBalances": {
+            "chainCirculating": {
                 "Ethereum": {"current": {"peggedUSD": 60_000_000_000}},
             },
         }

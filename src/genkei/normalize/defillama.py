@@ -182,10 +182,19 @@ def normalize_stablecoins(
         symbol = _stringify(asset.get("symbol"))
         if asset_id is None or symbol is None:
             continue
-        chain_balances = asset.get("chainBalances")
-        if not isinstance(chain_balances, dict):
+        # DeFiLlama's /stablecoins payload exposes per-chain supply under
+        # `chainCirculating`; an older shape used `chainBalances` and the
+        # legacy normalizer carried that over by mistake. Accept either,
+        # newer field wins.
+        if "chainCirculating" in asset:
+            chain_supply = asset["chainCirculating"]
+        elif "chainBalances" in asset:
+            chain_supply = asset["chainBalances"]
+        else:
             continue
-        for chain_name, balance in chain_balances.items():
+        if not isinstance(chain_supply, dict):
+            continue
+        for chain_name, balance in chain_supply.items():
             supply = _stablecoin_supply(balance)
             if supply is None:
                 continue
