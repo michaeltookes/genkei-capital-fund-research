@@ -83,37 +83,9 @@ Daily briefs and reports are emergent UIs; **the data lake is the asset**.
 
 The data lake doesn't exist yet; this phase makes it possible to land a single row.
 
-### B-013 — Migrate codebase to chosen `src/genkei/` layout
-- **Status:** open
-- **Priority:** low
-- **Context:** Layout decision resolved on 2026-05-07 — adopting `src/genkei/{common,ingest,normalize,cli,experiments,reports}/`. The remaining work is the migration itself, which is interleaved with Phase 1 (B-017+) when DeFiLlama is refactored onto Postgres. No standalone migration PR planned.
-- **Acceptance criteria:**
-  - Existing DeFiLlama scripts moved to the target paths per `docs/repo-layout.md`.
-  - Tests moved to `tests/{ingest,normalize,reports}/` and still pass.
-  - `.github/workflows/defillama-daily.yml` invokes the CLI entry point instead of `python scripts/...`.
-- **Resolved by:** `docs/repo-layout.md` (2026-05-07) — decision portion. Migration tracked here.
-
 ## Phase 1 — Refactor DeFiLlama onto Postgres
 
 Migrate the existing MVP into the new foundation; it becomes the canonical pattern for every future ingester.
-
-### B-017 — Refactor `collect_defillama.py` to write to Postgres
-- **Status:** open
-- **Priority:** high
-- **Context:** Currently writes raw JSON files; the new architecture lands raw payloads in Postgres (or a `meta.raw_blobs` table) for audit, then normalizes downstream.
-- **Acceptance criteria:**
-  - Collector still snapshots raw responses (decision: keep `data/raw/` as audit trail vs Postgres `meta.raw_blobs` vs object storage).
-  - `meta.ingest_runs` row records each execution.
-  - Existing CLI flags preserved.
-
-### B-018 — Refactor `normalize_defillama.py` to read/write Postgres
-- **Status:** open
-- **Priority:** high
-- **Context:** Currently reads raw JSON, writes normalized JSON; both ends move to Postgres.
-- **Acceptance criteria:**
-  - Reads from raw store (whichever path B-017 chose).
-  - Writes normalized rows into the per-source schema.
-  - Idempotent — re-running the normalizer for the same snapshot produces identical rows.
 
 ### B-019 — Add backfill mode for DeFiLlama
 - **Status:** open
