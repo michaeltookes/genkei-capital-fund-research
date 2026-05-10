@@ -7,11 +7,14 @@ import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
+from genkei.ingest import fred
 from genkei.ingest.fred import (
     DEFAULT_RATE_LIMIT,
     EARLIEST_REALTIME,
     SeriesTarget,
+    _fetch_observations_payload,
     _fetch_series_pair,
     _redact_key,
     build_observations_url,
@@ -93,6 +96,8 @@ class UrlBuilderTests(unittest.TestCase):
         self.assertIn("series_id=GDPC1", url)
         self.assertIn(f"realtime_start={EARLIEST_REALTIME}", url)
         self.assertIn("realtime_end=9999-12-31", url)
+        self.assertIn("limit=100000", url)
+        self.assertIn("offset=0", url)
 
     def test_redact_key_strips_api_key_from_url(self) -> None:
         url = build_observations_url("SECRET", "DGS10")
@@ -116,6 +121,51 @@ class UrlBuilderTests(unittest.TestCase):
                 1,
                 [],
             )
+
+    def test_fetch_observations_payload_paginates_until_count_is_complete(self) -> None:
+        calls: list[str] = []
+
+        class PagingHttp:
+            def get_json(self, url: str) -> object:
+                calls.append(url)
+                if "offset=0" in url:
+                    return {
+                        "count": 3,
+                        "observations": [
+                            {"date": "2024-01-01"},
+                            {"date": "2024-01-02"},
+                        ],
+                    }
+                if "offset=2" in url:
+                    return {"count": 3, "observations": [{"date": "2024-01-03"}]}
+                raise AssertionError(f"unexpected url: {url}")
+
+        with patch.object(fred, "OBSERVATIONS_PAGE_LIMIT", 2):
+            url, payload = _fetch_observations_payload(
+                SeriesTarget("DGS10", "10-Year Treasury Yield"),
+                "KEY123",
+                PagingHttp(),  # type: ignore[arg-type]
+            )
+
+        self.assertIn("offset=0", url)
+        self.assertEqual(len(calls), 2)
+        self.assertIn("limit=2", calls[0])
+        self.assertIn("offset=2", calls[1])
+        self.assertEqual(payload["count"], 3)
+        self.assertEqual(len(payload["observations"]), 3)
+
+    def test_fetch_observations_payload_fails_when_count_is_not_satisfied(self) -> None:
+        class TruncatedHttp:
+            def get_json(self, _url: str) -> object:
+                return {"count": 3, "observations": [{"date": "2024-01-01"}]}
+
+        with patch.object(fred, "OBSERVATIONS_PAGE_LIMIT", 2):
+            with self.assertRaisesRegex(ValueError, "ended after 1 of 3 rows"):
+                _fetch_observations_payload(
+                    SeriesTarget("DGS10", "10-Year Treasury Yield"),
+                    "KEY123",
+                    TruncatedHttp(),  # type: ignore[arg-type]
+                )
 
 
 class RequireApiKeyTests(unittest.TestCase):

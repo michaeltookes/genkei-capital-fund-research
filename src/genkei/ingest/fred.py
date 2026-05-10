@@ -50,6 +50,7 @@ OBSERVATIONS_BLOB_PREFIX = "observations_"
 DEFAULT_RATE_LIMIT = RateLimit.per_second(1)
 # Earliest documented FRED realtime_start.
 EARLIEST_REALTIME = "1776-07-04"
+OBSERVATIONS_PAGE_LIMIT = 100_000
 RAW_BLOBS_INSERT = (
     "INSERT INTO meta.raw_blobs (ingest_run_id, endpoint_name, url, payload) "
     "VALUES (%s, %s, %s, %s::jsonb) "
@@ -123,7 +124,13 @@ def build_series_url(api_key: str, series_id: str) -> str:
     return f"{FRED_BASE_URL}/series?series_id={series_id}&api_key={api_key}&file_type=json"
 
 
-def build_observations_url(api_key: str, series_id: str) -> str:
+def build_observations_url(
+    api_key: str,
+    series_id: str,
+    *,
+    limit: int = OBSERVATIONS_PAGE_LIMIT,
+    offset: int = 0,
+) -> str:
     """Build the URL for the full-vintage observations endpoint."""
     return (
         f"{FRED_BASE_URL}/series/observations"
@@ -132,6 +139,8 @@ def build_observations_url(api_key: str, series_id: str) -> str:
         f"&file_type=json"
         f"&realtime_start={EARLIEST_REALTIME}"
         f"&realtime_end=9999-12-31"
+        f"&limit={limit}"
+        f"&offset={offset}"
     )
 
 
@@ -144,6 +153,16 @@ def _store_blob(ingest_run_id: int, endpoint_name: str, url: str, payload: Any) 
 def _redact_key(url: str, api_key: str) -> str:
     """Replace the API key in a URL with ``***`` so raw_blobs.url is safe to log."""
     return url.replace(api_key, "***") if api_key else url
+
+
+def _as_non_negative_int(value: Any) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
 
 
 def collect(
@@ -197,14 +216,14 @@ def _fetch_series_pair(
 ) -> int:
     """Fetch metadata + observations for one series. Returns 0/1/2 rows written."""
     written = 0
-    for blob_prefix, url_builder in (
-        (SERIES_BLOB_PREFIX, build_series_url),
-        (OBSERVATIONS_BLOB_PREFIX, build_observations_url),
-    ):
-        url = url_builder(api_key, target.series_id)
+    for blob_prefix in (SERIES_BLOB_PREFIX, OBSERVATIONS_BLOB_PREFIX):
         endpoint_name = f"{blob_prefix}{target.series_id}"
         try:
-            payload = http.get_json(url)
+            if blob_prefix == SERIES_BLOB_PREFIX:
+                url = build_series_url(api_key, target.series_id)
+                payload = http.get_json(url)
+            else:
+                url, payload = _fetch_observations_payload(target, api_key, http)
         except (
             httpx.TimeoutException,
             httpx.NetworkError,
@@ -221,6 +240,59 @@ def _fetch_series_pair(
         _store_blob(ingest_run_id, endpoint_name, _redact_key(url, api_key), payload)
         written += 1
     return written
+
+
+def _fetch_observations_payload(
+    target: SeriesTarget,
+    api_key: str,
+    http: HttpClient,
+) -> tuple[str, Any]:
+    """Fetch every observations page and return one combined raw payload."""
+    first_url = build_observations_url(
+        api_key, target.series_id, limit=OBSERVATIONS_PAGE_LIMIT, offset=0
+    )
+    combined: dict[str, Any] | None = None
+    observations: list[Any] = []
+    offset = 0
+    expected_count: int | None = None
+
+    while True:
+        url = build_observations_url(
+            api_key, target.series_id, limit=OBSERVATIONS_PAGE_LIMIT, offset=offset
+        )
+        payload = http.get_json(url)
+        if not isinstance(payload, dict):
+            raise ValueError(f"FRED observations payload for {target.series_id} is not an object.")
+        page_observations = payload.get("observations")
+        if not isinstance(page_observations, list):
+            raise ValueError(
+                f"FRED observations payload for {target.series_id} is missing observations."
+            )
+
+        if combined is None:
+            combined = dict(payload)
+            combined["offset"] = 0
+        page_count = _as_non_negative_int(payload.get("count"))
+        expected_count = page_count if expected_count is None else expected_count
+        observations.extend(page_observations)
+
+        if expected_count is not None and len(observations) >= expected_count:
+            break
+        if len(page_observations) < OBSERVATIONS_PAGE_LIMIT:
+            if expected_count is not None and len(observations) < expected_count:
+                raise ValueError(
+                    f"FRED observations payload for {target.series_id} ended after "
+                    f"{len(observations)} of {expected_count} rows."
+                )
+            break
+        offset += OBSERVATIONS_PAGE_LIMIT
+
+    if combined is None:
+        raise ValueError(f"FRED observations payload for {target.series_id} was empty.")
+    combined["observations"] = observations
+    combined["count"] = expected_count if expected_count is not None else len(observations)
+    combined["limit"] = len(observations)
+    return first_url, combined
 
 
 def _record_partial(ingest_run_id: int, partial: list[dict[str, str]]) -> None:
