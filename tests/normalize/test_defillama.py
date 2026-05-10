@@ -132,6 +132,26 @@ class NormalizeStablecoinsTests(unittest.TestCase):
                         "EmptyChain": {"current": {}},  # no usable supply -> dropped
                     },
                 },
+                {
+                    "id": "2",
+                    "name": "Legacy USD",
+                    "symbol": "LUSD",
+                    "pegType": "peggedUSD",
+                    "chainBalances": {
+                        "Ethereum": {"current": {"peggedUSD": 1_000_000}},
+                        "LegacyChain": {"current": {"peggedUSD": 2_000_000}},
+                    },
+                },
+                {
+                    "id": "3",
+                    "name": "Empty Canonical",
+                    "symbol": "EMPTY",
+                    "pegType": "peggedUSD",
+                    "chainCirculating": {},
+                    "chainBalances": {
+                        "StaleChain": {"current": {"peggedUSD": 99_000_000}},
+                    },
+                },
                 "garbage",
             ]
         }
@@ -142,10 +162,10 @@ class NormalizeStablecoinsTests(unittest.TestCase):
             now=NOW,
         )
         chain_names = sorted(row["chain"] for row in rows)
-        self.assertEqual(chain_names, ["Ethereum", "Tron"])
-        self.assertEqual({row["symbol"] for row in rows}, {"USDT"})
+        self.assertEqual(chain_names, ["Ethereum", "Ethereum", "LegacyChain", "Tron"])
+        self.assertEqual({row["symbol"] for row in rows}, {"LUSD", "USDT"})
+        self.assertEqual({row["asset_id"] for row in rows}, {"1", "2"})
         for row in rows:
-            self.assertEqual(row["asset_id"], "1")
             self.assertEqual(row["ts"], NOW)
             self.assertEqual(row["ingest_run_id"], 7)
             self.assertEqual(row["source_endpoint"], "https://stablecoins.llama.fi/stablecoins")

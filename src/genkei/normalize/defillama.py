@@ -186,7 +186,12 @@ def normalize_stablecoins(
         # `chainCirculating`; an older shape used `chainBalances` and the
         # legacy normalizer carried that over by mistake. Accept either,
         # newer field wins.
-        chain_supply = asset.get("chainCirculating") or asset.get("chainBalances")
+        if "chainCirculating" in asset:
+            chain_supply = asset["chainCirculating"]
+        elif "chainBalances" in asset:
+            chain_supply = asset["chainBalances"]
+        else:
+            continue
         if not isinstance(chain_supply, dict):
             continue
         for chain_name, balance in chain_supply.items():
