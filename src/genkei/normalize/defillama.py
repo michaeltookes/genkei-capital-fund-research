@@ -38,8 +38,14 @@ from genkei.common import db
 DEFAULT_CONFIG_PATH = Path("config/defillama.sources.json")
 SOURCE_NAME = "defillama"
 NORMALIZE_ENDPOINT_LABEL = "normalize"
+NORMALIZE_BACKFILL_ENDPOINT_LABEL = "normalize_backfill"
 COLLECT_ENDPOINT_LABEL = "collect"
+BACKFILL_ENDPOINT_LABEL = "backfill"
 CHAIN_HISTORY_PREFIX = "chain_tvl_history_"
+# Backfill blob name prefixes (mirror genkei.ingest.defillama).
+PRICE_HISTORICAL_PREFIX = "prices_historical_"
+PROTOCOL_HISTORY_PREFIX = "protocol_"
+STABLECOIN_HISTORY_PREFIX = "stablecoin_"
 JsonObject = dict[str, Any]
 RawBlob = tuple[str, Any, datetime]
 LOGGER = logging.getLogger(__name__)
@@ -253,6 +259,127 @@ def normalize_prices(
 
 
 # ---------------------------------------------------------------------------
+# Per-table historical normalizers (B-019 backfill blobs)
+# ---------------------------------------------------------------------------
+
+
+def normalize_protocol_history(
+    payload: Any,
+    *,
+    slug: str,
+    source_endpoint: str,
+    ingest_run_id: int,
+    fetched_at: datetime,
+) -> list[JsonObject]:
+    """Map ``/protocol/{slug}`` to ``defillama.protocol_tvl`` rows.
+
+    Payload shape: ``chainTvls.<chain>.tvl`` is a list of
+    ``{date: epoch, totalLiquidityUSD: number}``. We dedupe on (chain, ts)
+    inside one slug.
+    """
+    if not isinstance(payload, dict):
+        return []
+    chain_tvls = payload.get("chainTvls")
+    if not isinstance(chain_tvls, dict):
+        return []
+    rows: list[JsonObject] = []
+    seen: set[tuple[str, datetime]] = set()
+    for chain_name, chain_data in chain_tvls.items():
+        if not isinstance(chain_data, dict):
+            continue
+        # Skip the synthetic "borrowed" / "staking" / "<chain>-borrowed" sub-buckets;
+        # we want plain TVL only. DeFiLlama mixes these into chainTvls.
+        if "-" in str(chain_name):
+            continue
+        series = chain_data.get("tvl")
+        if not isinstance(series, list):
+            continue
+        for point in series:
+            if not isinstance(point, dict):
+                continue
+            ts = parse_history_timestamp(point.get("date"))
+            tvl = as_float(point.get("totalLiquidityUSD"))
+            if ts is None or tvl is None:
+                continue
+            key = (str(chain_name), ts)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(
+                {
+                    "slug": slug,
+                    "chain": str(chain_name),
+                    "ts": ts,
+                    "tvl_usd": tvl,
+                    "source_endpoint": source_endpoint,
+                    "fetched_at": fetched_at,
+                    "ingest_run_id": ingest_run_id,
+                }
+            )
+    return rows
+
+
+def normalize_stablecoin_history(
+    payload: Any,
+    *,
+    asset_id: str,
+    source_endpoint: str,
+    ingest_run_id: int,
+    fetched_at: datetime,
+) -> list[JsonObject]:
+    """Map ``/stablecoin/{id}`` to ``defillama.stablecoins`` rows.
+
+    Payload shape: ``chainBalances.<chain>.tokens`` is a list of points, each
+    carrying a ``date`` plus a ``circulating`` (or similar) dict with
+    ``peggedUSD``. Symbol / name / pegType come from the top level.
+    """
+    if not isinstance(payload, dict):
+        return []
+    symbol = _stringify(payload.get("symbol"))
+    if symbol is None:
+        return []
+    name = _stringify(payload.get("name"))
+    peg_type = _stringify(payload.get("pegType"))
+    chain_balances = payload.get("chainBalances")
+    if not isinstance(chain_balances, dict):
+        return []
+    rows: list[JsonObject] = []
+    seen: set[tuple[str, datetime]] = set()
+    for chain_name, chain_data in chain_balances.items():
+        if not isinstance(chain_data, dict):
+            continue
+        series = chain_data.get("tokens")
+        if not isinstance(series, list):
+            continue
+        for point in series:
+            if not isinstance(point, dict):
+                continue
+            ts = parse_history_timestamp(point.get("date"))
+            supply = _stablecoin_supply(point)
+            if ts is None or supply is None:
+                continue
+            key = (str(chain_name), ts)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(
+                {
+                    "asset_id": asset_id,
+                    "chain": str(chain_name),
+                    "ts": ts,
+                    "symbol": symbol,
+                    "name": name,
+                    "peg_type": peg_type,
+                    "supply_usd": supply,
+                    "source_endpoint": source_endpoint,
+                    "fetched_at": fetched_at,
+                    "ingest_run_id": ingest_run_id,
+                }
+            )
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # Run orchestration
 # ---------------------------------------------------------------------------
 
@@ -286,18 +413,29 @@ def chain_focus_from_config(config: JsonObject) -> list[str]:
 
 def latest_collector_run_id() -> int:
     """Return the most recent successful collector run id."""
+    return _latest_run_id(COLLECT_ENDPOINT_LABEL, "Run `python -m genkei.ingest.defillama` first.")
+
+
+def latest_backfill_run_id() -> int:
+    """Return the most recent successful backfill run id."""
+    return _latest_run_id(
+        BACKFILL_ENDPOINT_LABEL,
+        "Run `python -m genkei.ingest.defillama --backfill --since YYYY-MM-DD` first.",
+    )
+
+
+def _latest_run_id(endpoint_label: str, hint: str) -> int:
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT id FROM meta.ingest_runs "
             "WHERE source = %s AND endpoint = %s AND status = 'success' "
             "ORDER BY started_at DESC LIMIT 1",
-            [SOURCE_NAME, COLLECT_ENDPOINT_LABEL],
+            [SOURCE_NAME, endpoint_label],
         )
         row = cur.fetchone()
     if row is None:
         raise SystemExit(
-            "No successful DeFiLlama collector run found in meta.ingest_runs. "
-            "Run `python -m genkei.ingest.defillama` first."
+            f"No successful DeFiLlama {endpoint_label!r} run found in meta.ingest_runs. {hint}"
         )
     return int(row[0])
 
@@ -386,6 +524,91 @@ def _rows_for(
             now=fetched_at,
         )
     )
+
+
+def normalize_backfill(*, source_run_id: int | None = None) -> int:
+    """Process a B-019 backfill run's raw blobs into the lake tables.
+
+    Dispatches each blob by endpoint_name prefix:
+      - ``prices_historical_*``  → defillama.prices via normalize_prices
+      - ``protocol_*``           → defillama.protocol_tvl via normalize_protocol_history
+      - ``stablecoin_*``         → defillama.stablecoins via normalize_stablecoin_history
+
+    Backfill runs don't need the chain_focus config — they're keyed
+    entirely on what raw blobs the collector produced.
+    """
+    if source_run_id is None:
+        source_run_id = latest_backfill_run_id()
+    blobs = fetch_raw_blobs(source_run_id)
+
+    with db.ingest_run(
+        SOURCE_NAME,
+        endpoint=NORMALIZE_BACKFILL_ENDPOINT_LABEL,
+        metadata={"source_run_id": source_run_id},
+    ) as run:
+        price_rows: list[JsonObject] = []
+        protocol_tvl_rows: list[JsonObject] = []
+        stablecoin_rows: list[JsonObject] = []
+
+        for endpoint_name, (url, payload, fetched_at) in blobs.items():
+            if endpoint_name.startswith(PRICE_HISTORICAL_PREFIX):
+                price_rows.extend(
+                    normalize_prices(
+                        payload,
+                        source_endpoint=url,
+                        ingest_run_id=run.id,
+                        now=fetched_at,
+                    )
+                )
+            elif endpoint_name.startswith(PROTOCOL_HISTORY_PREFIX):
+                slug = endpoint_name[len(PROTOCOL_HISTORY_PREFIX) :]
+                protocol_tvl_rows.extend(
+                    normalize_protocol_history(
+                        payload,
+                        slug=slug,
+                        source_endpoint=url,
+                        ingest_run_id=run.id,
+                        fetched_at=fetched_at,
+                    )
+                )
+            elif endpoint_name.startswith(STABLECOIN_HISTORY_PREFIX):
+                asset_id = endpoint_name[len(STABLECOIN_HISTORY_PREFIX) :]
+                stablecoin_rows.extend(
+                    normalize_stablecoin_history(
+                        payload,
+                        asset_id=asset_id,
+                        source_endpoint=url,
+                        ingest_run_id=run.id,
+                        fetched_at=fetched_at,
+                    )
+                )
+            else:
+                LOGGER.debug("backfill normalizer skipping unknown blob: %s", endpoint_name)
+
+        with db.connection() as conn:
+            run.add_rows(
+                db.bulk_upsert(
+                    conn, "defillama.prices", price_rows, conflict_keys=["asset_key", "ts"]
+                )
+            )
+            run.add_rows(
+                db.bulk_upsert(
+                    conn,
+                    "defillama.protocol_tvl",
+                    protocol_tvl_rows,
+                    conflict_keys=["slug", "chain", "ts"],
+                )
+            )
+            run.add_rows(
+                db.bulk_upsert(
+                    conn,
+                    "defillama.stablecoins",
+                    stablecoin_rows,
+                    conflict_keys=["asset_id", "chain", "ts"],
+                )
+            )
+
+        return run.id
 
 
 def _chain_tvl_rows(
@@ -480,7 +703,15 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--source-run-id",
         type=int,
         default=None,
-        help="Collector ingest_run id to read raw blobs from. Default: latest success.",
+        help="Collector or backfill ingest_run id. Default: latest success of the chosen mode.",
+    )
+    parser.add_argument(
+        "--backfill",
+        action="store_true",
+        help=(
+            "Process a B-019 backfill run rather than a daily collect run. "
+            "Dispatches blobs by endpoint_name prefix."
+        ),
     )
     return parser.parse_args(argv)
 
@@ -488,8 +719,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     args = parse_args(argv or sys.argv[1:])
-    run_id = normalize(args.config, source_run_id=args.source_run_id)
-    print(f"DeFiLlama normalizer wrote ingest_run_id={run_id}")
+    if args.backfill:
+        run_id = normalize_backfill(source_run_id=args.source_run_id)
+        print(f"DeFiLlama backfill normalizer wrote ingest_run_id={run_id}")
+    else:
+        run_id = normalize(args.config, source_run_id=args.source_run_id)
+        print(f"DeFiLlama normalizer wrote ingest_run_id={run_id}")
     return 0
 
 

@@ -9,7 +9,7 @@ The point of the bottom half: when context gets cleared, the next session (Claud
 
 **Updating discipline:** any commit that makes a non-obvious choice (a tradeoff with a real alternative) or surfaces a non-obvious surprise (a thing future-you wouldn't predict) appends an entry below in the same commit. If the entry is missing, the commit is incomplete.
 
-**Last updated:** 2026-05-10 (Phase 1 in progress; B-019 backfill underway on `phase1-cleanup`)
+**Last updated:** 2026-05-10 (Phase 1 essentially closed; B-019 backfill landed on `phase1-cleanup`)
 
 > **Read this first if you're new (or future-you after weeks away).** Then dive into the per-component docs at the bottom for depth.
 
@@ -113,6 +113,9 @@ The normalizer is **data-lake-shaped**, not report-shaped. It writes the raw sha
 | **`defillama.chain_tvl`** | Time-series fact, hypertable, PK `(chain, ts)`, 30-day chunks. | R-015 |
 | **`defillama.stablecoins`** | Time-series fact, hypertable, PK `(asset_id, chain, ts)`, 30-day chunks. | R-015 |
 | **`defillama.prices`** | Time-series fact, hypertable, PK `(asset_key, ts)`, 7-day chunks (intraday-ready). | R-015 |
+| **`defillama.protocol_tvl`** | Time-series fact, hypertable, PK `(slug, chain, ts)`, FK to `protocols(slug)`, 30-day chunks. Per-protocol per-chain TVL series — populated by backfill walking `/protocol/{slug}`. | R-023 |
+| **Compression policies** | All four `defillama.*` hypertables compress chunks > 30 days old via TimescaleDB native compression (~10x savings). Segmentby = the most-filtered column per table; orderby = `ts DESC`. | R-024 |
+| **`meta.raw_blobs` retention** | Daily TimescaleDB job (`add_job`) deletes blobs > 90 days old. The normalized lake tables are the system of record; raw is audit/replay only. | R-024 |
 | **Provenance trio** | Every fact row carries `source_endpoint TEXT NOT NULL`, `fetched_at TIMESTAMPTZ NOT NULL`, `ingest_run_id BIGINT NOT NULL REFERENCES meta.ingest_runs(id)`. | R-021 |
 | **Migration tool** | Alembic, hand-written migrations only (no autogen). Files at `migrations/versions/YYYYMMDD_<slug>.py`. URL from `GENKEI_DATABASE_URL`. | R-008, `docs/storage.md` § B-009 |
 
@@ -140,8 +143,8 @@ src/genkei/
 | `genkei.common.db` | Lazy connection pool, `connection()` (commit/rollback), `bulk_upsert` (`INSERT ... ON CONFLICT`), `ingest_run()` (records meta.ingest_runs lifecycle). | R-009 |
 | `genkei.common.http` | `HttpClient(source_name, rate_limit=RateLimit.per_second(N), retry=RetryPolicy(...))`. Handles 408/425/429/5xx with `Retry-After` support and exponential backoff + jitter. Source-tagged User-Agent. | R-010 |
 | `genkei.common.config` | `load_env_file(path)` — stdlib-only `.env` loader, no python-dotenv dep. | R-013 |
-| `genkei.ingest.defillama` | DeFiLlama collector. Fetches each configured endpoint, INSERTs into `meta.raw_blobs`. Required endpoints raise on failure; chain history failures degrade to `metadata.partial_endpoints`. | R-017 |
-| `genkei.normalize.defillama` | Reads raw blobs for a collector run, `bulk_upsert`s into all four `defillama.*` tables. Idempotent. | R-018 |
+| `genkei.ingest.defillama` | DeFiLlama collector + backfill (`--backfill --since YYYY-MM-DD --endpoint X`). Daily mode INSERTs raw blobs per endpoint; backfill mode walks daily timestamps for prices, iterates known slugs/asset_ids for protocols/stablecoins. Resumability via `meta.raw_blobs.url` lookup within a 14-day window. | R-017, R-023 |
+| `genkei.normalize.defillama` | Reads raw blobs and `bulk_upsert`s. Daily mode (`normalize`) handles snapshot blobs into all four lake tables; backfill mode (`normalize_backfill`) dispatches by `endpoint_name` prefix into `defillama.prices`, `defillama.protocol_tvl`, `defillama.stablecoins`. Idempotent throughout. | R-018, R-023 |
 
 ### Process layer
 
@@ -238,7 +241,7 @@ Each mission is one markdown file: title, context, checklist of acceptance crite
 | Phase | Status | Notes |
 |---|---|---|
 | **Phase 0** — Foundation: Postgres + project scaffolding | ✅ complete | All 11 items resolved (R-005 through R-013, R-016, R-019). |
-| **Phase 1** — Refactor DeFiLlama onto Postgres | 🟡 in progress | 7/8 items done (R-015, R-017, R-018, R-019, R-021, R-022, R-026). **B-019 backfill** is the last open item; B-020 (config-driven exclusion keywords) and B-023 (freshness check) deferred to follow-ups; B-025 (daily brief fate) deferred decision. |
+| **Phase 1** — Refactor DeFiLlama onto Postgres | ✅ effectively complete | 9/9 high-priority items done. Three medium items remain: B-020 (config-driven exclusion keywords) and B-023 (freshness check) are follow-ups when consumers need them; B-025 (daily brief fate) is a deferred decision. |
 | **Phase 2** — Free-data ingesters with backfill | ⚪ not started | 10 items (B-027 SEC EDGAR through B-036 per-source docs). FRED is the obvious next ingester — macro is the spine. |
 | **Phase 3** — Custom CLI | ⚪ not started | 11 items (B-037 through B-047). `genkei` is the working name. |
 | **Phase 4** — Agent layer | ⚪ not started | 6 items (B-048 through B-053). Harness decision pending. |
@@ -361,6 +364,19 @@ Append-only. Each entry: **what**, **why**, **alternative considered**, **what w
 **Why:** Backfill takes worst-case raw size from ~150 MB to ~6 GB. Compression brings it back to ~1 GB. Without these policies the homelab disk would still be fine (67 GB free) but data hygiene gets worse over time and harder to retrofit later.
 **Alternative:** Defer to B-070/B-074 in Phase 7. Rejected — the moment to add compression is when the data shape stabilizes, which is now.
 
+### D-011 — Backfill resumability via `meta.raw_blobs.url` + 14-day window
+**Date:** 2026-05-10 · **In:** R-023, `genkei.ingest.defillama._already_fetched`
+**Decision:** Each prospective backfill fetch checks `meta.raw_blobs` for a row with the same URL fetched within the last 14 days; if found, skip the HTTP call.
+**Why:** Backfill runs are long (~25 min for protocols at 5 req/sec). A crashed run that re-runs from scratch is wasteful and burns rate-limit budget. URL-based resume means we don't need a separate progress table or per-blob cursor — `meta.raw_blobs` is already the system of record for "what we've fetched."
+**Alternative:** A side `meta.backfill_progress` table tracking per-(endpoint, key, date) tuples. Rejected — adds a second source of truth for what's already on disk; the URL is unique enough.
+**14-day window why:** Long enough to span a multi-day backfill restart; short enough that a deliberate refresh (re-running the same `--since` weeks later) actually re-pulls fresh data.
+
+### D-012 — Decoupled backfill: collector writes blobs, normalizer dispatches
+**Date:** 2026-05-10 · **In:** R-023
+**Decision:** `python -m genkei.ingest.defillama --backfill --since X` only fetches and lands raw blobs (with backfill-specific `endpoint_name` prefixes). A second invocation `python -m genkei.normalize.defillama --backfill` reads those blobs and dispatches by prefix into the lake tables.
+**Why:** Mirrors the existing collect/normalize split — same mental model for daily and backfill flows. Lets you re-normalize without re-fetching, debug normalizer issues against fixed input, and parallelize fetching across multiple invocations if rate-limit headroom exists later.
+**Alternative:** One-shot `backfill` that collects + normalizes in a single pass. Rejected — couples two concerns whose failure modes differ (network failure vs schema mismatch vs upsert error).
+
 ---
 
 # Gotchas & lessons learned
@@ -437,3 +453,15 @@ Append-only. Each entry: **what bit us**, **how we resolved it**, **how to avoid
 **Hit:** 2026-05-10 (B-019 hygiene migrations applied)
 **Symptom:** Expected protocol_tvl/stablecoins/prices to have 0–1 chunks each (greenfield); chain_tvl had 106. Not actually a problem — those chunks accumulated organically because the daily collector pulls full history from `/v2/historicalChainTvl/{chain}` on every run. The compression policy will auto-compress chunks > 30 days old next time the background worker runs (every 12h).
 **Lesson:** The daily collector's "always full history" behaviour for chain TVL means there's already 5+ years of focus-chain TVL in the lake without any explicit backfill. Worth knowing: when B-019 runs, it'll add price/stablecoin/protocol history but skip chain TVL as a no-op (already covered).
+
+### G-013 — `chainTvls` from `/protocol/{slug}` includes synthetic sub-buckets (`Ethereum-borrowed`, etc.)
+**Hit:** 2026-05-10 (B-019 normalizer design)
+**Symptom:** `normalize_protocol_history` would otherwise emit rows under chain names like `Ethereum-borrowed`, `Ethereum-staking` — DeFiLlama mixes these accounting sub-buckets into the main `chainTvls` dict alongside real chains. They'd pollute `defillama.protocol_tvl(chain)` with non-chain values.
+**Resolution:** Filter out any `chain_name` containing `-`. We want plain TVL only; the borrowed/staking views can be re-derived from the lending/staking-specific endpoints if we ever want them as their own facts.
+**Avoid next time:** When parsing DeFiLlama nested dicts whose keys *look like* dimension values, audit a real response for synthetic keys before trusting the structure. Same pattern likely lurks in other DeFiLlama surfaces.
+
+### G-014 — Pre-existing legacy `reports/defillama_daily.py` exceeded ruff line-length once we widened the lint surface
+**Hit:** 2026-05-10 (B-019 lint pass)
+**Symptom:** `ruff check src/ tests/` (broad surface) flagged 7 lines too long in `src/genkei/reports/defillama_daily.py`. The file came over from `scripts/build_daily_report.py` via `git mv` in R-019 and was never re-formatted because we'd been running ruff on touched files only.
+**Resolution:** Refactored the long lines (split format strings, hoisted templates). The module is awaiting B-025's decision on retire-vs-rewrite, but it's still alive in the package and lint should apply uniformly.
+**Avoid next time:** Run `ruff check src/ tests/` (not just changed files) periodically — at minimum at the start of each branch — to catch latent issues before they compound.

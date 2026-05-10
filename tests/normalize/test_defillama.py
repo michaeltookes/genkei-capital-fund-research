@@ -12,7 +12,9 @@ from genkei.normalize.defillama import (
     chain_history_stem,
     normalize_chain_tvl_history,
     normalize_prices,
+    normalize_protocol_history,
     normalize_protocols,
+    normalize_stablecoin_history,
     normalize_stablecoins,
     parse_history_timestamp,
 )
@@ -206,6 +208,75 @@ class NormalizePricesTests(unittest.TestCase):
         rows = normalize_prices(payload, source_endpoint="x", ingest_run_id=1, now=NOW)
         self.assertEqual(rows[0]["ts"], NOW)
         self.assertEqual(rows[0]["source_endpoint"], "x")
+
+
+class NormalizeProtocolHistoryTests(unittest.TestCase):
+    def test_emits_one_row_per_chain_timestamp(self) -> None:
+        payload = {
+            "id": "111",
+            "name": "Aave V3",
+            "slug": "aave-v3",
+            "chainTvls": {
+                "Ethereum": {
+                    "tvl": [
+                        {"date": 1_700_000_000, "totalLiquidityUSD": 100.0},
+                        {"date": 1_700_086_400, "totalLiquidityUSD": 110.0},
+                    ]
+                },
+                "Arbitrum": {"tvl": [{"date": 1_700_000_000, "totalLiquidityUSD": 50.0}]},
+                # Synthetic sub-buckets with `-` are filtered out.
+                "Ethereum-borrowed": {"tvl": [{"date": 1_700_000_000, "totalLiquidityUSD": 999}]},
+            },
+        }
+        rows = normalize_protocol_history(
+            payload,
+            slug="aave-v3",
+            source_endpoint="https://api.llama.fi/protocol/aave-v3",
+            ingest_run_id=11,
+            fetched_at=NOW,
+        )
+        self.assertEqual(len(rows), 3)
+        chains = sorted({r["chain"] for r in rows})
+        self.assertEqual(chains, ["Arbitrum", "Ethereum"])
+        for row in rows:
+            self.assertEqual(row["slug"], "aave-v3")
+            self.assertEqual(row["fetched_at"], NOW)
+            self.assertEqual(row["ingest_run_id"], 11)
+
+
+class NormalizeStablecoinHistoryTests(unittest.TestCase):
+    def test_emits_one_row_per_chain_timestamp(self) -> None:
+        payload = {
+            "id": "1",
+            "name": "Tether",
+            "symbol": "USDT",
+            "pegType": "peggedUSD",
+            "chainBalances": {
+                "Ethereum": {
+                    "tokens": [
+                        {"date": 1_700_000_000, "current": {"peggedUSD": 50_000_000_000}},
+                        {"date": 1_700_086_400, "current": {"peggedUSD": 50_500_000_000}},
+                    ]
+                },
+                "Tron": {
+                    "tokens": [{"date": 1_700_000_000, "current": {"peggedUSD": 30_000_000_000}}]
+                },
+            },
+        }
+        rows = normalize_stablecoin_history(
+            payload,
+            asset_id="1",
+            source_endpoint="https://stablecoins.llama.fi/stablecoin/1",
+            ingest_run_id=22,
+            fetched_at=NOW,
+        )
+        self.assertEqual(len(rows), 3)
+        for row in rows:
+            self.assertEqual(row["asset_id"], "1")
+            self.assertEqual(row["symbol"], "USDT")
+            self.assertEqual(row["peg_type"], "peggedUSD")
+            self.assertEqual(row["fetched_at"], NOW)
+            self.assertEqual(row["ingest_run_id"], 22)
 
 
 if __name__ == "__main__":

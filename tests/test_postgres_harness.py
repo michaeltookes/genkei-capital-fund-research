@@ -27,9 +27,7 @@ class PostgresHarnessHelperTests(unittest.TestCase):
 
     @patch("tests._postgres.subprocess.run")
     @patch("tests._postgres.shutil.which", return_value="/usr/bin/docker")
-    def test_docker_available_uses_docker_info(
-        self, _which: MagicMock, run: MagicMock
-    ) -> None:
+    def test_docker_available_uses_docker_info(self, _which: MagicMock, run: MagicMock) -> None:
         run.return_value = SimpleNamespace(returncode=0)
 
         self.assertTrue(_postgres._docker_available())
