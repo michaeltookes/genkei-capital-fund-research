@@ -12,10 +12,12 @@ path. Each daily run upserts the latest state of every observation
 including any new vintages — D-013's vintage-aware schema means new
 revisions land as new rows rather than overwriting historical values.
 
-Vintage fetch: every observations call uses
-``realtime_start=1776-07-04&realtime_end=9999-12-31`` so FRED returns
-every vintage of every observation — newer revisions get fresh
-``realtime_start`` values, older values stay current until superseded.
+Vintage handling: every observations call fetches the *latest vintage*
+only (no ``realtime_start`` / ``realtime_end`` params). The schema is
+vintage-aware (D-013) so daily runs that find a revised value land it
+as a new row keyed on the fresh ``realtime_start`` returned by FRED.
+The full pre-existing revision history is forfeit because FRED's JSON
+file type caps responses at 2000 vintage dates — see G-019.
 
 API key: the free FRED API key lives in the ``FRED_API_KEY`` env var.
 Register at https://fredaccount.stlouisfed.org/apikeys.
@@ -48,8 +50,6 @@ OBSERVATIONS_BLOB_PREFIX = "observations_"
 # (1 req / sec) since 20 series × 2 calls = 40 calls per run completes
 # in under a minute either way.
 DEFAULT_RATE_LIMIT = RateLimit.per_second(1)
-# Earliest documented FRED realtime_start.
-EARLIEST_REALTIME = "1776-07-04"
 OBSERVATIONS_PAGE_LIMIT = 100_000
 RAW_BLOBS_INSERT = (
     "INSERT INTO meta.raw_blobs (ingest_run_id, endpoint_name, url, payload) "
@@ -131,14 +131,25 @@ def build_observations_url(
     limit: int = OBSERVATIONS_PAGE_LIMIT,
     offset: int = 0,
 ) -> str:
-    """Build the URL for the full-vintage observations endpoint."""
+    """Build the URL for the latest-vintage observations endpoint.
+
+    Note (G-019): we deliberately do NOT pass ``realtime_start=1776-07-04``
+    even though the schema is vintage-aware (D-013). FRED's JSON file type
+    rejects responses with more than 2000 vintage dates, and any daily
+    series with multi-decade revision history (T10Y2Y, DGS10, VIXCLS, ...)
+    blows past that immediately. Without realtime params FRED returns the
+    *latest vintage* of every observation — which is what we want anyway:
+    the schema captures revisions going forward as new daily runs land
+    fresh ``realtime_start`` values, and we don't lose observations to
+    the 2000-vintage cap. Pre-existing revision history for those series
+    is forfeit but historically-public revision data is itself a research
+    curiosity, not a backtest input.
+    """
     return (
         f"{FRED_BASE_URL}/series/observations"
         f"?series_id={series_id}"
         f"&api_key={api_key}"
         f"&file_type=json"
-        f"&realtime_start={EARLIEST_REALTIME}"
-        f"&realtime_end=9999-12-31"
         f"&limit={limit}"
         f"&offset={offset}"
     )

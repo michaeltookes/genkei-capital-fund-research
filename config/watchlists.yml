@@ -312,6 +312,10 @@ macro_series:
   - id: DCOILWTICO
     name: WTI Crude Oil Spot Price
     rationale: Inflation + global-growth signal; energy-equity input.
-  - id: GOLDAMGBD228NLBM
-    name: Gold (London PM fix)
-    rationale: Real-rate / debasement hedge; macro regime cross-check.
+
+  # Spot gold previously tracked GOLDAMGBD228NLBM (London PM fix), but
+  # FRED retired that series (G-020). FRED no longer hosts a live
+  # spot-gold series; closest live proxies are GVZCLS (gold volatility)
+  # and IQ12260 (monthly gold export-price index). Plan: re-add a real
+  # spot gold series via a commodities feed when one lands (Phase 2
+  # follow-up — file a backlog item if a need surfaces before then).
