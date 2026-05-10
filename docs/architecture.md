@@ -114,8 +114,8 @@ The normalizer is **data-lake-shaped**, not report-shaped. It writes the raw sha
 | **`defillama.stablecoins`** | Time-series fact, hypertable, PK `(asset_id, chain, ts)`, 30-day chunks. | R-015 |
 | **`defillama.prices`** | Time-series fact, hypertable, PK `(asset_key, ts)`, 7-day chunks (intraday-ready). | R-015 |
 | **`defillama.protocol_tvl`** | Time-series fact, hypertable, PK `(slug, chain, ts)`, FK to `protocols(slug)`, 30-day chunks. Per-protocol per-chain TVL series — populated by backfill walking `/protocol/{slug}`. | R-023 |
-| **Compression policies** | All four `defillama.*` hypertables compress chunks > 30 days old via TimescaleDB native compression (~10x savings). Segmentby = the most-filtered column per table; orderby = `ts DESC`. | R-024 |
-| **`meta.raw_blobs` retention** | Daily TimescaleDB job (`add_job`) deletes blobs > 90 days old. The normalized lake tables are the system of record; raw is audit/replay only. | R-024 |
+| **Compression policies** | All four `defillama.*` hypertables compress chunks > 30 days old via TimescaleDB native compression (~10x savings). Segmentby = the most-filtered column per table; orderby = `ts DESC`. | R-023 |
+| **`meta.raw_blobs` retention** | Daily TimescaleDB job (`add_job`) deletes blobs > 90 days old. The normalized lake tables are the system of record; raw is audit/replay only. | R-023 |
 | **Provenance trio** | Every fact row carries `source_endpoint TEXT NOT NULL`, `fetched_at TIMESTAMPTZ NOT NULL`, `ingest_run_id BIGINT NOT NULL REFERENCES meta.ingest_runs(id)`. | R-021 |
 | **Migration tool** | Alembic, hand-written migrations only (no autogen). Files at `migrations/versions/YYYYMMDD_<slug>.py`. URL from `GENKEI_DATABASE_URL`. | R-008, `docs/storage.md` § B-009 |
 

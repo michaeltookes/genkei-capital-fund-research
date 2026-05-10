@@ -87,15 +87,6 @@ The data lake doesn't exist yet; this phase makes it possible to land a single r
 
 Migrate the existing MVP into the new foundation; it becomes the canonical pattern for every future ingester.
 
-### B-019 — Add backfill mode for DeFiLlama
-- **Status:** open
-- **Priority:** high
-- **Context:** Backfill is first-class. DeFiLlama exposes historical chain TVL, stablecoin supplies, and protocol history.
-- **Acceptance criteria:**
-  - `--backfill --since YYYY-MM-DD` flag on the collector.
-  - Resumable — re-running after partial failure picks up where it left off.
-  - Documented per-endpoint history depth (some endpoints expose 5+ years, some less).
-
 ### B-020 — Move Bitcoin CEX/custody exclusion keywords to config
 - **Status:** open
 - **Priority:** medium
