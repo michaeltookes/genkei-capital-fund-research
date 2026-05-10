@@ -44,6 +44,11 @@ RAW_BLOBS_INSERT = (
     "VALUES (%s, %s, %s, %s::jsonb) "
     "ON CONFLICT (ingest_run_id, endpoint_name) DO NOTHING"
 )
+RAW_BLOBS_COPY_INSERT = (
+    "INSERT INTO meta.raw_blobs (ingest_run_id, endpoint_name, url, payload, fetched_at) "
+    "VALUES (%s, %s, %s, %s::jsonb, %s) "
+    "ON CONFLICT (ingest_run_id, endpoint_name) DO NOTHING"
+)
 # Backfill-blob naming. Uniqueness is per (ingest_run_id, endpoint_name);
 # these prefixes also drive normalizer dispatch.
 PRICE_HISTORICAL_PREFIX = "prices_historical_"
@@ -104,6 +109,16 @@ def chain_history_target_name(chain_name: str) -> str:
 
 def build_price_target(config: JsonObject) -> CollectionTarget:
     """Build the bulk price URL for the configured target assets."""
+    coin_keys = target_asset_coin_keys(config)
+    base_urls = read_base_urls(config)
+    if "coins" not in base_urls:
+        raise SystemExit("defillama_base_urls.coins is missing")
+    joined = quote(",".join(coin_keys), safe=":,")
+    return CollectionTarget("prices_current", f"{base_urls['coins']}/prices/current/{joined}")
+
+
+def target_asset_coin_keys(config: JsonObject) -> list[str]:
+    """Return configured target assets as DeFiLlama coin keys."""
     assets = config.get("target_assets", [])
     if not isinstance(assets, list) or not assets:
         raise SystemExit("Config must define at least one target asset.")
@@ -112,11 +127,7 @@ def build_price_target(config: JsonObject) -> CollectionTarget:
         if not isinstance(asset, dict) or not asset.get("coingecko_id"):
             raise SystemExit("Each target asset must include coingecko_id.")
         coin_keys.append(f"coingecko:{asset['coingecko_id']}")
-    base_urls = read_base_urls(config)
-    if "coins" not in base_urls:
-        raise SystemExit("defillama_base_urls.coins is missing")
-    joined = quote(",".join(coin_keys), safe=":,")
-    return CollectionTarget("prices_current", f"{base_urls['coins']}/prices/current/{joined}")
+    return coin_keys
 
 
 def build_chain_history_targets(config: JsonObject) -> list[CollectionTarget]:
@@ -273,21 +284,42 @@ def parse_since_date(value: str) -> date:
         raise argparse.ArgumentTypeError(f"--since must be YYYY-MM-DD: {value}") from exc
 
 
-def _already_fetched(url: str) -> bool:
-    """True if meta.raw_blobs already has this URL fetched within the resume window."""
+def _cached_blob(url: str) -> tuple[Any, datetime] | None:
+    """Return the newest recent blob for ``url`` if it is inside the resume window."""
     cutoff = datetime.now(timezone.utc) - RESUME_WINDOW
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT 1 FROM meta.raw_blobs WHERE url = %s AND fetched_at >= %s LIMIT 1",
+            "SELECT payload, fetched_at FROM meta.raw_blobs "
+            "WHERE url = %s AND fetched_at >= %s "
+            "ORDER BY fetched_at DESC LIMIT 1",
             [url, cutoff],
         )
-        return cur.fetchone() is not None
+        row = cur.fetchone()
+    if row is None:
+        return None
+    payload, fetched_at = row
+    return payload, fetched_at
 
 
 def _store_blob_for_run(ingest_run_id: int, endpoint_name: str, url: str, payload: Any) -> None:
     """INSERT one raw_blobs row keyed to a backfill ingest_run."""
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(RAW_BLOBS_INSERT, [ingest_run_id, endpoint_name, url, json.dumps(payload)])
+
+
+def _copy_cached_blob_for_run(
+    ingest_run_id: int,
+    endpoint_name: str,
+    url: str,
+    payload: Any,
+    fetched_at: datetime,
+) -> None:
+    """Copy a resumed raw blob into the current backfill run."""
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            RAW_BLOBS_COPY_INSERT,
+            [ingest_run_id, endpoint_name, url, json.dumps(payload), fetched_at],
+        )
 
 
 def _fetch_with_resume(
@@ -298,9 +330,12 @@ def _fetch_with_resume(
     failures: list[dict[str, str]],
 ) -> bool:
     """Fetch one URL into raw_blobs; skip if recently cached. Return True on row written."""
-    if _already_fetched(url):
-        LOGGER.debug("skip %s (already fetched within %s)", endpoint_name, RESUME_WINDOW)
-        return False
+    cached = _cached_blob(url)
+    if cached is not None:
+        payload, fetched_at = cached
+        _copy_cached_blob_for_run(ingest_run_id, endpoint_name, url, payload, fetched_at)
+        LOGGER.debug("reuse %s (already fetched within %s)", endpoint_name, RESUME_WINDOW)
+        return True
     try:
         payload = http.get_json(url)
     except Exception as exc:
@@ -322,13 +357,7 @@ def _backfill_prices(
     base_urls = read_base_urls(config)
     if "coins" not in base_urls:
         raise SystemExit("defillama_base_urls.coins is missing")
-    assets = config.get("target_assets", [])
-    if not isinstance(assets, list) or not assets:
-        return 0
-    coin_keys = quote(
-        ",".join(f"coingecko:{a['coingecko_id']}" for a in assets if a.get("coingecko_id")),
-        safe=":,",
-    )
+    coin_keys = quote(",".join(target_asset_coin_keys(config)), safe=":,")
     written = 0
     today = date.today()
     cursor = since
@@ -491,6 +520,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     args = parse_args(argv or sys.argv[1:])
+    if not args.backfill and (args.since is not None or args.endpoint):
+        raise SystemExit("--since/--endpoint only valid with --backfill")
     if args.backfill:
         if args.since is None:
             raise SystemExit("--since YYYY-MM-DD is required with --backfill")

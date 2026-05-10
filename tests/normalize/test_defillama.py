@@ -251,7 +251,7 @@ class NormalizeStablecoinHistoryTests(unittest.TestCase):
             "name": "Tether",
             "symbol": "USDT",
             "pegType": "peggedUSD",
-            "chainBalances": {
+            "chainCirculating": {
                 "Ethereum": {
                     "tokens": [
                         {"date": 1_700_000_000, "current": {"peggedUSD": 50_000_000_000}},
@@ -277,6 +277,31 @@ class NormalizeStablecoinHistoryTests(unittest.TestCase):
             self.assertEqual(row["peg_type"], "peggedUSD")
             self.assertEqual(row["fetched_at"], NOW)
             self.assertEqual(row["ingest_run_id"], 22)
+
+    def test_accepts_legacy_chain_balances_shape(self) -> None:
+        payload = {
+            "id": "1",
+            "name": "Tether",
+            "symbol": "USDT",
+            "pegType": "peggedUSD",
+            "chainBalances": {
+                "Ethereum": {
+                    "tokens": [
+                        {"date": 1_700_000_000, "current": {"peggedUSD": 50_000_000_000}},
+                    ]
+                },
+            },
+        }
+        rows = normalize_stablecoin_history(
+            payload,
+            asset_id="1",
+            source_endpoint="https://stablecoins.llama.fi/stablecoin/1",
+            ingest_run_id=22,
+            fetched_at=NOW,
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["chain"], "Ethereum")
 
 
 if __name__ == "__main__":

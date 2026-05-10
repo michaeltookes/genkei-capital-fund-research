@@ -150,10 +150,10 @@ src/genkei/
 
 | Piece | What | Where to learn more |
 |---|---|---|
-| **Backlog hygiene** | `docs/backlog.md` (open items, 59 active) + `docs/resolved.md` (completed, 23 entries). Updated via the `update-backlog` skill after meaningful commits. | `docs/backlog.md` |
+| **Backlog hygiene** | `docs/backlog.md` (open items, 58 active) + `docs/resolved.md` (completed, 24 entries). Updated via the `update-backlog` skill after meaningful commits. | `docs/backlog.md` |
 | **Mission queue** | `missions/pending/` and `missions/done/`. Async / overnight execution loop driven by the `run-missions` skill. | `docs/missions.md`, R-005 |
 | **Test fixture** | `tests/_postgres.py` — singleton TimescaleDB testcontainer; `postgres_required` decorator gracefully skips when Docker absent. `truncate_all()` for cleanup between tests that go through real `db` helpers. | R-016 |
-| **Test counts** | 117 total — 101 unit + 16 integration (skip locally when Docker absent; CI runs them all). | R-016 |
+| **Test counts** | 125 total — 105 unit + 20 integration (skip locally when Docker absent; CI runs them all). | R-023 |
 | **CI workflows** | `.github/workflows/tests.yml` (push to main + PRs) and `.github/workflows/defillama-daily.yml` (cron at 10:30 UTC on the self-hosted runner). | R-019, R-020 |
 | **PR conventions** | Short PRs. `## Summary` + `## Test plan`. No enumerated change lists, no footers. | `CLAUDE.md` |
 
@@ -273,8 +273,8 @@ Tracked as backlog items so they don't block forward motion:
 | `docs/missions.md` | Mission queue format, manual + scheduled invocation, monitoring |
 | `docs/defillama-mvp.md` | DeFiLlama-specific pipeline notes (legacy; predates Postgres refactor) |
 | `docs/defillama-daily-review.md` | Acceptance gates for the legacy markdown brief (relevance pending B-025) |
-| `docs/backlog.md` | Open items, 59 entries across 8 phases |
-| `docs/resolved.md` | Completed milestones, 23 entries with evidence |
+| `docs/backlog.md` | Open items, 58 entries across 8 phases |
+| `docs/resolved.md` | Completed milestones, 24 entries with evidence |
 
 ### External references
 
@@ -365,9 +365,9 @@ Append-only. Each entry: **what**, **why**, **alternative considered**, **what w
 **Alternative:** Defer to B-070/B-074 in Phase 7. Rejected — the moment to add compression is when the data shape stabilizes, which is now.
 
 ### D-011 — Backfill resumability via `meta.raw_blobs.url` + 14-day window
-**Date:** 2026-05-10 · **In:** R-023, `genkei.ingest.defillama._already_fetched`
-**Decision:** Each prospective backfill fetch checks `meta.raw_blobs` for a row with the same URL fetched within the last 14 days; if found, skip the HTTP call.
-**Why:** Backfill runs are long (~25 min for protocols at 5 req/sec). A crashed run that re-runs from scratch is wasteful and burns rate-limit budget. URL-based resume means we don't need a separate progress table or per-blob cursor — `meta.raw_blobs` is already the system of record for "what we've fetched."
+**Date:** 2026-05-10 · **In:** R-023, `genkei.ingest.defillama._cached_blob`
+**Decision:** Each prospective backfill fetch checks `meta.raw_blobs` for a row with the same URL fetched within the last 14 days; if found, skip the HTTP call and copy the cached blob into the current run.
+**Why:** Backfill runs are long (~25 min for protocols at 5 req/sec). A crashed run that re-runs from scratch is wasteful and burns rate-limit budget. URL-based resume means we don't need a separate progress table or per-blob cursor — `meta.raw_blobs` is already the system of record for "what we've fetched." Copying skipped blobs into the active ingest run keeps `normalize_backfill(source_run_id=...)` complete even when every HTTP call was skipped.
 **Alternative:** A side `meta.backfill_progress` table tracking per-(endpoint, key, date) tuples. Rejected — adds a second source of truth for what's already on disk; the URL is unique enough.
 **14-day window why:** Long enough to span a multi-day backfill restart; short enough that a deliberate refresh (re-running the same `--since` weeks later) actually re-pulls fresh data.
 

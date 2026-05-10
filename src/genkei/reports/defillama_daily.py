@@ -238,7 +238,8 @@ def build_dca_timing_notes(data: JsonObject) -> list[str]:
     ]
     stablecoin_status = stablecoin_quality_status(data)
     label = classify_dca_signal(expanding, losing, acute, stablecoin_status)
-    notes = [f"- Signal label: **{label}**."]
+    horizon = data.get("dca_horizon") or data.get("horizon") or "unspecified"
+    notes = [f"- Signal label: **{label}**. [Horizon: {horizon}]"]
     if expanding and label == "constructive":
         names = ", ".join(chain.get("name", "n/a") for chain in expanding)
         notes.append(

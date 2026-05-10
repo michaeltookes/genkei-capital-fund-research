@@ -329,9 +329,10 @@ def normalize_stablecoin_history(
 ) -> list[JsonObject]:
     """Map ``/stablecoin/{id}`` to ``defillama.stablecoins`` rows.
 
-    Payload shape: ``chainBalances.<chain>.tokens`` is a list of points, each
-    carrying a ``date`` plus a ``circulating`` (or similar) dict with
-    ``peggedUSD``. Symbol / name / pegType come from the top level.
+    Payload shape: ``chainCirculating.<chain>.tokens`` is a list of points,
+    each carrying a ``date`` plus a ``circulating`` (or similar) dict with
+    ``peggedUSD``. Older payloads used ``chainBalances``; accept that for
+    compatibility.
     """
     if not isinstance(payload, dict):
         return []
@@ -340,7 +341,10 @@ def normalize_stablecoin_history(
         return []
     name = _stringify(payload.get("name"))
     peg_type = _stringify(payload.get("pegType"))
-    chain_balances = payload.get("chainBalances")
+    if "chainCirculating" in payload:
+        chain_balances = payload["chainCirculating"]
+    else:
+        chain_balances = payload.get("chainBalances")
     if not isinstance(chain_balances, dict):
         return []
     rows: list[JsonObject] = []

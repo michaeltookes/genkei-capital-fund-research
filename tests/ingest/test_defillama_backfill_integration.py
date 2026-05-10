@@ -197,11 +197,21 @@ class BackfillIntegrationTests(unittest.TestCase):
 
         # Second pass: every blob is already in raw_blobs within RESUME_WINDOW.
         with HttpClient("defillama-test", transport=httpx.MockTransport(counting_route)) as http:
-            self._run_backfill(since, http)
+            second_run = self._run_backfill(since, http)
         second_pass_calls = call_count - first_pass_calls
+
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) FROM meta.raw_blobs WHERE ingest_run_id = %s",
+                [second_run],
+            )
+            second_run_blob_count = cur.fetchone()[0]
 
         self.assertEqual(first_pass_calls, 4)  # 2 prices + 1 protocol + 1 stablecoin
         self.assertEqual(second_pass_calls, 0)  # all skipped via resume window
+        self.assertEqual(second_run_blob_count, 4)  # copied forward for current-run normalize
+
+        normalizer.normalize_backfill(source_run_id=second_run)
 
 
 if __name__ == "__main__":
