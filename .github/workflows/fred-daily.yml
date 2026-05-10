@@ -44,8 +44,9 @@ jobs:
         run: |
           output="$(python3 -m genkei.ingest.fred)"
           echo "$output"
-          source_run_id="${output##*=}"
-          if [ -z "$source_run_id" ] || [ "$source_run_id" = "$output" ]; then
+          run_id_line="$(printf '%s\n' "$output" | grep 'ingest_run_id=' | tail -n 1 || true)"
+          source_run_id="${run_id_line##*=}"
+          if [ -z "$source_run_id" ] || [ "$source_run_id" = "$run_id_line" ]; then
             echo "Could not parse FRED collector run id from output: $output" >&2
             exit 1
           fi

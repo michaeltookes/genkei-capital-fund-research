@@ -175,8 +175,10 @@ class FredIntegrationTests(unittest.TestCase):
             cur.execute("SELECT count(*) FROM fred.observations")
             self.assertEqual(cur.fetchone()[0], 3)  # 2 vintages + 1 daily
 
-    def test_all_fetch_failures_mark_collector_run_failed(self) -> None:
+    def test_any_fetch_failures_mark_collector_run_failed(self) -> None:
         def failing_route(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/series") and request.url.params.get("series_id") == "DGS10":
+                return _route(request)
             raise httpx.HTTPStatusError(
                 f"401 unauthorized for {request.url}",
                 request=request,
@@ -184,7 +186,7 @@ class FredIntegrationTests(unittest.TestCase):
             )
 
         with HttpClient("fred-test", transport=httpx.MockTransport(failing_route)) as http:
-            with self.assertRaisesRegex(RuntimeError, "All FRED fetches failed"):
+            with self.assertRaisesRegex(RuntimeError, "FRED fetch failed for 3 endpoint"):
                 self._run_collect(http)
 
         with db.connection() as conn, conn.cursor() as cur:
@@ -197,10 +199,10 @@ class FredIntegrationTests(unittest.TestCase):
             raw_blob_count = cur.fetchone()[0]
 
         self.assertEqual(status, "failed")
-        self.assertEqual(rows_written, 0)
-        self.assertIn("All FRED fetches failed", error)
-        self.assertEqual(raw_blob_count, 0)
-        self.assertEqual(len(metadata["partial_endpoints"]), 4)
+        self.assertEqual(rows_written, 1)
+        self.assertIn("no partial macro snapshot", error)
+        self.assertEqual(raw_blob_count, 1)
+        self.assertEqual(len(metadata["partial_endpoints"]), 3)
         for failure in metadata["partial_endpoints"]:
             self.assertNotIn("TESTKEY", failure["url"])
             self.assertNotIn("TESTKEY", failure["error"])

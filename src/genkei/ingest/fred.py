@@ -178,8 +178,10 @@ def collect(
             run.add_rows(written)
             if failures:
                 _record_partial(run.id, failures)
-            if written == 0 and failures:
-                raise RuntimeError("All FRED fetches failed; no raw blobs written.")
+                raise RuntimeError(
+                    f"FRED fetch failed for {len(failures)} endpoint(s); "
+                    "no partial macro snapshot will be normalized."
+                )
             return run.id
     finally:
         if owns_http:
