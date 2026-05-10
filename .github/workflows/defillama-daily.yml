@@ -35,6 +35,9 @@ jobs:
           python3 -m pip install --upgrade pip
           python3 -m pip install -e .
 
+      - name: Apply database migrations
+        run: alembic upgrade head
+
       - name: Collect raw payloads into meta.raw_blobs
         run: python3 -m genkei.ingest.defillama
 
