@@ -1,0 +1,62 @@
+name: CoinGecko Daily Market Data
+
+# B-034 — pulls CoinGecko per-coin metadata + daily price /
+# market-cap / volume snapshots for every crypto watchlist entry once a
+# day on the self-hosted Beelink runner. 11:45 UTC chosen after FRED
+# (11:00) and SEC (11:30) so the three workloads don't fight for the
+# runner. Uses an authenticated CoinGecko Demo key; Demo historical
+# charts are limited to the past 365 days.
+
+on:
+  schedule:
+    - cron: "45 11 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coingecko-daily-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pipeline:
+    name: CoinGecko collect + normalize (Postgres-backed)
+    runs-on: [self-hosted, beelink]
+    timeout-minutes: 15
+    env:
+      GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+      COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+
+      - name: Apply database migrations
+        run: alembic upgrade head
+
+      - name: Collect CoinGecko market data into meta.raw_blobs
+        id: collect
+        run: |
+          output="$(python3 -m genkei.ingest.coingecko)"
+          echo "$output"
+          run_id_line="$(printf '%s\n' "$output" | grep 'ingest_run_id=' | tail -n 1 || true)"
+          source_run_id="${run_id_line##*=}"
+          if [ -z "$source_run_id" ] || [ "$source_run_id" = "$run_id_line" ]; then
+            echo "Could not parse CoinGecko collector run id from output: $output" >&2
+            exit 1
+          fi
+          echo "source_run_id=$source_run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Normalize raw payloads into coingecko.* tables
+        run: python3 -m genkei.normalize.coingecko --source-run-id "${{ steps.collect.outputs.source_run_id }}"

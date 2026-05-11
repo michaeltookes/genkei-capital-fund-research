@@ -146,9 +146,10 @@ class ResolveUserAgentTests(unittest.TestCase):
         self.assertEqual(resolve_user_agent(), "Real Person realperson@example.com")
 
     def test_falls_back_to_placeholder_with_warning(self) -> None:
-        with patch.dict(os.environ, {USER_AGENT_ENV: ""}), patch.object(
-            sec.LOGGER, "warning"
-        ) as warning:
+        with (
+            patch.dict(os.environ, {USER_AGENT_ENV: ""}),
+            patch.object(sec.LOGGER, "warning") as warning,
+        ):
             ua = resolve_user_agent()
         self.assertEqual(ua, DEFAULT_USER_AGENT)
         warning.assert_called_once()
