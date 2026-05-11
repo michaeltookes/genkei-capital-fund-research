@@ -78,11 +78,6 @@ def parse_sec_datetime(value: Any) -> datetime | None:
     return parsed
 
 
-def split_concept(taxonomy: str, concept: str) -> tuple[str, str]:
-    """Return (taxonomy, concept) ensuring both are non-empty."""
-    return taxonomy, concept
-
-
 # ---------------------------------------------------------------------------
 # Per-table normalizers
 # ---------------------------------------------------------------------------
