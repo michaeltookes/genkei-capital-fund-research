@@ -1,0 +1,47 @@
+name: CoinGecko Daily Market Data
+
+# B-034 — pulls CoinGecko per-coin metadata + full daily price /
+# market-cap / volume history for every crypto watchlist entry once a
+# day on the self-hosted Beelink runner. 11:45 UTC chosen after FRED
+# (11:00) and SEC (11:30) so the three workloads don't fight for the
+# runner. With a demo key the run takes ~30 seconds; keyless ~3 minutes.
+
+on:
+  schedule:
+    - cron: "45 11 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    name: CoinGecko collect + normalize (Postgres-backed)
+    runs-on: [self-hosted, beelink]
+    timeout-minutes: 15
+    env:
+      GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+      COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+
+      - name: Apply database migrations
+        run: alembic upgrade head
+
+      - name: Collect CoinGecko market data into meta.raw_blobs
+        run: python3 -m genkei.ingest.coingecko
+
+      - name: Normalize raw payloads into coingecko.* tables
+        run: python3 -m genkei.normalize.coingecko

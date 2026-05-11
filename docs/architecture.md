@@ -9,7 +9,7 @@ The point of the bottom half: when context gets cleared, the next session (Claud
 
 **Updating discipline:** any commit that makes a non-obvious choice (a tradeoff with a real alternative) or surfaces a non-obvious surprise (a thing future-you wouldn't predict) appends an entry below in the same commit. If the entry is missing, the commit is incomplete.
 
-**Last updated:** 2026-05-10 (Phase 2 underway; B-028 FRED ingester landed on `fred-macro`)
+**Last updated:** 2026-05-10 (Phase 2: 3/10 done — FRED + SEC EDGAR + CoinGecko on `coingecko-crypto`)
 
 > **Read this first if you're new (or future-you after weeks away).** Then dive into the per-component docs at the bottom for depth.
 
@@ -121,6 +121,8 @@ The normalizer is **data-lake-shaped**, not report-shaped. It writes the raw sha
 | **`sec.companies`** | Entity dim for SEC EDGAR registrants, PK `cik` (zero-padded 10-char), holds `ticker` / `name` / `sic` / `exchanges` / `entity_type` / `fiscal_year_end` metadata from the submissions index. | R-028 |
 | **`sec.filings`** | One row per SEC filing, PK `accession_number` (the SEC's own unique filing ID). Indexed on `(cik, filed_at DESC)` and `(form_type, filed_at DESC)`. Plain table — modest volume (~85k rows steady-state across 28 watchlist companies). | R-028 |
 | **`sec.facts`** | XBRL fact table, hypertable on `period_end` (30-day chunks), compression on chunks > 30 days old, PK `(cik, concept, unit, period_start, period_end, accession_number)`. Same `(concept, period)` can appear in multiple filings (10-Q + subsequent 10-K); all rows land for query-side filtering. | R-028 |
+| **`coingecko.coins`** | Entity dim for CoinGecko coins, PK `coingecko_id` (e.g. "bitcoin"), holds `symbol` / `name` / `market_cap_rank` / `genesis_date` / categories metadata. | R-029 |
+| **`coingecko.market_data`** | Time-series fact, hypertable on `ts` (30-day chunks, compression > 30 days), PK `(coingecko_id, ts)`. One row per coin per day with `price_usd` / `market_cap_usd` / `volume_usd`. Second crypto price source alongside DeFiLlama — cross-check + market cap + volume that DeFiLlama doesn't expose. | R-029 |
 | **Provenance trio** | Every fact row carries `source_endpoint TEXT NOT NULL`, `fetched_at TIMESTAMPTZ NOT NULL`, `ingest_run_id BIGINT NOT NULL REFERENCES meta.ingest_runs(id)`. | R-021 |
 | **Migration tool** | Alembic, hand-written migrations only (no autogen). Files at `migrations/versions/YYYYMMDD_<slug>.py`. URL from `GENKEI_DATABASE_URL`. | R-008, `docs/storage.md` § B-009 |
 
@@ -158,6 +160,8 @@ src/genkei/
 | `genkei.normalize.fred` | Reads FRED raw blobs by source_run_id, dispatches by prefix into `fred.series` (one row per series) and `fred.observations` (one row per `(series_id, ts, realtime_start)`). Idempotent. | R-027 |
 | `genkei.ingest.sec` | SEC EDGAR collector. Reads CIKs from `equities:` in `config/watchlists.yml`; dedupes by CIK so multi-class listings (GOOG/GOOGL share Alphabet's CIK) fetch once. Hits `/submissions/CIK{cik}.json`, follows `filings.files[]` references for older history pages, and `/api/xbrl/companyfacts/CIK{cik}.json` per company. 8 req/sec rate limit (under SEC's 10/sec cap). User-Agent identifies the user via `SEC_USER_AGENT` env var. | R-028 |
 | `genkei.normalize.sec` | Reads SEC raw blobs and dispatches by `endpoint_name` prefix into `sec.companies` (upsert, FK target), `sec.filings` (one row per filing, recent + history), `sec.facts` (one row per XBRL `taxonomy:concept` × unit × period × accession). | R-028 |
+| `genkei.ingest.coingecko` | CoinGecko collector. Reads `coingecko_id` from `crypto:` in `config/watchlists.yml` (primary + secondary tiers). Per coin: `/coins/{id}` for metadata + `/coins/{id}/market_chart?days=max&interval=daily` for full daily history. Rate limit per_minute(25) with `COINGECKO_API_KEY` (demo key sent via `x-cg-demo-api-key` header, G-023) or per_minute(5) without. | R-029 |
+| `genkei.normalize.coingecko` | Reads CoinGecko raw blobs and dispatches by prefix into `coingecko.coins` (upsert) and `coingecko.market_data` (zips the three parallel `prices` / `market_caps` / `total_volumes` arrays by timestamp, emits rows only where all three align — G-024). | R-029 |
 
 ### Process layer
 
@@ -255,7 +259,7 @@ Each mission is one markdown file: title, context, checklist of acceptance crite
 |---|---|---|
 | **Phase 0** — Foundation: Postgres + project scaffolding | ✅ complete | All 11 items resolved (R-005 through R-013, R-016, R-019). |
 | **Phase 1** — Refactor DeFiLlama onto Postgres | ✅ effectively complete | 9/9 high-priority items done. Three medium items remain: B-020 (config-driven exclusion keywords) and B-023 (freshness check) are follow-ups when consumers need them; B-025 (daily brief fate) is a deferred decision. |
-| **Phase 2** — Free-data ingesters with backfill | 🟡 in progress | 2/10 done — B-028 FRED (R-027) and B-027 SEC EDGAR option B (R-028). B-079 + B-080 carved out of B-027 option C, will be picked up driven by Phase 5 experiments. |
+| **Phase 2** — Free-data ingesters with backfill | 🟡 in progress | 3/10 done — B-028 FRED (R-027), B-027 SEC EDGAR option B (R-028), B-034 CoinGecko (R-029). B-079 + B-080 carved out of B-027 option C, picked up driven by Phase 5 experiments. |
 | **Phase 3** — Custom CLI | ⚪ not started | 11 items (B-037 through B-047). `genkei` is the working name. |
 | **Phase 4** — Agent layer | ⚪ not started | 6 items (B-048 through B-053). Harness decision pending. |
 | **Phase 5** — Experiments framework | ⚪ not started | 10 items (B-054 through B-063). Notebooks + reproducibility pattern + concrete experiments. |
@@ -556,3 +560,15 @@ Append-only. Each entry: **what bit us**, **how we resolved it**, **how to avoid
 **Symptom:** SEC.gov returns `403 Forbidden` for requests without a `User-Agent` that includes a real name + contact email. There's no API key — the User-Agent IS the auth/identification. SEC's docs are explicit: "Sample User-Agent: Sample Company Name AdminContact@<sample company domain>.com". Our default `httpx` UA gets blocked.
 **Resolution:** `SEC_USER_AGENT` env var → `genkei.ingest.sec.resolve_user_agent()` → passed through to `HttpClient(..., user_agent=...)`. CI reads it from a same-named GH Actions secret. Local dev sets it in `.env`. If unset, the collector logs a warning and falls back to a placeholder string that SEC may reject.
 **Avoid next time:** When an "open" API has no key, look for User-Agent or Referer requirements in the docs before assuming defaults will work. SEC, Wikipedia, OpenStreetMap all enforce identification this way.
+
+### G-023 — CoinGecko's keyless free-tier rate limit is undocumented and aggressively throttled
+**Hit:** 2026-05-10 (B-034 design)
+**Symptom:** CoinGecko publishes their *Demo key* limit (25-30 req/min) but the *keyless* free tier has no documented number — community reports cluster around 5-15/min and the throttle is application-side rather than HTTP-429 (you get malformed JSON or `429 Too Many Requests` depending on the day). Two calls per coin × 7 watchlist crypto entries × multiple retries can easily blow past keyless capacity on the first run.
+**Resolution:** `KEYLESS_RATE_LIMIT = RateLimit.per_minute(5)` (conservative) and `DEMO_RATE_LIMIT = RateLimit.per_minute(25)` (under their published 30/min). `genkei.ingest.coingecko.collect` picks the right one based on `COINGECKO_API_KEY` presence and logs a warning when running keyless. Demo key sent via `x-cg-demo-api-key` header so it stays out of the URL (and out of `meta.raw_blobs.url` — no separate redaction needed).
+**Avoid next time:** When a free tier has only a "Pro" tier rate-limit documented, assume the keyless limit is materially lower and budget per_minute(5) until proven otherwise. The cost of going under is ~3 min per run; the cost of going over is a failed pipeline.
+
+### G-024 — CoinGecko `market_chart` returns three parallel arrays that don't always align by index
+**Hit:** 2026-05-10 (B-034 normalizer design)
+**Symptom:** `/coins/{id}/market_chart` returns `prices`, `market_caps`, and `total_volumes` as three separate lists of `[unix_ms, value]` pairs. They look parallel but the timestamps don't always match across all three (especially at the start/end of a coin's history, or for newer coins where one series starts before the others). Naively zipping by index produces rows with mismatched timestamps.
+**Resolution:** `normalize_market_chart` builds three `{ts: value}` dicts, intersects the timestamp sets, and only emits rows for timestamps present in all three. Drops cleanly when arrays have head/tail offsets. Unit test asserts a missing timestamp in any series drops that row.
+**Avoid next time:** Any API that returns "parallel arrays" — verify the alignment assumption by checking sample data, especially at the boundaries. Zip by key, not by index.
