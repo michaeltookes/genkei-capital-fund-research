@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import sys
 import unittest
 from contextlib import redirect_stdout
 from datetime import date, datetime, timezone
@@ -12,7 +13,9 @@ from unittest.mock import patch
 
 from genkei.normalize.sec import (
     _as_numeric,
+    is_sec_blob_endpoint,
     main,
+    normalize,
     normalize_company,
     normalize_facts,
     normalize_filings,
@@ -39,6 +42,12 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(_as_numeric("1234567890.123456789"), Decimal("1234567890.123456789"))
         self.assertIsNone(_as_numeric(True))
 
+    def test_identifies_sec_raw_blob_endpoint_names(self) -> None:
+        self.assertTrue(is_sec_blob_endpoint("submissions_0000320193"))
+        self.assertTrue(is_sec_blob_endpoint("submissions_history_0000320193_file.json"))
+        self.assertTrue(is_sec_blob_endpoint("companyfacts_0000320193"))
+        self.assertFalse(is_sec_blob_endpoint("observations_GDPC1"))
+
 
 class CliTests(unittest.TestCase):
     def test_json_output_uses_resolved_source_run_id(self) -> None:
@@ -49,6 +58,27 @@ class CliTests(unittest.TestCase):
         payload = json.loads(output.getvalue())
         self.assertEqual(payload["ingest_run_id"], 9)
         self.assertEqual(payload["source_run_id"], 7)
+
+    def test_empty_argv_does_not_fall_back_to_process_args(self) -> None:
+        output = io.StringIO()
+        with (
+            patch.object(sys, "argv", ["prog", "--bad-flag"]),
+            patch("genkei.normalize.sec.normalize", return_value=(9, 7)),
+            redirect_stdout(output),
+        ):
+            self.assertEqual(main([]), 0)
+
+
+class NormalizeRunTests(unittest.TestCase):
+    def test_rejects_source_run_without_sec_blobs(self) -> None:
+        with (
+            patch(
+                "genkei.normalize.sec.fetch_raw_blobs",
+                return_value={"observations_GDPC1": ("x", {}, NOW)},
+            ),
+            self.assertRaisesRegex(SystemExit, "No SEC raw blobs"),
+        ):
+            normalize(source_run_id=123)
 
 
 class NormalizeCompanyTests(unittest.TestCase):

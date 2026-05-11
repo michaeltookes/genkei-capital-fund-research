@@ -18,7 +18,7 @@ XBRL parsing notes:
   - Units encode the value's measurement (USD, shares, USD/shares,
     pure). Same concept can appear under multiple units; PK includes
     unit so all variants land.
-  - The same fact (concept × period) often appears in multiple filings
+  - The same fact (concept x period) often appears in multiple filings
     (10-Q first, then 10-K confirms). PK includes accession_number so
     both rows land — downstream queries can filter to the most recent
     filing per (concept, period) when desired.
@@ -44,6 +44,11 @@ COLLECT_ENDPOINT_LABEL = "collect"
 SUBMISSIONS_BLOB_PREFIX = "submissions_"
 SUBMISSIONS_HISTORY_BLOB_PREFIX = "submissions_history_"
 COMPANYFACTS_BLOB_PREFIX = "companyfacts_"
+SEC_BLOB_PREFIXES = (
+    SUBMISSIONS_HISTORY_BLOB_PREFIX,
+    SUBMISSIONS_BLOB_PREFIX,
+    COMPANYFACTS_BLOB_PREFIX,
+)
 RawBlob = tuple[str, Any, datetime]
 JsonObject = dict[str, Any]
 LOGGER = logging.getLogger(__name__)
@@ -315,11 +320,18 @@ def fetch_raw_blobs(source_run_id: int) -> dict[str, RawBlob]:
     return {name: (url, payload, fetched_at) for name, url, payload, fetched_at in rows}
 
 
+def is_sec_blob_endpoint(endpoint_name: str) -> bool:
+    """Return True when a raw blob endpoint belongs to the SEC collector."""
+    return endpoint_name.startswith(SEC_BLOB_PREFIXES)
+
+
 def normalize(*, source_run_id: int | None = None) -> tuple[int, int]:
     """Run the SEC normalizer once and return ``(normalizer_run_id, source_run_id)``."""
     if source_run_id is None:
         source_run_id = latest_collector_run_id()
     blobs = fetch_raw_blobs(source_run_id)
+    if not any(is_sec_blob_endpoint(endpoint_name) for endpoint_name in blobs):
+        raise SystemExit(f"No SEC raw blobs found for ingest_run_id={source_run_id}.")
 
     with db.ingest_run(
         SOURCE_NAME,
@@ -480,7 +492,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    args = parse_args(argv or sys.argv[1:])
+    if argv is None:
+        argv = sys.argv[1:]
+    args = parse_args(argv)
     run_id, resolved_source_run_id = normalize(source_run_id=args.source_run_id)
     if args.json:
         print(
