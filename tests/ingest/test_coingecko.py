@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import unittest
 from contextlib import redirect_stderr
 from datetime import date
@@ -26,6 +27,7 @@ from genkei.ingest.coingecko import (
     fetch_historical_market_chart,
     iter_date_ranges,
     load_coins,
+    main,
     merge_market_chart_payloads,
     parse_args,
     resolve_api_key,
@@ -300,6 +302,20 @@ class ParseArgsTests(unittest.TestCase):
     def test_backfill_requires_since(self) -> None:
         with redirect_stderr(StringIO()), self.assertRaises(SystemExit):
             parse_args(["--backfill"])
+
+    def test_main_honors_explicit_empty_argv(self) -> None:
+        saved_argv = sys.argv
+        saved_key = os.environ.pop(API_KEY_ENV, None)
+        try:
+            sys.argv = ["coingecko", "--backfill"]
+            with self.assertRaisesRegex(SystemExit, API_KEY_ENV):
+                main([])
+        finally:
+            sys.argv = saved_argv
+            if saved_key is not None:
+                os.environ[API_KEY_ENV] = saved_key
+            else:
+                os.environ.pop(API_KEY_ENV, None)
 
 
 class RateLimitDefaultsTests(unittest.TestCase):

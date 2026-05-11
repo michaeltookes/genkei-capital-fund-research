@@ -475,7 +475,7 @@ def _parse_date(value: str) -> date:
 
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    args = parse_args(argv or sys.argv[1:])
+    args = parse_args(argv if argv is not None else sys.argv[1:])
     run_id = collect(args.config, backfill=args.backfill, since=args.since)
     print(f"CoinGecko collector wrote ingest_run_id={run_id}")
     return 0
