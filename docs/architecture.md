@@ -118,6 +118,9 @@ The normalizer is **data-lake-shaped**, not report-shaped. It writes the raw sha
 | **`meta.raw_blobs` retention** | Daily TimescaleDB job (`add_job`) deletes blobs > 90 days old. The normalized lake tables are the system of record; raw is audit/replay only. | R-023 |
 | **`fred.series`** | Entity dim for FRED macro series, PK `series_id`, holds `title` / `units` / `frequency` / `last_updated` / `popularity` / `observation_start_end` metadata. | R-027 |
 | **`fred.observations`** | Time-series fact, hypertable, PK `(series_id, ts, realtime_start)`, 90-day chunks, compression on chunks > 30 days old. **Vintage-aware** — every FRED revision lands as a distinct row keyed on `realtime_start` so as-of backtests can reconstruct what was known on any given date. | R-027 |
+| **`sec.companies`** | Entity dim for SEC EDGAR registrants, PK `cik` (zero-padded 10-char), holds `ticker` / `name` / `sic` / `exchanges` / `entity_type` / `fiscal_year_end` metadata from the submissions index. | R-028 |
+| **`sec.filings`** | One row per SEC filing, PK `accession_number` (the SEC's own unique filing ID). Indexed on `(cik, filed_at DESC)` and `(form_type, filed_at DESC)`. Plain table — modest volume (~85k rows steady-state across 28 watchlist companies). | R-028 |
+| **`sec.facts`** | XBRL fact table, hypertable on `period_end` (30-day chunks), compression on chunks > 30 days old, PK `(cik, concept, unit, period_start, period_end, accession_number)`. Same `(concept, period)` can appear in multiple filings (10-Q + subsequent 10-K); all rows land for query-side filtering. | R-028 |
 | **Provenance trio** | Every fact row carries `source_endpoint TEXT NOT NULL`, `fetched_at TIMESTAMPTZ NOT NULL`, `ingest_run_id BIGINT NOT NULL REFERENCES meta.ingest_runs(id)`. | R-021 |
 | **Migration tool** | Alembic, hand-written migrations only (no autogen). Files at `migrations/versions/YYYYMMDD_<slug>.py`. URL from `GENKEI_DATABASE_URL`. | R-008, `docs/storage.md` § B-009 |
 
@@ -131,9 +134,13 @@ src/genkei/
 │   ├── http.py      — HttpClient with rate limit + retry/backoff + jitter
 │   └── config.py    — stdlib .env loader
 ├── ingest/
-│   └── defillama.py — collector → meta.raw_blobs
+│   ├── defillama.py — DeFiLlama collector → meta.raw_blobs
+│   ├── fred.py      — FRED collector → meta.raw_blobs
+│   └── sec.py       — SEC EDGAR collector → meta.raw_blobs
 ├── normalize/
-│   └── defillama.py — meta.raw_blobs → defillama.*
+│   ├── defillama.py — meta.raw_blobs → defillama.*
+│   ├── fred.py      — meta.raw_blobs → fred.*
+│   └── sec.py       — meta.raw_blobs → sec.*
 ├── reports/
 │   └── defillama_daily.py — legacy markdown brief (broken pending B-025)
 ├── cli/             — empty; lands in Phase 3
@@ -149,6 +156,8 @@ src/genkei/
 | `genkei.normalize.defillama` | Reads raw blobs and `bulk_upsert`s. Daily mode (`normalize`) handles snapshot blobs into all four lake tables; backfill mode (`normalize_backfill`) dispatches by `endpoint_name` prefix into `defillama.prices`, `defillama.protocol_tvl`, `defillama.stablecoins`. Idempotent throughout. | R-018, R-023 |
 | `genkei.ingest.fred` | FRED collector. Reads `macro_series:` from `config/watchlists.yml`, hits `/series` + `/series/observations` per series with `realtime_start=1776-07-04&realtime_end=9999-12-31` for full-vintage payloads. Lands two raw blobs per series (`series_<id>`, `observations_<id>`). Redacts the API key from the URL stored in `meta.raw_blobs`. Single-mode (D-014) — no separate `--backfill` flag. | R-027 |
 | `genkei.normalize.fred` | Reads FRED raw blobs by source_run_id, dispatches by prefix into `fred.series` (one row per series) and `fred.observations` (one row per `(series_id, ts, realtime_start)`). Idempotent. | R-027 |
+| `genkei.ingest.sec` | SEC EDGAR collector. Reads CIKs from `equities:` in `config/watchlists.yml`; dedupes by CIK so multi-class listings (GOOG/GOOGL share Alphabet's CIK) fetch once. Hits `/submissions/CIK{cik}.json`, follows `filings.files[]` references for older history pages, and `/api/xbrl/companyfacts/CIK{cik}.json` per company. 8 req/sec rate limit (under SEC's 10/sec cap). User-Agent identifies the user via `SEC_USER_AGENT` env var. | R-028 |
+| `genkei.normalize.sec` | Reads SEC raw blobs and dispatches by `endpoint_name` prefix into `sec.companies` (upsert, FK target), `sec.filings` (one row per filing, recent + history), `sec.facts` (one row per XBRL `taxonomy:concept` × unit × period × accession). | R-028 |
 
 ### Process layer
 
@@ -246,7 +255,7 @@ Each mission is one markdown file: title, context, checklist of acceptance crite
 |---|---|---|
 | **Phase 0** — Foundation: Postgres + project scaffolding | ✅ complete | All 11 items resolved (R-005 through R-013, R-016, R-019). |
 | **Phase 1** — Refactor DeFiLlama onto Postgres | ✅ effectively complete | 9/9 high-priority items done. Three medium items remain: B-020 (config-driven exclusion keywords) and B-023 (freshness check) are follow-ups when consumers need them; B-025 (daily brief fate) is a deferred decision. |
-| **Phase 2** — Free-data ingesters with backfill | 🟡 in progress | 1/10 done — B-028 FRED landed (R-027). Next obvious move: B-027 SEC EDGAR (equity backbone) or B-034 CoinGecko (crypto cross-check). |
+| **Phase 2** — Free-data ingesters with backfill | 🟡 in progress | 2/10 done — B-028 FRED (R-027) and B-027 SEC EDGAR option B (R-028). B-079 + B-080 carved out of B-027 option C, will be picked up driven by Phase 5 experiments. |
 | **Phase 3** — Custom CLI | ⚪ not started | 11 items (B-037 through B-047). `genkei` is the working name. |
 | **Phase 4** — Agent layer | ⚪ not started | 6 items (B-048 through B-053). Harness decision pending. |
 | **Phase 5** — Experiments framework | ⚪ not started | 10 items (B-054 through B-063). Notebooks + reproducibility pattern + concrete experiments. |
@@ -398,6 +407,19 @@ Append-only. Each entry: **what**, **why**, **alternative considered**, **what w
 
 **Amendment (2026-05-10, smoke test):** "full history per call" is still what the collector requests on both the *observation date* axis and the *vintage* axis. G-019 documents the upstream 2000-vintage cap this can hit for long daily series. Daily and backfill remain the same code path; the no-`--backfill`-flag decision stands.
 
+### D-015 — SEC EDGAR scope: option B (submissions + XBRL company facts) now, Form 4/13F as follow-ups
+**Date:** 2026-05-10 · **In:** R-028, B-079, B-080
+**Decision:** B-027's first cut lands two API surfaces — `/submissions/CIK{cik}.json` (filing index + company metadata) and `/api/xbrl/companyfacts/CIK{cik}.json` (XBRL fact history). Per-filing structured payloads (Form 4 insider transactions, 13F institutional holdings) are split into separate backlog items B-079 and B-080.
+**Why:** XBRL facts are *self-describing* — concepts like `us-gaap:Revenues` and `us-gaap:NetIncomeLoss` mean what they say across companies. Form 4 and 13F payloads, by contrast, are *opinionated* — Form 4 has ~15 fields per insider transaction, 13F has cusip/value/shares/putCall plus the 13F-HR vs 13F-NT distinction. Without a concrete experiment driving the schema, we'd guess wrong about which fields to pull and how to shape them. Pick those parsers up driven by B-060 (insider buying) and B-061 (13F crowding) so the schemas are shaped by concrete queries.
+**Alternative:** Build all three surfaces in one PR. Rejected — triples the API surface (= triples the live-smoke gotcha exposure) for code with no consumer; storage hit for Form 4/13F backfill across 28 equities × decades is millions of rows queried against speculative schemas.
+**What would change our mind:** If B-060/B-061 get prioritized to land before any other Phase 5 experiment, lift them ahead of the other Phase 2 sources.
+
+### D-016 — XBRL facts stored as `(cik, concept, unit, period_start, period_end, accession_number)` PK, not collapsed by latest filing
+**Date:** 2026-05-10 · **In:** R-028
+**Decision:** `sec.facts` PK includes `accession_number`. The same `(concept, period)` reported by both a 10-Q and the subsequent 10-K lands as two rows.
+**Why:** Restatements + as-of backtests. SEC permits restatements of prior-period facts; if we collapsed to "latest filing wins," the same kind of vintage-loss problem D-013 solves for FRED would bite us here. With accession_number in the PK, every reported version is preserved; consumers can filter to the most recent filing per `(concept, period)` at query time when desired.
+**Alternative:** PK without accession_number, latest filing overwrites prior. Rejected for the same reason as the FRED vintage decision: lossy and not retrofittable without a re-pull.
+
 ---
 
 # Gotchas & lessons learned
@@ -522,3 +544,15 @@ Append-only. Each entry: **what bit us**, **how we resolved it**, **how to avoid
 **Symptom:** The watchlist's gold series returned `400 Bad Request` with `"The series does not exist."` on both `/series` and `/series/observations`. The London Bullion Market Association data feed FRED used to host appears to have been retired.
 **Resolution:** Dropped from `config/watchlists.yml` with a comment explaining what we tried. The closest live FRED alternatives (`GVZCLS` gold volatility, `IQ12260` monthly gold export-price index) aren't spot prices. Plan: re-add a real spot-gold series via a commodities feed when one lands in Phase 2 or beyond.
 **Avoid next time:** Periodically audit watchlist series IDs for retirements — FRED occasionally sunsets feeds when the source provider changes terms. Worth wiring into B-072 (schema-drift detection) when that lands.
+
+### G-021 — SEC EDGAR's 10 req/sec fair-access cap is per-host (data.sec.gov), not per-API
+**Hit:** 2026-05-10 (B-027 design)
+**Symptom:** SEC's documented rate limit is 10 req/sec across `data.sec.gov` *as a whole* — submissions, companyfacts, frames, concepts all share the same budget. Two ingesters running on the same runner could split the budget naively and each think they're fine. SEC throttles via 403 + an HTML response (not JSON), which httpx error handling doesn't decode helpfully.
+**Resolution:** `genkei.ingest.sec.DEFAULT_RATE_LIMIT = RateLimit.per_second(8)` — stays under the cap with headroom for any future SEC-using ingester sharing the runner. If we ever land a second SEC-touching workload (e.g., the eventual Form 4 or 13F ingesters), they need to share the limiter, not each create their own.
+**Avoid next time:** When stacking two ingesters that hit the same upstream host, share the rate-limiter instance instead of defaulting each to its own per_second(N).
+
+### G-022 — SEC EDGAR requires identification in User-Agent (no key, but enforced)
+**Hit:** 2026-05-10 (B-027 design)
+**Symptom:** SEC.gov returns `403 Forbidden` for requests without a `User-Agent` that includes a real name + contact email. There's no API key — the User-Agent IS the auth/identification. SEC's docs are explicit: "Sample User-Agent: Sample Company Name AdminContact@<sample company domain>.com". Our default `httpx` UA gets blocked.
+**Resolution:** `SEC_USER_AGENT` env var → `genkei.ingest.sec.resolve_user_agent()` → passed through to `HttpClient(..., user_agent=...)`. CI reads it from a same-named GH Actions secret. Local dev sets it in `.env`. If unset, the collector logs a warning and falls back to a placeholder string that SEC may reject.
+**Avoid next time:** When an "open" API has no key, look for User-Agent or Referer requirements in the docs before assuming defaults will work. SEC, Wikipedia, OpenStreetMap all enforce identification this way.

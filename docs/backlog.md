@@ -118,16 +118,6 @@ Migrate the existing MVP into the new foundation; it becomes the canonical patte
 
 One backlog item per source. Each follows the DeFiLlama-refactored pattern: collect → land in Postgres → normalize → tests → backfill mode.
 
-### B-027 — SEC EDGAR ingester
-- **Status:** open
-- **Priority:** high
-- **Context:** Filings + XBRL facts are the backbone of equity research. Forms 10-K, 10-Q, 8-K, S-1, Form 4, 13F.
-- **Acceptance criteria:**
-  - Honors 10 req/sec fair-access limit.
-  - Tables for company submissions, individual filings, XBRL facts.
-  - Backfill: full filing history per ticker on the watchlist.
-  - Tests covering filing-type filtering, XBRL parse, error paths.
-
 ### B-029 — BEA ingester
 - **Status:** open
 - **Priority:** medium
@@ -198,6 +188,26 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
 - **Acceptance criteria:**
   - `docs/sources/<name>.md` for every ingester (DeFiLlama first as the template).
   - Acceptance gates included (mirroring `docs/defillama-daily-review.md` pattern).
+
+### B-079 — SEC Form 4 (insider transactions) ingester
+- **Status:** open
+- **Priority:** medium
+- **Context:** Split out from B-027 (option C). The base SEC ingester (B-027 option B) lands company submissions + XBRL company facts but not the per-filing structured payloads. Form 4 transactions are a separate parsing layer — every insider transaction has ~15 fields (transactionCode, pricePerShare, sharesOwnedFollowingTransaction, etc.) and the right schema depends on which fields the experiments actually use. Pick this up *driven by* B-060 (insider-buying monitor) so the schema is shaped by a concrete query rather than guessed up front.
+- **Acceptance criteria:**
+  - New `sec.form4_transactions` (or similar) table with a vintage-aware PK that captures amendments.
+  - Backfill walks all Form 4 filings indexed by submissions; each filing's primary XML doc is parsed and rows land in the new table.
+  - Tests cover the documented Form 4 transaction-code variants (P/S/A/D/G/M/F) and amendment handling.
+  - Honors the same 10 req/sec rate limit + User-Agent rules as B-027.
+
+### B-080 — SEC 13F (institutional holdings) ingester
+- **Status:** open
+- **Priority:** medium
+- **Context:** Split out from B-027 (option C). 13F filings are quarterly institutional position reports. Each has hundreds of holdings rows; schema needs CUSIP-keyed positions plus the 13F-HR vs 13F-NT (notice-only) distinction. Pick this up *driven by* B-061 (13F crowding monitor) so the schema is shaped by a concrete query.
+- **Acceptance criteria:**
+  - New `sec.form13f_holdings` (or similar) table keyed on `(filer_cik, period_of_report, cusip)` or similar natural composite.
+  - Backfill walks all 13F-HR filings; primary information-table XML parsed and rows land.
+  - Tests cover (a) value field is in $1000s — the canonical 13F gotcha — and (b) 13F-NT amendments correctly link back to the original 13F-HR.
+  - Honors B-027's rate limit + User-Agent.
 
 ## Phase 3 — Custom CLI
 

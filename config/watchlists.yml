@@ -71,31 +71,37 @@ equities:
   primary:
     # Mega-cap tech compounders
     - symbol: AAPL
+      cik: "0000320193"
       name: Apple Inc.
       sector: Consumer technology
       sleeve: core
       rationale: Mega-cap compounder; durable consumer hardware + services franchise.
     - symbol: MSFT
+      cik: "0000789019"
       name: Microsoft Corporation
       sector: Software / cloud
       sleeve: core
       rationale: Cloud + enterprise software duopoly position; AI distribution leader.
     - symbol: GOOG
+      cik: "0001652044"
       name: Alphabet Inc. (Class C)
       sector: Internet / cloud / AI
       sleeve: core
       rationale: Search cash flow + cloud + AI optionality; held alongside GOOGL.
     - symbol: GOOGL
+      cik: "0001652044"
       name: Alphabet Inc. (Class A)
       sector: Internet / cloud / AI
       sleeve: core
       rationale: Voting share class of Alphabet; same thesis as GOOG.
     - symbol: AMZN
+      cik: "0001018724"
       name: Amazon.com, Inc.
       sector: E-commerce / cloud
       sleeve: core
       rationale: AWS cash flow + retail margin recovery; long-term compounder.
     - symbol: META
+      cik: "0001326801"
       name: Meta Platforms, Inc.
       sector: Internet / advertising / AI
       sleeve: core
@@ -103,31 +109,37 @@ equities:
 
     # Semiconductors / AI compute
     - symbol: NVDA
+      cik: "0001045810"
       name: NVIDIA Corporation
       sector: Semiconductors
       sleeve: core
       rationale: Dominant AI training/inference compute supplier.
     - symbol: AMD
+      cik: "0000002488"
       name: Advanced Micro Devices, Inc.
       sector: Semiconductors
       sleeve: core
       rationale: Second-source AI accelerator + CPU share-take story.
     - symbol: AVGO
+      cik: "0001730168"
       name: Broadcom Inc.
       sector: Semiconductors / software
       sleeve: core
       rationale: Custom silicon (XPU) + diversified semis + VMware cash flow.
     - symbol: MU
+      cik: "0000723125"
       name: Micron Technology, Inc.
       sector: Semiconductors / memory
       sleeve: core
       rationale: Memory cycle exposure; HBM demand from AI training clusters.
     - symbol: SMCI
+      cik: "0001375365"
       name: Super Micro Computer, Inc.
       sector: Server systems
       sleeve: core
       rationale: AI server integrator; NVIDIA partner exposure.
     - symbol: TSM
+      cik: "0001046179"
       name: Taiwan Semiconductor Manufacturing Company
       sector: Semiconductors / foundry
       sleeve: core
@@ -135,16 +147,19 @@ equities:
 
     # Software / data / defense
     - symbol: CRM
+      cik: "0001108524"
       name: Salesforce, Inc.
       sector: Enterprise software
       sleeve: core
       rationale: Enterprise CRM incumbent; AI agent/Copilot monetization.
     - symbol: PLTR
+      cik: "0001321655"
       name: Palantir Technologies Inc.
       sector: Data / defense software
       sleeve: core
       rationale: Government + commercial AIP momentum; widening commercial book.
     - symbol: DOCN
+      cik: "0001582961"
       name: DigitalOcean Holdings, Inc.
       sector: Cloud infrastructure
       sleeve: core
@@ -152,21 +167,25 @@ equities:
 
     # Financials / payments / fintech
     - symbol: JPM
+      cik: "0000019617"
       name: JPMorgan Chase & Co.
       sector: Banking
       sleeve: core
       rationale: Best-of-breed money-center bank; rates and credit-cycle exposure.
     - symbol: V
+      cik: "0001403161"
       name: Visa Inc.
       sector: Payments
       sleeve: core
       rationale: Global payments duopoly; secular cash-to-card migration.
     - symbol: SOFI
+      cik: "0001818874"
       name: SoFi Technologies, Inc.
       sector: Consumer fintech
       sleeve: core
       rationale: Bank-charter fintech; deposit + lending growth optionality.
     - symbol: HOOD
+      cik: "0001783879"
       name: Robinhood Markets, Inc.
       sector: Brokerage / fintech
       sleeve: core
@@ -174,21 +193,25 @@ equities:
 
     # Crypto-adjacent equities
     - symbol: COIN
+      cik: "0001679788"
       name: Coinbase Global, Inc.
       sector: Crypto exchange
       sleeve: core
       rationale: Largest US-regulated crypto venue; secular crypto adoption proxy.
     - symbol: MSTR
+      cik: "0001050446"
       name: Strategy (formerly MicroStrategy Incorporated)
       sector: Bitcoin treasury
       sleeve: core
       rationale: Leveraged BTC treasury play; tracks bitcoin with corporate-finance overlay.
     - symbol: BMNR
+      cik: "0001829311"
       name: BitMine Immersion Technologies, Inc.
       sector: Bitcoin mining
       sleeve: core
       rationale: Bitcoin mining infrastructure; leveraged BTC exposure with operational risk.
     - symbol: CLSK
+      cik: "0000827876"
       name: CleanSpark, Inc.
       sector: Bitcoin mining
       sleeve: core
@@ -196,27 +219,32 @@ equities:
 
     # Mobility / energy / materials
     - symbol: TSLA
+      cik: "0001318605"
       name: Tesla, Inc.
       sector: EV / energy
       sleeve: core
       rationale: EV manufacturer with energy storage + AI/robotics optionality.
     - symbol: UBER
+      cik: "0001543151"
       name: Uber Technologies, Inc.
       sector: Mobility
       sleeve: core
       rationale: Mobility + delivery network; profitable scale, AV optionality.
     - symbol: CCJ
+      cik: "0001009001"
       name: Cameco Corporation
       sector: Mining / uranium
       sleeve: core
       rationale: Uranium pure-play; nuclear-renaissance + AI-power-demand thesis.
     - symbol: XOM
+      cik: "0000034088"
       name: Exxon Mobil Corporation
       sector: Oil & gas
       sleeve: core
       rationale: Integrated oil major; cash-flow + dividend through commodity cycles.
 
     - symbol: SUIG
+      cik: "0001425355"
       name: Sui Group Holdings
       sector: Sui treasury
       sleeve: core
