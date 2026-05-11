@@ -37,6 +37,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import httpx
 import yaml
 
 from genkei.common import db
@@ -280,7 +281,12 @@ def _fetch_blob(
     """Fetch one URL, store the blob, return parsed payload or None on error."""
     try:
         payload = http.get_json(url)
-    except Exception as exc:
+    except (
+        httpx.TimeoutException,
+        httpx.NetworkError,
+        httpx.HTTPStatusError,
+        json.JSONDecodeError,
+    ) as exc:
         LOGGER.warning("SEC fetch failed for %s (%s): %s", endpoint_name, target.symbol, exc)
         failures.append({"name": endpoint_name, "url": url, "error": str(exc)})
         return None

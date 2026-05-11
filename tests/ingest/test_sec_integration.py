@@ -152,7 +152,7 @@ class SecIntegrationTests(unittest.TestCase):
             ],
         )
 
-        normalizer_run = normalizer.normalize(source_run_id=run_id)
+        normalizer_run, normalized_source_run = normalizer.normalize(source_run_id=run_id)
 
         with db.connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT count(*), max(name) FROM sec.companies WHERE cik = '0000320193'")
@@ -173,6 +173,7 @@ class SecIntegrationTests(unittest.TestCase):
         self.assertEqual(facts_count, 1)
         self.assertEqual(status, "success")
         self.assertEqual(int(source_run_str), run_id)
+        self.assertEqual(normalized_source_run, run_id)
 
     def test_renormalize_is_idempotent(self) -> None:
         transport = httpx.MockTransport(_route)

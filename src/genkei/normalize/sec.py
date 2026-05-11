@@ -234,7 +234,7 @@ def normalize_facts(
     if not isinstance(facts, dict):
         return []
     rows: list[JsonObject] = []
-    seen: set[tuple[str, str, date, str]] = set()
+    seen: set[tuple[str, str, date, date, str]] = set()
     for taxonomy, concepts in facts.items():
         if not isinstance(concepts, dict):
             continue
@@ -320,8 +320,8 @@ def fetch_raw_blobs(source_run_id: int) -> dict[str, RawBlob]:
     return {name: (url, payload, fetched_at) for name, url, payload, fetched_at in rows}
 
 
-def normalize(*, source_run_id: int | None = None) -> int:
-    """Run the SEC normalizer once and return the normalizer run id."""
+def normalize(*, source_run_id: int | None = None) -> tuple[int, int]:
+    """Run the SEC normalizer once and return ``(normalizer_run_id, source_run_id)``."""
     if source_run_id is None:
         source_run_id = latest_collector_run_id()
     blobs = fetch_raw_blobs(source_run_id)
@@ -411,7 +411,7 @@ def normalize(*, source_run_id: int | None = None) -> int:
                     )
                 )
 
-        return run.id
+        return run.id, source_run_id
 
 
 # ---------------------------------------------------------------------------
@@ -486,7 +486,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     args = parse_args(argv or sys.argv[1:])
-    run_id = normalize(source_run_id=args.source_run_id)
+    run_id, resolved_source_run_id = normalize(source_run_id=args.source_run_id)
     if args.json:
         print(
             json.dumps(
@@ -494,7 +494,7 @@ def main(argv: list[str] | None = None) -> int:
                     "ingest_run_id": run_id,
                     "source": SOURCE_NAME,
                     "endpoint": NORMALIZE_ENDPOINT_LABEL,
-                    "source_run_id": args.source_run_id,
+                    "source_run_id": resolved_source_run_id,
                 }
             )
         )

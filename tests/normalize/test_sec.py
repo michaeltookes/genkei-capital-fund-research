@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import io
+import json
 import unittest
+from contextlib import redirect_stdout
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from unittest.mock import patch
 
 from genkei.normalize.sec import (
     _as_numeric,
+    main,
     normalize_company,
     normalize_facts,
     normalize_filings,
@@ -33,6 +38,17 @@ class HelperTests(unittest.TestCase):
     def test_as_numeric_preserves_decimal_precision(self) -> None:
         self.assertEqual(_as_numeric("1234567890.123456789"), Decimal("1234567890.123456789"))
         self.assertIsNone(_as_numeric(True))
+
+
+class CliTests(unittest.TestCase):
+    def test_json_output_uses_resolved_source_run_id(self) -> None:
+        output = io.StringIO()
+        with patch("genkei.normalize.sec.normalize", return_value=(9, 7)), redirect_stdout(output):
+            self.assertEqual(main(["--json"]), 0)
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(payload["ingest_run_id"], 9)
+        self.assertEqual(payload["source_run_id"], 7)
 
 
 class NormalizeCompanyTests(unittest.TestCase):
