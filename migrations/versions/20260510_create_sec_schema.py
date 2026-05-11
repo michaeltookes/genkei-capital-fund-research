@@ -16,7 +16,7 @@ Tables:
                    = ~85k rows steady-state, well within plain-PG range.
   - sec.facts      XBRL fact table. Hypertable on period_end (30-day
                    chunks), compression on chunks > 30 days old. PK
-                   (cik, concept, unit, period_end, accession_number)
+                   (cik, concept, unit, period_start, period_end, accession_number)
                    — same fact can be reported by both the original
                    10-Q and the subsequent 10-K, so accession_number
                    is part of the PK to capture both. Millions of rows
@@ -109,7 +109,7 @@ def upgrade() -> None:
             source_endpoint  TEXT        NOT NULL,
             fetched_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
             ingest_run_id    BIGINT      NOT NULL REFERENCES meta.ingest_runs(id),
-            PRIMARY KEY (cik, concept, unit, period_end, accession_number)
+            PRIMARY KEY (cik, concept, unit, period_start, period_end, accession_number)
         )
         """
     )

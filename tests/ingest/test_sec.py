@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from genkei.ingest import sec
 from genkei.ingest.sec import (
     DEFAULT_RATE_LIMIT,
     DEFAULT_USER_AGENT,
@@ -15,6 +16,7 @@ from genkei.ingest.sec import (
     build_companyfacts_url,
     build_submissions_url,
     load_companies,
+    normalize_cik,
     resolve_user_agent,
 )
 
@@ -39,6 +41,23 @@ class LoadCompaniesTests(unittest.TestCase):
         self.assertEqual(
             companies[0], CompanyTarget(cik="0000320193", symbol="AAPL", name="Apple Inc.")
         )
+
+    def test_normalizes_numeric_and_unpadded_cik_values(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(
+                "equities:\n"
+                "  primary:\n"
+                "    - symbol: AAPL\n"
+                "      cik: 320193\n"
+                "      name: Apple Inc.\n"
+                "    - symbol: MSFT\n"
+                '      cik: "789019"\n'
+                "      name: Microsoft Corporation\n",
+                encoding="utf-8",
+            )
+            companies = load_companies(path)
+        self.assertEqual([c.cik for c in companies], ["0000320193", "0000789019"])
 
     def test_dedupes_by_cik(self) -> None:
         # GOOG and GOOGL share Alphabet's CIK; collector should fetch once.
@@ -104,6 +123,12 @@ class UrlBuilderTests(unittest.TestCase):
             "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
         )
 
+    def test_normalize_cik_rejects_malformed_values(self) -> None:
+        self.assertIsNone(normalize_cik(True))
+        self.assertIsNone(normalize_cik("abc"))
+        self.assertIsNone(normalize_cik("12345678901"))
+        self.assertEqual(normalize_cik("320193"), "0000320193")
+
 
 class ResolveUserAgentTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -120,7 +145,7 @@ class ResolveUserAgentTests(unittest.TestCase):
         self.assertEqual(resolve_user_agent(), "Real Person realperson@example.com")
 
     def test_falls_back_to_placeholder_with_warning(self) -> None:
-        with self.assertLogs("genkei.ingest.sec", level="WARNING") as logs:
+        with self.assertLogs(sec.__name__, level="WARNING") as logs:
             ua = resolve_user_agent()
         self.assertEqual(ua, DEFAULT_USER_AGENT)
         self.assertTrue(any(USER_AGENT_ENV in msg for msg in logs.output))

@@ -29,9 +29,11 @@ XBRL parsing notes:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from genkei.common import db
@@ -224,7 +226,7 @@ def normalize_facts(
     """Map an XBRL companyfacts payload to ``sec.facts`` row dicts.
 
     Walks ``facts.{taxonomy}.{concept}.units.{unit}`` and emits one row
-    per (taxonomy, concept, unit, period_end, accession_number).
+    per (taxonomy, concept, unit, period_start, period_end, accession_number).
     """
     if not isinstance(payload, dict):
         return []
@@ -249,11 +251,12 @@ def normalize_facts(
                     if not isinstance(fact, dict):
                         continue
                     period_end = parse_sec_date(fact.get("end"))
+                    period_start = parse_sec_date(fact.get("start")) or period_end
                     accn = fact.get("accn")
                     if period_end is None or not isinstance(accn, str) or not accn:
                         continue
                     full_concept = f"{taxonomy}:{concept_name}"
-                    key = (full_concept, str(unit_name), period_end, accn)
+                    key = (full_concept, str(unit_name), period_start, period_end, accn)
                     if key in seen:
                         continue
                     seen.add(key)
@@ -263,7 +266,7 @@ def normalize_facts(
                             "taxonomy": str(taxonomy),
                             "concept": full_concept,
                             "unit": str(unit_name),
-                            "period_start": parse_sec_date(fact.get("start")),
+                            "period_start": period_start,
                             "period_end": period_end,
                             "value": _as_numeric(fact.get("val")),
                             "accession_number": accn,
@@ -330,7 +333,7 @@ def normalize(*, source_run_id: int | None = None) -> int:
     ) as run:
         company_rows: list[JsonObject] = []
         filing_rows: list[JsonObject] = []
-        fact_rows: list[JsonObject] = []
+        fact_blobs: list[tuple[str, str, Any, datetime]] = []
 
         for endpoint_name, (url, payload, fetched_at) in blobs.items():
             if endpoint_name.startswith(SUBMISSIONS_HISTORY_BLOB_PREFIX):
@@ -369,15 +372,7 @@ def normalize(*, source_run_id: int | None = None) -> int:
                 )
             elif endpoint_name.startswith(COMPANYFACTS_BLOB_PREFIX):
                 cik = endpoint_name[len(COMPANYFACTS_BLOB_PREFIX) :]
-                fact_rows.extend(
-                    normalize_facts(
-                        payload,
-                        cik=cik,
-                        source_endpoint=url,
-                        ingest_run_id=run.id,
-                        fetched_at=fetched_at,
-                    )
-                )
+                fact_blobs.append((cik, url, payload, fetched_at))
             else:
                 LOGGER.debug("SEC normalizer skipping unknown blob: %s", endpoint_name)
 
@@ -392,20 +387,29 @@ def normalize(*, source_run_id: int | None = None) -> int:
                     conflict_keys=["accession_number"],
                 )
             )
-            run.add_rows(
-                db.bulk_upsert(
-                    conn,
-                    "sec.facts",
-                    fact_rows,
-                    conflict_keys=[
-                        "cik",
-                        "concept",
-                        "unit",
-                        "period_end",
-                        "accession_number",
-                    ],
+            for cik, url, payload, fetched_at in fact_blobs:
+                fact_rows = normalize_facts(
+                    payload,
+                    cik=cik,
+                    source_endpoint=url,
+                    ingest_run_id=run.id,
+                    fetched_at=fetched_at,
                 )
-            )
+                run.add_rows(
+                    db.bulk_upsert(
+                        conn,
+                        "sec.facts",
+                        fact_rows,
+                        conflict_keys=[
+                            "cik",
+                            "concept",
+                            "unit",
+                            "period_start",
+                            "period_end",
+                            "accession_number",
+                        ],
+                    )
+                )
 
         return run.id
 
@@ -443,13 +447,13 @@ def _maybe_bool(value: Any) -> bool | None:
     return None
 
 
-def _as_numeric(value: Any) -> float | None:
-    """Coerce XBRL fact values to ``float`` while preserving missingness."""
+def _as_numeric(value: Any) -> Decimal | None:
+    """Coerce XBRL fact values to ``Decimal`` while preserving missingness."""
     if isinstance(value, bool) or value is None:
         return None
     try:
-        return float(value)
-    except (TypeError, ValueError):
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
         return None
 
 
@@ -475,6 +479,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=None,
         help="SEC collector ingest_run id. Default: latest success.",
     )
+    parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON output.")
     return parser.parse_args(argv)
 
 
@@ -482,7 +487,19 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     args = parse_args(argv or sys.argv[1:])
     run_id = normalize(source_run_id=args.source_run_id)
-    print(f"SEC normalizer wrote ingest_run_id={run_id}")
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "ingest_run_id": run_id,
+                    "source": SOURCE_NAME,
+                    "endpoint": NORMALIZE_ENDPOINT_LABEL,
+                    "source_run_id": args.source_run_id,
+                }
+            )
+        )
+    else:
+        print(f"SEC normalizer wrote ingest_run_id={run_id}")
     return 0
 
 

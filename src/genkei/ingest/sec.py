@@ -103,20 +103,38 @@ def load_companies(path: Path) -> list[CompanyTarget]:
             cik = entry.get("cik")
             symbol = entry.get("symbol")
             name = entry.get("name")
-            if not isinstance(cik, str) or not cik:
+            normalized_cik = normalize_cik(cik)
+            if normalized_cik is None:
                 LOGGER.warning("skip equity %s in tier %s — missing cik", symbol, tier_name)
                 continue
             if not isinstance(symbol, str) or not isinstance(name, str):
                 LOGGER.warning("skip malformed equity entry under tier %s", tier_name)
                 continue
-            if cik in seen_ciks:
-                LOGGER.debug("skip duplicate CIK %s (%s)", cik, symbol)
+            if normalized_cik in seen_ciks:
+                LOGGER.debug("skip duplicate CIK %s (%s)", normalized_cik, symbol)
                 continue
-            seen_ciks.add(cik)
-            out.append(CompanyTarget(cik=cik, symbol=symbol, name=name))
+            seen_ciks.add(normalized_cik)
+            out.append(CompanyTarget(cik=normalized_cik, symbol=symbol, name=name))
     if not out:
         raise SystemExit("No equities with CIK found under `equities:` in the watchlist.")
     return out
+
+
+def normalize_cik(value: Any) -> str | None:
+    """Normalize SEC CIKs to the 10-digit string SEC endpoints require."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        raw = str(value)
+    elif isinstance(value, str):
+        raw = value.strip()
+    else:
+        return None
+    if not raw.isdigit():
+        return None
+    if len(raw) > 10:
+        return None
+    return raw.zfill(10)
 
 
 def resolve_user_agent() -> str:
@@ -286,6 +304,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         description="Collect SEC EDGAR submissions + XBRL company facts into Postgres."
     )
     parser.add_argument("--config", type=Path, default=DEFAULT_WATCHLIST_PATH)
+    parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON output.")
     return parser.parse_args(argv)
 
 
@@ -293,7 +312,10 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     args = parse_args(argv or sys.argv[1:])
     run_id = collect(args.config)
-    print(f"SEC collector wrote ingest_run_id={run_id}")
+    if args.json:
+        print(json.dumps({"ingest_run_id": run_id, "source": SOURCE_NAME, "endpoint": "collect"}))
+    else:
+        print(f"SEC collector wrote ingest_run_id={run_id}")
     return 0
 
 

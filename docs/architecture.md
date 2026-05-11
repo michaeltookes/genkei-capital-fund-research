@@ -120,7 +120,7 @@ The normalizer is **data-lake-shaped**, not report-shaped. It writes the raw sha
 | **`fred.observations`** | Time-series fact, hypertable, PK `(series_id, ts, realtime_start)`, 90-day chunks, compression on chunks > 30 days old. **Vintage-aware** — every FRED revision lands as a distinct row keyed on `realtime_start` so as-of backtests can reconstruct what was known on any given date. | R-027 |
 | **`sec.companies`** | Entity dim for SEC EDGAR registrants, PK `cik` (zero-padded 10-char), holds `ticker` / `name` / `sic` / `exchanges` / `entity_type` / `fiscal_year_end` metadata from the submissions index. | R-028 |
 | **`sec.filings`** | One row per SEC filing, PK `accession_number` (the SEC's own unique filing ID). Indexed on `(cik, filed_at DESC)` and `(form_type, filed_at DESC)`. Plain table — modest volume (~85k rows steady-state across 28 watchlist companies). | R-028 |
-| **`sec.facts`** | XBRL fact table, hypertable on `period_end` (30-day chunks), compression on chunks > 30 days old, PK `(cik, concept, unit, period_end, accession_number)`. Same `(concept, period)` can appear in multiple filings (10-Q + subsequent 10-K); all rows land for query-side filtering. | R-028 |
+| **`sec.facts`** | XBRL fact table, hypertable on `period_end` (30-day chunks), compression on chunks > 30 days old, PK `(cik, concept, unit, period_start, period_end, accession_number)`. Same `(concept, period)` can appear in multiple filings (10-Q + subsequent 10-K); all rows land for query-side filtering. | R-028 |
 | **Provenance trio** | Every fact row carries `source_endpoint TEXT NOT NULL`, `fetched_at TIMESTAMPTZ NOT NULL`, `ingest_run_id BIGINT NOT NULL REFERENCES meta.ingest_runs(id)`. | R-021 |
 | **Migration tool** | Alembic, hand-written migrations only (no autogen). Files at `migrations/versions/YYYYMMDD_<slug>.py`. URL from `GENKEI_DATABASE_URL`. | R-008, `docs/storage.md` § B-009 |
 
@@ -134,9 +134,13 @@ src/genkei/
 │   ├── http.py      — HttpClient with rate limit + retry/backoff + jitter
 │   └── config.py    — stdlib .env loader
 ├── ingest/
-│   └── defillama.py — collector → meta.raw_blobs
+│   ├── defillama.py — DeFiLlama collector → meta.raw_blobs
+│   ├── fred.py      — FRED collector → meta.raw_blobs
+│   └── sec.py       — SEC EDGAR collector → meta.raw_blobs
 ├── normalize/
-│   └── defillama.py — meta.raw_blobs → defillama.*
+│   ├── defillama.py — meta.raw_blobs → defillama.*
+│   ├── fred.py      — meta.raw_blobs → fred.*
+│   └── sec.py       — meta.raw_blobs → sec.*
 ├── reports/
 │   └── defillama_daily.py — legacy markdown brief (broken pending B-025)
 ├── cli/             — empty; lands in Phase 3
@@ -410,7 +414,7 @@ Append-only. Each entry: **what**, **why**, **alternative considered**, **what w
 **Alternative:** Build all three surfaces in one PR. Rejected — triples the API surface (= triples the live-smoke gotcha exposure) for code with no consumer; storage hit for Form 4/13F backfill across 28 equities × decades is millions of rows queried against speculative schemas.
 **What would change our mind:** If B-060/B-061 get prioritized to land before any other Phase 5 experiment, lift them ahead of the other Phase 2 sources.
 
-### D-016 — XBRL facts stored as `(cik, concept, unit, period_end, accession_number)` PK, not collapsed by latest filing
+### D-016 — XBRL facts stored as `(cik, concept, unit, period_start, period_end, accession_number)` PK, not collapsed by latest filing
 **Date:** 2026-05-10 · **In:** R-028
 **Decision:** `sec.facts` PK includes `accession_number`. The same `(concept, period)` reported by both a 10-Q and the subsequent 10-K lands as two rows.
 **Why:** Restatements + as-of backtests. SEC permits restatements of prior-period facts; if we collapsed to "latest filing wins," the same kind of vintage-loss problem D-013 solves for FRED would bite us here. With accession_number in the PK, every reported version is preserved; consumers can filter to the most recent filing per `(concept, period)` at query time when desired.

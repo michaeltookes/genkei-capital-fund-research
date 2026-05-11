@@ -43,7 +43,17 @@ jobs:
         run: alembic upgrade head
 
       - name: Collect SEC submissions + XBRL facts into meta.raw_blobs
-        run: python3 -m genkei.ingest.sec
+        id: collect-sec
+        run: |
+          output="$(python3 -m genkei.ingest.sec)"
+          echo "$output"
+          run_id_line="$(printf '%s\n' "$output" | grep 'ingest_run_id=' | tail -n 1 || true)"
+          ingest_run_id="${run_id_line##*=}"
+          if [ -z "$ingest_run_id" ] || [ "$ingest_run_id" = "$run_id_line" ]; then
+            echo "Could not parse SEC collector run id from output: $output" >&2
+            exit 1
+          fi
+          echo "ingest_run_id=$ingest_run_id" >> "$GITHUB_OUTPUT"
 
       - name: Normalize raw payloads into sec.* tables
-        run: python3 -m genkei.normalize.sec
+        run: python3 -m genkei.normalize.sec --source-run-id "${{ steps.collect-sec.outputs.ingest_run_id }}"

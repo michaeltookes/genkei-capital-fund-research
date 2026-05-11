@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import unittest
 from datetime import date, datetime, timezone
+from decimal import Decimal
 
 from genkei.normalize.sec import (
+    _as_numeric,
     normalize_company,
     normalize_facts,
     normalize_filings,
@@ -24,9 +26,13 @@ class HelperTests(unittest.TestCase):
 
     def test_parse_sec_datetime(self) -> None:
         parsed = parse_sec_datetime("2024-05-09T16:30:00.000Z")
-        assert parsed is not None
+        self.assertIsNotNone(parsed)
         self.assertEqual(parsed.tzinfo, timezone.utc)
         self.assertEqual(parsed.year, 2024)
+
+    def test_as_numeric_preserves_decimal_precision(self) -> None:
+        self.assertEqual(_as_numeric("1234567890.123456789"), Decimal("1234567890.123456789"))
+        self.assertIsNone(_as_numeric(True))
 
 
 class NormalizeCompanyTests(unittest.TestCase):
@@ -50,7 +56,7 @@ class NormalizeCompanyTests(unittest.TestCase):
             ingest_run_id=42,
             fetched_at=NOW,
         )
-        assert row is not None
+        self.assertIsNotNone(row)
         self.assertEqual(row["cik"], "0000320193")
         self.assertEqual(row["ticker"], "AAPL")
         self.assertEqual(row["name"], "Apple Inc.")
@@ -245,6 +251,8 @@ class NormalizeFactsTests(unittest.TestCase):
         )
         units = sorted({r["unit"] for r in rows})
         self.assertEqual(units, ["USD", "USD/shares", "shares"])
+        instant_rows = [r for r in rows if r["concept"] == "us-gaap:EarningsPerShareBasic"]
+        self.assertEqual(instant_rows[0]["period_start"], instant_rows[0]["period_end"])
         revenue_rows = [r for r in rows if r["concept"] == "us-gaap:Revenues"]
         self.assertEqual(len(revenue_rows), 2)
         # Both annual and quarterly Revenues land — accession_number disambiguates.
