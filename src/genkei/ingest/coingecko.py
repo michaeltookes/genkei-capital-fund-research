@@ -125,7 +125,12 @@ def load_coins(path: Path) -> list[CoinTarget]:
 
 def resolve_api_key() -> str:
     """Return the demo API key from the environment, failing fast if unset."""
-    api_key = os.environ.get(API_KEY_ENV)
+    return normalize_api_key(os.environ.get(API_KEY_ENV))
+
+
+def normalize_api_key(api_key: str | None) -> str:
+    """Validate and trim a configured CoinGecko API key."""
+    api_key = api_key.strip() if api_key is not None else ""
     if not api_key:
         raise SystemExit(
             f"{API_KEY_ENV} is required for CoinGecko API requests. "
@@ -224,12 +229,7 @@ def collect(
     since: date | None = None,
 ) -> int:
     """Run the CoinGecko collector once and return the meta.ingest_runs id."""
-    key = api_key if api_key is not None else resolve_api_key()
-    if not key:
-        raise SystemExit(
-            f"{API_KEY_ENV} is required for CoinGecko API requests. "
-            "Set the GitHub Actions secret or local environment variable before collecting."
-        )
+    key = normalize_api_key(api_key) if api_key is not None else resolve_api_key()
     tier = normalize_api_tier(api_tier) if api_tier is not None else resolve_api_tier()
     validate_api_key_tier(tier, backfill=backfill)
     if backfill and since is None:

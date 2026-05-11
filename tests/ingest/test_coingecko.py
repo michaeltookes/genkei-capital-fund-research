@@ -152,12 +152,21 @@ class ResolveApiKeyTests(unittest.TestCase):
         os.environ[API_KEY_ENV] = "demo-abc123"
         self.assertEqual(resolve_api_key(), "demo-abc123")
 
+    def test_trims_env_value_when_set(self) -> None:
+        os.environ[API_KEY_ENV] = "  demo-abc123  "
+        self.assertEqual(resolve_api_key(), "demo-abc123")
+
     def test_rejects_when_unset(self) -> None:
         with self.assertRaisesRegex(SystemExit, API_KEY_ENV):
             resolve_api_key()
 
     def test_rejects_when_empty(self) -> None:
         os.environ[API_KEY_ENV] = ""
+        with self.assertRaisesRegex(SystemExit, API_KEY_ENV):
+            resolve_api_key()
+
+    def test_rejects_when_whitespace_only(self) -> None:
+        os.environ[API_KEY_ENV] = "   "
         with self.assertRaisesRegex(SystemExit, API_KEY_ENV):
             resolve_api_key()
 
@@ -174,6 +183,20 @@ class ResolveApiKeyTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(SystemExit, API_KEY_ENV):
                 collect(path)
+
+    def test_collect_rejects_whitespace_api_key_before_ingest_run(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(
+                "crypto:\n"
+                "  primary:\n"
+                "    - symbol: BTC\n"
+                "      name: Bitcoin\n"
+                "      coingecko_id: bitcoin\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(SystemExit, API_KEY_ENV):
+                collect(path, api_key="   ")
 
     def test_api_tier_defaults_to_demo(self) -> None:
         self.assertEqual(resolve_api_tier(), "demo")
