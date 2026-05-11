@@ -6,6 +6,7 @@ import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from genkei.ingest import sec
 from genkei.ingest.sec import (
@@ -145,7 +146,10 @@ class ResolveUserAgentTests(unittest.TestCase):
         self.assertEqual(resolve_user_agent(), "Real Person realperson@example.com")
 
     def test_falls_back_to_placeholder_with_warning(self) -> None:
-        with self.assertLogs(sec.__name__, level="WARNING") as logs:
+        with (
+            patch.dict(os.environ, {USER_AGENT_ENV: ""}),
+            self.assertLogs(sec.__name__, level="WARNING") as logs,
+        ):
             ua = resolve_user_agent()
         self.assertEqual(ua, DEFAULT_USER_AGENT)
         self.assertTrue(any(USER_AGENT_ENV in msg for msg in logs.output))
