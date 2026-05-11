@@ -163,15 +163,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Topic + entity + tone fields preserved.
   - Per-watchlist filtering option.
 
-### B-034 — CoinGecko crypto market-data ingester
-- **Status:** open
-- **Priority:** high
-- **Context:** Live + historical crypto prices, liquidity, volume — required for any crypto experiment.
-- **Acceptance criteria:**
-  - Free-tier rate limits respected.
-  - Backfill 5–10 years where free tier allows.
-  - Watchlist-driven asset list.
-
 ### B-035 — Binance public market-data ingester
 - **Status:** open
 - **Priority:** medium
