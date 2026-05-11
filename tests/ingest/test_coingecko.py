@@ -9,11 +9,12 @@ from tempfile import TemporaryDirectory
 
 from genkei.ingest.coingecko import (
     API_KEY_ENV,
+    DEMO_MARKET_CHART_DAYS,
     DEMO_RATE_LIMIT,
-    KEYLESS_RATE_LIMIT,
     CoinTarget,
     build_coin_url,
     build_market_chart_url,
+    collect,
     load_coins,
     resolve_api_key,
 )
@@ -101,10 +102,10 @@ class UrlBuilderTests(unittest.TestCase):
         self.assertIn("tickers=false", url)
         self.assertIn("sparkline=false", url)
 
-    def test_market_chart_uses_daily_resolution_full_history(self) -> None:
+    def test_market_chart_uses_daily_resolution_demo_window(self) -> None:
         url = build_market_chart_url("bitcoin")
         self.assertIn("/coins/bitcoin/market_chart", url)
-        self.assertIn("days=max", url)
+        self.assertIn(f"days={DEMO_MARKET_CHART_DAYS}", url)
         self.assertIn("interval=daily", url)
         self.assertIn("vs_currency=usd", url)
 
@@ -123,21 +124,31 @@ class ResolveApiKeyTests(unittest.TestCase):
         os.environ[API_KEY_ENV] = "demo-abc123"
         self.assertEqual(resolve_api_key(), "demo-abc123")
 
-    def test_returns_none_when_unset(self) -> None:
-        self.assertIsNone(resolve_api_key())
+    def test_rejects_when_unset(self) -> None:
+        with self.assertRaisesRegex(SystemExit, API_KEY_ENV):
+            resolve_api_key()
 
-    def test_returns_none_when_empty(self) -> None:
+    def test_rejects_when_empty(self) -> None:
         os.environ[API_KEY_ENV] = ""
-        self.assertIsNone(resolve_api_key())
+        with self.assertRaisesRegex(SystemExit, API_KEY_ENV):
+            resolve_api_key()
+
+    def test_collect_rejects_missing_api_key_before_ingest_run(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(
+                "crypto:\n"
+                "  primary:\n"
+                "    - symbol: BTC\n"
+                "      name: Bitcoin\n"
+                "      coingecko_id: bitcoin\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(SystemExit, API_KEY_ENV):
+                collect(path)
 
 
 class RateLimitDefaultsTests(unittest.TestCase):
-    def test_keyless_under_undocumented_free_tier(self) -> None:
-        # G-023 — keyless free tier is ~5-15/min, undocumented; we stay
-        # at 5/min for safety.
-        self.assertEqual(KEYLESS_RATE_LIMIT.requests, 5)
-        self.assertEqual(KEYLESS_RATE_LIMIT.window_seconds, 60.0)
-
     def test_demo_under_25_per_min(self) -> None:
         self.assertEqual(DEMO_RATE_LIMIT.requests, 25)
         self.assertEqual(DEMO_RATE_LIMIT.window_seconds, 60.0)

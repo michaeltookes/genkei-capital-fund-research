@@ -77,7 +77,7 @@ class CoingeckoIntegrationTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "watchlists.yml"
             path.write_text(WATCHLIST, encoding="utf-8")
-            return ingest.collect(path, http=http, api_key=None)
+            return ingest.collect(path, http=http, api_key="demo-test-key")
 
     def test_full_run_writes_coins_and_market_data(self) -> None:
         transport = httpx.MockTransport(_route)

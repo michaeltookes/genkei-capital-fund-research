@@ -1,24 +1,20 @@
 """CoinGecko crypto market-data collector (B-034).
 
-Fetches per-coin metadata + full daily price/market-cap/volume history
-for every crypto entry in ``config/watchlists.yml::crypto``. Lands two
-raw blobs per coin (``coin_<id>``, ``market_chart_<id>``) in
+Fetches per-coin metadata + daily price/market-cap/volume history for
+every crypto entry in ``config/watchlists.yml::crypto``. Lands two raw
+blobs per coin (``coin_<id>``, ``market_chart_<id>``) in
 ``meta.raw_blobs``. The downstream normalizer
 (``genkei.normalize.coingecko``) reads from those blobs.
 
-Single-mode design: CoinGecko's ``/coins/{id}/market_chart`` returns
-the entire history in one call when ``days=max``, so daily and backfill
-are the same code path. New observations land via the natural PK; older
-observations re-upsert idempotently.
+CoinGecko Demo/Public historical chart access is limited to the past
+365 days, so this collector is a rolling daily snapshot, not a full
+backfill source. Complete history needs a paid Pro API plan or another
+source that exposes the required range.
 
-CoinGecko rate limits (G-023):
-  - Free / keyless: ~5-15 req/min, undocumented and aggressively throttled.
-  - Demo key (free, instant): 25-30 req/min, sent via the
-    ``x-cg-demo-api-key`` header.
-  - Pro key: paid, higher.
-We default to per_minute(5) keyless or per_minute(25) with a demo key.
-Two calls per coin × 7 watchlist crypto entries = 14 calls per run;
-takes ~3 min keyless, ~30s with key. Configurable via
+CoinGecko Demo keys are required and sent via the ``x-cg-demo-api-key``
+header. We use ``per_minute(25)`` to stay under the published Demo
+25-30 req/min limit. Two calls per coin × 7 watchlist crypto entries =
+14 calls per run; takes ~30s with a key. Configurable via
 ``COINGECKO_API_KEY`` env var.
 """
 
@@ -48,9 +44,10 @@ API_KEY_ENV = "COINGECKO_API_KEY"
 # Demo-key header name per CoinGecko docs. Pro keys use x-cg-pro-api-key;
 # we default to demo since that's the free tier.
 DEMO_API_KEY_HEADER = "x-cg-demo-api-key"
-# Conservative defaults — keyless gets 5/min, demo gets 25/min, both
-# under the documented free-tier limits to leave headroom for retries.
-KEYLESS_RATE_LIMIT = RateLimit.per_minute(5)
+# Demo/Public historical chart access is limited to the past 365 days.
+DEMO_MARKET_CHART_DAYS = 365
+# Conservative default under the documented free Demo limit to leave
+# headroom for retries.
 DEMO_RATE_LIMIT = RateLimit.per_minute(25)
 RAW_BLOBS_INSERT = (
     "INSERT INTO meta.raw_blobs (ingest_run_id, endpoint_name, url, payload) "
@@ -116,9 +113,15 @@ def load_coins(path: Path) -> list[CoinTarget]:
     return out
 
 
-def resolve_api_key() -> str | None:
-    """Return the demo API key from the environment, or None if unset."""
-    return os.environ.get(API_KEY_ENV) or None
+def resolve_api_key() -> str:
+    """Return the demo API key from the environment, failing fast if unset."""
+    api_key = os.environ.get(API_KEY_ENV)
+    if not api_key:
+        raise SystemExit(
+            f"{API_KEY_ENV} is required for CoinGecko Demo API requests. "
+            "Set the GitHub Actions secret or local environment variable before collecting."
+        )
+    return api_key
 
 
 def build_coin_url(coingecko_id: str) -> str:
@@ -139,10 +142,10 @@ def build_coin_url(coingecko_id: str) -> str:
 
 
 def build_market_chart_url(coingecko_id: str) -> str:
-    """Build the URL for the daily-resolution full-history market chart."""
+    """Build the URL for the daily-resolution Demo market chart."""
     return (
         f"{COINGECKO_BASE}/coins/{coingecko_id}/market_chart"
-        "?vs_currency=usd&days=max&interval=daily"
+        f"?vs_currency=usd&days={DEMO_MARKET_CHART_DAYS}&interval=daily"
     )
 
 
@@ -159,20 +162,17 @@ def collect(
     api_key: str | None = None,
 ) -> int:
     """Run the CoinGecko collector once and return the meta.ingest_runs id."""
-    coins = load_coins(config_path)
     key = api_key if api_key is not None else resolve_api_key()
+    if not key:
+        raise SystemExit(
+            f"{API_KEY_ENV} is required for CoinGecko Demo API requests. "
+            "Set the GitHub Actions secret or local environment variable before collecting."
+        )
+    coins = load_coins(config_path)
 
     owns_http = http is None
     if http is None:
-        rate_limit = DEMO_RATE_LIMIT if key else KEYLESS_RATE_LIMIT
-        if not key:
-            LOGGER.warning(
-                "%s not set; falling back to keyless rate limit (~5/min). "
-                "Register a free demo key at https://www.coingecko.com/en/api/pricing "
-                "for 25/min throughput.",
-                API_KEY_ENV,
-            )
-        http = HttpClient(SOURCE_NAME, rate_limit=rate_limit)
+        http = HttpClient(SOURCE_NAME, rate_limit=DEMO_RATE_LIMIT)
 
     failures: list[dict[str, str]] = []
     try:

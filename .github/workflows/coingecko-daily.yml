@@ -1,10 +1,11 @@
 name: CoinGecko Daily Market Data
 
-# B-034 — pulls CoinGecko per-coin metadata + full daily price /
-# market-cap / volume history for every crypto watchlist entry once a
+# B-034 — pulls CoinGecko per-coin metadata + daily price /
+# market-cap / volume snapshots for every crypto watchlist entry once a
 # day on the self-hosted Beelink runner. 11:45 UTC chosen after FRED
 # (11:00) and SEC (11:30) so the three workloads don't fight for the
-# runner. With a demo key the run takes ~30 seconds; keyless ~3 minutes.
+# runner. Uses an authenticated CoinGecko Demo key; Demo historical
+# charts are limited to the past 365 days.
 
 on:
   schedule:

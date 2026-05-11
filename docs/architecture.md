@@ -160,7 +160,7 @@ src/genkei/
 | `genkei.normalize.fred` | Reads FRED raw blobs by source_run_id, dispatches by prefix into `fred.series` (one row per series) and `fred.observations` (one row per `(series_id, ts, realtime_start)`). Idempotent. | R-027 |
 | `genkei.ingest.sec` | SEC EDGAR collector. Reads CIKs from `equities:` in `config/watchlists.yml`; dedupes by CIK so multi-class listings (GOOG/GOOGL share Alphabet's CIK) fetch once. Hits `/submissions/CIK{cik}.json`, follows `filings.files[]` references for older history pages, and `/api/xbrl/companyfacts/CIK{cik}.json` per company. 8 req/sec rate limit (under SEC's 10/sec cap). User-Agent identifies the user via `SEC_USER_AGENT` env var. | R-028 |
 | `genkei.normalize.sec` | Reads SEC raw blobs and dispatches by `endpoint_name` prefix into `sec.companies` (upsert, FK target), `sec.filings` (one row per filing, recent + history), `sec.facts` (one row per XBRL `taxonomy:concept` × unit × period × accession). | R-028 |
-| `genkei.ingest.coingecko` | CoinGecko collector. Reads `coingecko_id` from `crypto:` in `config/watchlists.yml` (primary + secondary tiers). Per coin: `/coins/{id}` for metadata + `/coins/{id}/market_chart?days=max&interval=daily` for full daily history. Rate limit per_minute(25) with `COINGECKO_API_KEY` (demo key sent via `x-cg-demo-api-key` header, G-023) or per_minute(5) without. | R-029 |
+| `genkei.ingest.coingecko` | CoinGecko collector. Reads `coingecko_id` from `crypto:` in `config/watchlists.yml` (primary + secondary tiers). Per coin: `/coins/{id}` for metadata + `/coins/{id}/market_chart?days=365&interval=daily` for the Demo API's rolling historical window. Requires `COINGECKO_API_KEY`, sent via `x-cg-demo-api-key` header; rate limit `per_minute(25)` (G-023, G-025). | R-029 |
 | `genkei.normalize.coingecko` | Reads CoinGecko raw blobs and dispatches by prefix into `coingecko.coins` (upsert) and `coingecko.market_data` (zips the three parallel `prices` / `market_caps` / `total_volumes` arrays by timestamp, emits rows only where all three align — G-024). | R-029 |
 
 ### Process layer
@@ -561,11 +561,17 @@ Append-only. Each entry: **what bit us**, **how we resolved it**, **how to avoid
 **Resolution:** `SEC_USER_AGENT` env var → `genkei.ingest.sec.resolve_user_agent()` → passed through to `HttpClient(..., user_agent=...)`. CI reads it from a same-named GH Actions secret. Local dev sets it in `.env`. If unset, the collector logs a warning and falls back to a placeholder string that SEC may reject.
 **Avoid next time:** When an "open" API has no key, look for User-Agent or Referer requirements in the docs before assuming defaults will work. SEC, Wikipedia, OpenStreetMap all enforce identification this way.
 
-### G-023 — CoinGecko's keyless free-tier rate limit is undocumented and aggressively throttled
+### G-023 — CoinGecko Demo requests require an API key
 **Hit:** 2026-05-10 (B-034 design)
-**Symptom:** CoinGecko publishes their *Demo key* limit (25-30 req/min) but the *keyless* free tier has no documented number — community reports cluster around 5-15/min and the throttle is application-side rather than HTTP-429 (you get malformed JSON or `429 Too Many Requests` depending on the day). Two calls per coin × 7 watchlist crypto entries × multiple retries can easily blow past keyless capacity on the first run.
-**Resolution:** `KEYLESS_RATE_LIMIT = RateLimit.per_minute(5)` (conservative) and `DEMO_RATE_LIMIT = RateLimit.per_minute(25)` (under their published 30/min). `genkei.ingest.coingecko.collect` picks the right one based on `COINGECKO_API_KEY` presence and logs a warning when running keyless. Demo key sent via `x-cg-demo-api-key` header so it stays out of the URL (and out of `meta.raw_blobs.url` — no separate redaction needed).
-**Avoid next time:** When a free tier has only a "Pro" tier rate-limit documented, assume the keyless limit is materially lower and budget per_minute(5) until proven otherwise. The cost of going under is ~3 min per run; the cost of going over is a failed pipeline.
+**Symptom:** CoinGecko's Demo API docs mark `x-cg-demo-api-key` as required. Letting the collector run without `COINGECKO_API_KEY` starts an ingest run and then fails every authenticated `/coins/*` call.
+**Resolution:** `genkei.ingest.coingecko.resolve_api_key()` now fails fast when `COINGECKO_API_KEY` is missing or empty, before `meta.ingest_runs` is opened. Demo key is sent via `x-cg-demo-api-key` header so it stays out of the URL (and out of `meta.raw_blobs.url` — no separate redaction needed). `DEMO_RATE_LIMIT = RateLimit.per_minute(25)` stays under the published Demo 25-30 req/min limit.
+**Avoid next time:** Treat documented API authentication as required even for free/demo plans; fail before recording a run when credentials are absent.
+
+### G-025 — CoinGecko Demo historical charts are a rolling 365-day window
+**Hit:** 2026-05-11 (B-034 follow-up)
+**Symptom:** The initial collector requested `/coins/{id}/market_chart?days=max&interval=daily` and documented it as full history. CoinGecko's Demo/Public docs limit historical chart access to the past 365 days, including `/market_chart/range`, so `days=max` cannot provide a complete long-horizon backfill on the Demo plan.
+**Resolution:** The Demo collector now requests `days=365&interval=daily` and docs describe it as a rolling Demo snapshot, not a full-history source. Complete history requires a paid Pro API configuration or another source with the required historical range.
+**Avoid next time:** Verify historical range limits separately from endpoint shape. A `days=max` parameter does not imply full source history on every plan.
 
 ### G-024 — CoinGecko `market_chart` returns three parallel arrays that don't always align by index
 **Hit:** 2026-05-10 (B-034 normalizer design)

@@ -30,6 +30,7 @@ Required:
 | Variable | Used by | Source |
 |---|---|---|
 | `GENKEI_DATABASE_URL` | Every Postgres helper, every ingester, Alembic migrations | Homelab Postgres (see `docs/infrastructure.md`) |
+| `COINGECKO_API_KEY` | CoinGecko Demo ingester; required for authenticated Demo API requests | https://www.coingecko.com/en/api/pricing |
 
 Optional (uncomment in `.env` when the corresponding ingester lands):
 
@@ -38,7 +39,6 @@ Optional (uncomment in `.env` when the corresponding ingester lands):
 | `FRED_API_KEY` | FRED ingester (B-028) | https://fred.stlouisfed.org/docs/api/api_key.html |
 | `BEA_API_KEY` | BEA ingester (B-029) | https://apps.bea.gov/API/signup/ |
 | `EIA_API_KEY` | EIA ingester (B-032) | https://www.eia.gov/opendata/register.php |
-| `COINGECKO_API_KEY` | CoinGecko Pro tier (free tier needs no key) | https://www.coingecko.com/en/api/pricing |
 
 **Loading the file** — three options, pick whichever your shell prefers:
 
