@@ -4,19 +4,32 @@ from __future__ import annotations
 
 import os
 import unittest
+from contextlib import redirect_stderr
+from datetime import date
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import httpx
+
+from genkei.common.http import HttpClient
 from genkei.ingest.coingecko import (
     API_KEY_ENV,
+    API_TIER_ENV,
     DEMO_MARKET_CHART_DAYS,
     DEMO_RATE_LIMIT,
     CoinTarget,
     build_coin_url,
     build_market_chart_url,
+    build_market_chart_range_url,
     collect,
+    fetch_historical_market_chart,
+    iter_date_ranges,
     load_coins,
+    merge_market_chart_payloads,
+    parse_args,
     resolve_api_key,
+    resolve_api_tier,
 )
 
 
@@ -109,16 +122,31 @@ class UrlBuilderTests(unittest.TestCase):
         self.assertIn("interval=daily", url)
         self.assertIn("vs_currency=usd", url)
 
+    def test_market_chart_range_uses_iso_dates(self) -> None:
+        url = build_market_chart_range_url(
+            "bitcoin", since=date(2020, 1, 1), until=date(2020, 12, 31)
+        )
+        self.assertIn("pro-api.coingecko.com", url)
+        self.assertIn("/coins/bitcoin/market_chart/range", url)
+        self.assertIn("from=2020-01-01", url)
+        self.assertIn("to=2020-12-31", url)
+        self.assertIn("interval=daily", url)
+
 
 class ResolveApiKeyTests(unittest.TestCase):
     def setUp(self) -> None:
         self._saved = os.environ.pop(API_KEY_ENV, None)
+        self._saved_tier = os.environ.pop(API_TIER_ENV, None)
 
     def tearDown(self) -> None:
         if self._saved is not None:
             os.environ[API_KEY_ENV] = self._saved
         else:
             os.environ.pop(API_KEY_ENV, None)
+        if self._saved_tier is not None:
+            os.environ[API_TIER_ENV] = self._saved_tier
+        else:
+            os.environ.pop(API_TIER_ENV, None)
 
     def test_returns_env_value_when_set(self) -> None:
         os.environ[API_KEY_ENV] = "demo-abc123"
@@ -146,6 +174,109 @@ class ResolveApiKeyTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(SystemExit, API_KEY_ENV):
                 collect(path)
+
+    def test_api_tier_defaults_to_demo(self) -> None:
+        self.assertEqual(resolve_api_tier(), "demo")
+
+    def test_api_tier_reads_env_value(self) -> None:
+        os.environ[API_TIER_ENV] = "pro"
+        self.assertEqual(resolve_api_tier(), "pro")
+
+    def test_api_tier_rejects_unknown_value(self) -> None:
+        os.environ[API_TIER_ENV] = "enterprise"
+        with self.assertRaisesRegex(SystemExit, API_TIER_ENV):
+            resolve_api_tier()
+
+    def test_backfill_rejects_demo_tier_before_ingest_run(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(
+                "crypto:\n"
+                "  primary:\n"
+                "    - symbol: BTC\n"
+                "      name: Bitcoin\n"
+                "      coingecko_id: bitcoin\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(SystemExit, "requires COINGECKO_API_TIER=pro"):
+                collect(path, api_key="demo-key", backfill=True, since=date(2020, 1, 1))
+
+
+class BackfillHelperTests(unittest.TestCase):
+    def test_iter_date_ranges_chunks_inclusive_windows(self) -> None:
+        ranges = iter_date_ranges(date(2020, 1, 1), date(2020, 1, 5), chunk_days=2)
+        self.assertEqual(
+            ranges,
+            [
+                (date(2020, 1, 1), date(2020, 1, 2)),
+                (date(2020, 1, 3), date(2020, 1, 4)),
+                (date(2020, 1, 5), date(2020, 1, 5)),
+            ],
+        )
+
+    def test_merge_market_chart_payloads_sorts_and_dedupes(self) -> None:
+        payload = merge_market_chart_payloads(
+            [
+                {"prices": [[2, 20], [1, 10]], "market_caps": [[1, 100]], "total_volumes": []},
+                {
+                    "prices": [[2, 22], [3, 30]],
+                    "market_caps": [[2, 200]],
+                    "total_volumes": [[3, 3000]],
+                },
+            ]
+        )
+        self.assertEqual(payload["prices"], [[1, 10], [2, 22], [3, 30]])
+        self.assertEqual(payload["market_caps"], [[1, 100], [2, 200]])
+        self.assertEqual(payload["total_volumes"], [[3, 3000]])
+
+    def test_fetch_historical_market_chart_uses_range_chunks(self) -> None:
+        requests: list[str] = []
+
+        def route(request: httpx.Request) -> httpx.Response:
+            requests.append(str(request.url))
+            if request.url.params["from"] == "2020-01-01":
+                return httpx.Response(
+                    200,
+                    json={
+                        "prices": [[1, 10]],
+                        "market_caps": [[1, 100]],
+                        "total_volumes": [[1, 1000]],
+                    },
+                )
+            return httpx.Response(
+                200,
+                json={"prices": [[2, 20]], "market_caps": [[2, 200]], "total_volumes": [[2, 2000]]},
+            )
+
+        transport = httpx.MockTransport(route)
+        with HttpClient("coingecko-test", transport=transport) as http:
+            payload = fetch_historical_market_chart(
+                CoinTarget("bitcoin", "BTC", "Bitcoin"),
+                http,
+                headers={"x-cg-pro-api-key": "pro-test-key"},
+                since=date(2020, 1, 1),
+                until=date(2020, 1, 2),
+                chunk_days=1,
+            )
+
+        self.assertEqual(len(requests), 2)
+        self.assertIn("/market_chart/range", requests[0])
+        self.assertEqual(payload["prices"], [[1, 10], [2, 20]])
+
+
+class ParseArgsTests(unittest.TestCase):
+    def test_backfill_parses_since_date(self) -> None:
+        args = parse_args(["--backfill", "--since", "2020-01-01"])
+        self.assertTrue(args.backfill)
+        self.assertEqual(args.since, date(2020, 1, 1))
+
+    def test_since_requires_backfill(self) -> None:
+        with redirect_stderr(StringIO()), self.assertRaises(SystemExit):
+            parse_args(["--since", "2020-01-01"])
+
+    def test_backfill_requires_since(self) -> None:
+        with redirect_stderr(StringIO()), self.assertRaises(SystemExit):
+            parse_args(["--backfill"])
 
 
 class RateLimitDefaultsTests(unittest.TestCase):

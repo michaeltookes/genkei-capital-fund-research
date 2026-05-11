@@ -30,7 +30,8 @@ Required:
 | Variable | Used by | Source |
 |---|---|---|
 | `GENKEI_DATABASE_URL` | Every Postgres helper, every ingester, Alembic migrations | Homelab Postgres (see `docs/infrastructure.md`) |
-| `COINGECKO_API_KEY` | CoinGecko Demo ingester; required for authenticated Demo API requests | https://www.coingecko.com/en/api/pricing |
+| `COINGECKO_API_KEY` | CoinGecko ingester; Demo for daily collection, Pro for `--backfill` | https://www.coingecko.com/en/api/pricing |
+| `COINGECKO_API_TIER` | CoinGecko auth mode: `demo` by default, `pro` for historical backfill | `.env.example` |
 
 Optional (uncomment in `.env` when the corresponding ingester lands):
 
