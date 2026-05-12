@@ -80,6 +80,7 @@ class LoadWatchlistTests(unittest.TestCase):
         self.assertEqual(wl.classify("BTC"), "crypto")
         self.assertEqual(wl.classify("AAPL"), "equity")
         self.assertEqual(wl.classify("DGS10"), "macro")
+        self.assertEqual(wl.classify("dgs10"), "macro")
         self.assertIsNone(wl.classify("UNKNOWN"))
 
     def test_skips_malformed_entries(self) -> None:

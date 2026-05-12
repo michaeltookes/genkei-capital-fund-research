@@ -61,8 +61,9 @@ class Watchlist:
         return None
 
     def find_macro(self, series_id: str) -> Optional[MacroEntry]:
+        lower = series_id.lower()
         for entry in self.macro:
-            if entry.series_id == series_id:
+            if entry.series_id.lower() == lower:
                 return entry
         return None
 

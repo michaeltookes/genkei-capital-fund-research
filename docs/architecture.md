@@ -606,7 +606,7 @@ Append-only. Each entry: **what bit us**, **how we resolved it**, **how to avoid
 **Resolution:** `normalize_market_chart` builds three `{ts: value}` dicts, intersects the timestamp sets, and only emits rows for timestamps present in all three. Drops cleanly when arrays have head/tail offsets. Unit test asserts a missing timestamp in any series drops that row.
 **Avoid next time:** Any API that returns "parallel arrays" — verify the alignment assumption by checking sample data, especially at the boundaries. Zip by key, not by index.
 
-### G-025 — Typer evaluates parameter annotations at runtime; `X | None` syntax fails on Python 3.9
+### G-027 — Typer evaluates parameter annotations at runtime; `X | None` syntax fails on Python 3.9
 **Hit:** 2026-05-10 (B-038 / B-039)
 **Symptom:** The local venv is Python 3.9 (G-002), but `pyproject.toml` requires `>=3.10`. With `from __future__ import annotations` the modern `str | None` syntax works as a stringified annotation almost everywhere — except Typer, which calls `get_type_hints()` to read parameter types and evaluates the strings at runtime. On Python 3.9 the evaluation hits `TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'`.
 **Resolution:** CLI files use `Optional[T]` instead of `T | None`. Removing `from __future__ import annotations` from those files lets Typer parse `Annotated[str, typer.Option(...)]` as a real Option (otherwise Typer treats required `Annotated[str, ...]` as a positional argument and silently ignores the Option metadata). `pyproject.toml` adds `[tool.ruff.lint.per-file-ignores]` for `src/genkei/cli/*.py = ["UP045", "UP007"]` so ruff doesn't auto-rewrite our `Optional` form back to `X | None`.
@@ -616,4 +616,4 @@ Append-only. Each entry: **what bit us**, **how we resolved it**, **how to avoid
 **Hit:** 2026-05-10 (CLI tests on Python 3.9 venv)
 **Symptom:** Test setup using `tmp = Path(self.enterContext(TemporaryDirectory()))` fails with `AttributeError: 'TestCase' object has no attribute 'enterContext'` on Python 3.9.
 **Resolution:** Use the older pattern: `ctx = TemporaryDirectory(); self.addCleanup(ctx.cleanup); tmp = Path(ctx.name)`. CI runs 3.12 where `enterContext` exists; the older pattern works on both.
-**Avoid next time:** Same root cause as G-025 — local venv is 3.9. Either upgrade the venv or stick to stdlib APIs that predate 3.11.
+**Avoid next time:** Same root cause as G-027 — local venv is 3.9. Either upgrade the venv or stick to stdlib APIs that predate 3.11.
