@@ -9,7 +9,7 @@ The point of the bottom half: when context gets cleared, the next session (Claud
 
 **Updating discipline:** any commit that makes a non-obvious choice (a tradeoff with a real alternative) or surfaces a non-obvious surprise (a thing future-you wouldn't predict) appends an entry below in the same commit. If the entry is missing, the commit is incomplete.
 
-**Last updated:** 2026-05-10 (Phase 2: 3/10 done — FRED + SEC EDGAR + CoinGecko on `coingecko-crypto`)
+**Last updated:** 2026-05-10 (Phase 2: 3/10 done — FRED + SEC EDGAR + CoinGecko. Phase 4 harness decided: Claude Code, single-agent, three patterns borrowed from TradingAgents. See D-017 + D-018.)
 
 > **Read this first if you're new (or future-you after weeks away).** Then dive into the per-component docs at the bottom for depth.
 
@@ -261,7 +261,7 @@ Each mission is one markdown file: title, context, checklist of acceptance crite
 | **Phase 1** — Refactor DeFiLlama onto Postgres | ✅ effectively complete | 9/9 high-priority items done. Three medium items remain: B-020 (config-driven exclusion keywords) and B-023 (freshness check) are follow-ups when consumers need them; B-025 (daily brief fate) is a deferred decision. |
 | **Phase 2** — Free-data ingesters with backfill | 🟡 in progress | 3/10 done — B-028 FRED (R-027), B-027 SEC EDGAR option B (R-028), B-034 CoinGecko (R-029). B-079 + B-080 carved out of B-027 option C, picked up driven by Phase 5 experiments. |
 | **Phase 3** — Custom CLI | ⚪ not started | 11 items (B-037 through B-047). `genkei` is the working name. |
-| **Phase 4** — Agent layer | ⚪ not started | 6 items (B-048 through B-053). Harness decision pending. |
+| **Phase 4** — Agent layer | ⚪ not started | 5 items (B-049 through B-053). Harness locked to Claude Code (R-030) per D-017. |
 | **Phase 5** — Experiments framework | ⚪ not started | 10 items (B-054 through B-063). Notebooks + reproducibility pattern + concrete experiments. |
 | **Phase 6** — Inefficiency-detection signals | ⚪ not started | 6 items (B-064 through B-069). Cross-source correlation, scoring rubric, regime classifier integration. |
 | **Phase 7** — Operations & hardening | 🟡 in progress | B-077 (self-hosted runner) done; B-070 backups, B-071 alerting, B-072 schema-drift, B-073 secrets, B-074 architecture diagram, B-075 license audit, B-076 quota tracking still open. |
@@ -274,7 +274,6 @@ Tracked as backlog items so they don't block forward motion:
 
 - **B-025** — Fate of the legacy daily-brief markdown report. The retired `build_daily_report.py` reads JSON files that no longer exist; pending decision to either rewrite against Postgres or retire entirely.
 - **B-037** — CLI tool name (working: `genkei`).
-- **B-048** — Agent harness (Claude Code via GH Actions vs `/schedule` Routines vs hybrid).
 
 ---
 
@@ -423,6 +422,26 @@ Append-only. Each entry: **what**, **why**, **alternative considered**, **what w
 **Decision:** `sec.facts` PK includes `accession_number`. The same `(concept, period)` reported by both a 10-Q and the subsequent 10-K lands as two rows.
 **Why:** Restatements + as-of backtests. SEC permits restatements of prior-period facts; if we collapsed to "latest filing wins," the same kind of vintage-loss problem D-013 solves for FRED would bite us here. With accession_number in the PK, every reported version is preserved; consumers can filter to the most recent filing per `(concept, period)` at query time when desired.
 **Alternative:** PK without accession_number, latest filing overwrites prior. Rejected for the same reason as the FRED vintage decision: lossy and not retrofittable without a re-pull.
+
+### D-017 — Claude Code is the agent harness; we are not building a custom Python framework
+**Date:** 2026-05-10 · **In:** R-030 (resolves B-048), `~/.claude/plans/noble-twirling-nygaard.md`
+**Decision:** The Phase 4 agent layer runs *in Claude Code*. We do not build a Python LLM-calling framework, do not adopt LangGraph, do not adopt TradingAgents wholesale, do not adopt Pi as a replacement harness. The "agent" is a Claude Code session reading a structured methodology and querying the lake via the CLI (Phase 3) and the Bash tool.
+**Why:** The user already runs Claude Code daily in this repo. Building a parallel LLM-calling system means rebuilding session management, tool invocation, and conversation state — and paying API tokens for capability already covered by their Claude Code subscription. The Q&A research use case (D-018 below) is fundamentally single-step; multi-agent orchestration adds infrastructure without payoff.
+**Alternatives considered and rejected:**
+- **TradingAgents (LangGraph + 11-agent framework)**: real and well-engineered, but its agents fetch live data per run, invalidating the data-lake investment. Multi-agent debate also adds verbose token spend without clear lift for our use case.
+- **Pi Agent (TypeScript multi-provider CLI with markdown agent registry, 48K stars)**: genuinely good for *coding* task decomposition (scout → planner → worker → reviewer) and would enable a TradingAgents-style markdown-personas setup. Skipped because (a) switching harnesses costs daily-workflow disruption, (b) Pi's wheelhouse is coding tasks, not research Q&A, (c) the multi-agent shape isn't currently in scope.
+- **Custom Python agent (Anthropic SDK direct calls)**: rebuilds what Claude Code already does, costs API tokens, no benefit at our scope.
+**What would change our mind:** If/when scope expands to multi-agent task decomposition (e.g., scheduled deep-dives that scout → analyze in parallel → synthesize), Pi re-enters as the leading candidate. The deferred-not-rejected stance keeps the door open without committing now.
+
+### D-018 — Three patterns borrowed from TradingAgents: structured methodology, decision log + reflection, two-phase analysis
+**Date:** 2026-05-10 · **In:** D-017's plan; will land alongside Phase 3 CLI in B-049/B-050
+**Decision:** Even with Claude Code as the harness, three patterns from TradingAgents are worth adopting:
+1. **Structured research methodology.** A `prompts/research-methodology.md` checklist Claude reads at the start of any research session: frame the question → macro context → asset fundamentals → flow/positioning → cross-source signals → counter-thesis check → conclusion + horizon tag → decision-log entry. Replaces ad-hoc reasoning.
+2. **Append-only decision log + outcome reflection.** Each research session ends by appending to `docs/research/decisions/<date>-<topic>.md` with status `pending`. A separate `prompts/reflect-on-decisions.md` periodically pairs past conclusions with realized returns (alpha vs SPY for equities, vs BTC for crypto) and updates each entry with an outcome block + 2-3 sentence reflection. Future sessions inject the most recent reflections into context.
+3. **Two-phase analysis → risk separation in the methodology.** Even within a single agent, the methodology has two distinct phases: (a) "what's the case for/against this?" and (b) "what could make this thesis wrong?" Prevents premature consensus.
+**Why:** These three are TradingAgents' actual contributions — the multi-agent debate is mostly theatre. The methodology + decision log + reflection cycle works regardless of whether you have one agent or eleven.
+**What we're explicitly NOT borrowing:** the multi-agent framework, the per-run live API fetching, the LangGraph orchestration. All three are antithetical to a Claude-Code + data-lake setup.
+**Sequencing:** lands after Phase 3 CLI (B-037 → ~B-044) is built enough for Claude to query the lake ergonomically. The CLI is the actual prerequisite; without it, the methodology has no useful tools to invoke.
 
 ---
 
