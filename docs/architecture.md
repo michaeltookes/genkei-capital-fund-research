@@ -261,7 +261,7 @@ Each mission is one markdown file: title, context, checklist of acceptance crite
 | **Phase 1** — Refactor DeFiLlama onto Postgres | ✅ effectively complete | 9/9 high-priority items done. Three medium items remain: B-020 (config-driven exclusion keywords) and B-023 (freshness check) are follow-ups when consumers need them; B-025 (daily brief fate) is a deferred decision. |
 | **Phase 2** — Free-data ingesters with backfill | 🟡 in progress | 3/10 done — B-028 FRED (R-027), B-027 SEC EDGAR option B (R-028), B-034 CoinGecko (R-029). B-079 + B-080 carved out of B-027 option C, picked up driven by Phase 5 experiments. |
 | **Phase 3** — Custom CLI | ⚪ not started | 11 items (B-037 through B-047). `genkei` is the working name. |
-| **Phase 4** — Agent layer | ⚪ not started | 6 items (B-048 through B-053). Harness decision pending. |
+| **Phase 4** — Agent layer | ⚪ not started | 5 items (B-049 through B-053). Harness locked to Claude Code (R-030) per D-017. |
 | **Phase 5** — Experiments framework | ⚪ not started | 10 items (B-054 through B-063). Notebooks + reproducibility pattern + concrete experiments. |
 | **Phase 6** — Inefficiency-detection signals | ⚪ not started | 6 items (B-064 through B-069). Cross-source correlation, scoring rubric, regime classifier integration. |
 | **Phase 7** — Operations & hardening | 🟡 in progress | B-077 (self-hosted runner) done; B-070 backups, B-071 alerting, B-072 schema-drift, B-073 secrets, B-074 architecture diagram, B-075 license audit, B-076 quota tracking still open. |
@@ -274,7 +274,6 @@ Tracked as backlog items so they don't block forward motion:
 
 - **B-025** — Fate of the legacy daily-brief markdown report. The retired `build_daily_report.py` reads JSON files that no longer exist; pending decision to either rewrite against Postgres or retire entirely.
 - **B-037** — CLI tool name (working: `genkei`).
-- **B-048** — Agent harness (Claude Code via GH Actions vs `/schedule` Routines vs hybrid).
 
 ---
 
@@ -437,7 +436,7 @@ Append-only. Each entry: **what**, **why**, **alternative considered**, **what w
 ### D-018 — Three patterns borrowed from TradingAgents: structured methodology, decision log + reflection, two-phase analysis
 **Date:** 2026-05-10 · **In:** D-017's plan; will land alongside Phase 3 CLI in B-049/B-050
 **Decision:** Even with Claude Code as the harness, three patterns from TradingAgents are worth adopting:
-1. **Structured research methodology.** A `prompts/research-methodology.md` checklist Claude reads at the start of any research session: frame → macro context → fundamentals → flow/positioning → cross-source signals → counter-thesis check → conclusion + horizon tag. Replaces ad-hoc reasoning.
+1. **Structured research methodology.** A `prompts/research-methodology.md` checklist Claude reads at the start of any research session: frame the question → macro context → asset fundamentals → flow/positioning → cross-source signals → counter-thesis check → conclusion + horizon tag → decision-log entry. Replaces ad-hoc reasoning.
 2. **Append-only decision log + outcome reflection.** Each research session ends by appending to `docs/research/decisions/<date>-<topic>.md` with status `pending`. A separate `prompts/reflect-on-decisions.md` periodically pairs past conclusions with realized returns (alpha vs SPY for equities, vs BTC for crypto) and updates each entry with an outcome block + 2-3 sentence reflection. Future sessions inject the most recent reflections into context.
 3. **Two-phase analysis → risk separation in the methodology.** Even within a single agent, the methodology has two distinct phases: (a) "what's the case for/against this?" and (b) "what could make this thesis wrong?" Prevents premature consensus.
 **Why:** These three are TradingAgents' actual contributions — the multi-agent debate is mostly theatre. The methodology + decision log + reflection cycle works regardless of whether you have one agent or eleven.

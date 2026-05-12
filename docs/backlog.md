@@ -23,7 +23,6 @@ Daily briefs and reports are emergent UIs; **the data lake is the asset**.
 
 ### Decisions still open (tracked as backlog items)
 
-- Agent harness (Claude Code via GH Actions vs `/schedule` Routines vs manual vs hybrid) — see B-048.
 - CLI tool name — see B-037.
 - ~~Postgres schema/migration tool/extensions~~ → resolved 2026-05-07 (`docs/storage.md`); first migration lands with B-010/B-016.
 - ~~Repo layout~~ → resolved 2026-05-07 (`docs/repo-layout.md`); migration interleaved with Phase 1 (B-013).
@@ -50,7 +49,7 @@ Daily briefs and reports are emergent UIs; **the data lake is the asset**.
   - The pipeline can create or update a Research entry with the daily Markdown brief.
   - Each Mission Control entry links back to the repo artifact or workflow run.
   - Failures are visible without silently losing the repo artifact.
-- **Note:** Mission Control was tied to the OpenClaw harness. Reconsider once the agent-harness decision (B-048) is made — delivery may shift to GitHub Discussions, an external channel, or a different surface entirely.
+- **Note:** Mission Control was tied to the OpenClaw harness. The agent harness is now locked to Claude Code (D-017/R-030), so delivery may shift to GitHub Discussions, an external channel, or a different surface entirely.
 
 ### B-003 — Add manual run instructions for the DeFiLlama Daily Brief Action
 - **Status:** open
@@ -307,7 +306,7 @@ Wires the data lake to the on-demand AI researcher.
 - **Priority:** medium
 - **Context:** Per D-018, the agent layer borrows three patterns from TradingAgents. This item lands the methodology + reflection prompts that drive any Claude Code research session. Depends on Phase 3 CLI being usable enough that the methodology can reference real subcommands (`genkei prices`, `genkei macro`, `genkei filings`).
 - **Acceptance criteria:**
-  - `prompts/research-methodology.md` walks the structured checklist: frame the question → macro context → asset fundamentals → flow / positioning → cross-source signals → counter-thesis check → conclusion + horizon tag → decision-log entry.
+  - `prompts/research-methodology.md` walks the structured checklist: frame the question → macro context → asset fundamentals → flow/positioning → cross-source signals → counter-thesis check → conclusion + horizon tag → decision-log entry.
   - `prompts/reflect-on-decisions.md` walks the reflection cycle: scan `docs/research/decisions/` for `status: pending` past their horizon, pull realized data via the CLI, compute alpha vs SPY (equities) or BTC (crypto), append outcome + 2-3 sentence reflection.
   - Both prompts versioned alongside CLI changes; assume the CLI surface from B-038+ exists.
 
@@ -344,7 +343,7 @@ Wires the data lake to the on-demand AI researcher.
 - **Priority:** low
 - **Context:** Agent reports staleness per source, schema drift, anomalies — surfaces operational issues without manual checks.
 - **Acceptance criteria:**
-  - Daily or weekly cadence (decided in B-048 context).
+  - Daily or weekly cadence aligned with the Claude Code harness decision (D-017/R-030).
   - Summary covers every active source.
   - Anomalies link back to `meta.ingest_runs`.
 
@@ -548,4 +547,3 @@ Reliability work that grows in importance as more sources go live.
 - **Acceptance criteria:**
   - Per-source quota tracked in `meta.api_usage`.
   - CLI + dashboard query.
-
