@@ -39,7 +39,7 @@ target-version = "py310"
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM"]
 
 [tool.ruff.lint.per-file-ignores]
-# G-025: Typer evaluates parameter annotations at runtime (not lazily).
+# G-027: Typer evaluates parameter annotations at runtime (not lazily).
 # When the local venv is Python 3.9, `X | None` syntax fails at import
 # time even with `from __future__ import annotations`. The CLI modules
 # use `Optional[X]` instead for cross-version safety; everywhere else

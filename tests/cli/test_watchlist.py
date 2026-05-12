@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from genkei.cli._watchlist import (
     CryptoEntry,
+    DEFAULT_WATCHLIST_PATH,
     EquityEntry,
     MacroEntry,
     load_watchlist,
@@ -67,6 +69,18 @@ class LoadWatchlistTests(unittest.TestCase):
         self.assertIsNotNone(wl.find_crypto("btc"))
         self.assertIsNotNone(wl.find_crypto("BTC"))
         self.assertIsNone(wl.find_crypto("eth"))
+
+    def test_default_watchlist_path_is_independent_of_cwd(self) -> None:
+        ctx = TemporaryDirectory()
+        self.addCleanup(ctx.cleanup)
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(ctx.name)
+            self.assertTrue(DEFAULT_WATCHLIST_PATH.is_absolute())
+            wl = load_watchlist()
+        finally:
+            os.chdir(original_cwd)
+        self.assertIsNotNone(wl.find_crypto("BTC"))
 
     def test_classify_disambiguates_sleeves(self) -> None:
         path = self._write(

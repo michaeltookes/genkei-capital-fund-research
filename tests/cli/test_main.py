@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import os
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -128,6 +129,31 @@ class PricesCommandTests(unittest.TestCase):
         self.assertIn(code, (None, 0))
         self.assertIn("BTC", out.getvalue())
         self.assertIn("42,000.00", out.getvalue())
+
+    def test_prices_default_config_is_independent_of_cwd(self) -> None:
+        ctx = TemporaryDirectory()
+        self.addCleanup(ctx.cleanup)
+        original_cwd = Path.cwd()
+        rows = [
+            {
+                "ts": "2024-01-01T00:00:00+00:00",
+                "price_usd": 42000.0,
+                "market_cap_usd": 819_000_000_000,
+                "volume_usd": 700_000_000,
+            }
+        ]
+        out = io.StringIO()
+        try:
+            os.chdir(ctx.name)
+            with (
+                patch("genkei.cli.prices._query_coingecko_market_data", return_value=rows),
+                redirect_stdout(out),
+            ):
+                code = main(["prices", "--ticker", "BTC"])
+        finally:
+            os.chdir(original_cwd)
+        self.assertIn(code, (None, 0))
+        self.assertIn("BTC", out.getvalue())
 
     def test_json_mode_emits_valid_json_array(self) -> None:
         import json as json_mod

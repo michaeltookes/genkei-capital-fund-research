@@ -14,7 +14,8 @@ from typing import Literal, Optional
 
 import yaml
 
-DEFAULT_WATCHLIST_PATH = Path("config/watchlists.yml")
+REPO_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_WATCHLIST_PATH = REPO_ROOT / "config/watchlists.yml"
 SleeveKind = Literal["crypto", "equity", "macro"]
 
 
