@@ -49,10 +49,10 @@ Mixed across sleeves; most signals inform mid-to-long-term decisions. **Every si
 | Mode | Tool | Use for |
 |---|---|---|
 | Scheduled ingest | GH Actions (`.github/workflows/`) | Daily/hourly raw-data pulls. Proven, free compute. |
-| Autonomous agent-think | `/schedule` Routines | Reviewing data, generating briefs, working the mission queue. Where reasoning between steps matters. |
-| Synchronous pairing | Local Claude Code | Weekend long sessions, design, debugging. |
+| Autonomous agent-think | `/schedule` Routines (Claude Code) | Reviewing data, generating briefs, working the mission queue, running the reflection cycle. Where reasoning between steps matters. |
+| Synchronous pairing & on-demand research | Local Claude Code | Weekend long sessions, design, debugging, ad-hoc Q&A research over the lake. |
 
-GH Actions handle deterministic ingest. Routines handle anything that needs to *think* between steps.
+GH Actions handle deterministic ingest. **Claude Code is the agent harness** — both for synchronous pairing and for scheduled `/schedule` Routines (D-017 in `docs/architecture.md`). We do not build a separate Python LLM-calling framework; the Phase 4 agent layer is a structured methodology + decision-log + reflection cycle that runs *in Claude Code*, querying the lake via the Phase 3 CLI. Multi-agent shapes (TradingAgents, Pi) are deferred-not-rejected — re-evaluate if scope expands beyond single-agent Q&A.
 
 ## Working pattern
 

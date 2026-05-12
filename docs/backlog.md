@@ -302,31 +302,24 @@ The interface the agent (and human user) uses to query the lake.
 
 Wires the data lake to the on-demand AI researcher.
 
-### B-048 — Evaluate agent harness options
-- **Status:** open
-- **Priority:** high
-- **Context:** OpenClaw is no longer the harness. Candidates: Claude Code via GH Actions + `claude-code-action`, `/schedule` Routines, manual local Claude Code, hybrid (continuous ingest in CI, on-demand reasoning local).
-- **Acceptance criteria:**
-  - Tradeoffs written up in `docs/agent-harness.md`.
-  - Decision recorded with rationale.
-  - First reference implementation chosen.
-
-### B-049 — Define agent prompt and capabilities
+### B-049 — Write the structured research methodology + reflection prompts
 - **Status:** open
 - **Priority:** medium
-- **Context:** Prompt template guides the agent to use the CLI, surface contradictions, suggest experiments.
+- **Context:** Per D-018, the agent layer borrows three patterns from TradingAgents. This item lands the methodology + reflection prompts that drive any Claude Code research session. Depends on Phase 3 CLI being usable enough that the methodology can reference real subcommands (`genkei prices`, `genkei macro`, `genkei filings`).
 - **Acceptance criteria:**
-  - Prompt template lives in `prompts/` (or chosen location).
-  - Defines: data-access pattern (CLI), output shape, escalation rules.
-  - Versioned alongside CLI changes.
+  - `prompts/research-methodology.md` walks the structured checklist: frame the question → macro context → asset fundamentals → flow / positioning → cross-source signals → counter-thesis check → conclusion + horizon tag → decision-log entry.
+  - `prompts/reflect-on-decisions.md` walks the reflection cycle: scan `docs/research/decisions/` for `status: pending` past their horizon, pull realized data via the CLI, compute alpha vs SPY (equities) or BTC (crypto), append outcome + 2-3 sentence reflection.
+  - Both prompts versioned alongside CLI changes; assume the CLI surface from B-038+ exists.
 
-### B-050 — Implement chosen agent harness end-to-end
+### B-050 — Implement the decision-log + skill scaffolding
 - **Status:** open
 - **Priority:** medium
-- **Context:** Wire data lake → CLI → agent → output for the harness chosen in B-048.
+- **Context:** Per D-017, Claude Code is the harness — no Python framework to build. This item lands the decision-log directory + template, plus two `.claude/skills/` invocable skills. Demo of "ad-hoc research question end-to-end" is what proves it works.
 - **Acceptance criteria:**
-  - Demo run completes a real ad-hoc question end-to-end.
-  - Errors propagate visibly (no silent failures).
+  - `docs/research/decisions/` directory + `_template.md` with front-matter (date, asset(s), horizon, confidence, status pending/resolved) + body + outcome/reflection placeholder.
+  - `.claude/skills/research/` skill that loads `prompts/research-methodology.md` + the most recent 5-10 reflections, then runs against the user's question.
+  - `.claude/skills/reflect-decisions/` skill that runs the reflection cycle. Manually triggerable; can be wired to `/schedule` later.
+  - Demo run: ask a real research question via `/research`, complete the methodology, append a decision-log entry. End-to-end works against the live homelab DB.
 
 ### B-051 — Decide brief delivery surface
 - **Status:** open
