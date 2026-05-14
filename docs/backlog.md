@@ -203,33 +203,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
 
 The interface the agent (and human user) uses to query the lake.
 
-### B-037 — Choose CLI tool name and surface
-- **Status:** open
-- **Priority:** medium
-- **Context:** Working name `genkei`. Subcommand grouping defines the agent's mental model.
-- **Acceptance criteria:**
-  - Name decided.
-  - Top-level subcommand list documented (e.g. `prices`, `filings`, `tvl`, `macro`, `news`, `watchlist`, `query`).
-  - Global flags documented (`--json`, `--since`, `--until`, `--ticker`, `--limit`).
-
-### B-038 — Build CLI scaffold (Click or Typer)
-- **Status:** open
-- **Priority:** medium
-- **Context:** Need an entry point with consistent help output, error handling, and config loading.
-- **Acceptance criteria:**
-  - CLI installable via `pip install -e .`.
-  - `genkei --help` lists all subcommands.
-  - Reads Postgres connection from env/config.
-
-### B-039 — Implement `genkei prices` subcommand
-- **Status:** open
-- **Priority:** medium
-- **Context:** Crypto + (later) equity prices. The most-used query.
-- **Acceptance criteria:**
-  - `genkei prices --ticker BTC --since 2020-01-01` returns OHLCV.
-  - `--json` mode emits machine-readable rows.
-  - Handles missing data ranges explicitly.
-
 ### B-040 — Implement `genkei filings` subcommand
 - **Status:** open
 - **Priority:** medium

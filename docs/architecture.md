@@ -9,7 +9,7 @@ The point of the bottom half: when context gets cleared, the next session (Claud
 
 **Updating discipline:** any commit that makes a non-obvious choice (a tradeoff with a real alternative) or surfaces a non-obvious surprise (a thing future-you wouldn't predict) appends an entry below in the same commit. If the entry is missing, the commit is incomplete.
 
-**Last updated:** 2026-05-10 (Phase 2: 3/10 done — FRED + SEC EDGAR + CoinGecko. Phase 4 harness decided: Claude Code, single-agent, three patterns borrowed from TradingAgents. See D-017 + D-018.)
+**Last updated:** 2026-05-10 (Phase 2: 3/10 done — FRED + SEC EDGAR + CoinGecko. Phase 3 underway: CLI scaffolded (B-037, B-038), `genkei prices` shipped (B-039) — 6 stub subcommand groups in place. Phase 4 harness decided per D-017 + D-018.)
 
 > **Read this first if you're new (or future-you after weeks away).** Then dive into the per-component docs at the bottom for depth.
 
@@ -145,7 +145,7 @@ src/genkei/
 │   └── sec.py       — meta.raw_blobs → sec.*
 ├── reports/
 │   └── defillama_daily.py — legacy markdown brief (broken pending B-025)
-├── cli/             — empty; lands in Phase 3
+├── cli/             — Typer-based CLI; `genkei prices` shipped (B-039), 6 stubs registered
 └── experiments/     — empty; lands in Phase 5
 ```
 
@@ -162,6 +162,7 @@ src/genkei/
 | `genkei.normalize.sec` | Reads SEC raw blobs and dispatches by `endpoint_name` prefix into `sec.companies` (upsert, FK target), `sec.filings` (one row per filing, recent + history), `sec.facts` (one row per XBRL `taxonomy:concept` × unit × period × accession). | R-028 |
 | `genkei.ingest.coingecko` | CoinGecko collector. Reads `coingecko_id` from `crypto:` in `config/watchlists.yml` (primary + secondary tiers). Daily mode fetches `/coins/{id}` metadata + `/coins/{id}/market_chart?days=365&interval=daily` for the Demo API's rolling historical window. `--backfill --since YYYY-MM-DD` requires `COINGECKO_API_TIER=pro` and uses `/market_chart/range` in 365-day chunks, aggregating chunks into the same `market_chart_<id>` raw blob shape. Requires `COINGECKO_API_KEY`, sent via the tier-specific CoinGecko auth header; rate limit `per_minute(25)` (G-023, G-025). | R-029 |
 | `genkei.normalize.coingecko` | Reads CoinGecko raw blobs and dispatches by prefix into `coingecko.coins` (upsert) and `coingecko.market_data` (zips the three parallel `prices` / `market_caps` / `total_volumes` arrays by timestamp, emits rows only where all three align — G-024). | R-029 |
+| `genkei.cli` | Typer-based CLI. Top-level commands per data domain (D-019): `prices`, `filings`, `tvl`, `macro`, `news`, `watchlist`, `query`. Real subcommands export a callable; stubs surface a backlog-item pointer. Reads `GENKEI_DATABASE_URL` via `genkei.common.db`. `--json` per-subcommand for agent consumption. Watchlist resolution centralized in `genkei.cli._watchlist`. | R-031 (B-037+B-038+B-039) |
 
 ### Process layer
 
@@ -260,7 +261,7 @@ Each mission is one markdown file: title, context, checklist of acceptance crite
 | **Phase 0** — Foundation: Postgres + project scaffolding | ✅ complete | All 11 items resolved (R-005 through R-013, R-016, R-019). |
 | **Phase 1** — Refactor DeFiLlama onto Postgres | ✅ effectively complete | 9/9 high-priority items done. Three medium items remain: B-020 (config-driven exclusion keywords) and B-023 (freshness check) are follow-ups when consumers need them; B-025 (daily brief fate) is a deferred decision. |
 | **Phase 2** — Free-data ingesters with backfill | 🟡 in progress | 3/10 done — B-028 FRED (R-027), B-027 SEC EDGAR option B (R-028), B-034 CoinGecko (R-029). B-079 + B-080 carved out of B-027 option C, picked up driven by Phase 5 experiments. |
-| **Phase 3** — Custom CLI | ⚪ not started | 11 items (B-037 through B-047). `genkei` is the working name. |
+| **Phase 3** — Custom CLI | 🟡 in progress | 3/11 done — B-037 (name locked: `genkei`), B-038 (Typer scaffold + 7 subcommand groups), B-039 (`genkei prices` against `coingecko.market_data`). 6 stub subcommands point at their backlog item. Next high-leverage: B-040 (`genkei filings` over `sec.filings` + `sec.facts`) and B-042 (`genkei macro` over `fred.observations`). |
 | **Phase 4** — Agent layer | ⚪ not started | 5 items (B-049 through B-053). Harness locked to Claude Code (R-030) per D-017. |
 | **Phase 5** — Experiments framework | ⚪ not started | 10 items (B-054 through B-063). Notebooks + reproducibility pattern + concrete experiments. |
 | **Phase 6** — Inefficiency-detection signals | ⚪ not started | 6 items (B-064 through B-069). Cross-source correlation, scoring rubric, regime classifier integration. |
@@ -443,6 +444,13 @@ Append-only. Each entry: **what**, **why**, **alternative considered**, **what w
 **What we're explicitly NOT borrowing:** the multi-agent framework, the per-run live API fetching, the LangGraph orchestration. All three are antithetical to a Claude-Code + data-lake setup.
 **Sequencing:** lands after Phase 3 CLI (B-037 → ~B-044) is built enough for Claude to query the lake ergonomically. The CLI is the actual prerequisite; without it, the methodology has no useful tools to invoke.
 
+### D-019 — Typer over Click for the CLI
+**Date:** 2026-05-10 · **In:** B-038, `src/genkei/cli/__init__.py`
+**Decision:** The `genkei` CLI is built on Typer (which sits on Click). Subcommands are top-level commands registered via `app.command(...)`, not nested sub-apps with callbacks.
+**Why:** Type-hint-driven Typer matches the rest of the codebase's style (we use type hints everywhere). Auto-generates `--help` from docstrings + signatures with no boilerplate. Click is more battle-tested but its decorator API is verbose by comparison and we'd hand-write things Typer derives from annotations.
+**Alternative:** Plain Click. Rejected — extra boilerplate without clear benefit at our scope. We get Click's stability transitively (Typer is built on it).
+**Pattern note:** Real subcommands export a callable function (e.g. `prices_cmd`) and `__init__.py` registers it via `app.command("prices")(prices.prices_cmd)`. Sub-apps with callbacks (`app.add_typer(sub_app, ...)`) work for grouped subcommands but produce confusing option-binding behaviour for single-action commands. Top-level command registration is the canonical shape; reserve `add_typer` for actual subcommand groups (e.g. `genkei query sql ...` later).
+
 ---
 
 # Gotchas & lessons learned
@@ -597,3 +605,15 @@ Append-only. Each entry: **what bit us**, **how we resolved it**, **how to avoid
 **Symptom:** `/coins/{id}/market_chart` returns `prices`, `market_caps`, and `total_volumes` as three separate lists of `[unix_ms, value]` pairs. They look parallel but the timestamps don't always match across all three (especially at the start/end of a coin's history, or for newer coins where one series starts before the others). Naively zipping by index produces rows with mismatched timestamps.
 **Resolution:** `normalize_market_chart` builds three `{ts: value}` dicts, intersects the timestamp sets, and only emits rows for timestamps present in all three. Drops cleanly when arrays have head/tail offsets. Unit test asserts a missing timestamp in any series drops that row.
 **Avoid next time:** Any API that returns "parallel arrays" — verify the alignment assumption by checking sample data, especially at the boundaries. Zip by key, not by index.
+
+### G-027 — Typer evaluates parameter annotations at runtime; `X | None` syntax fails on Python 3.9
+**Hit:** 2026-05-10 (B-038 / B-039)
+**Symptom:** The local venv is Python 3.9 (G-002), but `pyproject.toml` requires `>=3.10`. With `from __future__ import annotations` the modern `str | None` syntax works as a stringified annotation almost everywhere — except Typer, which calls `get_type_hints()` to read parameter types and evaluates the strings at runtime. On Python 3.9 the evaluation hits `TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'`.
+**Resolution:** CLI files use `Optional[T]` instead of `T | None`. Removing `from __future__ import annotations` from those files lets Typer parse `Annotated[str, typer.Option(...)]` as a real Option (otherwise Typer treats required `Annotated[str, ...]` as a positional argument and silently ignores the Option metadata). `pyproject.toml` adds `[tool.ruff.lint.per-file-ignores]` for `src/genkei/cli/*.py = ["UP045", "UP007"]` so ruff doesn't auto-rewrite our `Optional` form back to `X | None`.
+**Avoid next time:** Bump the local venv to Python 3.10+ (matches `pyproject.toml`). Until then, any new Typer/Pydantic/argparse-style runtime-evaluated annotations need the `Optional` form.
+
+### G-026 — `unittest.TestCase.enterContext` requires Python 3.11+
+**Hit:** 2026-05-10 (CLI tests on Python 3.9 venv)
+**Symptom:** Test setup using `tmp = Path(self.enterContext(TemporaryDirectory()))` fails with `AttributeError: 'TestCase' object has no attribute 'enterContext'` on Python 3.9.
+**Resolution:** Use the older pattern: `ctx = TemporaryDirectory(); self.addCleanup(ctx.cleanup); tmp = Path(ctx.name)`. CI runs 3.12 where `enterContext` exists; the older pattern works on both.
+**Avoid next time:** Same root cause as G-027 — local venv is 3.9. Either upgrade the venv or stick to stdlib APIs that predate 3.11.

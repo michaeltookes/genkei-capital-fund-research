@@ -1,0 +1,349 @@
+# Genkei Capital research-desk — watchlists
+#
+# Single source of truth for which assets the data lake tracks. Loaded by
+# every crypto ingester (CoinGecko, Binance, DefiLlama, etc.) and mirrored
+# into `meta.watchlists` in Postgres at ingest time.
+#
+# Tiers explained:
+# - `primary`   = full coverage. Prices, on-chain/TVL exposure where
+#                 relevant, backfill, and every signal pipeline by default.
+# - `secondary` = lighter coverage. Prices + core metrics; not pulled into
+#                 every cross-source signal automatically.
+#
+# Sleeves (orthogonal to tier — see CLAUDE.md):
+# - `core`     = long-term hold, Buffett-style. Selling not on the table.
+# - `tactical` = turnover-eligible; signals can argue for trimming/adding.
+#
+version: 1
+
+crypto:
+  primary:
+    - symbol: BTC
+      name: Bitcoin
+      coingecko_id: bitcoin
+      ecosystem: Bitcoin
+      sleeve: core
+      rationale: Long-term core. Reserve asset; macro hedge thesis.
+    - symbol: ETH
+      name: Ethereum
+      coingecko_id: ethereum
+      ecosystem: Ethereum
+      sleeve: core
+      rationale: Long-term core. Settlement layer for the broader DeFi/L2 economy.
+    - symbol: SOL
+      name: Solana
+      coingecko_id: solana
+      ecosystem: Solana
+      sleeve: core
+      rationale: Long-term core. High-throughput L1, dominant non-EVM venue.
+    - symbol: LINK
+      name: Chainlink
+      coingecko_id: chainlink
+      ecosystem: Ethereum
+      sleeve: core
+      rationale: Long-term core. Oracle infrastructure across every major chain.
+    - symbol: SUI
+      name: Sui
+      coingecko_id: sui
+      ecosystem: Sui
+      sleeve: tactical
+      rationale: Primary-tier coverage, tactical sleeve. Move-based L1 worth tracking closely.
+  secondary:
+    - symbol: PYTH
+      name: Pyth Network
+      coingecko_id: pyth-network
+      ecosystem: Solana
+      sleeve: tactical
+      rationale: Oracle competitor to LINK; relevant to the Solana stack.
+    - symbol: RENDER
+      name: Render
+      coingecko_id: render-token
+      ecosystem: Solana
+      sleeve: tactical
+      rationale: Compute marketplace; AI-adjacent narrative; recently migrated to Solana.
+
+# Equities watchlist.
+#
+# All entries are sleeve `core` per CLAUDE.md — Michael's equity stance is
+# long-only Buffett-style buy-and-hold. The `tactical` sleeve does not exist
+# for equities right now.
+equities:
+  primary:
+    # Mega-cap tech compounders
+    - symbol: AAPL
+      cik: "0000320193"
+      name: Apple Inc.
+      sector: Consumer technology
+      sleeve: core
+      rationale: Mega-cap compounder; durable consumer hardware + services franchise.
+    - symbol: MSFT
+      cik: "0000789019"
+      name: Microsoft Corporation
+      sector: Software / cloud
+      sleeve: core
+      rationale: Cloud + enterprise software duopoly position; AI distribution leader.
+    - symbol: GOOG
+      cik: "0001652044"
+      name: Alphabet Inc. (Class C)
+      sector: Internet / cloud / AI
+      sleeve: core
+      rationale: Search cash flow + cloud + AI optionality; held alongside GOOGL.
+    - symbol: GOOGL
+      cik: "0001652044"
+      name: Alphabet Inc. (Class A)
+      sector: Internet / cloud / AI
+      sleeve: core
+      rationale: Voting share class of Alphabet; same thesis as GOOG.
+    - symbol: AMZN
+      cik: "0001018724"
+      name: Amazon.com, Inc.
+      sector: E-commerce / cloud
+      sleeve: core
+      rationale: AWS cash flow + retail margin recovery; long-term compounder.
+    - symbol: META
+      cik: "0001326801"
+      name: Meta Platforms, Inc.
+      sector: Internet / advertising / AI
+      sleeve: core
+      rationale: Advertising cash flow funding AI capex; durable user base.
+
+    # Semiconductors / AI compute
+    - symbol: NVDA
+      cik: "0001045810"
+      name: NVIDIA Corporation
+      sector: Semiconductors
+      sleeve: core
+      rationale: Dominant AI training/inference compute supplier.
+    - symbol: AMD
+      cik: "0000002488"
+      name: Advanced Micro Devices, Inc.
+      sector: Semiconductors
+      sleeve: core
+      rationale: Second-source AI accelerator + CPU share-take story.
+    - symbol: AVGO
+      cik: "0001730168"
+      name: Broadcom Inc.
+      sector: Semiconductors / software
+      sleeve: core
+      rationale: Custom silicon (XPU) + diversified semis + VMware cash flow.
+    - symbol: MU
+      cik: "0000723125"
+      name: Micron Technology, Inc.
+      sector: Semiconductors / memory
+      sleeve: core
+      rationale: Memory cycle exposure; HBM demand from AI training clusters.
+    - symbol: SMCI
+      cik: "0001375365"
+      name: Super Micro Computer, Inc.
+      sector: Server systems
+      sleeve: core
+      rationale: AI server integrator; NVIDIA partner exposure.
+    - symbol: TSM
+      cik: "0001046179"
+      name: Taiwan Semiconductor Manufacturing Company
+      sector: Semiconductors / foundry
+      sleeve: core
+      rationale: Foundry monopoly for leading-edge nodes; entire AI supply chain depends on it.
+
+    # Software / data / defense
+    - symbol: CRM
+      cik: "0001108524"
+      name: Salesforce, Inc.
+      sector: Enterprise software
+      sleeve: core
+      rationale: Enterprise CRM incumbent; AI agent/Copilot monetization.
+    - symbol: PLTR
+      cik: "0001321655"
+      name: Palantir Technologies Inc.
+      sector: Data / defense software
+      sleeve: core
+      rationale: Government + commercial AIP momentum; widening commercial book.
+    - symbol: DOCN
+      cik: "0001582961"
+      name: DigitalOcean Holdings, Inc.
+      sector: Cloud infrastructure
+      sleeve: core
+      rationale: SMB-focused cloud + GPU droplet expansion; smaller-cap optionality.
+
+    # Financials / payments / fintech
+    - symbol: JPM
+      cik: "0000019617"
+      name: JPMorgan Chase & Co.
+      sector: Banking
+      sleeve: core
+      rationale: Best-of-breed money-center bank; rates and credit-cycle exposure.
+    - symbol: V
+      cik: "0001403161"
+      name: Visa Inc.
+      sector: Payments
+      sleeve: core
+      rationale: Global payments duopoly; secular cash-to-card migration.
+    - symbol: SOFI
+      cik: "0001818874"
+      name: SoFi Technologies, Inc.
+      sector: Consumer fintech
+      sleeve: core
+      rationale: Bank-charter fintech; deposit + lending growth optionality.
+    - symbol: HOOD
+      cik: "0001783879"
+      name: Robinhood Markets, Inc.
+      sector: Brokerage / fintech
+      sleeve: core
+      rationale: Retail brokerage with crypto + derivatives growth tailwind.
+
+    # Crypto-adjacent equities
+    - symbol: COIN
+      cik: "0001679788"
+      name: Coinbase Global, Inc.
+      sector: Crypto exchange
+      sleeve: core
+      rationale: Largest US-regulated crypto venue; secular crypto adoption proxy.
+    - symbol: MSTR
+      cik: "0001050446"
+      name: Strategy (formerly MicroStrategy Incorporated)
+      sector: Bitcoin treasury
+      sleeve: core
+      rationale: Leveraged BTC treasury play; tracks bitcoin with corporate-finance overlay.
+    - symbol: BMNR
+      cik: "0001829311"
+      name: BitMine Immersion Technologies, Inc.
+      sector: Bitcoin mining
+      sleeve: core
+      rationale: Bitcoin mining infrastructure; leveraged BTC exposure with operational risk.
+    - symbol: CLSK
+      cik: "0000827876"
+      name: CleanSpark, Inc.
+      sector: Bitcoin mining
+      sleeve: core
+      rationale: Bitcoin mining; sustainable energy mix differentiates within the cohort.
+
+    # Mobility / energy / materials
+    - symbol: TSLA
+      cik: "0001318605"
+      name: Tesla, Inc.
+      sector: EV / energy
+      sleeve: core
+      rationale: EV manufacturer with energy storage + AI/robotics optionality.
+    - symbol: UBER
+      cik: "0001543151"
+      name: Uber Technologies, Inc.
+      sector: Mobility
+      sleeve: core
+      rationale: Mobility + delivery network; profitable scale, AV optionality.
+    - symbol: CCJ
+      cik: "0001009001"
+      name: Cameco Corporation
+      sector: Mining / uranium
+      sleeve: core
+      rationale: Uranium pure-play; nuclear-renaissance + AI-power-demand thesis.
+    - symbol: XOM
+      cik: "0000034088"
+      name: Exxon Mobil Corporation
+      sector: Oil & gas
+      sleeve: core
+      rationale: Integrated oil major; cash-flow + dividend through commodity cycles.
+
+    - symbol: SUIG
+      cik: "0001425355"
+      name: Sui Group Holdings
+      sector: Sui treasury
+      sleeve: core
+      rationale: Leveraged SUI exposure via corporate treasury — Sui equivalent of MSTR's bitcoin-treasury playbook.
+  secondary: []
+
+# Macro series watchlist.
+#
+# Format mirrors FRED series IDs (e.g. DGS10, CPIAUCSL). Macro is the spine
+# of the investment philosophy (CLAUDE.md), so this set should grow first
+# when something feels under-covered.
+#
+# Note on DXY: the ICE U.S. Dollar Index (DXY) isn't a FRED series. The
+# closest equivalents are DTWEXBGS (broad trade-weighted) or DTWEXAFEGS
+# (advanced foreign economies). DXY itself is sourced from market data
+# (CoinGecko / equity providers) when needed — added as a placeholder
+# entry below in the dollar section.
+#
+macro_series:
+  # Rates
+  - id: DFF
+    name: Federal Funds Effective Rate
+    rationale: Fed policy stance; the entire short end of the curve pivots off this.
+  - id: DGS2
+    name: 2-Year Treasury Yield
+    rationale: Market's expected path of the policy rate.
+  - id: DGS10
+    name: 10-Year Treasury Yield
+    rationale: Risk-free benchmark; equity discount-rate input; growth signal.
+  - id: T10Y2Y
+    name: 10Y-2Y Treasury Spread
+    rationale: Yield-curve slope; recession-signal proxy.
+  - id: DGS30
+    name: 30-Year Treasury Yield
+    rationale: Long-end inflation/term-premium read.
+
+  # Inflation
+  - id: CPIAUCSL
+    name: Consumer Price Index (All Urban Consumers)
+    rationale: Headline inflation; drives Fed policy expectations.
+  - id: PCEPI
+    name: PCE Price Index
+    rationale: Fed's preferred inflation gauge.
+
+  # Growth + labor
+  - id: GDPC1
+    name: Real GDP
+    rationale: Quarterly growth pulse; regime-classifier input.
+  - id: UNRATE
+    name: Unemployment Rate
+    rationale: Labor-market slack; Fed dual-mandate input.
+  - id: PAYEMS
+    name: Total Nonfarm Payrolls
+    rationale: Monthly employment momentum.
+  - id: INDPRO
+    name: Industrial Production Index
+    rationale: Real-economy activity in goods-producing sectors.
+
+  # Liquidity / money
+  - id: WALCL
+    name: Federal Reserve Balance Sheet (All Liabilities and Capital)
+    rationale: Fed liquidity provision; risk-asset tide.
+  - id: M2SL
+    name: M2 Money Supply
+    rationale: Broad money aggregate; long-run inflation/asset-price input.
+
+  # Dollar
+  - id: DTWEXBGS
+    name: Trade-Weighted U.S. Dollar Index (Broad, Goods + Services)
+    rationale: Closest FRED equivalent to DXY; risk-asset crosswind.
+
+  # Credit
+  - id: BAMLH0A0HYM2
+    name: ICE BofA US High Yield Index Option-Adjusted Spread
+    rationale: HY credit spread; risk appetite + recession signal.
+
+  # Volatility / risk
+  - id: VIXCLS
+    name: CBOE VIX Volatility Index
+    rationale: Equity-vol regime indicator.
+
+  # Housing
+  - id: HOUST
+    name: Housing Starts
+    rationale: Rate-sensitive sector pulse; consumer-cycle input.
+
+  # Sentiment
+  - id: UMCSENT
+    name: University of Michigan Consumer Sentiment
+    rationale: Consumer mood; spending leading indicator.
+
+  # Commodities
+  - id: DCOILWTICO
+    name: WTI Crude Oil Spot Price
+    rationale: Inflation + global-growth signal; energy-equity input.
+
+  # Spot gold previously tracked GOLDAMGBD228NLBM (London PM fix), but
+  # FRED retired that series (G-020). FRED no longer hosts a live
+  # spot-gold series; closest live proxies are GVZCLS (gold volatility)
+  # and IQ12260 (monthly gold export-price index). Plan: re-add a real
+  # spot gold series via a commodities feed when one lands (Phase 2
+  # follow-up — file a backlog item if a need surfaces before then).
