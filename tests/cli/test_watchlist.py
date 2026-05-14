@@ -77,6 +77,8 @@ class LoadWatchlistTests(unittest.TestCase):
         try:
             os.chdir(ctx.name)
             self.assertTrue(DEFAULT_WATCHLIST_PATH.is_absolute())
+            self.assertEqual(DEFAULT_WATCHLIST_PATH.name, "watchlists.yml")
+            self.assertEqual(DEFAULT_WATCHLIST_PATH.parent.name, "data")
             wl = load_watchlist()
         finally:
             os.chdir(original_cwd)

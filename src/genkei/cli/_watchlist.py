@@ -1,6 +1,6 @@
 """Shared watchlist resolution for CLI subcommands.
 
-Loads ``config/watchlists.yml`` and exposes lookup helpers that map a
+Loads the package's default watchlist and exposes lookup helpers that map a
 user-facing ticker (BTC, AAPL, …) to per-source identifiers (coingecko_id,
 cik, FRED series_id). Centralized so every subcommand resolves tickers
 the same way and a fix in one place propagates.
@@ -14,8 +14,7 @@ from typing import Literal, Optional
 
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_WATCHLIST_PATH = REPO_ROOT / "config/watchlists.yml"
+DEFAULT_WATCHLIST_PATH = Path(__file__).resolve().parent.parent / "data" / "watchlists.yml"
 SleeveKind = Literal["crypto", "equity", "macro"]
 
 
@@ -80,7 +79,7 @@ class Watchlist:
 
 
 def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
-    """Read ``config/watchlists.yml`` into a typed ``Watchlist``."""
+    """Read a watchlist YAML file into a typed ``Watchlist``."""
     try:
         with path.open(encoding="utf-8") as handle:
             data = yaml.safe_load(handle)
