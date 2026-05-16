@@ -18,6 +18,7 @@ from genkei.ingest.fred import (
     _redact_key,
     build_observations_url,
     build_series_url,
+    build_vintage_dates_url,
     load_series,
     require_api_key,
 )
@@ -90,20 +91,32 @@ class UrlBuilderTests(unittest.TestCase):
         self.assertIn("api_key=KEY123", url)
         self.assertIn("file_type=json", url)
 
-    def test_observations_url_omits_realtime_window(self) -> None:
-        # G-027: FRED returns 400 if realtime_start predates the first
-        # observation by too much (the 2000-vintage cap). Without
-        # realtime params, FRED still tags each observation with its
-        # own realtime_start in the payload, so vintage tracking works.
-        url = build_observations_url("KEY123", "GDPC1")
+    def test_vintage_dates_url_contains_required_params(self) -> None:
+        url = build_vintage_dates_url("KEY123", "GDPC1")
+        self.assertIn("series_id=GDPC1", url)
+        self.assertIn("api_key=KEY123", url)
+        self.assertIn("file_type=json", url)
+        self.assertIn("limit=10000", url)
+        self.assertIn("offset=0", url)
+
+    def test_observations_url_uses_explicit_vintage_dates(self) -> None:
+        url = build_observations_url(
+            "KEY123", "GDPC1", vintage_dates=["2024-04-25", "2024-05-30"]
+        )
         self.assertIn("series_id=GDPC1", url)
         self.assertNotIn("realtime_start", url)
         self.assertNotIn("realtime_end", url)
+        self.assertIn("output_type=3", url)
+        self.assertIn("vintage_dates=2024-04-25,2024-05-30", url)
         self.assertIn("limit=100000", url)
         self.assertIn("offset=0", url)
 
+    def test_observations_url_requires_vintage_dates(self) -> None:
+        with self.assertRaisesRegex(ValueError, "vintage_dates"):
+            build_observations_url("KEY123", "GDPC1", vintage_dates=[])
+
     def test_redact_key_strips_api_key_from_url(self) -> None:
-        url = build_observations_url("SECRET", "DGS10")
+        url = build_observations_url("SECRET", "DGS10", vintage_dates=["2026-05-09"])
         redacted = _redact_key(url, "SECRET")
         self.assertNotIn("SECRET", redacted)
         self.assertIn("api_key=***", redacted)
@@ -131,6 +144,8 @@ class UrlBuilderTests(unittest.TestCase):
         class PagingHttp:
             def get_json(self, url: str) -> object:
                 calls.append(url)
+                if "/series/vintagedates" in url:
+                    return {"count": 1, "vintage_dates": ["2024-01-15"]}
                 if "offset=0" in url:
                     return {
                         "count": 3,
@@ -151,15 +166,49 @@ class UrlBuilderTests(unittest.TestCase):
             )
 
         self.assertIn("offset=0", url)
-        self.assertEqual(len(calls), 2)
-        self.assertIn("limit=2", calls[0])
-        self.assertIn("offset=2", calls[1])
+        self.assertEqual(len(calls), 3)
+        self.assertIn("/series/vintagedates", calls[0])
+        self.assertIn("limit=2", calls[1])
+        self.assertIn("offset=2", calls[2])
+        self.assertEqual(payload["count"], 3)
+        self.assertEqual(len(payload["observations"]), 3)
+
+    def test_fetch_observations_payload_chunks_vintage_dates(self) -> None:
+        calls: list[str] = []
+
+        class ChunkingHttp:
+            def get_json(self, url: str) -> object:
+                calls.append(url)
+                if "/series/vintagedates" in url:
+                    return {
+                        "count": 3,
+                        "vintage_dates": ["2024-01-15", "2024-02-15", "2024-03-15"],
+                    }
+                if "vintage_dates=2024-01-15,2024-02-15" in url:
+                    return {
+                        "count": 2,
+                        "observations": [{"date": "2024-01-01"}, {"date": "2024-01-02"}],
+                    }
+                if "vintage_dates=2024-03-15" in url:
+                    return {"count": 1, "observations": [{"date": "2024-02-01"}]}
+                raise AssertionError(f"unexpected url: {url}")
+
+        with patch.object(fred, "VINTAGE_DATES_CHUNK_SIZE", 2):
+            _url, payload = _fetch_observations_payload(
+                SeriesTarget("DGS10", "10-Year Treasury Yield"),
+                "KEY123",
+                ChunkingHttp(),  # type: ignore[arg-type]
+            )
+
+        self.assertEqual(len(calls), 3)
         self.assertEqual(payload["count"], 3)
         self.assertEqual(len(payload["observations"]), 3)
 
     def test_fetch_observations_payload_fails_when_count_is_not_satisfied(self) -> None:
         class TruncatedHttp:
-            def get_json(self, _url: str) -> object:
+            def get_json(self, url: str) -> object:
+                if "/series/vintagedates" in url:
+                    return {"count": 1, "vintage_dates": ["2024-01-15"]}
                 return {"count": 3, "observations": [{"date": "2024-01-01"}]}
 
         with (

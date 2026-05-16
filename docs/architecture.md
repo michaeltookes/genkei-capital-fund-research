@@ -156,7 +156,7 @@ src/genkei/
 | `genkei.common.config` | `load_env_file(path)` — stdlib-only `.env` loader, no python-dotenv dep. | R-013 |
 | `genkei.ingest.defillama` | DeFiLlama collector + backfill (`--backfill --since YYYY-MM-DD --endpoint X`). Daily mode INSERTs raw blobs per endpoint; backfill mode walks daily timestamps for prices, iterates known slugs/asset_ids for protocols/stablecoins. Resumability via `meta.raw_blobs.url` lookup within a 14-day window. | R-017, R-023 |
 | `genkei.normalize.defillama` | Reads raw blobs and `bulk_upsert`s. Daily mode (`normalize`) handles snapshot blobs into all four lake tables; backfill mode (`normalize_backfill`) dispatches by `endpoint_name` prefix into `defillama.prices`, `defillama.protocol_tvl`, `defillama.stablecoins`. Idempotent throughout. | R-018, R-023 |
-| `genkei.ingest.fred` | FRED collector. Reads `macro_series:` from `config/watchlists.yml`, hits `/series` plus `/series/observations` without `realtime_start` / `realtime_end` to avoid FRED's 2000-vintage JSON cap. FRED still returns per-observation `realtime_start` values, so vintage-aware normalization remains intact. Lands two raw blobs per series (`series_<id>`, `observations_<id>`). Redacts the API key from the URL stored in `meta.raw_blobs`. Single-mode (D-014) — no separate `--backfill` flag. | R-027 |
+| `genkei.ingest.fred` | FRED collector. Reads `macro_series:` from `config/watchlists.yml`, hits `/series`, `/series/vintagedates`, then `/series/observations` with explicit bounded `vintage_dates` chunks and `output_type=3`. This avoids both FRED's 2000-vintage full-window cap and the implicit current-vintage default that would duplicate daily snapshots under the vintage-aware PK. Lands two raw blobs per series (`series_<id>`, `observations_<id>`). Redacts the API key from the URL stored in `meta.raw_blobs`. Single-mode (D-014) — no separate `--backfill` flag. | R-027 |
 | `genkei.normalize.fred` | Reads FRED raw blobs by source_run_id, dispatches by prefix into `fred.series` (one row per series) and `fred.observations` (one row per `(series_id, ts, realtime_start)`). Idempotent. | R-027 |
 | `genkei.ingest.sec` | SEC EDGAR collector. Reads CIKs from `equities:` in `config/watchlists.yml`; dedupes by CIK so multi-class listings (GOOG/GOOGL share Alphabet's CIK) fetch once. Hits `/submissions/CIK{cik}.json`, follows `filings.files[]` references for older history pages, and `/api/xbrl/companyfacts/CIK{cik}.json` per company. 8 req/sec rate limit (under SEC's 10/sec cap). User-Agent identifies the user via `SEC_USER_AGENT` env var. | R-028 |
 | `genkei.normalize.sec` | Reads SEC raw blobs and dispatches by `endpoint_name` prefix into `sec.companies` (upsert, FK target), `sec.filings` (one row per filing, recent + history), `sec.facts` (one row per XBRL `taxonomy:concept` × unit × `(period_start, period_end)` × accession; upsert key matches PK `(cik, concept, unit, period_start, period_end, accession_number)`). | R-028 |
@@ -401,7 +401,7 @@ Append-only. Each entry: **what**, **why**, **alternative considered**, **what w
 **Alternative:** Latest-only PK `(series_id, ts)` with overwrites. Rejected — smaller storage but lossy; retrofitting from latest-only to vintage-aware requires re-fetching everything.
 **What would change our mind:** If FRED storage outgrows the homelab (unlikely — revisions are sparse), we could prune old vintages older than N years.
 
-**Amendment (2026-05-16, G-029):** the schema decision stays vintage-aware, but the collector no longer sends `realtime_start` / `realtime_end` because FRED's payload still includes per-observation `realtime_start` values and full-window JSON requests hit the 2000-vintage cap.
+**Amendment (2026-05-16, G-031):** the schema decision stays vintage-aware. The collector no longer relies on an all-history realtime window or FRED's implicit current-vintage default; it fetches vintage dates explicitly and requests observations in bounded `vintage_dates` chunks so `realtime_start` remains a real revision key.
 
 ### D-014 — FRED is single-mode: no `--backfill` flag, daily run pulls full history
 **Date:** 2026-05-10 · **In:** R-027
@@ -409,7 +409,7 @@ Append-only. Each entry: **what**, **why**, **alternative considered**, **what w
 **Why:** FRED's `/series/observations` endpoint returns the entire history per call. No date-walker needed; daily and backfill are the same code path. The vintage-aware schema (D-013) means re-running just upserts any new revisions as new rows.
 **Alternative:** Mirror DeFiLlama's `--backfill --since` flag for consistency. Rejected — adds a code path with no consumer; the FRED endpoint shape doesn't reward it. Per-source ingester shape can differ from per-source ingester shape; that's fine.
 
-**Amendment (2026-05-16, G-029):** "full history per call" now applies to the *observation date* axis only. The collector omits realtime-window params to avoid G-019's 2000-vintage cap; daily and backfill remain the same code path, and the no-`--backfill`-flag decision stands.
+**Amendment (2026-05-16, G-031):** "full history per run" is implemented as a vintage-date chunk walk. Daily and backfill remain the same code path, and the no-`--backfill`-flag decision stands.
 
 ### D-015 — SEC EDGAR scope: option B (submissions + XBRL company facts) now, Form 4/13F as follow-ups
 **Date:** 2026-05-10 · **In:** R-028, B-079, B-080
@@ -574,7 +574,7 @@ Append-only. Each entry: **what bit us**, **how we resolved it**, **how to avoid
 ### G-019 — FRED's JSON file type caps responses at 2000 vintage dates
 **Hit:** 2026-05-10 (B-028 first live smoke test against FRED)
 **Symptom:** The first scheduled run failed for 6 observation endpoints: every daily-frequency series with decades of history (T10Y2Y, DGS2, DGS10, DGS30, DFF, VIXCLS) returned `400 Bad Request` with the message `"There are 3033 vintage dates in the specified real-time period: 1776-07-04 to 9999-12-31. This exceeds the maximum number of vintage dates allowed for this file type (2000)."` The `build_observations_url` default passes `realtime_start=1776-07-04` and `realtime_end=9999-12-31` to grab every vintage; FRED's JSON serializer can't fit that many in one response for those long daily series.
-**Current state:** G-029 re-removed `realtime_start` / `realtime_end` from `build_observations_url`. The collector relies on payload `realtime_start` values, so long daily series collect successfully without full-window params while the schema remains vintage-aware.
+**Current state:** G-031 replaced both the all-history realtime window and implicit-default request with explicit `/series/vintagedates` pagination plus bounded `vintage_dates` observation chunks.
 **Avoid next time:** Smoke-test against the real upstream API on the *first* live run, not just mocked-HTTP integration tests. Mocks can't surface upstream-side limits like vintage-count caps. Same lesson applies to any future ingester whose API has per-response limits we won't hit until the live data hits them.
 
 ### G-020 — FRED retired `GOLDAMGBD228NLBM` (London PM gold fix); no clean spot-gold replacement on FRED
@@ -634,11 +634,17 @@ Append-only. Each entry: **what bit us**, **how we resolved it**, **how to avoid
 ### G-029 — FRED full-vintage realtime window regressed via a "restore" commit
 **Hit:** 2026-05-12 onward (4 consecutive daily collect failures); resolved 2026-05-16
 **Symptom:** Same 400 Bad Request shape as G-019 on the 6 daily series (DFF, DGS2, DGS10, DGS30, T10Y2Y, VIXCLS). All ran 6+ daily failures with `FRED fetch failed for 6 endpoint(s)`. Investigation traced to a "Restore FRED realtime observation window" commit that re-added `realtime_start=1776-07-04` / `realtime_end=9999-12-31` to `build_observations_url`, undoing the original G-019 fix.
-**Resolution:** Re-removed the realtime params from `build_observations_url`. FRED returns each observation tagged with its own `realtime_start` in the payload regardless, so the vintage-aware schema (D-013) still captures revisions correctly. `EARLIEST_REALTIME` / `LATEST_REALTIME` constants are kept as documentation but no longer flow into requests.
-**Avoid next time:** Test for `realtime_start` / `realtime_end` *absence* in the URL (test `test_observations_url_omits_realtime_window` enforces this). Any future "restore" of the realtime window must update the test, surfacing the G-019/G-029 history.
+**Resolution:** Superseded by G-031. Simply omitting realtime params avoids the 2000-vintage cap but changes the request to FRED's current-vintage default, which is not compatible with D-013.
+**Avoid next time:** Tests must assert the actual request semantics, not just the absence of a broken parameter set.
 
 ### G-030 — `sec.facts` ON CONFLICT key set must match the PK exactly
 **Hit:** 2026-05-16 (revealed after fixing G-028)
 **Symptom:** `psycopg.errors.InvalidColumnReference: there is no unique or exclusion constraint matching the ON CONFLICT specification`. Normalizer passed 5 `conflict_keys` (`cik, concept, unit, period_end, accession_number`); the actual PK is 6 cols (`cik, concept, unit, period_start, period_end, accession_number`).
 **Resolution:** Include `period_start` in `conflict_keys` in `src/genkei/normalize/sec.py` so the conflict target matches the migration's PK exactly.
 **Avoid next time:** Bulk-upsert helpers should validate `conflict_keys` against the live table's unique constraints before issuing the statement. Tracked as backlog work — for now, a comment in the normalizer pins the column set to the PK.
+
+### G-031 — FRED omitted realtime params means current vintage only
+**Hit:** 2026-05-16 (review of the G-029 fix)
+**Symptom:** Omitting `realtime_start` / `realtime_end` from `/series/observations` does not return proper per-observation revision history. FRED defaults the realtime period to today, so each daily collector run returns the current vintage tagged with that day's `realtime_start`. Because `fred.observations` keys on `(series_id, ts, realtime_start)`, this inflates rows as daily snapshots rather than real revisions.
+**Resolution:** Keep D-013's vintage-aware schema and request explicit vintages. The collector now fetches `/series/vintagedates`, chunks the returned dates, and calls `/series/observations` with `output_type=3&vintage_dates=...` for each chunk.
+**Avoid next time:** Any FRED URL test must verify one coherent mode: full-window realtime pagination, explicit `vintage_dates`, or latest-only normalization. Absence of `realtime_start` / `realtime_end` alone is not a valid invariant.

@@ -12,16 +12,14 @@ path. Each daily run upserts the latest state of every observation
 including any new vintages — D-013's vintage-aware schema means new
 revisions land as new rows rather than overwriting historical values.
 
-Vintage handling: observations calls do **not** send a realtime window
-(see G-019 / G-027). Passing the full-history window
-``realtime_start=1776-07-04`` returns 400 Bad Request on any series
-whose first observation predates 2000-01-01 (FRED enforces a
-2000-vintage cap on full-window requests). Without realtime params,
-FRED returns each observation tagged with its proper
-``realtime_start`` in the payload, which is what the vintage-aware
-schema (D-013) keys on — so we still capture revisions correctly while
-sidestepping the cap. ``EARLIEST_REALTIME`` / ``LATEST_REALTIME`` are
-kept as defensive constants but no longer flow into the URL.
+Vintage handling: observations calls use explicit ``vintage_dates``
+chunks from ``/series/vintagedates`` with ``output_type=3`` (new and
+revised observations). Passing the full-history realtime window
+``realtime_start=1776-07-04&realtime_end=9999-12-31`` returns 400 Bad
+Request on long daily series because FRED caps JSON responses at 2000
+vintage dates, while omitting realtime params defaults to today's
+realtime period and would duplicate current snapshots under D-013's
+``(series_id, ts, realtime_start)`` PK.
 
 API key: the free FRED API key lives in the ``FRED_API_KEY`` env var.
 Register at https://fredaccount.stlouisfed.org/apikeys.
@@ -37,6 +35,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 import httpx
 import yaml
@@ -58,6 +57,8 @@ DEFAULT_RATE_LIMIT = RateLimit.per_second(1)
 EARLIEST_REALTIME = "1776-07-04"
 LATEST_REALTIME = "9999-12-31"
 OBSERVATIONS_PAGE_LIMIT = 100_000
+VINTAGE_DATES_PAGE_LIMIT = 10_000
+VINTAGE_DATES_CHUNK_SIZE = 500
 RAW_BLOBS_INSERT = (
     "INSERT INTO meta.raw_blobs (ingest_run_id, endpoint_name, url, payload) "
     "VALUES (%s, %s, %s, %s::jsonb) "
@@ -131,28 +132,53 @@ def build_series_url(api_key: str, series_id: str) -> str:
     return f"{FRED_BASE_URL}/series?series_id={series_id}&api_key={api_key}&file_type=json"
 
 
+def build_vintage_dates_url(
+    api_key: str,
+    series_id: str,
+    *,
+    limit: int = VINTAGE_DATES_PAGE_LIMIT,
+    offset: int = 0,
+) -> str:
+    """Build the URL for the vintage-dates endpoint."""
+    params = {
+        "series_id": series_id,
+        "api_key": api_key,
+        "file_type": "json",
+        "limit": str(limit),
+        "offset": str(offset),
+    }
+    return f"{FRED_BASE_URL}/series/vintagedates?{urlencode(params)}"
+
+
 def build_observations_url(
     api_key: str,
     series_id: str,
     *,
+    vintage_dates: list[str],
     limit: int = OBSERVATIONS_PAGE_LIMIT,
     offset: int = 0,
 ) -> str:
     """Build the URL for the observations endpoint.
 
-    Does not include ``realtime_start`` / ``realtime_end`` — see G-027.
-    FRED returns the proper per-observation ``realtime_start`` in the
-    payload anyway, so vintage tracking still works while we avoid the
-    2000-vintage-cap 400 that kills daily series like DGS10 / VIXCLS.
+    Uses explicit ``vintage_dates`` instead of FRED's default realtime
+    period. Leaving ``realtime_start`` / ``realtime_end`` unset defaults
+    to today's realtime period, which would produce daily snapshot
+    duplicates under the vintage-aware PK. A single all-history realtime
+    window hits the 2000-vintage JSON cap for long daily series, so the
+    collector asks for bounded vintage-date chunks instead.
     """
-    return (
-        f"{FRED_BASE_URL}/series/observations"
-        f"?series_id={series_id}"
-        f"&api_key={api_key}"
-        f"&file_type=json"
-        f"&limit={limit}"
-        f"&offset={offset}"
-    )
+    if not vintage_dates:
+        raise ValueError("vintage_dates must contain at least one date")
+    params = {
+        "series_id": series_id,
+        "api_key": api_key,
+        "file_type": "json",
+        "limit": str(limit),
+        "offset": str(offset),
+        "output_type": "3",
+        "vintage_dates": ",".join(vintage_dates),
+    }
+    return f"{FRED_BASE_URL}/series/observations?{urlencode(params, safe=',')}"
 
 
 def _store_blob(ingest_run_id: int, endpoint_name: str, url: str, payload: Any) -> None:
@@ -258,52 +284,114 @@ def _fetch_observations_payload(
     api_key: str,
     http: HttpClient,
 ) -> tuple[str, Any]:
-    """Fetch every observations page and return one combined raw payload."""
+    """Fetch every vintage-date observation page and return one combined raw payload."""
+    vintage_dates = _fetch_vintage_dates(target, api_key, http)
+    first_chunk = vintage_dates[:VINTAGE_DATES_CHUNK_SIZE]
     first_url = build_observations_url(
-        api_key, target.series_id, limit=OBSERVATIONS_PAGE_LIMIT, offset=0
+        api_key,
+        target.series_id,
+        vintage_dates=first_chunk,
+        limit=OBSERVATIONS_PAGE_LIMIT,
+        offset=0,
     )
     combined: dict[str, Any] | None = None
     observations: list[Any] = []
-    offset = 0
-    expected_count: int | None = None
+    for vintage_chunk in _chunks(vintage_dates, VINTAGE_DATES_CHUNK_SIZE):
+        offset = 0
+        expected_count: int | None = None
+        chunk_observations = 0
 
-    while True:
-        url = build_observations_url(
-            api_key, target.series_id, limit=OBSERVATIONS_PAGE_LIMIT, offset=offset
-        )
-        payload = http.get_json(url)
-        if not isinstance(payload, dict):
-            raise ValueError(f"FRED observations payload for {target.series_id} is not an object.")
-        page_observations = payload.get("observations")
-        if not isinstance(page_observations, list):
-            raise ValueError(
-                f"FRED observations payload for {target.series_id} is missing observations."
+        while True:
+            url = build_observations_url(
+                api_key,
+                target.series_id,
+                vintage_dates=vintage_chunk,
+                limit=OBSERVATIONS_PAGE_LIMIT,
+                offset=offset,
             )
-
-        if combined is None:
-            combined = dict(payload)
-            combined["offset"] = 0
-        page_count = _as_non_negative_int(payload.get("count"))
-        expected_count = page_count if expected_count is None else expected_count
-        observations.extend(page_observations)
-
-        if expected_count is not None and len(observations) >= expected_count:
-            break
-        if len(page_observations) < OBSERVATIONS_PAGE_LIMIT:
-            if expected_count is not None and len(observations) < expected_count:
+            payload = http.get_json(url)
+            if not isinstance(payload, dict):
                 raise ValueError(
-                    f"FRED observations payload for {target.series_id} ended after "
-                    f"{len(observations)} of {expected_count} rows."
+                    f"FRED observations payload for {target.series_id} is not an object."
                 )
-            break
-        offset += OBSERVATIONS_PAGE_LIMIT
+            page_observations = payload.get("observations")
+            if not isinstance(page_observations, list):
+                raise ValueError(
+                    f"FRED observations payload for {target.series_id} is missing observations."
+                )
+
+            if combined is None:
+                combined = dict(payload)
+                combined["offset"] = 0
+            page_count = _as_non_negative_int(payload.get("count"))
+            expected_count = page_count if expected_count is None else expected_count
+            observations.extend(page_observations)
+            chunk_observations += len(page_observations)
+
+            if expected_count is not None and chunk_observations >= expected_count:
+                break
+            if len(page_observations) < OBSERVATIONS_PAGE_LIMIT:
+                if expected_count is not None and chunk_observations < expected_count:
+                    raise ValueError(
+                        f"FRED observations payload for {target.series_id} ended after "
+                        f"{chunk_observations} of {expected_count} rows."
+                    )
+                break
+            offset += OBSERVATIONS_PAGE_LIMIT
 
     if combined is None:
         raise ValueError(f"FRED observations payload for {target.series_id} was empty.")
     combined["observations"] = observations
-    combined["count"] = expected_count if expected_count is not None else len(observations)
+    combined["count"] = len(observations)
     combined["limit"] = len(observations)
     return first_url, combined
+
+
+def _fetch_vintage_dates(target: SeriesTarget, api_key: str, http: HttpClient) -> list[str]:
+    """Fetch every vintage date for a series."""
+    vintage_dates: list[str] = []
+    offset = 0
+    expected_count: int | None = None
+
+    while True:
+        url = build_vintage_dates_url(
+            api_key, target.series_id, limit=VINTAGE_DATES_PAGE_LIMIT, offset=offset
+        )
+        payload = http.get_json(url)
+        if not isinstance(payload, dict):
+            raise ValueError(f"FRED vintage-dates payload for {target.series_id} is not an object.")
+        page_dates = payload.get("vintage_dates")
+        if not isinstance(page_dates, list):
+            raise ValueError(
+                f"FRED vintage-dates payload for {target.series_id} is missing vintage_dates."
+            )
+        if any(not isinstance(item, str) or not item for item in page_dates):
+            raise ValueError(
+                f"FRED vintage-dates payload for {target.series_id} contains invalid dates."
+            )
+
+        page_count = _as_non_negative_int(payload.get("count"))
+        expected_count = page_count if expected_count is None else expected_count
+        vintage_dates.extend(page_dates)
+
+        if expected_count is not None and len(vintage_dates) >= expected_count:
+            break
+        if len(page_dates) < VINTAGE_DATES_PAGE_LIMIT:
+            if expected_count is not None and len(vintage_dates) < expected_count:
+                raise ValueError(
+                    f"FRED vintage-dates payload for {target.series_id} ended after "
+                    f"{len(vintage_dates)} of {expected_count} rows."
+                )
+            break
+        offset += VINTAGE_DATES_PAGE_LIMIT
+
+    if not vintage_dates:
+        raise ValueError(f"FRED vintage-dates payload for {target.series_id} was empty.")
+    return vintage_dates
+
+
+def _chunks(values: list[str], size: int) -> list[list[str]]:
+    return [values[index : index + size] for index in range(0, len(values), size)]
 
 
 def _record_partial(ingest_run_id: int, partial: list[dict[str, str]]) -> None:
