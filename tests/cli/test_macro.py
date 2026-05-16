@@ -6,7 +6,7 @@ import io
 import json as json_mod
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -237,6 +237,20 @@ class QueryObservationsSqlShapeTests(unittest.TestCase):
         )
         self.assertIn("realtime_start <= %s", sql)
         self.assertIn(date(2024, 6, 30), params)
+
+    def test_date_filters_bind_utc_datetime_bounds(self) -> None:
+        _sql, params = self._capture_sql(
+            since=date(2024, 6, 1),
+            until=date(2024, 6, 30),
+            as_of=None,
+            all_vintages=False,
+            limit=10,
+        )
+        self.assertIn(datetime(2024, 6, 1, 0, 0, tzinfo=timezone.utc), params)
+        self.assertIn(
+            datetime(2024, 6, 30, 23, 59, 59, 999999, tzinfo=timezone.utc),
+            params,
+        )
 
 
 if __name__ == "__main__":

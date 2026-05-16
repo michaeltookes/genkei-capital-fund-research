@@ -36,6 +36,12 @@ from genkei.cli._watchlist import (
 from genkei.common import db
 
 
+def _json_default(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return str(value)
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
 def _parse_date(raw: Optional[str], *, label: str) -> Optional[date]:
     if raw is None:
         return None
@@ -139,7 +145,7 @@ def _query_facts(
             "unit": un,
             "period_start": ps.isoformat() if ps is not None else None,
             "period_end": pe.isoformat() if pe is not None else None,
-            "value": float(val) if val is not None else None,
+            "value": val,
             "accession_number": accn,
             "form_type": ft,
             "filed_at": fa.isoformat() if fa is not None else None,
@@ -317,7 +323,7 @@ def filings_cmd(
         )
         rows = _tag_rows(rows, horizon_tag)
         if json_out:
-            typer.echo(json.dumps(rows, indent=2))
+            typer.echo(json.dumps(rows, indent=2, default=_json_default))
         else:
             typer.echo(_format_facts_human(ticker.upper(), concept, rows, horizon_tag=horizon_tag))
     else:
@@ -330,6 +336,6 @@ def filings_cmd(
         )
         rows = _tag_rows(rows, horizon_tag)
         if json_out:
-            typer.echo(json.dumps(rows, indent=2))
+            typer.echo(json.dumps(rows, indent=2, default=_json_default))
         else:
             typer.echo(_format_filings_human(ticker.upper(), rows, horizon_tag=horizon_tag))

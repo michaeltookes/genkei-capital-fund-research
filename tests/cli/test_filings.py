@@ -6,6 +6,7 @@ import io
 import json as json_mod
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -77,7 +78,7 @@ class FormatTests(unittest.TestCase):
                 "unit": "USD",
                 "period_start": "2024-07-01",
                 "period_end": "2024-09-28",
-                "value": 94_930_000_000,
+                "value": Decimal("94930000000.123456789"),
                 "accession_number": "0000320193-24-000123",
                 "form_type": "10-K",
                 "filed_at": "2024-11-01",
@@ -124,6 +125,25 @@ class FormatTests(unittest.TestCase):
         self.assertIn("6.37", out)
         self.assertIn("0.315", out)
         self.assertNotIn(" 6  ", out)
+
+    def test_facts_table_preserves_decimal_values(self) -> None:
+        rows = [
+            {
+                "taxonomy": "us-gaap",
+                "concept": "EarningsPerShareDiluted",
+                "unit": "USD/shares",
+                "period_start": "2024-01-01",
+                "period_end": "2024-12-31",
+                "value": Decimal("6.3700000000000001"),
+                "accession_number": "0000320193-24-000123",
+                "form_type": "10-K",
+                "filed_at": "2024-11-01",
+                "fy": 2024,
+                "fp": "FY",
+            }
+        ]
+        out = _format_facts_human("AAPL", "EarningsPerShareDiluted", rows)
+        self.assertIn("6.3700000000000001", out)
 
 
 class ParseDateTests(unittest.TestCase):
@@ -193,7 +213,7 @@ class FilingsCommandTests(unittest.TestCase):
                 "unit": "USD",
                 "period_start": "2024-07-01",
                 "period_end": "2024-09-28",
-                "value": 94_930_000_000,
+                "value": Decimal("94930000000.123456789"),
                 "accession_number": "0000320193-24-000123",
                 "form_type": "10-K",
                 "filed_at": "2024-11-01",
@@ -310,7 +330,7 @@ class FilingsCommandTests(unittest.TestCase):
                 "unit": "USD",
                 "period_start": "2024-07-01",
                 "period_end": "2024-09-28",
-                "value": 94_930_000_000,
+                "value": Decimal("94930000000.123456789"),
                 "accession_number": "0000320193-24-000123",
                 "form_type": "10-K",
                 "filed_at": "2024-11-01",
@@ -334,9 +354,10 @@ class FilingsCommandTests(unittest.TestCase):
                     str(path),
                     "--json",
                 ]
-            )
+        )
         parsed = json_mod.loads(out.getvalue())
         self.assertEqual(parsed[0]["horizon_tag"], "equity:core:primary")
+        self.assertEqual(parsed[0]["value"], "94930000000.123456789")
 
 
 class QueryFactsSqlShapeTests(unittest.TestCase):

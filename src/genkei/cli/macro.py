@@ -18,7 +18,7 @@ Usage:
 """
 
 import json
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any, Optional
 
@@ -42,6 +42,14 @@ def _parse_date(raw: Optional[str], *, label: str) -> Optional[date]:
         raise typer.BadParameter(f"--{label} must be YYYY-MM-DD: {raw}") from exc
 
 
+def _utc_start(value: date) -> datetime:
+    return datetime.combine(value, datetime.min.time(), tzinfo=timezone.utc)
+
+
+def _utc_end(value: date) -> datetime:
+    return datetime.combine(value, datetime.max.time(), tzinfo=timezone.utc)
+
+
 def _query_observations(
     series_id: str,
     *,
@@ -61,10 +69,10 @@ def _query_observations(
     where = "series_id = %s"
     if since is not None:
         where += " AND ts >= %s"
-        params.append(since)
+        params.append(_utc_start(since))
     if until is not None:
         where += " AND ts <= %s"
-        params.append(until)
+        params.append(_utc_end(until))
     if as_of is not None:
         # Only consider vintages that existed on or before --as-of.
         where += " AND realtime_start <= %s"
