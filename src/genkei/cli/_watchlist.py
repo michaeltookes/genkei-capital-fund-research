@@ -24,6 +24,7 @@ class CryptoEntry:
     name: str
     coingecko_id: str
     tier: str  # primary | secondary
+    sleeve: Optional[str] = None  # core | tactical
 
 
 @dataclass(frozen=True)
@@ -32,12 +33,15 @@ class EquityEntry:
     name: str
     cik: Optional[str]
     tier: str  # primary | secondary
+    sleeve: str = "core"
 
 
 @dataclass(frozen=True)
 class MacroEntry:
     series_id: str
     name: str
+    tier: str = "primary"
+    sleeve: str = "cross-sleeve"
 
 
 @dataclass(frozen=True)
@@ -110,6 +114,7 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                         name=str(name or ""),
                         coingecko_id=cgid,
                         tier=str(tier_name),
+                        sleeve=_optional_string(entry.get("sleeve")),
                     )
                 )
 
@@ -132,6 +137,7 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                         name=str(entry.get("name") or ""),
                         cik=cik if isinstance(cik, str) and cik else None,
                         tier=str(tier_name),
+                        sleeve=str(entry.get("sleeve") or "core"),
                     )
                 )
 
@@ -144,6 +150,17 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
             sid = entry.get("id")
             if not isinstance(sid, str):
                 continue
-            macro.append(MacroEntry(series_id=sid, name=str(entry.get("name") or "")))
+            macro.append(
+                MacroEntry(
+                    series_id=sid,
+                    name=str(entry.get("name") or ""),
+                    tier=str(entry.get("tier") or "primary"),
+                    sleeve=str(entry.get("sleeve") or "cross-sleeve"),
+                )
+            )
 
     return Watchlist(crypto=crypto, equities=equities, macro=macro)
+
+
+def _optional_string(value: object) -> Optional[str]:
+    return value if isinstance(value, str) and value else None

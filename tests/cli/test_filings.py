@@ -11,13 +11,19 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from genkei.cli import main
-from genkei.cli.filings import _format_facts_human, _format_filings_human, _parse_date
+from genkei.cli.filings import (
+    _format_facts_human,
+    _format_filings_human,
+    _parse_date,
+    _query_facts,
+)
 
 EQUITY_AND_CRYPTO_YAML = (
     "crypto:\n  primary:\n    - symbol: BTC\n      name: Bitcoin\n"
     "      coingecko_id: bitcoin\n"
     "equities:\n  primary:\n    - symbol: AAPL\n      name: Apple Inc.\n"
     '      cik: "0000320193"\n'
+    "      sleeve: core\n"
     "    - symbol: NOCIK\n      name: Nocik Co.\n"
 )
 
@@ -51,8 +57,9 @@ class FormatTests(unittest.TestCase):
                 "is_xbrl": True,
             }
         ]
-        out = _format_filings_human("AAPL", rows)
+        out = _format_filings_human("AAPL", rows, horizon_tag="equity:core:primary")
         self.assertIn("AAPL", out)
+        self.assertIn("horizon=equity:core:primary", out)
         self.assertIn("10-K", out)
         self.assertIn("2024-11-01", out)
         self.assertIn("0000320193-24-000123", out)
@@ -78,9 +85,10 @@ class FormatTests(unittest.TestCase):
                 "fp": "Q4",
             }
         ]
-        out = _format_facts_human("AAPL", "Revenues", rows)
+        out = _format_facts_human("AAPL", "Revenues", rows, horizon_tag="equity:core:primary")
         self.assertIn("AAPL", out)
         self.assertIn("Revenues", out)
+        self.assertIn("horizon=equity:core:primary", out)
         self.assertIn("94,930,000,000", out)
 
     def test_facts_table_preserves_fractional_values(self) -> None:
@@ -213,8 +221,33 @@ class FilingsCommandTests(unittest.TestCase):
             )
         self.assertIn(code, (None, 0))
         self.assertEqual(mocked.call_args.kwargs["concept"], "us-gaap:Revenues")
+        self.assertIsNone(mocked.call_args.kwargs["form"])
         self.assertEqual(mocked.call_args.kwargs["unit"], "USD")
+        self.assertIn("horizon=equity:core:primary", out.getvalue())
         self.assertIn("94,930,000,000", out.getvalue())
+
+    def test_concept_mode_passes_form_filter_to_sec_facts(self) -> None:
+        path = _watchlist_path(self)
+        out = io.StringIO()
+        with (
+            patch("genkei.cli.filings._query_facts", return_value=[]) as mocked,
+            redirect_stdout(out),
+        ):
+            code = main(
+                [
+                    "filings",
+                    "--ticker",
+                    "AAPL",
+                    "--concept",
+                    "Revenues",
+                    "--form",
+                    "10-K",
+                    "--config",
+                    str(path),
+                ]
+            )
+        self.assertIn(code, (None, 0))
+        self.assertEqual(mocked.call_args.kwargs["form"], "10-K")
 
     def test_unit_without_concept_rejected(self) -> None:
         path = _watchlist_path(self)
@@ -266,6 +299,87 @@ class FilingsCommandTests(unittest.TestCase):
             main(["filings", "--ticker", "AAPL", "--config", str(path), "--json"])
         parsed = json_mod.loads(out.getvalue())
         self.assertEqual(parsed[0]["form_type"], "10-K")
+        self.assertEqual(parsed[0]["horizon_tag"], "equity:core:primary")
+
+    def test_json_facts_emits_horizon_tag(self) -> None:
+        path = _watchlist_path(self)
+        rows = [
+            {
+                "taxonomy": "us-gaap",
+                "concept": "Revenues",
+                "unit": "USD",
+                "period_start": "2024-07-01",
+                "period_end": "2024-09-28",
+                "value": 94_930_000_000,
+                "accession_number": "0000320193-24-000123",
+                "form_type": "10-K",
+                "filed_at": "2024-11-01",
+                "fy": 2024,
+                "fp": "Q4",
+            }
+        ]
+        out = io.StringIO()
+        with (
+            patch("genkei.cli.filings._query_facts", return_value=rows),
+            redirect_stdout(out),
+        ):
+            main(
+                [
+                    "filings",
+                    "--ticker",
+                    "AAPL",
+                    "--concept",
+                    "Revenues",
+                    "--config",
+                    str(path),
+                    "--json",
+                ]
+            )
+        parsed = json_mod.loads(out.getvalue())
+        self.assertEqual(parsed[0]["horizon_tag"], "equity:core:primary")
+
+
+class QueryFactsSqlShapeTests(unittest.TestCase):
+    def test_form_filter_is_applied_in_concept_mode(self) -> None:
+        captured = {}
+
+        class FakeCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, sql, params):
+                captured["sql"] = sql
+                captured["params"] = list(params)
+
+            def fetchall(self):
+                return []
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def cursor(self):
+                return FakeCursor()
+
+        with patch("genkei.cli.filings.db.connection", return_value=FakeConn()):
+            _query_facts(
+                "0000320193",
+                concept="Revenues",
+                form="10-K",
+                unit=None,
+                since=None,
+                until=None,
+                limit=10,
+            )
+
+        self.assertIn("form_type = %s", captured["sql"])
+        self.assertIn("10-K", captured["params"])
 
 
 if __name__ == "__main__":

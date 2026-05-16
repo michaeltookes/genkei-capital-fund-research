@@ -92,6 +92,7 @@ def _query_facts(
     cik: str,
     *,
     concept: str,
+    form: Optional[str],
     unit: Optional[str],
     since: Optional[date],
     until: Optional[date],
@@ -117,6 +118,9 @@ def _query_facts(
     if unit is not None:
         sql += " AND unit = %s"
         params.append(unit)
+    if form is not None:
+        sql += " AND form_type = %s"
+        params.append(form)
     if since is not None:
         sql += " AND period_end >= %s"
         params.append(since)
@@ -146,14 +150,18 @@ def _query_facts(
     ]
 
 
-def _format_filings_human(ticker: str, rows: list[dict[str, Any]]) -> str:
+def _format_filings_human(
+    ticker: str, rows: list[dict[str, Any]], *, horizon_tag: Optional[str] = None
+) -> str:
     if not rows:
+        tag = f" [horizon={horizon_tag}]" if horizon_tag is not None else ""
         return (
-            f"No filings for {ticker} (sec.filings). "
+            f"No filings for {ticker} (sec.filings).{tag} "
             "Try widening --since, removing --form, or check the company is "
             "covered by the SEC ingester."
         )
-    header = f"{ticker} filings ({len(rows)} row{'s' if len(rows) != 1 else ''})"
+    horizon = f", horizon={horizon_tag}" if horizon_tag is not None else ""
+    header = f"{ticker} filings ({len(rows)} row{'s' if len(rows) != 1 else ''}{horizon})"
     lines = [header, "-" * len(header)]
     lines.append(f"  {'filed':<12} {'form':<10} {'report':<12}  accession")
     for r in rows:
@@ -165,14 +173,22 @@ def _format_filings_human(ticker: str, rows: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def _format_facts_human(ticker: str, concept: str, rows: list[dict[str, Any]]) -> str:
+def _format_facts_human(
+    ticker: str,
+    concept: str,
+    rows: list[dict[str, Any]],
+    *,
+    horizon_tag: Optional[str] = None,
+) -> str:
     if not rows:
+        tag = f" [horizon={horizon_tag}]" if horizon_tag is not None else ""
         return (
-            f"No facts for {ticker} concept={concept!r} (sec.facts). "
+            f"No facts for {ticker} concept={concept!r} (sec.facts).{tag} "
             "Try a different --unit (e.g. USD, shares, USD/shares), widen "
             "--since, or check `--concept` spelling (us-gaap:Revenues)."
         )
-    header = f"{ticker} {concept} ({len(rows)} row{'s' if len(rows) != 1 else ''})"
+    horizon = f", horizon={horizon_tag}" if horizon_tag is not None else ""
+    header = f"{ticker} {concept} ({len(rows)} row{'s' if len(rows) != 1 else ''}{horizon})"
     lines = [header, "-" * len(header)]
     lines.append(
         f"  {'period_end':<12} {'fy':<5} {'fp':<4} {'unit':<10} "
@@ -202,6 +218,14 @@ def _format_fact_value(value: Any) -> str:
         return f"{int(decimal_value):,}"
     text = format(decimal_value, ",f")
     return text.rstrip("0").rstrip(".")
+
+
+def _horizon_tag(equity: EquityEntry) -> str:
+    return f"equity:{equity.sleeve}:{equity.tier}"
+
+
+def _tag_rows(rows: list[dict[str, Any]], horizon_tag: str) -> list[dict[str, Any]]:
+    return [{**row, "horizon_tag": horizon_tag} for row in rows]
 
 
 def _resolve_equity(ticker: str, watchlist: Watchlist) -> EquityEntry:
@@ -279,20 +303,23 @@ def filings_cmd(
 
     equity = _resolve_equity(ticker, watchlist)
     assert equity.cik is not None  # _resolve_equity guarantees
+    horizon_tag = _horizon_tag(equity)
 
     if concept is not None:
         rows = _query_facts(
             equity.cik,
             concept=concept,
+            form=form,
             unit=unit,
             since=since_d,
             until=until_d,
             limit=limit,
         )
+        rows = _tag_rows(rows, horizon_tag)
         if json_out:
             typer.echo(json.dumps(rows, indent=2))
         else:
-            typer.echo(_format_facts_human(ticker.upper(), concept, rows))
+            typer.echo(_format_facts_human(ticker.upper(), concept, rows, horizon_tag=horizon_tag))
     else:
         rows = _query_filings(
             equity.cik,
@@ -301,7 +328,8 @@ def filings_cmd(
             until=until_d,
             limit=limit,
         )
+        rows = _tag_rows(rows, horizon_tag)
         if json_out:
             typer.echo(json.dumps(rows, indent=2))
         else:
-            typer.echo(_format_filings_human(ticker.upper(), rows))
+            typer.echo(_format_filings_human(ticker.upper(), rows, horizon_tag=horizon_tag))

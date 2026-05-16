@@ -26,6 +26,7 @@ import typer
 
 from genkei.cli._watchlist import (
     DEFAULT_WATCHLIST_PATH,
+    MacroEntry,
     Watchlist,
     load_watchlist,
 )
@@ -107,6 +108,7 @@ def _format_human(
     *,
     as_of: Optional[date],
     all_vintages: bool,
+    horizon_tag: Optional[str] = None,
 ) -> str:
     if not rows:
         hint = (
@@ -114,14 +116,16 @@ def _format_human(
             if as_of is not None
             else "Widen --since, or check the series_id is in the watchlist."
         )
-        return f"No observations for {series_id} (fred.observations). {hint}"
+        tag = f" [horizon={horizon_tag}]" if horizon_tag is not None else ""
+        return f"No observations for {series_id} (fred.observations).{tag} {hint}"
     vintage_tag = (
         "all-vintages"
         if all_vintages
         else (f"as-of {as_of.isoformat()}" if as_of is not None else "latest-vintage")
     )
     header = (
-        f"{series_id} ({len(rows)} row{'s' if len(rows) != 1 else ''}, {vintage_tag})"
+        f"{series_id} ({len(rows)} row{'s' if len(rows) != 1 else ''}, "
+        f"{vintage_tag}{', horizon=' + horizon_tag if horizon_tag is not None else ''})"
     )
     lines = [header, "-" * len(header)]
     lines.append(
@@ -136,15 +140,23 @@ def _format_human(
     return "\n".join(lines)
 
 
-def _resolve_series(series_id: str, watchlist: Watchlist) -> str:
-    """Validate the series_id is in the watchlist. Returns the canonical id."""
+def _resolve_series(series_id: str, watchlist: Watchlist) -> MacroEntry:
+    """Validate the series_id is in the watchlist. Returns the canonical entry."""
     entry = watchlist.find_macro(series_id)
     if entry is None:
         raise typer.BadParameter(
             f"Series {series_id!r} not found in the macro watchlist. "
             "Add it under `macro_series:` in watchlists.yml first."
         )
-    return entry.series_id
+    return entry
+
+
+def _horizon_tag(entry: MacroEntry) -> str:
+    return f"macro:{entry.sleeve}:{entry.tier}"
+
+
+def _tag_rows(rows: list[dict[str, Any]], horizon_tag: str) -> list[dict[str, Any]]:
+    return [{**row, "horizon_tag": horizon_tag} for row in rows]
 
 
 def macro_cmd(
@@ -199,7 +211,9 @@ def macro_cmd(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=2) from exc
 
-    series_id = _resolve_series(series, watchlist)
+    series_entry = _resolve_series(series, watchlist)
+    series_id = series_entry.series_id
+    horizon_tag = _horizon_tag(series_entry)
 
     rows = _query_observations(
         series_id,
@@ -209,9 +223,16 @@ def macro_cmd(
         all_vintages=all_vintages,
         limit=limit,
     )
+    rows = _tag_rows(rows, horizon_tag)
     if json_out:
         typer.echo(json.dumps(rows, indent=2))
     else:
         typer.echo(
-            _format_human(series_id, rows, as_of=as_of_d, all_vintages=all_vintages)
+            _format_human(
+                series_id,
+                rows,
+                as_of=as_of_d,
+                all_vintages=all_vintages,
+                horizon_tag=horizon_tag,
+            )
         )

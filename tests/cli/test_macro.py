@@ -17,6 +17,7 @@ from genkei.cli.macro import _format_human, _parse_date, _query_observations
 MACRO_YAML = (
     "macro_series:\n"
     "  - id: DGS10\n    name: 10Y Treasury\n"
+    "    sleeve: cross-sleeve\n"
     "  - id: CPIAUCSL\n    name: CPI\n"
 )
 
@@ -52,8 +53,15 @@ class FormatTests(unittest.TestCase):
                 "value": 4.2543,
             }
         ]
-        out = _format_human("DGS10", rows, as_of=None, all_vintages=False)
+        out = _format_human(
+            "DGS10",
+            rows,
+            as_of=None,
+            all_vintages=False,
+            horizon_tag="macro:cross-sleeve:primary",
+        )
         self.assertIn("latest-vintage", out)
+        self.assertIn("horizon=macro:cross-sleeve:primary", out)
         self.assertIn("4.2543", out)
 
     def test_table_tags_as_of_when_set(self) -> None:
@@ -66,7 +74,11 @@ class FormatTests(unittest.TestCase):
             }
         ]
         out = _format_human(
-            "DGS10", rows, as_of=date(2024, 6, 30), all_vintages=False
+            "DGS10",
+            rows,
+            as_of=date(2024, 6, 30),
+            all_vintages=False,
+            horizon_tag="macro:cross-sleeve:primary",
         )
         self.assertIn("as-of 2024-06-30", out)
 
@@ -108,6 +120,7 @@ class MacroCommandTests(unittest.TestCase):
         self.assertIn(code, (None, 0))
         self.assertEqual(mocked.call_args.args[0], "DGS10")
         self.assertIn("DGS10", out.getvalue())
+        self.assertIn("horizon=macro:cross-sleeve:primary", out.getvalue())
         self.assertIn("4.2543", out.getvalue())
 
     def test_all_vintages_and_as_of_mutually_exclusive(self) -> None:
@@ -165,6 +178,7 @@ class MacroCommandTests(unittest.TestCase):
             main(["macro", "--series", "DGS10", "--config", str(path), "--json"])
         parsed = json_mod.loads(out.getvalue())
         self.assertEqual(parsed[0]["value"], 4.2543)
+        self.assertEqual(parsed[0]["horizon_tag"], "macro:cross-sleeve:primary")
 
 
 class QueryObservationsSqlShapeTests(unittest.TestCase):
