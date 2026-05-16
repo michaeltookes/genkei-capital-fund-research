@@ -12,6 +12,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from genkei.cli import main
+from genkei.cli import watchlist as watchlist_mod
 from genkei.cli.watchlist import (
     EXPECTED_ENDPOINTS,
     PRIMARY_TABLES,
@@ -19,6 +20,7 @@ from genkei.cli.watchlist import (
     _format_health_human,
     _format_list_human,
     _health_status_tag,
+    _query_source_health,
 )
 
 
@@ -176,7 +178,7 @@ class HealthCommandTests(unittest.TestCase):
         self.assertIn("fred", out.getvalue())
 
     def test_health_json_mode(self) -> None:
-        rows = [{"source": "fred", "table": "fred.observations", "row_count": 229525}]
+        rows = [{"source": "fred", "table": "fred.observations", "has_rows": True}]
         out = io.StringIO()
         with (
             patch("genkei.cli.watchlist._query_source_health", return_value=rows),
@@ -184,7 +186,75 @@ class HealthCommandTests(unittest.TestCase):
         ):
             main(["watchlist", "health", "--json"])
         parsed = json_mod.loads(out.getvalue())
-        self.assertEqual(parsed[0]["row_count"], 229525)
+        self.assertTrue(parsed[0]["has_rows"])
+        self.assertEqual(parsed[0]["health_status"], "OK")
+
+    def test_health_json_mode_applies_stale_threshold(self) -> None:
+        rows = [
+            {
+                "source": "fred",
+                "endpoint": "collect",
+                "status": "success",
+                "last_started_at": "2026-05-16T00:00:00+00:00",
+                "last_finished_at": "2026-05-16T00:00:30+00:00",
+                "age_hours": 72.0,
+                "error": None,
+            }
+        ]
+        out = io.StringIO()
+        with (
+            patch("genkei.cli.watchlist._query_source_health", return_value=rows),
+            redirect_stdout(out),
+        ):
+            main(["watchlist", "health", "--json", "--stale-hours", "48"])
+        parsed = json_mod.loads(out.getvalue())
+        self.assertEqual(parsed[0]["health_status"], "STALE")
+
+
+class QuerySourceHealthTests(unittest.TestCase):
+    def test_primary_table_probe_uses_quoted_exists_query(self) -> None:
+        captured: list[object] = []
+
+        class FakeCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, query, params=None):
+                captured.append(query)
+
+            def fetchall(self):
+                return []
+
+            def fetchone(self):
+                return [True]
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def cursor(self):
+                return FakeCursor()
+
+        with (
+            patch("genkei.cli.watchlist.db.connection", return_value=FakeConn()),
+            patch("genkei.cli.watchlist.EXPECTED_ENDPOINTS", {}),
+            patch(
+                "genkei.cli.watchlist.PRIMARY_TABLES",
+                {"fred": ["fred.observations"]},
+            ),
+        ):
+            rows = _query_source_health()
+
+        self.assertIsInstance(captured[1], watchlist_mod.sql.Composed)
+        self.assertEqual(rows[0]["table"], "fred.observations")
+        self.assertTrue(rows[0]["has_rows"])
+        self.assertNotIn("row_count", rows[0])
 
 
 class ExpectationsRegistryTests(unittest.TestCase):
@@ -269,7 +339,9 @@ class GapsCommandTests(unittest.TestCase):
 
     def test_gaps_json_mode(self) -> None:
         path = _watchlist_path(self)
-        rows = [{"sleeve": "macro", "asset": "DGS10", "last_ts": None, "age_hours": None}]
+        rows = [
+            {"sleeve": "macro", "asset": "DGS10", "last_ts": None, "age_hours": None}
+        ]
         out = io.StringIO()
         with (
             patch("genkei.cli.watchlist._query_asset_gaps", return_value=rows),
@@ -278,6 +350,37 @@ class GapsCommandTests(unittest.TestCase):
             main(["watchlist", "gaps", "--json", "--config", str(path)])
         parsed = json_mod.loads(out.getvalue())
         self.assertEqual(parsed[0]["asset"], "DGS10")
+        self.assertEqual(parsed[0]["status"], "NONE")
+
+    def test_gaps_json_mode_applies_threshold(self) -> None:
+        path = _watchlist_path(self)
+        now = datetime.now(timezone.utc)
+        rows = [
+            {
+                "sleeve": "macro",
+                "asset": "DGS10",
+                "last_ts": (now - timedelta(hours=72)).isoformat(),
+                "age_hours": 72.0,
+            }
+        ]
+        out = io.StringIO()
+        with (
+            patch("genkei.cli.watchlist._query_asset_gaps", return_value=rows),
+            redirect_stdout(out),
+        ):
+            main(
+                [
+                    "watchlist",
+                    "gaps",
+                    "--json",
+                    "--threshold-hours",
+                    "48",
+                    "--config",
+                    str(path),
+                ]
+            )
+        parsed = json_mod.loads(out.getvalue())
+        self.assertEqual(parsed[0]["status"], "GAP")
 
 
 # ---------------------------------------------------------------------------

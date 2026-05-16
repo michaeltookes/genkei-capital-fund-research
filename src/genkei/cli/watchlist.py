@@ -4,7 +4,7 @@ Three subcommands:
 
 * **list** — dump the watchlist by sleeve (crypto / equities / macro).
 * **health** — per-source ingest health: latest collect + normalize
-  status, run counts, primary-table row counts. This is the command
+  status, run counts, primary-table liveness. This is the command
   that should have existed when 3/4 sources went dark silently for ~4
   days (G-027/G-028/D-020). Built loud: any source with a recent
   failure or a stale primary table prints a clear FAIL or STALE tag.
@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Annotated, Any, Optional
 
 import typer
+from psycopg import sql
 
 from genkei.cli._watchlist import (
     DEFAULT_WATCHLIST_PATH,
@@ -156,8 +157,12 @@ EXPECTED_ENDPOINTS: dict[str, list[str]] = {
 }
 
 
+def _table_identifier(table: str) -> sql.Identifier:
+    return sql.Identifier(*table.split(".", 1))
+
+
 def _query_source_health() -> list[dict[str, Any]]:
-    """Per (source, endpoint) latest run with status + age, plus row counts."""
+    """Per (source, endpoint) latest run with status + age, plus table liveness."""
     runs_sql = """
         SELECT source, endpoint, status, started_at, finished_at,
                substr(coalesce(error, ''), 1, 200) AS error_snippet
@@ -203,14 +208,18 @@ def _query_source_health() -> list[dict[str, Any]]:
                             "error": None,
                         }
                     )
-        # Per-table row counts
+        # Per-table liveness without exact row-count scans on large hypertables.
         for source, tables in PRIMARY_TABLES.items():
             for table in tables:
                 try:
-                    cur.execute(f"SELECT count(*) FROM {table}")
-                    n = cur.fetchone()[0]
+                    cur.execute(
+                        sql.SQL("SELECT EXISTS (SELECT 1 FROM {} LIMIT 1)").format(
+                            _table_identifier(table)
+                        )
+                    )
+                    has_rows = bool(cur.fetchone()[0])
                 except Exception as exc:  # noqa: BLE001 — defensive
-                    n = None
+                    has_rows = None
                     err_msg = str(exc)
                 else:
                     err_msg = None
@@ -218,7 +227,7 @@ def _query_source_health() -> list[dict[str, Any]]:
                     {
                         "source": source,
                         "table": table,
-                        "row_count": n,
+                        "has_rows": has_rows,
                         "error": err_msg,
                     }
                 )
@@ -227,6 +236,12 @@ def _query_source_health() -> list[dict[str, Any]]:
 
 def _health_status_tag(row: dict[str, Any], *, stale_hours: float) -> str:
     """Render one of OK / STALE / FAIL / MISSING / EMPTY for a row."""
+    if "has_rows" in row:
+        if row.get("error"):
+            return "FAIL"
+        if not row["has_rows"]:
+            return "EMPTY"
+        return "OK"
     if "row_count" in row:
         if row.get("error"):
             return "FAIL"
@@ -242,6 +257,15 @@ def _health_status_tag(row: dict[str, Any], *, stale_hours: float) -> str:
     if age is not None and age > stale_hours:
         return "STALE"
     return "OK"
+
+
+def _with_health_status(
+    rows: list[dict[str, Any]], *, stale_hours: float
+) -> list[dict[str, Any]]:
+    return [
+        {**row, "health_status": _health_status_tag(row, stale_hours=stale_hours)}
+        for row in rows
+    ]
 
 
 def _format_health_human(rows: list[dict[str, Any]], *, stale_hours: float) -> str:
@@ -263,13 +287,16 @@ def _format_health_human(rows: list[dict[str, Any]], *, stale_hours: float) -> s
             f"  {r['source']:<11} {r['endpoint']:<10} {tag:<8} {age:>10}  {notes}"
         )
     lines.append("")
-    lines.append("Primary table row counts (EMPTY = downstream queries return nothing)")
+    lines.append("Primary table liveness (EMPTY = downstream queries return nothing)")
     lines.append("-" * len(lines[-1]))
-    lines.append(f"  {'source':<11} {'table':<26} {'status':<8} {'rows':>14}")
+    lines.append(f"  {'source':<11} {'table':<26} {'status':<8} {'data':>8}")
     for r in counts:
         tag = _health_status_tag(r, stale_hours=stale_hours)
-        n = f"{r['row_count']:,}" if r["row_count"] is not None else "-"
-        lines.append(f"  {r['source']:<11} {r['table']:<26} {tag:<8} {n:>14}")
+        if "has_rows" in r:
+            data = "yes" if r["has_rows"] else "no" if r["has_rows"] is not None else "-"
+        else:
+            data = f"{r['row_count']:,}" if r["row_count"] is not None else "-"
+        lines.append(f"  {r['source']:<11} {r['table']:<26} {tag:<8} {data:>8}")
     return "\n".join(lines)
 
 
@@ -287,10 +314,12 @@ def health_cmd(
         bool, typer.Option("--json", help="Emit machine-readable JSON.")
     ] = False,
 ) -> None:
-    """Show per-source ingest health + primary-table row counts."""
+    """Show per-source ingest health + primary-table liveness."""
     rows = _query_source_health()
     if json_out:
-        typer.echo(json.dumps(rows, indent=2))
+        typer.echo(
+            json.dumps(_with_health_status(rows, stale_hours=stale_hours), indent=2)
+        )
     else:
         typer.echo(_format_health_human(rows, stale_hours=stale_hours))
 
@@ -391,27 +420,40 @@ def _format_gaps_human(rows: list[dict[str, Any]], *, threshold_hours: float) ->
         f"{'last_ts':<25} {'age':>10}  status"
     )
     gap_count = none_count = 0
-    for r in rows:
-        if r["last_ts"] is None:
-            status = "NONE"
+    for r in _with_gap_status(rows, threshold_hours=threshold_hours):
+        if r["status"] == "NONE":
             none_count += 1
-        elif r["age_hours"] is not None and r["age_hours"] > threshold_hours:
-            status = "GAP"
+        elif r["status"] == "GAP":
             gap_count += 1
-        else:
-            status = "OK"
         last = r["last_ts"][:25] if r["last_ts"] else "-"
         age = f"{r['age_hours']}h" if r["age_hours"] is not None else "-"
         note = f"  {r.get('note', '')}" if r.get("note") else ""
         lines.append(
             f"  {r['sleeve']:<8} {r['asset']:<10} {r['source']:<25} "
-            f"{last:<25} {age:>10}  {status}{note}"
+            f"{last:<25} {age:>10}  {r['status']}{note}"
         )
     lines.append("")
     lines.append(
         f"Summary: {len(rows)} assets, {gap_count} GAP, {none_count} NONE"
     )
     return "\n".join(lines)
+
+
+def _gap_status_tag(row: dict[str, Any], *, threshold_hours: float) -> str:
+    if row["last_ts"] is None:
+        return "NONE"
+    if row["age_hours"] is not None and row["age_hours"] > threshold_hours:
+        return "GAP"
+    return "OK"
+
+
+def _with_gap_status(
+    rows: list[dict[str, Any]], *, threshold_hours: float
+) -> list[dict[str, Any]]:
+    return [
+        {**row, "status": _gap_status_tag(row, threshold_hours=threshold_hours)}
+        for row in rows
+    ]
 
 
 @app.command("gaps")
@@ -440,6 +482,8 @@ def gaps_cmd(
     wl = _load_or_exit(config)
     rows = _query_asset_gaps(wl)
     if json_out:
-        typer.echo(json.dumps(rows, indent=2))
+        typer.echo(
+            json.dumps(_with_gap_status(rows, threshold_hours=threshold_hours), indent=2)
+        )
     else:
         typer.echo(_format_gaps_human(rows, threshold_hours=threshold_hours))
