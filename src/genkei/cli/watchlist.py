@@ -146,10 +146,14 @@ PRIMARY_TABLES: dict[str, list[str]] = {
     "coingecko": ["coingecko.market_data"],
 }
 
-# Endpoints we expect to see in meta.ingest_runs per source. Missing
-# entirely means the cron has never run successfully — louder than
-# "ran 5 days ago".
-EXPECTED_ENDPOINTS: dict[str, list[str]] = {
+# Recurring (daily-cron) endpoints we expect to see in meta.ingest_runs
+# per source. ``health`` scopes its runs table to *just* these — silent
+# absence becomes a loud MISSING tag, staleness is judged against
+# ``--stale-hours``. One-shot endpoints (``backfill``,
+# ``normalize_backfill``, ad-hoc replays) live in meta.ingest_runs for
+# audit but don't belong in the recurring-cron monitoring view; tagging
+# them STALE 159 hours after a deliberate backfill is a false positive.
+RECURRING_ENDPOINTS: dict[str, list[str]] = {
     "defillama": ["collect", "normalize"],
     "fred": ["collect", "normalize"],
     "sec": ["collect", "normalize"],
@@ -162,7 +166,13 @@ def _table_identifier(table: str) -> sql.Identifier:
 
 
 def _query_source_health() -> list[dict[str, Any]]:
-    """Per (source, endpoint) latest run with status + age, plus table liveness."""
+    """Per (source, endpoint) latest run with status + age, plus table liveness.
+
+    Scoped to ``RECURRING_ENDPOINTS`` — one-shot endpoints (backfill,
+    normalize_backfill, ad-hoc replays) are intentionally filtered out
+    so they don't pollute the recurring-cron monitoring view with
+    stale-since-the-last-backfill false positives.
+    """
     runs_sql = """
         SELECT source, endpoint, status, started_at, finished_at,
                substr(coalesce(error, ''), 1, 200) AS error_snippet
@@ -179,6 +189,8 @@ def _query_source_health() -> list[dict[str, Any]]:
         cur.execute(runs_sql)
         seen: set[tuple[str, str]] = set()
         for source, endpoint, status, started, finished, err in cur.fetchall():
+            if endpoint not in RECURRING_ENDPOINTS.get(source, []):
+                continue  # one-shot endpoint — not part of cron health.
             age_h = (now - started).total_seconds() / 3600 if started else None
             out.append(
                 {
@@ -192,9 +204,9 @@ def _query_source_health() -> list[dict[str, Any]]:
                 }
             )
             seen.add((source, endpoint))
-        # Surface expected-but-never-run pairs as explicit MISSING entries
+        # Surface recurring-but-never-run pairs as explicit MISSING entries
         # — silent absence is what bit us last time.
-        for source, endpoints in EXPECTED_ENDPOINTS.items():
+        for source, endpoints in RECURRING_ENDPOINTS.items():
             for endpoint in endpoints:
                 if (source, endpoint) not in seen:
                     out.append(

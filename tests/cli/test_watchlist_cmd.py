@@ -14,8 +14,8 @@ from unittest.mock import patch
 from genkei.cli import main
 from genkei.cli import watchlist as watchlist_mod
 from genkei.cli.watchlist import (
-    EXPECTED_ENDPOINTS,
     PRIMARY_TABLES,
+    RECURRING_ENDPOINTS,
     _format_gaps_human,
     _format_health_human,
     _format_list_human,
@@ -243,7 +243,7 @@ class QuerySourceHealthTests(unittest.TestCase):
 
         with (
             patch("genkei.cli.watchlist.db.connection", return_value=FakeConn()),
-            patch("genkei.cli.watchlist.EXPECTED_ENDPOINTS", {}),
+            patch("genkei.cli.watchlist.RECURRING_ENDPOINTS", {}),
             patch(
                 "genkei.cli.watchlist.PRIMARY_TABLES",
                 {"fred": ["fred.observations"]},
@@ -267,9 +267,77 @@ class ExpectationsRegistryTests(unittest.TestCase):
         )
 
     def test_every_source_expects_collect_and_normalize(self) -> None:
-        for source, eps in EXPECTED_ENDPOINTS.items():
+        for source, eps in RECURRING_ENDPOINTS.items():
             self.assertIn("collect", eps, f"{source} missing collect")
             self.assertIn("normalize", eps, f"{source} missing normalize")
+
+
+class OneShotEndpointFilteringTests(unittest.TestCase):
+    """`health` must filter out one-shot endpoints (backfill, etc).
+
+    Background: a deliberate one-shot run (e.g. defillama backfill on
+    2026-05-10) shouldn't be tagged STALE 159h later just because it
+    hasn't run since. STALE/OK/MISSING only apply to recurring crons.
+    """
+
+    def test_query_source_health_skips_endpoints_outside_recurring(self) -> None:
+        # Fake meta.ingest_runs rows: one recurring (collect) + one
+        # one-shot (backfill). Only the recurring one should show up.
+        now = datetime.now(timezone.utc)
+        run_rows = [
+            ("defillama", "collect", "success", now, now, ""),
+            ("defillama", "backfill", "success", now - timedelta(hours=159), now, ""),
+            ("defillama", "normalize_backfill", "success", now - timedelta(hours=159), now, ""),
+        ]
+
+        class FakeCursor:
+            def __init__(self):
+                self._next = list(run_rows)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, sql, params=None):  # noqa: ARG002
+                pass
+
+            def fetchall(self):
+                return list(run_rows)
+
+            def fetchone(self):
+                return [True]
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def cursor(self):
+                return FakeCursor()
+
+        with (
+            patch("genkei.cli.watchlist.db.connection", return_value=FakeConn()),
+            patch(
+                "genkei.cli.watchlist.RECURRING_ENDPOINTS",
+                {"defillama": ["collect", "normalize"]},
+            ),
+            patch(
+                "genkei.cli.watchlist.PRIMARY_TABLES",
+                {"defillama": ["defillama.chain_tvl"]},
+            ),
+        ):
+            rows = _query_source_health()
+        endpoints_seen = {r.get("endpoint") for r in rows if "endpoint" in r}
+        # `collect` is present; `backfill` / `normalize_backfill` filtered;
+        # `normalize` surfaced as MISSING (recurring + never seen).
+        self.assertIn("collect", endpoints_seen)
+        self.assertIn("normalize", endpoints_seen)
+        self.assertNotIn("backfill", endpoints_seen)
+        self.assertNotIn("normalize_backfill", endpoints_seen)
 
 
 # ---------------------------------------------------------------------------
