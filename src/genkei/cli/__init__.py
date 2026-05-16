@@ -20,9 +20,9 @@ Conventions (D-019 in docs/architecture.md):
 
 Subcommand surface (B-037):
 - ``genkei prices``    crypto + (later) equity prices         [B-039 ✓]
-- ``genkei filings``   SEC EDGAR filings                      [B-040, stub]
+- ``genkei filings``   SEC EDGAR filings + XBRL facts         [B-040 ✓]
 - ``genkei tvl``       DeFiLlama chain + protocol TVL         [B-041, stub]
-- ``genkei macro``     FRED macro series                      [B-042, stub]
+- ``genkei macro``     FRED macro series                      [B-042 ✓]
 - ``genkei news``      GDELT news / events                    [B-043, stub]
 - ``genkei watchlist`` Watchlist coverage / health            [B-044, stub]
 - ``genkei query``     SQL escape hatch                       [B-045, stub]
@@ -34,7 +34,7 @@ import sys
 
 import typer
 
-from genkei.cli import prices
+from genkei.cli import filings, macro, prices
 
 app = typer.Typer(
     name="genkei",
@@ -46,6 +46,10 @@ app = typer.Typer(
 # Real subcommands export a callable; we register them as top-level commands
 # so options bind correctly. Stub groups use the placeholder factory below.
 app.command("prices", help="Asset prices (crypto today; equities later).")(prices.prices_cmd)
+app.command("filings", help="SEC EDGAR filings (default) or XBRL facts (--concept).")(
+    filings.filings_cmd
+)
+app.command("macro", help="FRED macro series observations (vintage-aware).")(macro.macro_cmd)
 
 
 def _stub(group_name: str, item: str) -> typer.Typer:
@@ -63,9 +67,7 @@ def _stub(group_name: str, item: str) -> typer.Typer:
     return sub
 
 
-app.add_typer(_stub("filings", "B-040"), name="filings")
 app.add_typer(_stub("tvl", "B-041"), name="tvl")
-app.add_typer(_stub("macro", "B-042"), name="macro")
 app.add_typer(_stub("news", "B-043"), name="news")
 app.add_typer(_stub("watchlist", "B-044"), name="watchlist")
 app.add_typer(_stub("query", "B-045"), name="query")
