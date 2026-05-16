@@ -407,6 +407,9 @@ def normalize(*, source_run_id: int | None = None) -> tuple[int, int]:
                         conn,
                         "sec.facts",
                         fact_rows,
+                        # PK on sec.facts is (cik, concept, unit, period_start,
+                        # period_end, accession_number); ON CONFLICT must match
+                        # the migration's constraint exactly.
                         conflict_keys=[
                             "cik",
                             "concept",
@@ -465,10 +468,21 @@ def _as_numeric(value: Any) -> Decimal | None:
 
 
 def _maybe_jsonable(value: Any) -> Any:
-    """Pass through JSON-serializable values; drop non-serializable junk."""
+    """Wrap a JSON-serializable value so psycopg can adapt it to a JSONB column.
+
+    Without ``Jsonb()`` the bare Python dict / list raises
+    ``cannot adapt type 'dict' using placeholder '%s' (format: AUTO)``
+    when ``bulk_upsert`` passes it through ``executemany`` (the bug we
+    hit on the first live SEC normalize, see G-028).
+    """
     if value is None:
         return None
-    if isinstance(value, (dict, list, str, int, float, bool)):
+    if isinstance(value, (dict, list)):
+        # psycopg3's Jsonb adapter handles the JSONB serialization for us.
+        from psycopg.types.json import Jsonb
+
+        return Jsonb(value)
+    if isinstance(value, (str, int, float, bool)):
         return value
     return None
 

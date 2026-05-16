@@ -51,12 +51,24 @@ def _route(request: httpx.Request) -> httpx.Response:
                 ]
             },
         )
+    if path.endswith("/series/vintagedates"):
+        if series_id == "GDPC1":
+            return httpx.Response(
+                200,
+                json={"count": 2, "vintage_dates": ["2024-04-25", "2024-05-30"]},
+            )
+        return httpx.Response(200, json={"count": 1, "vintage_dates": ["2026-05-09"]})
     if path.endswith("/series/observations"):
+        if request.url.params.get("output_type") != "3":
+            return httpx.Response(400, text="missing output_type=3")
+        if "vintage_dates" not in request.url.params:
+            return httpx.Response(400, text="missing vintage_dates")
         if series_id == "GDPC1":
             # Two vintages of the same Q1 observation.
             return httpx.Response(
                 200,
                 json={
+                    "count": 2,
                     "observations": [
                         {
                             "date": "2024-01-01",
@@ -76,6 +88,7 @@ def _route(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
             json={
+                "count": 1,
                 "observations": [
                     {
                         "date": "2026-05-09",
