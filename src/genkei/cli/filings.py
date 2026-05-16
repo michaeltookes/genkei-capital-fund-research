@@ -21,6 +21,7 @@ Usage:
 
 import json
 from datetime import date
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Annotated, Any, Optional
 
@@ -182,11 +183,25 @@ def _format_facts_human(ticker: str, concept: str, rows: list[dict[str, Any]]) -
         fy = str(r["fy"]) if r["fy"] is not None else "-"
         fp = r["fp"] or "-"
         unit = r["unit"] or "-"
-        val = f"{r['value']:>20,.0f}" if r["value"] is not None else f"{'n/a':>20}"
+        val = f"{_format_fact_value(r['value']):>20}"
         form = r["form_type"] or "-"
         accn = r["accession_number"]
         lines.append(f"  {pe:<12} {fy:<5} {fp:<4} {unit:<10} {val}  {form:<6} {accn}")
     return "\n".join(lines)
+
+
+def _format_fact_value(value: Any) -> str:
+    """Format SEC numeric facts without hiding meaningful decimals."""
+    if value is None:
+        return "n/a"
+    try:
+        decimal_value = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return str(value)
+    if decimal_value == decimal_value.to_integral_value():
+        return f"{int(decimal_value):,}"
+    text = format(decimal_value, ",f")
+    return text.rstrip("0").rstrip(".")
 
 
 def _resolve_equity(ticker: str, watchlist: Watchlist) -> EquityEntry:

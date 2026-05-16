@@ -83,6 +83,40 @@ class FormatTests(unittest.TestCase):
         self.assertIn("Revenues", out)
         self.assertIn("94,930,000,000", out)
 
+    def test_facts_table_preserves_fractional_values(self) -> None:
+        rows = [
+            {
+                "taxonomy": "us-gaap",
+                "concept": "EarningsPerShareDiluted",
+                "unit": "USD/shares",
+                "period_start": "2024-01-01",
+                "period_end": "2024-12-31",
+                "value": 6.37,
+                "accession_number": "0000320193-24-000123",
+                "form_type": "10-K",
+                "filed_at": "2024-11-01",
+                "fy": 2024,
+                "fp": "FY",
+            },
+            {
+                "taxonomy": "us-gaap",
+                "concept": "OperatingMargin",
+                "unit": "pure",
+                "period_start": "2024-01-01",
+                "period_end": "2024-12-31",
+                "value": 0.315,
+                "accession_number": "0000320193-24-000123",
+                "form_type": "10-K",
+                "filed_at": "2024-11-01",
+                "fy": 2024,
+                "fp": "FY",
+            },
+        ]
+        out = _format_facts_human("AAPL", "EarningsPerShareDiluted", rows)
+        self.assertIn("6.37", out)
+        self.assertIn("0.315", out)
+        self.assertNotIn(" 6  ", out)
+
 
 class ParseDateTests(unittest.TestCase):
     def test_garbage_raises_typer_bad_parameter(self) -> None:
