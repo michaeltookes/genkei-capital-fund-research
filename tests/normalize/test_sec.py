@@ -114,6 +114,43 @@ class NormalizeCompanyTests(unittest.TestCase):
             normalize_company({}, cik="x", source_endpoint="x", ingest_run_id=1, fetched_at=NOW)
         )
 
+    def test_former_names_wrapped_for_jsonb_adapter(self) -> None:
+        # G-027: bulk_upsert passes the dict straight to psycopg's
+        # %s placeholder for the former_names JSONB column. A bare
+        # dict / list raises "cannot adapt type". The normalizer must
+        # wrap with psycopg.types.json.Jsonb() so the adapter fires.
+        from psycopg.types.json import Jsonb
+
+        payload = {
+            "cik": "320193",
+            "name": "Apple Inc.",
+            "tickers": ["AAPL"],
+            "formerNames": [{"name": "Apple Computer, Inc.", "from": "1976", "to": "2007"}],
+        }
+        row = normalize_company(
+            payload,
+            cik="0000320193",
+            source_endpoint="x",
+            ingest_run_id=1,
+            fetched_at=NOW,
+        )
+        self.assertIsNotNone(row)
+        assert row is not None  # for mypy
+        self.assertIsInstance(row["former_names"], Jsonb)
+
+    def test_former_names_none_passthrough(self) -> None:
+        # When formerNames is absent, the column stays NULL — no Jsonb wrap.
+        payload = {"cik": "320193", "name": "Apple Inc.", "tickers": ["AAPL"]}
+        row = normalize_company(
+            payload,
+            cik="0000320193",
+            source_endpoint="x",
+            ingest_run_id=1,
+            fetched_at=NOW,
+        )
+        assert row is not None
+        self.assertIsNone(row["former_names"])
+
 
 class NormalizeFilingsTests(unittest.TestCase):
     def test_walks_parallel_arrays_into_rows(self) -> None:
