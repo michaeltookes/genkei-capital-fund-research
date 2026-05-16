@@ -12,11 +12,16 @@ path. Each daily run upserts the latest state of every observation
 including any new vintages — D-013's vintage-aware schema means new
 revisions land as new rows rather than overwriting historical values.
 
-Vintage handling: every observations call sends an explicit full
-realtime window (``realtime_start=1776-07-04`` /
-``realtime_end=9999-12-31``). The schema is vintage-aware (D-013), so
-revisions land as new rows keyed by FRED's observation
-``realtime_start`` rather than by the request date.
+Vintage handling: observations calls do **not** send a realtime window
+(see G-019 / G-027). Passing the full-history window
+``realtime_start=1776-07-04`` returns 400 Bad Request on any series
+whose first observation predates 2000-01-01 (FRED enforces a
+2000-vintage cap on full-window requests). Without realtime params,
+FRED returns each observation tagged with its proper
+``realtime_start`` in the payload, which is what the vintage-aware
+schema (D-013) keys on — so we still capture revisions correctly while
+sidestepping the cap. ``EARLIEST_REALTIME`` / ``LATEST_REALTIME`` are
+kept as defensive constants but no longer flow into the URL.
 
 API key: the free FRED API key lives in the ``FRED_API_KEY`` env var.
 Register at https://fredaccount.stlouisfed.org/apikeys.
@@ -133,14 +138,18 @@ def build_observations_url(
     limit: int = OBSERVATIONS_PAGE_LIMIT,
     offset: int = 0,
 ) -> str:
-    """Build the URL for the full-vintage observations endpoint."""
+    """Build the URL for the observations endpoint.
+
+    Does not include ``realtime_start`` / ``realtime_end`` — see G-027.
+    FRED returns the proper per-observation ``realtime_start`` in the
+    payload anyway, so vintage tracking still works while we avoid the
+    2000-vintage-cap 400 that kills daily series like DGS10 / VIXCLS.
+    """
     return (
         f"{FRED_BASE_URL}/series/observations"
         f"?series_id={series_id}"
         f"&api_key={api_key}"
         f"&file_type=json"
-        f"&realtime_start={EARLIEST_REALTIME}"
-        f"&realtime_end={LATEST_REALTIME}"
         f"&limit={limit}"
         f"&offset={offset}"
     )
