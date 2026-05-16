@@ -203,14 +203,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
 
 The interface the agent (and human user) uses to query the lake.
 
-### B-040 — Implement `genkei filings` subcommand
-- **Status:** open
-- **Priority:** medium
-- **Context:** SEC EDGAR queries: by ticker, form type, date range; includes filing URL.
-- **Acceptance criteria:**
-  - `genkei filings --ticker AAPL --form 8-K --since 2024-01-01`.
-  - Output includes filing URL + extracted fact summary.
-
 ### B-041 — Implement `genkei tvl` subcommand
 - **Status:** open
 - **Priority:** medium
@@ -219,14 +211,6 @@ The interface the agent (and human user) uses to query the lake.
   - `genkei tvl --protocol Aave --window 7d`.
   - `genkei tvl --chain Ethereum --since 2023-01-01`.
   - Includes momentum/zombie risk classification per existing logic.
-
-### B-042 — Implement `genkei macro` subcommand
-- **Status:** open
-- **Priority:** medium
-- **Context:** FRED + BEA + Treasury series queries.
-- **Acceptance criteria:**
-  - `genkei macro --series DGS10 --since 2020-01-01`.
-  - Cross-series comparison (`--series DGS10,DGS2`).
 
 ### B-043 — Implement `genkei news` subcommand
 - **Status:** open
