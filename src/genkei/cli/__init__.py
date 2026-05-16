@@ -21,10 +21,10 @@ Conventions (D-019 in docs/architecture.md):
 Subcommand surface (B-037):
 - ``genkei prices``    crypto + (later) equity prices         [B-039 ✓]
 - ``genkei filings``   SEC EDGAR filings + XBRL facts         [B-040 ✓]
-- ``genkei tvl``       DeFiLlama chain + protocol TVL         [B-041, stub]
+- ``genkei tvl``       DeFiLlama chain + protocol TVL         [B-041 ✓]
 - ``genkei macro``     FRED macro series                      [B-042 ✓]
 - ``genkei news``      GDELT news / events                    [B-043, stub]
-- ``genkei watchlist`` Watchlist coverage / health            [B-044, stub]
+- ``genkei watchlist`` Watchlist coverage / health            [B-044 ✓]
 - ``genkei query``     SQL escape hatch                       [B-045, stub]
 """
 
@@ -34,7 +34,7 @@ import sys
 
 import typer
 
-from genkei.cli import filings, macro, prices
+from genkei.cli import filings, macro, prices, tvl, watchlist
 
 app = typer.Typer(
     name="genkei",
@@ -50,6 +50,13 @@ app.command("filings", help="SEC EDGAR filings (default) or XBRL facts (--concep
     filings.filings_cmd
 )
 app.command("macro", help="FRED macro series observations (vintage-aware).")(macro.macro_cmd)
+app.command("tvl", help="DeFiLlama chain / protocol TVL (default: chains overview).")(
+    tvl.tvl_cmd
+)
+# `watchlist` is the first real subcommand group — uses add_typer because
+# it owns its own subcommands (list / health / gaps), unlike the
+# single-action commands above.
+app.add_typer(watchlist.app, name="watchlist")
 
 
 def _stub(group_name: str, item: str) -> typer.Typer:
@@ -67,9 +74,7 @@ def _stub(group_name: str, item: str) -> typer.Typer:
     return sub
 
 
-app.add_typer(_stub("tvl", "B-041"), name="tvl")
 app.add_typer(_stub("news", "B-043"), name="news")
-app.add_typer(_stub("watchlist", "B-044"), name="watchlist")
 app.add_typer(_stub("query", "B-045"), name="query")
 
 
