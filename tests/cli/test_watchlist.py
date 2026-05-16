@@ -8,8 +8,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from genkei.cli._watchlist import (
-    CryptoEntry,
     DEFAULT_WATCHLIST_PATH,
+    CryptoEntry,
     EquityEntry,
     MacroEntry,
     load_watchlist,

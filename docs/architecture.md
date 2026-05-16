@@ -444,6 +444,13 @@ Append-only. Each entry: **what**, **why**, **alternative considered**, **what w
 **What we're explicitly NOT borrowing:** the multi-agent framework, the per-run live API fetching, the LangGraph orchestration. All three are antithetical to a Claude-Code + data-lake setup.
 **Sequencing:** lands after Phase 3 CLI (B-037 → ~B-044) is built enough for Claude to query the lake ergonomically. The CLI is the actual prerequisite; without it, the methodology has no useful tools to invoke.
 
+### D-020 — CoinGecko collector supports a first-class keyless mode
+**Date:** 2026-05-16 · **In:** `src/genkei/ingest/coingecko.py`, fix-ingest-pipelines
+**Decision:** `COINGECKO_API_KEY` is optional. Unset / blank / whitespace-only env values fall through to **keyless mode**: public `api.coingecko.com` host, no auth header, `KEYLESS_RATE_LIMIT = per_minute(5)`. Demo mode (with key) keeps `per_minute(25)`. Pro and `--backfill` still require a key and fail fast otherwise.
+**Why:** The user opted to stay on the free tier (no key registration). The previously-merged collector hard-required a key and silently failed every daily run for ~3 days, leaving `coingecko.market_data` empty. Keyless is supported by CoinGecko's public API at a stricter rate; 14 daily calls take ~3 min keyless vs ~30s demo — acceptable for daily ingest. Documented in docstring + module constants.
+**Alternative:** Register a free demo key. Rejected for now per user preference; the keyless path is intentionally cheap to revert if/when a key is added.
+**Sentinel:** `collect(api_key=_USE_ENV)` distinguishes "look up env" from caller-passed `None` (explicit keyless) so unit tests can force keyless without env juggling.
+
 ### D-019 — Typer over Click for the CLI
 **Date:** 2026-05-10 · **In:** B-038, `src/genkei/cli/__init__.py`
 **Decision:** The `genkei` CLI is built on Typer (which sits on Click). Subcommands are top-level commands registered via `app.command(...)`, not nested sub-apps with callbacks.
@@ -617,3 +624,21 @@ Append-only. Each entry: **what bit us**, **how we resolved it**, **how to avoid
 **Symptom:** Test setup using `tmp = Path(self.enterContext(TemporaryDirectory()))` fails with `AttributeError: 'TestCase' object has no attribute 'enterContext'` on Python 3.9.
 **Resolution:** Use the older pattern: `ctx = TemporaryDirectory(); self.addCleanup(ctx.cleanup); tmp = Path(ctx.name)`. CI runs 3.12 where `enterContext` exists; the older pattern works on both.
 **Avoid next time:** Same root cause as G-027 — local venv is 3.9. Either upgrade the venv or stick to stdlib APIs that predate 3.11.
+
+### G-028 — psycopg3 can't auto-adapt a bare dict to a JSONB column
+**Hit:** 2026-05-15 (first live SEC normalize, run id 33)
+**Symptom:** `bulk_upsert` for `sec.companies` fails with `psycopg.errors.ProgrammingError: cannot adapt type 'dict' using placeholder '%s' (format: AUTO)`. Three consecutive nightly normalize runs (28, 33, 38) failed identically; `sec.companies` stayed empty.
+**Resolution:** Wrap dict/list values destined for JSONB columns with `psycopg.types.json.Jsonb(...)` before they reach `executemany`. Applied to `_maybe_jsonable` in `src/genkei/normalize/sec.py` — handles the `former_names` field. The bare list-of-strings `exchanges` column is `text[]` (not JSONB) and adapts fine without wrapping.
+**Avoid next time:** Any normalizer column typed JSONB in the migration needs `Jsonb()` wrapping. Grep new normalizers for `_maybe_jsonable` / raw dict assignment when introducing a JSONB column. Live smoke tests catch this; offline unit tests don't (no psycopg adapter involved).
+
+### G-029 — FRED full-vintage realtime window regressed via a "restore" commit
+**Hit:** 2026-05-12 onward (4 consecutive daily collect failures); resolved 2026-05-16
+**Symptom:** Same 400 Bad Request shape as G-019 on the 6 daily series (DFF, DGS2, DGS10, DGS30, T10Y2Y, VIXCLS). All ran 6+ daily failures with `FRED fetch failed for 6 endpoint(s)`. Investigation traced to a "Restore FRED realtime observation window" commit that re-added `realtime_start=1776-07-04` / `realtime_end=9999-12-31` to `build_observations_url`, undoing the original G-019 fix.
+**Resolution:** Re-removed the realtime params from `build_observations_url`. FRED returns each observation tagged with its own `realtime_start` in the payload regardless, so the vintage-aware schema (D-013) still captures revisions correctly. `EARLIEST_REALTIME` / `LATEST_REALTIME` constants are kept as documentation but no longer flow into requests.
+**Avoid next time:** Test for `realtime_start` / `realtime_end` *absence* in the URL (test `test_observations_url_omits_realtime_window` enforces this). Any future "restore" of the realtime window must update the test, surfacing the G-019/G-029 history.
+
+### G-030 — `sec.facts` ON CONFLICT key set must match the PK exactly
+**Hit:** 2026-05-16 (revealed after fixing G-028)
+**Symptom:** `psycopg.errors.InvalidColumnReference: there is no unique or exclusion constraint matching the ON CONFLICT specification`. Normalizer passed 6 `conflict_keys` (`cik, concept, unit, period_start, period_end, accession_number`); the actual PK is 5 cols (`cik, concept, unit, period_end, accession_number`).
+**Resolution:** Drop `period_start` from `conflict_keys` in `src/genkei/normalize/sec.py`. Per-accession XBRL facts have one canonical period for each (cik, concept, unit, period_end) combo, so the 5-col PK is correct; the code drifted from the schema.
+**Avoid next time:** Bulk-upsert helpers should validate `conflict_keys` against the live table's unique constraints before issuing the statement. Tracked as backlog work — for now, a comment in the normalizer pins the column set to the PK.
