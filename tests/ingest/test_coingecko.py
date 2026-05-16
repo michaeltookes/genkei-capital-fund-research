@@ -17,9 +17,16 @@ from genkei.common.http import HttpClient
 from genkei.ingest.coingecko import (
     API_KEY_ENV,
     API_TIER_ENV,
+    DEMO_API_KEY_HEADER,
+    DEMO_COINGECKO_BASE,
     DEMO_MARKET_CHART_DAYS,
     DEMO_RATE_LIMIT,
+    KEYLESS_RATE_LIMIT,
+    PRO_API_KEY_HEADER,
+    PRO_COINGECKO_BASE,
     CoinTarget,
+    api_base_url,
+    api_key_headers,
     build_coin_url,
     build_market_chart_range_url,
     build_market_chart_url,
@@ -32,6 +39,7 @@ from genkei.ingest.coingecko import (
     parse_args,
     resolve_api_key,
     resolve_api_tier,
+    validate_api_key_tier,
 )
 
 
@@ -135,6 +143,43 @@ class UrlBuilderTests(unittest.TestCase):
         self.assertIn("interval=daily", url)
 
 
+class KeylessModeTests(unittest.TestCase):
+    """Cover the keyless (no COINGECKO_API_KEY) request shape."""
+
+    def test_api_key_headers_returns_empty_when_keyless(self) -> None:
+        self.assertEqual(api_key_headers("demo", None), {})
+
+    def test_api_key_headers_uses_demo_header_when_keyed(self) -> None:
+        self.assertEqual(api_key_headers("demo", "abc"), {DEMO_API_KEY_HEADER: "abc"})
+
+    def test_api_key_headers_uses_pro_header_when_pro(self) -> None:
+        self.assertEqual(api_key_headers("pro", "xyz"), {PRO_API_KEY_HEADER: "xyz"})
+
+    def test_keyless_uses_public_host(self) -> None:
+        # Keyless and demo share the public host; pro flips to pro-api.
+        self.assertEqual(api_base_url("demo"), DEMO_COINGECKO_BASE)
+        self.assertEqual(api_base_url("pro"), PRO_COINGECKO_BASE)
+        self.assertNotIn("pro-api", DEMO_COINGECKO_BASE)
+
+    def test_keyless_rate_limit_is_tighter_than_demo(self) -> None:
+        # Public/keyless gets a stricter cap than authenticated demo.
+        # Same window (per_minute), fewer requests.
+        self.assertEqual(KEYLESS_RATE_LIMIT.window_seconds, DEMO_RATE_LIMIT.window_seconds)
+        self.assertLess(KEYLESS_RATE_LIMIT.requests, DEMO_RATE_LIMIT.requests)
+
+    def test_validate_rejects_pro_tier_without_key(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "requires"):
+            validate_api_key_tier("pro", backfill=False, api_key=None)
+
+    def test_validate_rejects_backfill_without_key(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "requires COINGECKO_API_TIER=pro"):
+            validate_api_key_tier("demo", backfill=True, api_key=None)
+
+    def test_validate_allows_keyless_daily(self) -> None:
+        # Keyless daily collect is the supported free-tier path; no raise.
+        validate_api_key_tier("demo", backfill=False, api_key=None)
+
+
 class ResolveApiKeyTests(unittest.TestCase):
     def setUp(self) -> None:
         self._saved = os.environ.pop(API_KEY_ENV, None)
@@ -158,21 +203,22 @@ class ResolveApiKeyTests(unittest.TestCase):
         os.environ[API_KEY_ENV] = "  demo-abc123  "
         self.assertEqual(resolve_api_key(), "demo-abc123")
 
-    def test_rejects_when_unset(self) -> None:
-        with self.assertRaisesRegex(SystemExit, API_KEY_ENV):
-            resolve_api_key()
+    def test_returns_none_when_unset(self) -> None:
+        # Keyless is now a supported mode — public host, no auth header,
+        # tighter rate limit. resolve_api_key() returns None instead of
+        # raising so callers can fall through to keyless.
+        self.assertIsNone(resolve_api_key())
 
-    def test_rejects_when_empty(self) -> None:
+    def test_returns_none_when_empty(self) -> None:
         os.environ[API_KEY_ENV] = ""
-        with self.assertRaisesRegex(SystemExit, API_KEY_ENV):
-            resolve_api_key()
+        self.assertIsNone(resolve_api_key())
 
-    def test_rejects_when_whitespace_only(self) -> None:
+    def test_returns_none_when_whitespace_only(self) -> None:
         os.environ[API_KEY_ENV] = "   "
-        with self.assertRaisesRegex(SystemExit, API_KEY_ENV):
-            resolve_api_key()
+        self.assertIsNone(resolve_api_key())
 
-    def test_collect_rejects_missing_api_key_before_ingest_run(self) -> None:
+    def test_backfill_requires_api_key(self) -> None:
+        # Backfill needs the Pro range endpoint; keyless can't reach it.
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "watchlists.yml"
             path.write_text(
@@ -183,22 +229,8 @@ class ResolveApiKeyTests(unittest.TestCase):
                 "      coingecko_id: bitcoin\n",
                 encoding="utf-8",
             )
-            with self.assertRaisesRegex(SystemExit, API_KEY_ENV):
-                collect(path)
-
-    def test_collect_rejects_whitespace_api_key_before_ingest_run(self) -> None:
-        with TemporaryDirectory() as tmp:
-            path = Path(tmp) / "watchlists.yml"
-            path.write_text(
-                "crypto:\n"
-                "  primary:\n"
-                "    - symbol: BTC\n"
-                "      name: Bitcoin\n"
-                "      coingecko_id: bitcoin\n",
-                encoding="utf-8",
-            )
-            with self.assertRaisesRegex(SystemExit, API_KEY_ENV):
-                collect(path, api_key="   ")
+            with self.assertRaisesRegex(SystemExit, "requires COINGECKO_API_TIER=pro"):
+                collect(path, api_key=None, backfill=True, since=date(2020, 1, 1))
 
     def test_api_tier_defaults_to_demo(self) -> None:
         self.assertEqual(resolve_api_tier(), "demo")
@@ -304,18 +336,25 @@ class ParseArgsTests(unittest.TestCase):
             parse_args(["--backfill"])
 
     def test_main_honors_explicit_empty_argv(self) -> None:
+        # main([]) must run parse_args on [] (defaults), not fall back to
+        # sys.argv. Verified by stuffing sys.argv with a flag combination
+        # parse_args would reject ("--backfill" without "--since") and
+        # confirming main([]) does NOT raise that SystemExit. We patch
+        # collect to short-circuit before the DB call.
+        from unittest.mock import patch as mock_patch
+
         saved_argv = sys.argv
-        saved_key = os.environ.pop(API_KEY_ENV, None)
         try:
             sys.argv = ["coingecko", "--backfill"]
-            with self.assertRaisesRegex(SystemExit, API_KEY_ENV):
-                main([])
+            with mock_patch(
+                "genkei.ingest.coingecko.collect", return_value=42
+            ) as mocked:
+                rc = main([])
+            self.assertEqual(rc, 0)
+            # Called with the parse_args([]) defaults — backfill False.
+            self.assertEqual(mocked.call_args.kwargs.get("backfill"), False)
         finally:
             sys.argv = saved_argv
-            if saved_key is not None:
-                os.environ[API_KEY_ENV] = saved_key
-            else:
-                os.environ.pop(API_KEY_ENV, None)
 
 
 class RateLimitDefaultsTests(unittest.TestCase):

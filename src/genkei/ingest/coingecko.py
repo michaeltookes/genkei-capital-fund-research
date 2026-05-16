@@ -12,12 +12,17 @@ Demo/Public historical chart access to the past 365 days. Pro backfill
 uses ``/market_chart/range`` in bounded date chunks and aggregates the
 chunks into the existing ``market_chart_<id>`` raw blob shape.
 
-CoinGecko Demo keys are sent via ``x-cg-demo-api-key``; Pro keys are
-sent via ``x-cg-pro-api-key`` against the Pro API host. We use
-``per_minute(25)`` to stay under the published Demo 25-30 req/min limit.
-Two calls per coin × 7 watchlist crypto entries = 14 calls per daily
-run; takes ~30s with a key. Configurable via ``COINGECKO_API_KEY`` and
-``COINGECKO_API_TIER`` env vars.
+Auth tiers (configurable via ``COINGECKO_API_KEY`` / ``COINGECKO_API_TIER``):
+
+* **Keyless** (no ``COINGECKO_API_KEY``): hits the public host with no
+  auth header. CoinGecko applies a conservative ~5-15 req/min ceiling
+  here; we cap at ``per_minute(5)`` to stay well below it. Backfill is
+  rejected — Pro range endpoint requires a key. 14 calls per daily run
+  takes ~3 min keyless vs ~30s with a Demo key.
+* **Demo** (``COINGECKO_API_KEY`` set, default tier ``demo``): sent via
+  ``x-cg-demo-api-key`` to the Demo host, ``per_minute(25)``.
+* **Pro** (``COINGECKO_API_TIER=pro``): sent via ``x-cg-pro-api-key`` to
+  the Pro host; only mode that supports backfill.
 """
 
 from __future__ import annotations
@@ -59,12 +64,20 @@ BACKFILL_CHUNK_DAYS = 365
 # Conservative default under the documented free Demo limit to leave
 # headroom for retries.
 DEMO_RATE_LIMIT = RateLimit.per_minute(25)
+# Public (no-key) requests get a much tighter ceiling. CoinGecko hasn't
+# published an exact unauthenticated rate limit; community reports put
+# it in the 5-15 req/min range. 5/min is safe and still finishes the
+# daily watchlist run in ~3 minutes.
+KEYLESS_RATE_LIMIT = RateLimit.per_minute(5)
 RAW_BLOBS_INSERT = (
     "INSERT INTO meta.raw_blobs (ingest_run_id, endpoint_name, url, payload) "
     "VALUES (%s, %s, %s, %s::jsonb) "
     "ON CONFLICT (ingest_run_id, endpoint_name) DO NOTHING"
 )
 LOGGER = logging.getLogger(__name__)
+# Sentinel so ``api_key=None`` in collect() can mean "explicit keyless"
+# while the default ``api_key=_USE_ENV`` falls back to ``resolve_api_key``.
+_USE_ENV: Any = object()
 
 
 @dataclass(frozen=True)
@@ -123,20 +136,20 @@ def load_coins(path: Path) -> list[CoinTarget]:
     return out
 
 
-def resolve_api_key() -> str:
-    """Return the demo API key from the environment, failing fast if unset."""
+def resolve_api_key() -> str | None:
+    """Return the API key from the environment, or ``None`` for keyless mode."""
     return normalize_api_key(os.environ.get(API_KEY_ENV))
 
 
-def normalize_api_key(api_key: str | None) -> str:
-    """Validate and trim a configured CoinGecko API key."""
+def normalize_api_key(api_key: str | None) -> str | None:
+    """Trim a configured CoinGecko API key. Returns ``None`` if unset/empty.
+
+    Keyless is a supported mode (public CoinGecko host, no auth header,
+    tighter rate limit). Whitespace-only values are treated the same as
+    unset so an empty GH Actions secret doesn't surprise us with a 403.
+    """
     api_key = api_key.strip() if api_key is not None else ""
-    if not api_key:
-        raise SystemExit(
-            f"{API_KEY_ENV} is required for CoinGecko API requests. "
-            "Set the GitHub Actions secret or local environment variable before collecting."
-        )
-    return api_key
+    return api_key or None
 
 
 def resolve_api_tier() -> str:
@@ -152,22 +165,32 @@ def normalize_api_tier(api_tier: str) -> str:
     return tier
 
 
-def validate_api_key_tier(api_tier: str, *, backfill: bool) -> None:
-    """Fail fast when the configured tier cannot support the requested mode."""
-    if backfill and api_tier != PRO_API_TIER:
+def validate_api_key_tier(api_tier: str, *, backfill: bool, api_key: str | None) -> None:
+    """Fail fast when the configured tier/key combo cannot support the request."""
+    if api_tier == PRO_API_TIER and api_key is None:
+        raise SystemExit(
+            f"COINGECKO_API_TIER=pro requires {API_KEY_ENV} to be set."
+        )
+    if backfill and (api_tier != PRO_API_TIER or api_key is None):
         raise SystemExit(
             "CoinGecko historical backfill requires COINGECKO_API_TIER=pro and a Pro API key. "
-            "Demo/Public API access is limited to the past 365 days."
+            "Demo/Public/keyless API access is limited to the past 365 days."
         )
 
 
 def api_base_url(api_tier: str) -> str:
-    """Return the API host for the configured tier."""
+    """Return the API host for the configured tier.
+
+    Keyless and Demo share the same public host; only Pro uses the
+    separate pro-api host.
+    """
     return PRO_COINGECKO_BASE if api_tier == PRO_API_TIER else DEMO_COINGECKO_BASE
 
 
-def api_key_headers(api_tier: str, api_key: str) -> dict[str, str]:
-    """Return the auth header for the configured tier."""
+def api_key_headers(api_tier: str, api_key: str | None) -> dict[str, str]:
+    """Return the auth header for the configured tier, or ``{}`` if keyless."""
+    if api_key is None:
+        return {}
     header = PRO_API_KEY_HEADER if api_tier == PRO_API_TIER else DEMO_API_KEY_HEADER
     return {header: api_key}
 
@@ -223,15 +246,22 @@ def collect(
     config_path: Path = DEFAULT_WATCHLIST_PATH,
     *,
     http: HttpClient | None = None,
-    api_key: str | None = None,
+    api_key: str | None = _USE_ENV,
     api_tier: str | None = None,
     backfill: bool = False,
     since: date | None = None,
 ) -> int:
-    """Run the CoinGecko collector once and return the meta.ingest_runs id."""
-    key = normalize_api_key(api_key) if api_key is not None else resolve_api_key()
+    """Run the CoinGecko collector once and return the meta.ingest_runs id.
+
+    ``api_key`` semantics:
+    - default (``_USE_ENV``) — look up ``COINGECKO_API_KEY`` from env;
+      missing/blank means keyless.
+    - explicit ``None`` — force keyless mode.
+    - explicit string — use that key (trimmed; blank becomes keyless).
+    """
+    key = resolve_api_key() if api_key is _USE_ENV else normalize_api_key(api_key)
     tier = normalize_api_tier(api_tier) if api_tier is not None else resolve_api_tier()
-    validate_api_key_tier(tier, backfill=backfill)
+    validate_api_key_tier(tier, backfill=backfill, api_key=key)
     if backfill and since is None:
         raise SystemExit("--since YYYY-MM-DD is required with --backfill.")
     until = date.today()
@@ -241,7 +271,14 @@ def collect(
 
     owns_http = http is None
     if http is None:
-        http = HttpClient(SOURCE_NAME, rate_limit=DEMO_RATE_LIMIT)
+        rate_limit = DEMO_RATE_LIMIT if key is not None else KEYLESS_RATE_LIMIT
+        http = HttpClient(SOURCE_NAME, rate_limit=rate_limit)
+    if key is None:
+        LOGGER.warning(
+            "CoinGecko collector running keyless — rate limited to ~5 req/min, "
+            "Pro/backfill endpoints unavailable. Set %s to use a Demo or Pro key.",
+            API_KEY_ENV,
+        )
 
     failures: list[dict[str, str]] = []
     try:
@@ -287,7 +324,7 @@ def collect(
 
 def _fetch_coin_pair(
     target: CoinTarget,
-    api_key: str,
+    api_key: str | None,
     http: HttpClient,
     ingest_run_id: int,
     failures: list[dict[str, str]],
