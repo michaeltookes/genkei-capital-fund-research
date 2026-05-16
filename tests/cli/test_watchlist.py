@@ -32,6 +32,7 @@ class LoadWatchlistTests(unittest.TestCase):
             "    - symbol: BTC\n"
             "      name: Bitcoin\n"
             "      coingecko_id: bitcoin\n"
+            "      sleeve: core\n"
             "  secondary:\n"
             "    - symbol: PYTH\n"
             "      name: Pyth\n"
@@ -41,6 +42,7 @@ class LoadWatchlistTests(unittest.TestCase):
             "    - symbol: AAPL\n"
             "      name: Apple Inc.\n"
             '      cik: "0000320193"\n'
+            "      sleeve: core\n"
             "macro_series:\n"
             "  - id: DGS10\n"
             "    name: 10Y Treasury\n"
@@ -48,13 +50,15 @@ class LoadWatchlistTests(unittest.TestCase):
         wl = load_watchlist(path)
         self.assertEqual(
             wl.crypto[0],
-            CryptoEntry("BTC", "Bitcoin", "bitcoin", "primary"),
+            CryptoEntry("BTC", "Bitcoin", "bitcoin", "primary", "core"),
         )
         self.assertEqual(wl.crypto[1].tier, "secondary")
+        self.assertEqual(wl.crypto[0].sleeve, "core")
         self.assertEqual(
             wl.equities[0],
-            EquityEntry("AAPL", "Apple Inc.", "0000320193", "primary"),
+            EquityEntry("AAPL", "Apple Inc.", "0000320193", "primary", "core"),
         )
+        self.assertEqual(wl.equities[0].sleeve, "core")
         self.assertEqual(wl.macro[0], MacroEntry("DGS10", "10Y Treasury"))
 
     def test_find_helpers_are_case_insensitive_for_tickers(self) -> None:
