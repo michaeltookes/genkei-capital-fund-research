@@ -102,6 +102,14 @@ class HealthStatusTagTests(unittest.TestCase):
         row = {"status": "failed", "age_hours": 1.0}
         self.assertEqual(_health_status_tag(row, stale_hours=36), "FAIL")
 
+    def test_running_run_is_not_healthy(self) -> None:
+        row = {"status": "running", "age_hours": 1.0}
+        self.assertEqual(_health_status_tag(row, stale_hours=36), "FAIL")
+
+    def test_partial_run_is_not_healthy(self) -> None:
+        row = {"status": "partial", "age_hours": 1.0}
+        self.assertEqual(_health_status_tag(row, stale_hours=36), "FAIL")
+
     def test_stale_run(self) -> None:
         row = {"status": "success", "age_hours": 100.0}
         self.assertEqual(_health_status_tag(row, stale_hours=36), "STALE")

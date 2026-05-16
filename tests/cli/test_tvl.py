@@ -6,6 +6,7 @@ import io
 import json as json_mod
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 from genkei.cli import main
@@ -14,6 +15,7 @@ from genkei.cli.tvl import (
     _format_chains_overview_human,
     _format_protocol_tvl_human,
     _parse_date,
+    _query_chains_overview,
 )
 
 
@@ -133,6 +135,48 @@ class TvlCommandTests(unittest.TestCase):
             main(["tvl", "--chain", "Ethereum", "--json"])
         parsed = json_mod.loads(out.getvalue())
         self.assertEqual(parsed[0]["tvl_usd"], 73_500_000_000)
+
+
+class QueryChainsOverviewTests(unittest.TestCase):
+    def test_limit_applies_after_global_tvl_sort(self) -> None:
+        captured: dict[str, object] = {}
+        ts = datetime(2026, 5, 15, tzinfo=timezone.utc)
+        rows = [
+            ("Achain", ts, 1),
+            ("Bchain", ts, 100),
+            ("Cchain", ts, 50),
+        ]
+
+        class FakeCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, sql, params=None):
+                captured["sql"] = sql
+                captured["params"] = params
+
+            def fetchall(self):
+                return rows
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def cursor(self):
+                return FakeCursor()
+
+        with patch("genkei.cli.tvl.db.connection", return_value=FakeConn()):
+            out = _query_chains_overview(limit=2)
+
+        self.assertNotIn("LIMIT", str(captured["sql"]))
+        self.assertIsNone(captured["params"])
+        self.assertEqual([row["chain"] for row in out], ["Bchain", "Cchain"])
 
 
 if __name__ == "__main__":

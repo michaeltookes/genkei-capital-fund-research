@@ -236,7 +236,7 @@ def _health_status_tag(row: dict[str, Any], *, stale_hours: float) -> str:
     status = row.get("status")
     if status == "missing":
         return "MISSING"
-    if status == "failed":
+    if status != "success":
         return "FAIL"
     age = row.get("age_hours")
     if age is not None and age > stale_hours:
@@ -443,4 +443,3 @@ def gaps_cmd(
         typer.echo(json.dumps(rows, indent=2))
     else:
         typer.echo(_format_gaps_human(rows, threshold_hours=threshold_hours))
-

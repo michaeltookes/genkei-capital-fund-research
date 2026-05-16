@@ -114,10 +114,10 @@ def _query_chains_overview(*, limit: int) -> list[dict[str, Any]]:
     sql = (
         "SELECT DISTINCT ON (chain) chain, ts, tvl_usd "
         "FROM defillama.chain_tvl "
-        "ORDER BY chain, ts DESC LIMIT %s"
+        "ORDER BY chain, ts DESC"
     )
     with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, [limit])
+        cur.execute(sql)
         rows = cur.fetchall()
     rows.sort(key=lambda r: float(r[2]) if r[2] is not None else 0.0, reverse=True)
     return [
@@ -126,7 +126,7 @@ def _query_chains_overview(*, limit: int) -> list[dict[str, Any]]:
             "ts": ts.isoformat() if ts is not None else None,
             "tvl_usd": float(tvl) if tvl is not None else None,
         }
-        for (ch, ts, tvl) in rows
+        for (ch, ts, tvl) in rows[:limit]
     ]
 
 
