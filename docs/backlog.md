@@ -203,15 +203,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
 
 The interface the agent (and human user) uses to query the lake.
 
-### B-041 — Implement `genkei tvl` subcommand
-- **Status:** open
-- **Priority:** medium
-- **Context:** DeFiLlama queries: by chain, by protocol, with rolling change windows.
-- **Acceptance criteria:**
-  - `genkei tvl --protocol Aave --window 7d`.
-  - `genkei tvl --chain Ethereum --since 2023-01-01`.
-  - Includes momentum/zombie risk classification per existing logic.
-
 ### B-043 — Implement `genkei news` subcommand
 - **Status:** open
 - **Priority:** medium
@@ -219,14 +210,6 @@ The interface the agent (and human user) uses to query the lake.
 - **Acceptance criteria:**
   - `genkei news --topic "AI capex" --since 2024-01-01`.
   - Cluster output with representative URLs.
-
-### B-044 — Implement `genkei watchlist` subcommand
-- **Status:** open
-- **Priority:** medium
-- **Context:** Operations on the watchlist — list assets, last-update-per-asset, gaps.
-- **Acceptance criteria:**
-  - `genkei watchlist list`, `watchlist gaps`, `watchlist health`.
-  - Surfaces stale or missing data per asset.
 
 ### B-045 — Implement `genkei query` escape hatch
 - **Status:** open
