@@ -156,11 +156,11 @@ src/genkei/
 | `genkei.common.config` | `load_env_file(path)` — stdlib-only `.env` loader, no python-dotenv dep. | R-013 |
 | `genkei.ingest.defillama` | DeFiLlama collector + backfill (`--backfill --since YYYY-MM-DD --endpoint X`). Daily mode INSERTs raw blobs per endpoint; backfill mode walks daily timestamps for prices, iterates known slugs/asset_ids for protocols/stablecoins. Resumability via `meta.raw_blobs.url` lookup within a 14-day window. | R-017, R-023 |
 | `genkei.normalize.defillama` | Reads raw blobs and `bulk_upsert`s. Daily mode (`normalize`) handles snapshot blobs into all four lake tables; backfill mode (`normalize_backfill`) dispatches by `endpoint_name` prefix into `defillama.prices`, `defillama.protocol_tvl`, `defillama.stablecoins`. Idempotent throughout. | R-018, R-023 |
-| `genkei.ingest.fred` | FRED collector. Reads `macro_series:` from `config/watchlists.yml`, hits `/series` + `/series/observations` per series with `realtime_start=1776-07-04&realtime_end=9999-12-31` for full-vintage payloads. Lands two raw blobs per series (`series_<id>`, `observations_<id>`). Redacts the API key from the URL stored in `meta.raw_blobs`. Single-mode (D-014) — no separate `--backfill` flag. | R-027 |
+| `genkei.ingest.fred` | FRED collector. Reads `macro_series:` from `config/watchlists.yml`, hits `/series` plus `/series/observations` without `realtime_start` / `realtime_end` to avoid FRED's 2000-vintage JSON cap. FRED still returns per-observation `realtime_start` values, so vintage-aware normalization remains intact. Lands two raw blobs per series (`series_<id>`, `observations_<id>`). Redacts the API key from the URL stored in `meta.raw_blobs`. Single-mode (D-014) — no separate `--backfill` flag. | R-027 |
 | `genkei.normalize.fred` | Reads FRED raw blobs by source_run_id, dispatches by prefix into `fred.series` (one row per series) and `fred.observations` (one row per `(series_id, ts, realtime_start)`). Idempotent. | R-027 |
 | `genkei.ingest.sec` | SEC EDGAR collector. Reads CIKs from `equities:` in `config/watchlists.yml`; dedupes by CIK so multi-class listings (GOOG/GOOGL share Alphabet's CIK) fetch once. Hits `/submissions/CIK{cik}.json`, follows `filings.files[]` references for older history pages, and `/api/xbrl/companyfacts/CIK{cik}.json` per company. 8 req/sec rate limit (under SEC's 10/sec cap). User-Agent identifies the user via `SEC_USER_AGENT` env var. | R-028 |
-| `genkei.normalize.sec` | Reads SEC raw blobs and dispatches by `endpoint_name` prefix into `sec.companies` (upsert, FK target), `sec.filings` (one row per filing, recent + history), `sec.facts` (one row per XBRL `taxonomy:concept` × unit × period × accession). | R-028 |
-| `genkei.ingest.coingecko` | CoinGecko collector. Reads `coingecko_id` from `crypto:` in `config/watchlists.yml` (primary + secondary tiers). Daily mode fetches `/coins/{id}` metadata + `/coins/{id}/market_chart?days=365&interval=daily` for the Demo API's rolling historical window. `--backfill --since YYYY-MM-DD` requires `COINGECKO_API_TIER=pro` and uses `/market_chart/range` in 365-day chunks, aggregating chunks into the same `market_chart_<id>` raw blob shape. Requires `COINGECKO_API_KEY`, sent via the tier-specific CoinGecko auth header; rate limit `per_minute(25)` (G-023, G-025). | R-029 |
+| `genkei.normalize.sec` | Reads SEC raw blobs and dispatches by `endpoint_name` prefix into `sec.companies` (upsert, FK target), `sec.filings` (one row per filing, recent + history), `sec.facts` (one row per XBRL `taxonomy:concept` × unit × `(period_start, period_end)` × accession; upsert key matches PK `(cik, concept, unit, period_start, period_end, accession_number)`). | R-028 |
+| `genkei.ingest.coingecko` | CoinGecko collector. Reads `coingecko_id` from `crypto:` in `config/watchlists.yml` (primary + secondary tiers). Daily mode fetches `/coins/{id}` metadata + `/coins/{id}/market_chart?days=365&interval=daily` for the rolling Public/Demo historical window. Keyless mode is first-class: missing/blank `COINGECKO_API_KEY` uses the public host, no auth header, and `KEYLESS_RATE_LIMIT = per_minute(5)`; Demo keys use `x-cg-demo-api-key` and `per_minute(25)`. `--backfill --since YYYY-MM-DD` requires `COINGECKO_API_TIER=pro` plus a key, and uses `/market_chart/range` in 365-day chunks. `collect(api_key=_USE_ENV)` reads env; explicit `api_key=None` forces keyless. | R-029 |
 | `genkei.normalize.coingecko` | Reads CoinGecko raw blobs and dispatches by prefix into `coingecko.coins` (upsert) and `coingecko.market_data` (zips the three parallel `prices` / `market_caps` / `total_volumes` arrays by timestamp, emits rows only where all three align — G-024). | R-029 |
 | `genkei.cli` | Typer-based CLI. Top-level commands per data domain (D-019): `prices`, `filings`, `tvl`, `macro`, `news`, `watchlist`, `query`. Real subcommands export a callable; stubs surface a backlog-item pointer. Reads `GENKEI_DATABASE_URL` via `genkei.common.db`. `--json` per-subcommand for agent consumption. Watchlist resolution centralized in `genkei.cli._watchlist`. | R-031 (B-037+B-038+B-039) |
 
@@ -401,7 +401,7 @@ Append-only. Each entry: **what**, **why**, **alternative considered**, **what w
 **Alternative:** Latest-only PK `(series_id, ts)` with overwrites. Rejected — smaller storage but lossy; retrofitting from latest-only to vintage-aware requires re-fetching everything.
 **What would change our mind:** If FRED storage outgrows the homelab (unlikely — revisions are sparse), we could prune old vintages older than N years.
 
-**Amendment (2026-05-10, smoke test):** the schema decision stays vintage-aware, and the collector still requests the full realtime window (`realtime_start=1776-07-04&realtime_end=9999-12-31`). That matches the schema intent, but it also means G-019 is an active upstream limit for long daily series until we add a real mitigation such as vintage-window pagination or a separate latest-only mode.
+**Amendment (2026-05-16, G-029):** the schema decision stays vintage-aware, but the collector no longer sends `realtime_start` / `realtime_end` because FRED's payload still includes per-observation `realtime_start` values and full-window JSON requests hit the 2000-vintage cap.
 
 ### D-014 — FRED is single-mode: no `--backfill` flag, daily run pulls full history
 **Date:** 2026-05-10 · **In:** R-027
@@ -409,7 +409,7 @@ Append-only. Each entry: **what**, **why**, **alternative considered**, **what w
 **Why:** FRED's `/series/observations` endpoint returns the entire history per call. No date-walker needed; daily and backfill are the same code path. The vintage-aware schema (D-013) means re-running just upserts any new revisions as new rows.
 **Alternative:** Mirror DeFiLlama's `--backfill --since` flag for consistency. Rejected — adds a code path with no consumer; the FRED endpoint shape doesn't reward it. Per-source ingester shape can differ from per-source ingester shape; that's fine.
 
-**Amendment (2026-05-10, smoke test):** "full history per call" is still what the collector requests on both the *observation date* axis and the *vintage* axis. G-019 documents the upstream 2000-vintage cap this can hit for long daily series. Daily and backfill remain the same code path; the no-`--backfill`-flag decision stands.
+**Amendment (2026-05-16, G-029):** "full history per call" now applies to the *observation date* axis only. The collector omits realtime-window params to avoid G-019's 2000-vintage cap; daily and backfill remain the same code path, and the no-`--backfill`-flag decision stands.
 
 ### D-015 — SEC EDGAR scope: option B (submissions + XBRL company facts) now, Form 4/13F as follow-ups
 **Date:** 2026-05-10 · **In:** R-028, B-079, B-080
@@ -444,19 +444,19 @@ Append-only. Each entry: **what**, **why**, **alternative considered**, **what w
 **What we're explicitly NOT borrowing:** the multi-agent framework, the per-run live API fetching, the LangGraph orchestration. All three are antithetical to a Claude-Code + data-lake setup.
 **Sequencing:** lands after Phase 3 CLI (B-037 → ~B-044) is built enough for Claude to query the lake ergonomically. The CLI is the actual prerequisite; without it, the methodology has no useful tools to invoke.
 
-### D-020 — CoinGecko collector supports a first-class keyless mode
-**Date:** 2026-05-16 · **In:** `src/genkei/ingest/coingecko.py`, fix-ingest-pipelines
-**Decision:** `COINGECKO_API_KEY` is optional. Unset / blank / whitespace-only env values fall through to **keyless mode**: public `api.coingecko.com` host, no auth header, `KEYLESS_RATE_LIMIT = per_minute(5)`. Demo mode (with key) keeps `per_minute(25)`. Pro and `--backfill` still require a key and fail fast otherwise.
-**Why:** The user opted to stay on the free tier (no key registration). The previously-merged collector hard-required a key and silently failed every daily run for ~3 days, leaving `coingecko.market_data` empty. Keyless is supported by CoinGecko's public API at a stricter rate; 14 daily calls take ~3 min keyless vs ~30s demo — acceptable for daily ingest. Documented in docstring + module constants.
-**Alternative:** Register a free demo key. Rejected for now per user preference; the keyless path is intentionally cheap to revert if/when a key is added.
-**Sentinel:** `collect(api_key=_USE_ENV)` distinguishes "look up env" from caller-passed `None` (explicit keyless) so unit tests can force keyless without env juggling.
-
 ### D-019 — Typer over Click for the CLI
 **Date:** 2026-05-10 · **In:** B-038, `src/genkei/cli/__init__.py`
 **Decision:** The `genkei` CLI is built on Typer (which sits on Click). Subcommands are top-level commands registered via `app.command(...)`, not nested sub-apps with callbacks.
 **Why:** Type-hint-driven Typer matches the rest of the codebase's style (we use type hints everywhere). Auto-generates `--help` from docstrings + signatures with no boilerplate. Click is more battle-tested but its decorator API is verbose by comparison and we'd hand-write things Typer derives from annotations.
 **Alternative:** Plain Click. Rejected — extra boilerplate without clear benefit at our scope. We get Click's stability transitively (Typer is built on it).
 **Pattern note:** Real subcommands export a callable function (e.g. `prices_cmd`) and `__init__.py` registers it via `app.command("prices")(prices.prices_cmd)`. Sub-apps with callbacks (`app.add_typer(sub_app, ...)`) work for grouped subcommands but produce confusing option-binding behaviour for single-action commands. Top-level command registration is the canonical shape; reserve `add_typer` for actual subcommand groups (e.g. `genkei query sql ...` later).
+
+### D-020 — CoinGecko collector supports a first-class keyless mode
+**Date:** 2026-05-16 · **In:** `src/genkei/ingest/coingecko.py`, fix-ingest-pipelines
+**Decision:** `COINGECKO_API_KEY` is optional. Unset / blank / whitespace-only env values fall through to **keyless mode**: public `api.coingecko.com` host, no auth header, `KEYLESS_RATE_LIMIT = per_minute(5)`. Demo mode (with key) keeps `per_minute(25)`. Pro and `--backfill` still require a key and fail fast otherwise.
+**Why:** The user opted to stay on the free tier (no key registration). The previously-merged collector hard-required a key and silently failed every daily run for ~3 days, leaving `coingecko.market_data` empty. Keyless is supported by CoinGecko's public API at a stricter rate; 14 daily calls take ~3 min keyless vs ~30s demo — acceptable for daily ingest. Documented in docstring + module constants.
+**Alternative:** Register a free demo key. Rejected for now per user preference; the keyless path is intentionally cheap to revert if/when a key is added.
+**Sentinel:** `collect(api_key=_USE_ENV)` distinguishes "look up env" from caller-passed `None` (explicit keyless) so unit tests can force keyless without env juggling.
 
 ---
 
@@ -574,7 +574,7 @@ Append-only. Each entry: **what bit us**, **how we resolved it**, **how to avoid
 ### G-019 — FRED's JSON file type caps responses at 2000 vintage dates
 **Hit:** 2026-05-10 (B-028 first live smoke test against FRED)
 **Symptom:** The first scheduled run failed for 6 observation endpoints: every daily-frequency series with decades of history (T10Y2Y, DGS2, DGS10, DGS30, DFF, VIXCLS) returned `400 Bad Request` with the message `"There are 3033 vintage dates in the specified real-time period: 1776-07-04 to 9999-12-31. This exceeds the maximum number of vintage dates allowed for this file type (2000)."` The `build_observations_url` default passes `realtime_start=1776-07-04` and `realtime_end=9999-12-31` to grab every vintage; FRED's JSON serializer can't fit that many in one response for those long daily series.
-**Current state:** `build_observations_url` still passes `realtime_start=1776-07-04` and `realtime_end=9999-12-31`. This preserves the intended vintage-aware request shape, but it does **not** mitigate the 2000-vintage JSON cap. Long daily series can still fail until we implement a real mitigation such as vintage-window pagination, per-series fallbacks, or an explicit latest-only collection mode.
+**Current state:** G-029 re-removed `realtime_start` / `realtime_end` from `build_observations_url`. The collector relies on payload `realtime_start` values, so long daily series collect successfully without full-window params while the schema remains vintage-aware.
 **Avoid next time:** Smoke-test against the real upstream API on the *first* live run, not just mocked-HTTP integration tests. Mocks can't surface upstream-side limits like vintage-count caps. Same lesson applies to any future ingester whose API has per-response limits we won't hit until the live data hits them.
 
 ### G-020 — FRED retired `GOLDAMGBD228NLBM` (London PM gold fix); no clean spot-gold replacement on FRED
@@ -598,13 +598,13 @@ Append-only. Each entry: **what bit us**, **how we resolved it**, **how to avoid
 ### G-023 — CoinGecko Demo requests require an API key
 **Hit:** 2026-05-10 (B-034 design)
 **Symptom:** CoinGecko's Demo API docs mark `x-cg-demo-api-key` as required. Letting the collector run without `COINGECKO_API_KEY` starts an ingest run and then fails every authenticated `/coins/*` call.
-**Resolution:** `genkei.ingest.coingecko.resolve_api_key()` now fails fast when `COINGECKO_API_KEY` is missing or empty, before `meta.ingest_runs` is opened. Demo key is sent via `x-cg-demo-api-key` header so it stays out of the URL (and out of `meta.raw_blobs.url` — no separate redaction needed). `DEMO_RATE_LIMIT = RateLimit.per_minute(25)` stays under the published Demo 25-30 req/min limit.
-**Avoid next time:** Treat documented API authentication as required even for free/demo plans; fail before recording a run when credentials are absent.
+**Resolution:** Superseded by D-020. Demo-keyed requests still send `x-cg-demo-api-key` and use `DEMO_RATE_LIMIT = RateLimit.per_minute(25)`, but missing/blank keys now intentionally select public keyless mode with no auth header and `KEYLESS_RATE_LIMIT = RateLimit.per_minute(5)`.
+**Avoid next time:** Separate authenticated Demo API requirements from public keyless endpoints before deciding whether missing credentials should fail fast or choose a constrained unauthenticated mode.
 
 ### G-025 — CoinGecko Demo historical charts are a rolling 365-day window
 **Hit:** 2026-05-11 (B-034 follow-up)
 **Symptom:** The initial collector requested `/coins/{id}/market_chart?days=max&interval=daily` and documented it as full history. CoinGecko's Demo/Public docs limit historical chart access to the past 365 days, including `/market_chart/range`, so `days=max` cannot provide a complete long-horizon backfill on the Demo plan.
-**Resolution:** Daily Demo collection requests `days=365&interval=daily` and docs describe it as a rolling Demo snapshot. Historical backfill is explicit: `python -m genkei.ingest.coingecko --backfill --since YYYY-MM-DD` requires `COINGECKO_API_TIER=pro`, switches to `pro-api.coingecko.com` with `x-cg-pro-api-key`, and fetches `/market_chart/range` in 365-day chunks. Complete history still requires a paid Pro API configuration or another source with the required historical range.
+**Resolution:** Daily Public/Demo collection requests `days=365&interval=daily` and docs describe it as a rolling snapshot. Historical backfill is explicit: `python -m genkei.ingest.coingecko --backfill --since YYYY-MM-DD` requires `COINGECKO_API_TIER=pro`, switches to `pro-api.coingecko.com` with `x-cg-pro-api-key`, and fetches `/market_chart/range` in 365-day chunks. Complete history still requires a paid Pro API configuration or another source with the required historical range.
 **Avoid next time:** Verify historical range limits separately from endpoint shape. A `days=max` parameter does not imply full source history on every plan.
 
 ### G-024 — CoinGecko `market_chart` returns three parallel arrays that don't always align by index
@@ -639,6 +639,6 @@ Append-only. Each entry: **what bit us**, **how we resolved it**, **how to avoid
 
 ### G-030 — `sec.facts` ON CONFLICT key set must match the PK exactly
 **Hit:** 2026-05-16 (revealed after fixing G-028)
-**Symptom:** `psycopg.errors.InvalidColumnReference: there is no unique or exclusion constraint matching the ON CONFLICT specification`. Normalizer passed 6 `conflict_keys` (`cik, concept, unit, period_start, period_end, accession_number`); the actual PK is 5 cols (`cik, concept, unit, period_end, accession_number`).
-**Resolution:** Drop `period_start` from `conflict_keys` in `src/genkei/normalize/sec.py`. Per-accession XBRL facts have one canonical period for each (cik, concept, unit, period_end) combo, so the 5-col PK is correct; the code drifted from the schema.
+**Symptom:** `psycopg.errors.InvalidColumnReference: there is no unique or exclusion constraint matching the ON CONFLICT specification`. Normalizer passed 5 `conflict_keys` (`cik, concept, unit, period_end, accession_number`); the actual PK is 6 cols (`cik, concept, unit, period_start, period_end, accession_number`).
+**Resolution:** Include `period_start` in `conflict_keys` in `src/genkei/normalize/sec.py` so the conflict target matches the migration's PK exactly.
 **Avoid next time:** Bulk-upsert helpers should validate `conflict_keys` against the live table's unique constraints before issuing the statement. Tracked as backlog work — for now, a comment in the normalizer pins the column set to the PK.

@@ -407,14 +407,14 @@ def normalize(*, source_run_id: int | None = None) -> tuple[int, int]:
                         conn,
                         "sec.facts",
                         fact_rows,
-                        # PK on sec.facts is (cik, concept, unit, period_end,
-                        # accession_number); period_start is not part of the
-                        # unique constraint so it can't appear in ON CONFLICT.
-                        # An accession+period_end uniquely identifies a fact.
+                        # PK on sec.facts is (cik, concept, unit, period_start,
+                        # period_end, accession_number); ON CONFLICT must match
+                        # the migration's constraint exactly.
                         conflict_keys=[
                             "cik",
                             "concept",
                             "unit",
+                            "period_start",
                             "period_end",
                             "accession_number",
                         ],
@@ -473,7 +473,7 @@ def _maybe_jsonable(value: Any) -> Any:
     Without ``Jsonb()`` the bare Python dict / list raises
     ``cannot adapt type 'dict' using placeholder '%s' (format: AUTO)``
     when ``bulk_upsert`` passes it through ``executemany`` (the bug we
-    hit on the first live SEC normalize, see G-027).
+    hit on the first live SEC normalize, see G-028).
     """
     if value is None:
         return None
