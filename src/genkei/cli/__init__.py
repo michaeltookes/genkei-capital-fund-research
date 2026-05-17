@@ -26,6 +26,7 @@ Subcommand surface (B-037):
 - ``genkei news``      GDELT news / events                    [B-043, stub]
 - ``genkei watchlist`` Watchlist coverage / health            [B-044 ✓]
 - ``genkei query``     SQL escape hatch                       [B-045, stub]
+- ``genkei insiders``  SEC Form 4 insider transactions        [B-079 ✓]
 """
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ import sys
 
 import typer
 
-from genkei.cli import filings, macro, prices, tvl, watchlist
+from genkei.cli import filings, insiders, macro, prices, tvl, watchlist
 
 app = typer.Typer(
     name="genkei",
@@ -53,6 +54,10 @@ app.command("macro", help="FRED macro series observations (vintage-aware).")(mac
 app.command("tvl", help="DeFiLlama chain / protocol TVL (default: chains overview).")(
     tvl.tvl_cmd
 )
+app.command(
+    "insiders",
+    help="SEC Form 4 insider transactions (--ticker issuer view or --reporter-cik).",
+)(insiders.insiders_cmd)
 # `watchlist` is the first real subcommand group — uses add_typer because
 # it owns its own subcommands (list / health / gaps), unlike the
 # single-action commands above.

@@ -179,16 +179,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - `docs/sources/<name>.md` for every ingester (DeFiLlama first as the template).
   - Acceptance gates included (mirroring `docs/defillama-daily-review.md` pattern).
 
-### B-079 — SEC Form 4 (insider transactions) ingester
-- **Status:** open
-- **Priority:** medium
-- **Context:** Split out from B-027 (option C). The base SEC ingester (B-027 option B) lands company submissions + XBRL company facts but not the per-filing structured payloads. Form 4 transactions are a separate parsing layer — every insider transaction has ~15 fields (transactionCode, pricePerShare, sharesOwnedFollowingTransaction, etc.) and the right schema depends on which fields the experiments actually use. Pick this up *driven by* B-060 (insider-buying monitor) so the schema is shaped by a concrete query rather than guessed up front.
-- **Acceptance criteria:**
-  - New `sec.form4_transactions` (or similar) table with a vintage-aware PK that captures amendments.
-  - Backfill walks all Form 4 filings indexed by submissions; each filing's primary XML doc is parsed and rows land in the new table.
-  - Tests cover the documented Form 4 transaction-code variants (P/S/A/D/G/M/F) and amendment handling.
-  - Honors the same 10 req/sec rate limit + User-Agent rules as B-027.
-
 ### B-080 — SEC 13F (institutional holdings) ingester
 - **Status:** open
 - **Priority:** medium
