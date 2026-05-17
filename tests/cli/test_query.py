@@ -141,6 +141,10 @@ class WrapQueryForSafetyTests(unittest.TestCase):
         self.assertNotIn(";)", wrapped)
         self.assertNotIn("; )", wrapped)
 
+    def test_trailing_line_comment_cannot_swallow_wrapper_suffix(self) -> None:
+        wrapped = wrap_query_for_safety("SELECT 1 -- note", limit=5)
+        self.assertIn("-- note\n) AS genkei_query_q", wrapped)
+
 
 class ValidateSqlTests(unittest.TestCase):
     def test_semicolon_only_sql_rejected_as_empty(self) -> None:

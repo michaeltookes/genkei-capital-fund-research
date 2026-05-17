@@ -155,7 +155,7 @@ def find_multi_statement_position(sql: str) -> Optional[int]:
 def wrap_query_for_safety(sql: str, *, limit: int) -> str:
     """Wrap ``sql`` so a server-side ``LIMIT`` clips the result set."""
     inner = _strip_trailing_semicolons(sql)
-    return f"SELECT * FROM ({inner}) AS genkei_query_q LIMIT {limit}"
+    return f"SELECT * FROM (\n{inner}\n) AS genkei_query_q LIMIT {limit}"
 
 
 def _read_sql(sql_arg: Optional[str], file_arg: Optional[Path]) -> str:
