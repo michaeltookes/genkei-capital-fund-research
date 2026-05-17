@@ -75,27 +75,65 @@ def _strip_trailing_semicolons(sql: str) -> str:
     return sql.rstrip().rstrip(";").rstrip()
 
 
-# Match a ``;`` that lives *outside* single-quoted strings. Postgres
-# string literals can contain `;` legitimately (e.g. WHERE col = 'a;b'),
-# so we walk the input character-by-character respecting quote state
-# rather than using a regex that would false-positive.
+_DOLLAR_QUOTE_RE = re.compile(r"\$(?:[A-Za-z_][A-Za-z_0-9]*)?\$")
+
+
 def find_multi_statement_position(sql: str) -> Optional[int]:
-    """Return the 0-based index of the first ``;`` outside string literals, or None."""
+    """Return the 0-based index of the first ``;`` outside literals/comments."""
     i = 0
     n = len(sql)
-    in_string = False
+    in_single_quote = False
+    in_escape_string = False
+    dollar_quote: str | None = None
+    block_comment_depth = 0
     while i < n:
         ch = sql[i]
-        if in_string:
+        next_ch = sql[i + 1] if i + 1 < n else ""
+
+        if block_comment_depth:
+            if ch == "/" and next_ch == "*":
+                block_comment_depth += 1
+                i += 2
+                continue
+            if ch == "*" and next_ch == "/":
+                block_comment_depth -= 1
+                i += 2
+                continue
+        elif dollar_quote is not None:
+            if sql.startswith(dollar_quote, i):
+                i += len(dollar_quote)
+                dollar_quote = None
+                continue
+        elif in_single_quote:
             if ch == "'":
                 # Postgres escapes ' inside string by doubling it ('')
                 if i + 1 < n and sql[i + 1] == "'":
                     i += 2
                     continue
-                in_string = False
+                in_single_quote = False
+                in_escape_string = False
+            elif in_escape_string and ch == "\\":
+                i += 2
+                continue
         else:
+            dollar_match = _DOLLAR_QUOTE_RE.match(sql, i)
+            if dollar_match is not None:
+                dollar_quote = dollar_match.group(0)
+                i = dollar_match.end()
+                continue
+            if ch == "-" and next_ch == "-":
+                newline = sql.find("\n", i + 2)
+                if newline == -1:
+                    return None
+                i = newline + 1
+                continue
+            if ch == "/" and next_ch == "*":
+                block_comment_depth = 1
+                i += 2
+                continue
             if ch == "'":
-                in_string = True
+                in_single_quote = True
+                in_escape_string = i > 0 and sql[i - 1] in {"e", "E"}
             elif ch == ";":
                 return i
         i += 1

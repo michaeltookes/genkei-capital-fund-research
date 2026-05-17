@@ -72,6 +72,29 @@ class FindMultiStatementPositionTests(unittest.TestCase):
             find_multi_statement_position("SELECT * FROM t WHERE col = 'a;b'")
         )
 
+    def test_semicolon_inside_dollar_quoted_string_ignored(self) -> None:
+        self.assertIsNone(find_multi_statement_position("SELECT $$a;b$$"))
+
+    def test_semicolon_inside_tagged_dollar_quoted_string_ignored(self) -> None:
+        self.assertIsNone(find_multi_statement_position("SELECT $tag$a;b$tag$"))
+
+    def test_semicolon_inside_line_comment_ignored(self) -> None:
+        self.assertIsNone(find_multi_statement_position("SELECT 1 -- a;b"))
+
+    def test_semicolon_inside_block_comment_ignored(self) -> None:
+        self.assertIsNone(find_multi_statement_position("SELECT /* a;b */ 1"))
+
+    def test_semicolon_inside_nested_block_comment_ignored(self) -> None:
+        self.assertIsNone(find_multi_statement_position("SELECT /* /* a;b */ */ 1"))
+
+    def test_semicolon_after_dollar_quote_close_caught(self) -> None:
+        pos = find_multi_statement_position("SELECT $$a;b$$; SELECT 2")
+        self.assertEqual(pos, 14)
+
+    def test_semicolon_after_block_comment_close_caught(self) -> None:
+        pos = find_multi_statement_position("SELECT /* a;b */ 1; SELECT 2")
+        self.assertEqual(pos, 18)
+
     def test_escaped_quote_inside_string_handled(self) -> None:
         # Postgres escapes ' inside a string by doubling it. The detector
         # must not treat '' as ending the string.
@@ -79,6 +102,11 @@ class FindMultiStatementPositionTests(unittest.TestCase):
             find_multi_statement_position(
                 "SELECT * FROM t WHERE col = 'O''Brien;was;here'"
             )
+        )
+
+    def test_escaped_quote_inside_escape_string_handled(self) -> None:
+        self.assertIsNone(
+            find_multi_statement_position("SELECT E'O\\';Brien;was;here'")
         )
 
     def test_semicolon_after_string_close_caught(self) -> None:
