@@ -102,6 +102,11 @@ Tracked as backlog items so they don't block forward motion:
 - `docs/backlog.md` — 78 items across 8 phases.
 - `docs/resolved.md` — completed milestones.
 - `docs/defillama-mvp.md` / `docs/defillama-daily-review.md` — existing slice's design + review standard.
+- `docs/research/README.md` — investment-research decision log (append-only; `/research` + `/reflect-decisions` skills drive it).
+- `prompts/research-methodology.md` — the structured checklist `/research` walks per session.
+- `prompts/reflect-on-decisions.md` — the outcome-pairing cycle `/reflect-decisions` runs.
 - `~/.claude/skills/server-info/` — homelab Postgres connection specs (load before infra work).
 - `~/.claude/skills/pr-body/` — PR-body drafter (model-invocable, draft-only).
 - `~/.claude/skills/pr/` — PR opener (user-invoked via `/pr`, size guardrails).
+- `.claude/skills/research/` — project-local skill (B-049 / B-050) — disciplined investment-research session driver.
+- `.claude/skills/reflect-decisions/` — project-local skill — outcome-pairing cycle.
