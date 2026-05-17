@@ -6,16 +6,20 @@ import io
 import json as json_mod
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
+
+import typer
 
 from genkei.cli import main
 from genkei.cli.insiders import (
     _format_human,
     _format_role,
     _parse_date,
+    _query_by_issuer,
 )
 
 EQUITY_AND_CRYPTO_YAML = (
@@ -50,7 +54,9 @@ SAMPLE_ISSUER_ROW = {
     "is_director": False,
     "is_officer": True,
     "is_ten_percent_owner": False,
+    "is_other": False,
     "officer_title": "Principal Accounting Officer",
+    "other_text": None,
     "accession_number": "0001140361-26-020871",
 }
 
@@ -62,11 +68,14 @@ class FormatHelperTests(unittest.TestCase):
             "officer_title": "CEO",
             "is_director": True,
             "is_ten_percent_owner": True,
+            "is_other": True,
+            "other_text": "Trustee",
         }
         out = _format_role(row)
         self.assertIn("officer(CEO)", out)
         self.assertIn("director", out)
         self.assertIn("10%-owner", out)
+        self.assertIn("other(Trustee)", out)
 
     def test_role_returns_dash_when_no_flags(self) -> None:
         self.assertEqual(_format_role({}), "-")
@@ -105,10 +114,73 @@ class FormatHelperTests(unittest.TestCase):
 
 class ParseDateTests(unittest.TestCase):
     def test_garbage_raises(self) -> None:
-        import typer
-
         with self.assertRaises(typer.BadParameter):
             _parse_date("nope", label="since")
+
+
+class QueryExecutionTests(unittest.TestCase):
+    def test_query_rows_include_other_relationship_fields(self) -> None:
+        captured: dict[str, object] = {}
+        row = (
+            date(2026, 5, 8),
+            "J",
+            "A",
+            Decimal("10"),
+            None,
+            Decimal("10"),
+            False,
+            "Common Stock",
+            "D",
+            "Trust Reporter",
+            "0000111111",
+            False,
+            False,
+            False,
+            True,
+            None,
+            "Trustee",
+            "0000000000-26-000001",
+        )
+
+        class FakeCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, sql, params):
+                captured["sql"] = sql
+                captured["params"] = params
+
+            def fetchall(self):
+                return [row]
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def cursor(self):
+                return FakeCursor()
+
+        with patch("genkei.cli.insiders.db.connection", return_value=FakeConn()):
+            out = _query_by_issuer(
+                "0000320193",
+                code=None,
+                since=None,
+                until=None,
+                derivative=None,
+                limit=5,
+            )
+
+        self.assertEqual(out[0]["is_other"], True)
+        self.assertEqual(out[0]["other_text"], "Trustee")
+        self.assertIn("t.is_other", str(captured["sql"]))
+        self.assertIn("t.other_text", str(captured["sql"]))
+        self.assertEqual(captured["params"], ["0000320193", 5])
 
 
 class InsidersCommandTests(unittest.TestCase):
@@ -188,7 +260,7 @@ class InsidersCommandTests(unittest.TestCase):
             redirect_stdout(out),
         ):
             code = main(["insiders", "--ticker", "AAPL", "--config", str(path)])
-        self.assertIn(code, (None, 0))
+        self.assertEqual(code, 0)
         # AAPL → CIK 0000320193 resolution
         self.assertEqual(mocked.call_args.args[0], "0000320193")
         self.assertIn("Borders Ben", out.getvalue())
@@ -206,7 +278,7 @@ class InsidersCommandTests(unittest.TestCase):
             redirect_stdout(out),
         ):
             code = main(["insiders", "--reporter-cik", "2100523"])
-        self.assertIn(code, (None, 0))
+        self.assertEqual(code, 0)
         self.assertEqual(mocked.call_args.args[0], "0002100523")  # zero-padded
 
     def test_since_after_until_rejected(self) -> None:

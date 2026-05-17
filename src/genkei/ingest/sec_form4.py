@@ -6,18 +6,20 @@ payload — the actual insider transactions — lives in a per-filing XML
 document that the existing SEC collector doesn't fetch.
 
 This module fills that gap. For every ``sec.filings`` row with
-``form_type`` of ``4`` or ``4/A`` that doesn't yet have a ``form4_<accession>`` blob in
-``meta.raw_blobs``, fetch the XML and land it as one raw blob.
-Downstream ``genkei.normalize.sec_form4`` parses the blobs into
-``sec.form4_transactions`` + ``sec.insiders``.
+``form_type`` of ``4`` or ``4/A`` that is not present in
+``sec.form4_normalized_filings``, ``select_uncached_form4s()`` fetches
+the XML and lands it as a ``form4_<accession>`` raw blob. Downstream
+``genkei.normalize.sec_form4`` parses the blobs into
+``sec.form4_transactions`` + ``sec.insiders`` and records the normalized
+accessions in ``sec.form4_normalized_filings``.
 
 Two modes:
 
 * **Incremental** (default) — pull up to ``--limit`` (default 200)
-  uncached Form 4 filings, newest first. ~25s at 8 req/s. Safe for a
-  daily cron.
+  not-yet-normalized Form 4 filings, newest first. ~25s at 8 req/s.
+  Safe for a daily cron.
 * **Backfill** (``--backfill``) — drop the limit and fetch *every*
-  uncached Form 4. At 36 634 historical Form 4s on the watchlist
+  not-yet-normalized Form 4. At 36 634 historical Form 4s on the watchlist
   today, that's ~76 min at 8 req/s; run once after migration.
 
 URL pattern: the ``sec.filings.primary_document`` column points at the

@@ -168,6 +168,7 @@ class ParseNonDerivativeTests(unittest.TestCase):
         self.assertEqual(len(insiders), 1)
         self.assertEqual(insiders[0]["reporter_cik"], "0002100523")
         self.assertEqual(insiders[0]["reporter_name"], "Borders Ben")
+        self.assertEqual(insiders[0]["last_seen_at"], NOW)
         self.assertEqual(len(transactions), 1)
         t = transactions[0]
         self.assertEqual(t["accession_number"], "0001140361-26-020871")
@@ -412,6 +413,7 @@ class FetchUnnormalizedBlobsTests(unittest.TestCase):
 class NormalizeTests(unittest.TestCase):
     def test_marks_holdings_only_filing_as_normalized(self) -> None:
         marked: dict[str, object] = {}
+        upserts: dict[str, list[dict[str, object]]] = {}
 
         class Run:
             id = 99
@@ -437,6 +439,10 @@ class NormalizeTests(unittest.TestCase):
             marked["accessions"] = accessions
             marked["ingest_run_id"] = ingest_run_id
 
+        def fake_bulk_upsert(conn, table, rows, conflict_keys):
+            upserts[table] = rows
+            return 0
+
         with (
             patch(
                 "genkei.normalize.sec_form4.fetch_unnormalized_form4_blobs",
@@ -450,6 +456,7 @@ class NormalizeTests(unittest.TestCase):
                             "reporter_cik": "0000111111",
                             "reporter_name": "Holder",
                             "source_endpoint": "url",
+                            "last_seen_at": NOW,
                             "ingest_run_id": 99,
                         }
                     ],
@@ -458,13 +465,14 @@ class NormalizeTests(unittest.TestCase):
             ),
             patch("genkei.normalize.sec_form4.db.ingest_run", fake_ingest_run),
             patch("genkei.normalize.sec_form4.db.connection", return_value=FakeConn()),
-            patch("genkei.normalize.sec_form4.db.bulk_upsert", return_value=0),
+            patch("genkei.normalize.sec_form4.db.bulk_upsert", fake_bulk_upsert),
             patch("genkei.normalize.sec_form4._mark_normalized_filings", fake_mark),
         ):
             self.assertEqual(normalize(), (99, 1))
 
         self.assertEqual(marked["accessions"], ["0000000000-26-000001"])
         self.assertEqual(marked["ingest_run_id"], 99)
+        self.assertEqual(upserts["sec.insiders"][0]["last_seen_at"], NOW)
 
     def test_does_not_mark_unusable_parse_as_normalized(self) -> None:
         marked: dict[str, object] = {}

@@ -73,7 +73,7 @@ def _query_by_issuer(
                t.is_derivative, t.security_title, t.ownership_type,
                i.reporter_name, t.reporter_cik,
                t.is_director, t.is_officer, t.is_ten_percent_owner,
-               t.officer_title, t.accession_number
+               t.is_other, t.officer_title, t.other_text, t.accession_number
         FROM sec.form4_transactions t
         JOIN sec.insiders i USING (reporter_cik)
         WHERE t.issuer_cik = %s
@@ -104,7 +104,7 @@ def _query_by_reporter(
                t.is_derivative, t.security_title, t.ownership_type,
                i.reporter_name, t.reporter_cik,
                t.is_director, t.is_officer, t.is_ten_percent_owner,
-               t.officer_title, t.accession_number,
+               t.is_other, t.officer_title, t.other_text, t.accession_number,
                c.ticker AS issuer_ticker, c.name AS issuer_name
         FROM sec.form4_transactions t
         JOIN sec.insiders i USING (reporter_cik)
@@ -172,12 +172,14 @@ def _execute_transaction_query(
             "is_director": row[11],
             "is_officer": row[12],
             "is_ten_percent_owner": row[13],
-            "officer_title": row[14],
-            "accession_number": row[15],
+            "is_other": row[14],
+            "officer_title": row[15],
+            "other_text": row[16],
+            "accession_number": row[17],
         }
         if include_issuer:
-            record["issuer_ticker"] = row[16]
-            record["issuer_name"] = row[17]
+            record["issuer_ticker"] = row[18]
+            record["issuer_name"] = row[19]
         out.append(record)
     return out
 
@@ -256,6 +258,9 @@ def _format_role(row: dict[str, Any]) -> str:
         flags.append("director")
     if row.get("is_ten_percent_owner"):
         flags.append("10%-owner")
+    if row.get("is_other"):
+        text = row.get("other_text")
+        flags.append(f"other({text})" if text else "other")
     return ", ".join(flags) if flags else "-"
 
 

@@ -170,6 +170,7 @@ def parse_form4_xml(
             "reporter_cik": r["reporter_cik"],
             "reporter_name": r["reporter_name"],
             "source_endpoint": source_endpoint,
+            "last_seen_at": fetched_at,
             "ingest_run_id": ingest_run_id,
         }
         for r in reporters
