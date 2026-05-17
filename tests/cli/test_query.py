@@ -13,7 +13,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import typer
-from psycopg.errors import QueryCanceled, ReadOnlySqlTransaction
+from psycopg.errors import DivisionByZero, QueryCanceled, ReadOnlySqlTransaction
 from psycopg.errors import SyntaxError as PgSyntaxError
 
 from genkei.cli import main
@@ -197,6 +197,10 @@ class FormatJsonTests(unittest.TestCase):
         out = format_json(["a"], [(None,)])
         self.assertEqual(json_mod.loads(out), [{"a": None}])
 
+    def test_duplicate_column_labels_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "duplicate labels: x"):
+            format_json(["x", "x"], [(1, 2)])
+
 
 class FormatCsvTests(unittest.TestCase):
     def test_emits_header_and_rows(self) -> None:
@@ -246,6 +250,13 @@ class CliArgumentTests(unittest.TestCase):
         with redirect_stderr(err):
             code = main(["query", "--file", "/no/such/path.sql"])
         self.assertEqual(code, 2)
+
+    def test_unreadable_file_path_errors(self) -> None:
+        with TemporaryDirectory() as tmp:
+            err = io.StringIO()
+            with redirect_stderr(err):
+                code = main(["query", "--file", tmp])
+            self.assertEqual(code, 2)
 
     def test_limit_above_max_rejected(self) -> None:
         err = io.StringIO()
@@ -404,6 +415,20 @@ class CliExecutionTests(unittest.TestCase):
             code = main(["query", "SELEC 1"])
         self.assertEqual(code, 1)
         self.assertIn("SyntaxError", err.getvalue())
+
+    def test_uncategorized_psycopg_error_renders_clean_error(self) -> None:
+        err = io.StringIO()
+        with (
+            patch(
+                "genkei.cli.query.execute_readonly",
+                side_effect=DivisionByZero("division by zero"),
+            ),
+            redirect_stderr(err),
+        ):
+            code = main(["query", "SELECT 1/0"])
+        self.assertEqual(code, 1)
+        self.assertIn("DivisionByZero", err.getvalue())
+        self.assertNotIn("Traceback", err.getvalue())
 
     def test_capped_marker_shown_in_table_when_result_exceeds_limit(self) -> None:
         out = io.StringIO()

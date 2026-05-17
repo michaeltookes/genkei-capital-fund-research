@@ -52,7 +52,7 @@ from pathlib import Path
 from typing import Annotated, Any, Optional
 
 import typer
-from psycopg import errors as pg_errors
+from psycopg import Error as PsycopgError
 
 from genkei.common import db
 
@@ -166,7 +166,7 @@ def _read_sql(sql_arg: Optional[str], file_arg: Optional[Path]) -> str:
     if file_arg is not None:
         try:
             return file_arg.read_text(encoding="utf-8")
-        except FileNotFoundError as exc:
+        except OSError as exc:
             raise typer.BadParameter(f"--file not found: {file_arg}") from exc
     assert sql_arg is not None
     return sql_arg
@@ -195,18 +195,7 @@ def _validate_sql(sql: str) -> str:
 # Postgres errors that surface as user-facing query problems rather
 # than infra failures. We want to render these cleanly without a stack
 # trace so the agent (or human) can iterate on the query.
-USER_ERROR_TYPES: tuple[type[Exception], ...] = (
-    pg_errors.QueryCanceled,
-    pg_errors.SyntaxError,
-    pg_errors.UndefinedColumn,
-    pg_errors.UndefinedTable,
-    pg_errors.UndefinedFunction,
-    pg_errors.InsufficientPrivilege,
-    pg_errors.ReadOnlySqlTransaction,
-    pg_errors.GroupingError,
-    pg_errors.DatatypeMismatch,
-    pg_errors.InvalidTextRepresentation,
-)
+USER_ERROR_TYPES: tuple[type[Exception], ...] = (PsycopgError,)
 
 
 def execute_readonly(
@@ -282,6 +271,18 @@ def format_table(
 
 
 def format_json(cols: list[str], rows: list[tuple[Any, ...]]) -> str:
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for col in cols:
+        if col in seen and col not in duplicates:
+            duplicates.append(col)
+        seen.add(col)
+    if duplicates:
+        names = ", ".join(duplicates)
+        raise ValueError(
+            "JSON output requires unique column labels; duplicate labels: "
+            f"{names}. Use explicit column aliases."
+        )
     # pyproject requires Python >=3.10, but the local harness may still
     # run under G-002's 3.9 venv. The psycopg cursor.description
     # guarantees cols and row have equal length, so strict=True would
