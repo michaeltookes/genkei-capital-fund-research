@@ -3,10 +3,18 @@
 from __future__ import annotations
 
 import unittest
+from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from unittest.mock import patch
 
-from genkei.normalize.sec_form4 import _payload_to_xml, parse_form4_xml
+from genkei.normalize import sec_form4
+from genkei.normalize.sec_form4 import (
+    _payload_to_xml,
+    fetch_unnormalized_form4_blobs,
+    normalize,
+    parse_form4_xml,
+)
 
 NOW = datetime(2026, 5, 16, tzinfo=timezone.utc)
 
@@ -245,6 +253,24 @@ class ParseEdgeCaseTests(unittest.TestCase):
         self.assertEqual(insiders, [])
         self.assertEqual(transactions, [])
 
+    def test_entity_expansion_returns_empty(self) -> None:
+        xml = """<?xml version="1.0"?>
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "file:///etc/passwd">
+]>
+<ownershipDocument>
+  <issuer><issuerCik>&xxe;</issuerCik></issuer>
+</ownershipDocument>"""
+        insiders, transactions = parse_form4_xml(
+            xml,
+            accession_number="x",
+            source_endpoint="x",
+            ingest_run_id=1,
+            fetched_at=NOW,
+        )
+        self.assertEqual(insiders, [])
+        self.assertEqual(transactions, [])
+
     def test_missing_issuer_cik_returns_empty(self) -> None:
         xml = """<?xml version="1.0"?>
 <ownershipDocument>
@@ -336,6 +362,134 @@ class PayloadToXmlTests(unittest.TestCase):
     def test_rejects_unknown_shape(self) -> None:
         self.assertIsNone(_payload_to_xml({"other": 1}))
         self.assertIsNone(_payload_to_xml(None))
+
+
+class FetchUnnormalizedBlobsTests(unittest.TestCase):
+    def test_default_selector_uses_normalized_filing_marker(self) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, sql, params):
+                captured["sql"] = sql
+                captured["params"] = params
+
+            def fetchall(self):
+                return [
+                    (
+                        "form4_0000000000-26-000001",
+                        "https://example.test/form4.xml",
+                        {"xml": "<ownershipDocument/>"},
+                        NOW,
+                    )
+                ]
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def cursor(self):
+                return FakeCursor()
+
+        with patch("genkei.normalize.sec_form4.db.connection", return_value=FakeConn()):
+            rows = fetch_unnormalized_form4_blobs()
+
+        sql_text = str(captured["sql"])
+        self.assertIn("sec.form4_normalized_filings", sql_text)
+        self.assertNotIn("sec.form4_transactions", sql_text)
+        self.assertEqual(captured["params"], ["form4_%", 7])
+        self.assertEqual(rows[0][0], "0000000000-26-000001")
+
+
+class NormalizeTests(unittest.TestCase):
+    def test_marks_holdings_only_filing_as_normalized(self) -> None:
+        marked: dict[str, object] = {}
+
+        class Run:
+            id = 99
+
+            def __init__(self) -> None:
+                self.rows = 0
+
+            def add_rows(self, rows: int) -> None:
+                self.rows += rows
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        @contextmanager
+        def fake_ingest_run(*args, **kwargs):
+            yield Run()
+
+        def fake_mark(conn, accessions, *, ingest_run_id):
+            marked["accessions"] = accessions
+            marked["ingest_run_id"] = ingest_run_id
+
+        with (
+            patch(
+                "genkei.normalize.sec_form4.fetch_unnormalized_form4_blobs",
+                return_value=[("0000000000-26-000001", "url", "<xml/>", NOW)],
+            ),
+            patch(
+                "genkei.normalize.sec_form4.parse_form4_xml",
+                return_value=(
+                    [
+                        {
+                            "reporter_cik": "0000111111",
+                            "reporter_name": "Holder",
+                            "source_endpoint": "url",
+                            "ingest_run_id": 99,
+                        }
+                    ],
+                    [],
+                ),
+            ),
+            patch("genkei.normalize.sec_form4.db.ingest_run", fake_ingest_run),
+            patch("genkei.normalize.sec_form4.db.connection", return_value=FakeConn()),
+            patch("genkei.normalize.sec_form4.db.bulk_upsert", return_value=0),
+            patch("genkei.normalize.sec_form4._mark_normalized_filings", fake_mark),
+        ):
+            self.assertEqual(normalize(), (99, 1))
+
+        self.assertEqual(marked["accessions"], ["0000000000-26-000001"])
+        self.assertEqual(marked["ingest_run_id"], 99)
+
+    def test_marker_insert_upserts_accession_rows(self) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def executemany(self, sql, params):
+                captured["sql"] = sql
+                captured["params"] = params
+
+        class FakeConn:
+            def cursor(self):
+                return FakeCursor()
+
+        sec_form4._mark_normalized_filings(
+            FakeConn(), ["0000000000-26-000001"], ingest_run_id=99
+        )
+
+        self.assertIn("sec.form4_normalized_filings", str(captured["sql"]))
+        self.assertEqual(captured["params"], [("0000000000-26-000001", 99)])
 
 
 if __name__ == "__main__":

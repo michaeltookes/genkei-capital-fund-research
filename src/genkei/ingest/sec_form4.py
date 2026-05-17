@@ -1,12 +1,12 @@
 """SEC Form 4 XML collector (B-079).
 
 The submissions index already gives us Form 4 *filings* (one row per
-filing in ``sec.filings`` with ``form_type='4'``). Form 4's structured
+filing in ``sec.filings`` with ``form_type`` in ``('4', '4/A')``). Form 4's structured
 payload — the actual insider transactions — lives in a per-filing XML
 document that the existing SEC collector doesn't fetch.
 
 This module fills that gap. For every ``sec.filings`` row with
-``form_type='4'`` that doesn't yet have a ``form4_<accession>`` blob in
+``form_type`` of ``4`` or ``4/A`` that doesn't yet have a ``form4_<accession>`` blob in
 ``meta.raw_blobs``, fetch the XML and land it as one raw blob.
 Downstream ``genkei.normalize.sec_form4`` parses the blobs into
 ``sec.form4_transactions`` + ``sec.insiders``.
@@ -59,6 +59,14 @@ RAW_BLOBS_INSERT = (
 LOGGER = logging.getLogger(__name__)
 
 
+def positive_int(value: str) -> int:
+    """Argparse type for positive integer limits."""
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("--limit must be greater than 0")
+    return parsed
+
+
 @dataclass(frozen=True)
 class Form4Target:
     """One Form 4 filing to fetch."""
@@ -78,7 +86,7 @@ def select_uncached_form4s(*, limit: int | None) -> list[Form4Target]:
     sql = """
         SELECT f.accession_number, f.cik, f.primary_document, f.filed_at
         FROM sec.filings f
-        WHERE f.form_type = '4'
+        WHERE f.form_type IN ('4', '4/A')
           AND f.primary_document IS NOT NULL
           AND NOT EXISTS (
               SELECT 1 FROM meta.raw_blobs r
@@ -250,7 +258,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--limit",
-        type=int,
+        type=positive_int,
         default=DEFAULT_LIMIT,
         help="Cap on filings per incremental run (ignored with --backfill).",
     )

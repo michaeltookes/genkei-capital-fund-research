@@ -18,9 +18,10 @@ Idempotency: PK on ``(accession_number, transaction_idx)`` plus
 same rows.
 
 Default mode processes *every* ``form4_*`` blob whose accession isn't
-yet represented in ``sec.form4_transactions`` — naturally catches both
-fresh blobs from the latest collect and any older blobs that never got
-normalized. ``--source-run-id`` scopes to one collect run.
+yet represented in ``sec.form4_normalized_filings`` — naturally catches
+both fresh blobs from the latest collect and any older blobs that never
+got normalized, while converging on holdings-only filings that produce
+zero transaction rows. ``--source-run-id`` scopes to one collect run.
 """
 
 from __future__ import annotations
@@ -32,7 +33,9 @@ import sys
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
-from xml.etree import ElementTree as ET
+
+from defusedxml import ElementTree
+from defusedxml.common import DefusedXmlException
 
 from genkei.common import db
 
@@ -49,7 +52,7 @@ JsonObject = dict[str, Any]
 # ---------------------------------------------------------------------------
 
 
-def _text(elem: ET.Element | None, path: str) -> str | None:
+def _text(elem: ElementTree.Element | None, path: str) -> str | None:
     """``elem.findtext(path)`` with strip + empty-string-to-None."""
     if elem is None:
         return None
@@ -60,7 +63,7 @@ def _text(elem: ET.Element | None, path: str) -> str | None:
     return val or None
 
 
-def _value(elem: ET.Element | None, path: str) -> str | None:
+def _value(elem: ElementTree.Element | None, path: str) -> str | None:
     """Form 4 wraps most fields in a ``<value>...</value>`` child."""
     return _text(elem, f"{path}/value")
 
@@ -123,8 +126,8 @@ def parse_form4_xml(
     return ``([insider_rows], [])`` so the insider row still lands.
     """
     try:
-        root = ET.fromstring(xml_text)
-    except ET.ParseError as exc:
+        root = ElementTree.fromstring(xml_text)
+    except (ElementTree.ParseError, DefusedXmlException) as exc:
         LOGGER.warning("Form 4 XML parse failed for %s: %s", accession_number, exc)
         return [], []
 
@@ -214,7 +217,7 @@ def parse_form4_xml(
 
 
 def _build_transaction_row(
-    tx: ET.Element,
+    tx: ElementTree.Element,
     *,
     is_derivative: bool,
     accession_number: str,
@@ -288,7 +291,7 @@ def fetch_unnormalized_form4_blobs(
     """Return ``[(accession, url, xml_text, fetched_at), ...]`` to process.
 
     Default: every ``form4_*`` blob whose accession isn't yet in
-    ``sec.form4_transactions``. With ``source_run_id``: every
+    ``sec.form4_normalized_filings``. With ``source_run_id``: every
     ``form4_*`` blob from that one collect run regardless of
     normalization state (so the user can force-replay).
     """
@@ -298,8 +301,8 @@ def fetch_unnormalized_form4_blobs(
             FROM meta.raw_blobs r
             WHERE r.endpoint_name LIKE %s
               AND NOT EXISTS (
-                  SELECT 1 FROM sec.form4_transactions t
-                  WHERE t.accession_number = substr(r.endpoint_name, %s)
+                  SELECT 1 FROM sec.form4_normalized_filings f
+                  WHERE f.accession_number = substr(r.endpoint_name, %s)
               )
             ORDER BY r.fetched_at DESC
         """
@@ -340,6 +343,25 @@ def _payload_to_xml(payload: Any) -> str | None:
     return None
 
 
+def _mark_normalized_filings(
+    conn: Any, accessions: list[str], *, ingest_run_id: int
+) -> None:
+    """Mark blobs processed even when the filing yields zero transaction rows."""
+    if not accessions:
+        return
+    with conn.cursor() as cur:
+        cur.executemany(
+            """
+            INSERT INTO sec.form4_normalized_filings (accession_number, ingest_run_id)
+            VALUES (%s, %s)
+            ON CONFLICT (accession_number) DO UPDATE SET
+                normalized_at = now(),
+                ingest_run_id = EXCLUDED.ingest_run_id
+            """,
+            [(accession, ingest_run_id) for accession in accessions],
+        )
+
+
 def normalize(*, source_run_id: int | None = None) -> tuple[int, int]:
     """Run the Form 4 normalizer once. Returns ``(normalizer_run_id, blobs_processed)``."""
     blobs = fetch_unnormalized_form4_blobs(source_run_id=source_run_id)
@@ -361,6 +383,7 @@ def normalize(*, source_run_id: int | None = None) -> tuple[int, int]:
         # upsert the same reporter ten times in one batch.
         insider_rows_by_cik: dict[str, JsonObject] = {}
         transaction_rows: list[JsonObject] = []
+        normalized_accessions: list[str] = []
 
         for accession, url, xml_text, fetched_at in blobs:
             insiders, transactions = parse_form4_xml(
@@ -377,6 +400,7 @@ def normalize(*, source_run_id: int | None = None) -> tuple[int, int]:
                 # variations which is fine to settle on whichever).
                 insider_rows_by_cik.setdefault(ins["reporter_cik"], ins)
             transaction_rows.extend(transactions)
+            normalized_accessions.append(accession)
 
         insider_rows = list(insider_rows_by_cik.values())
 
@@ -393,6 +417,9 @@ def normalize(*, source_run_id: int | None = None) -> tuple[int, int]:
                     transaction_rows,
                     conflict_keys=["accession_number", "transaction_idx"],
                 )
+            )
+            _mark_normalized_filings(
+                conn, normalized_accessions, ingest_run_id=run.id
             )
 
         return run.id, len(blobs)

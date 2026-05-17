@@ -179,8 +179,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - `docs/sources/<name>.md` for every ingester (DeFiLlama first as the template).
   - Acceptance gates included (mirroring `docs/defillama-daily-review.md` pattern).
 
-  - Honors the same 10 req/sec rate limit + User-Agent rules as B-027.
-
 ### B-080 — SEC 13F (institutional holdings) ingester
 - **Status:** open
 - **Priority:** medium
