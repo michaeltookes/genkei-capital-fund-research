@@ -201,15 +201,6 @@ The interface the agent (and human user) uses to query the lake.
   - `genkei news --topic "AI capex" --since 2024-01-01`.
   - Cluster output with representative URLs.
 
-### B-045 — Implement `genkei query` escape hatch
-- **Status:** open
-- **Priority:** low
-- **Context:** Ad-hoc SQL with safety guards for queries the typed subcommands don't cover.
-- **Acceptance criteria:**
-  - Read-only Postgres role enforced.
-  - Query timeout enforced.
-  - Result-row cap with explicit override.
-
 ### B-046 — CLI session caching
 - **Status:** open
 - **Priority:** low
