@@ -12,6 +12,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+import typer
 from psycopg.errors import QueryCanceled, ReadOnlySqlTransaction
 from psycopg.errors import SyntaxError as PgSyntaxError
 
@@ -143,7 +144,7 @@ class WrapQueryForSafetyTests(unittest.TestCase):
 
 class ValidateSqlTests(unittest.TestCase):
     def test_semicolon_only_sql_rejected_as_empty(self) -> None:
-        with self.assertRaisesRegex(Exception, "SQL is empty"):
+        with self.assertRaisesRegex(typer.BadParameter, "SQL is empty"):
             _validate_sql(" ;;; ")
 
 
