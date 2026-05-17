@@ -96,6 +96,7 @@ class SelectTargetsTests(unittest.TestCase):
             rows = select_uncached_form4s(limit=10)
 
         self.assertIn("f.form_type IN ('4', '4/A')", str(captured["sql"]))
+        self.assertIn("sec.form4_normalized_filings", str(captured["sql"]))
         self.assertEqual(captured["params"], ["form4_", 10])
         self.assertEqual(
             rows,

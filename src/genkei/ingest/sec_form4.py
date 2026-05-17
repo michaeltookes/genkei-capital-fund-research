@@ -78,7 +78,7 @@ class Form4Target:
 
 
 def select_uncached_form4s(*, limit: int | None) -> list[Form4Target]:
-    """Return Form 4 filings without a ``form4_<accession>`` raw blob.
+    """Return Form 4 filings not already cached or normalized.
 
     Newest filings first so the daily cron always catches up on recent
     activity even if older backfill is incomplete.
@@ -91,6 +91,10 @@ def select_uncached_form4s(*, limit: int | None) -> list[Form4Target]:
           AND NOT EXISTS (
               SELECT 1 FROM meta.raw_blobs r
               WHERE r.endpoint_name = %s || f.accession_number
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM sec.form4_normalized_filings n
+              WHERE n.accession_number = f.accession_number
           )
         ORDER BY f.filed_at DESC, f.accession_number DESC
     """
