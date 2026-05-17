@@ -1,12 +1,19 @@
 name: SEC EDGAR Daily
 
-# B-027 — pulls the SEC submissions index + XBRL company facts for every
-# equity in the watchlist once a day on the self-hosted Beelink runner.
-# 11:30 UTC chosen to land just after FRED finishes (11:00 UTC) so we
-# don't run two ingesters in parallel on the same runner. SEC filings
-# come in throughout the day; daily is a deliberate trade-off — we
-# accept up-to-24h latency on new filings in exchange for a single
-# scheduled call per company per day.
+# B-027 + B-079 — pulls the SEC submissions index + XBRL company facts
+# for every equity in the watchlist once a day on the self-hosted
+# Beelink runner. 11:30 UTC chosen to land just after FRED finishes
+# (11:00 UTC) so we don't run two ingesters in parallel on the same
+# runner. SEC filings come in throughout the day; daily is a deliberate
+# trade-off — we accept up-to-24h latency on new filings in exchange
+# for a single scheduled call per company per day.
+#
+# Form 4 (insider transactions) collect + normalize runs *after* the
+# main SEC pipeline so the Form 4 collector reads fresh sec.filings
+# rows when picking uncached Form 4s. Incremental mode caps at 200
+# filings per run (~25s at 8 req/s); the one-time historical backfill
+# is a manual `python -m genkei.ingest.sec_form4 --backfill` from the
+# homelab and runs ~76 min for ~36k filings.
 
 on:
   schedule:
@@ -20,7 +27,9 @@ jobs:
   pipeline:
     name: SEC collect + normalize (Postgres-backed)
     runs-on: [self-hosted, beelink]
-    timeout-minutes: 20
+    # SEC main: ~5-10 min. Form 4 incremental (200 filings @ 8 req/s): ~30s.
+    # Generous buffer for slow EDGAR responses.
+    timeout-minutes: 25
     env:
       GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
       SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
@@ -57,3 +66,17 @@ jobs:
 
       - name: Normalize raw payloads into sec.* tables
         run: python3 -m genkei.normalize.sec --source-run-id "${{ steps.collect-sec.outputs.ingest_run_id }}"
+
+      - name: Collect uncached Form 4 XML primary docs
+        # Incremental — limit defaults to 200 filings (~25s). This runs
+        # AFTER the main SEC normalize so new sec.filings rows are
+        # already visible to the Form 4 collector's "uncached" query.
+        # Soft-failure mode (per the collector): individual 404s log +
+        # record partial without failing the whole run.
+        run: python3 -m genkei.ingest.sec_form4
+
+      - name: Normalize Form 4 raw blobs into sec.form4_transactions
+        # Default mode picks up every form4_* blob whose accession isn't
+        # yet in sec.form4_transactions — naturally idempotent across
+        # the incremental collect + any prior unnormalized blobs.
+        run: python3 -m genkei.normalize.sec_form4
