@@ -189,6 +189,57 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Tests cover (a) value field is in $1000s — the canonical 13F gotcha — and (b) 13F-NT amendments correctly link back to the original 13F-HR.
   - Honors B-027's rate limit + User-Agent.
 
+### B-081 — DeFiLlama per-protocol TVL collector
+- **Status:** open
+- **Priority:** medium
+- **Context:** `defillama.protocol_tvl` table exists from `20260510_create_defillama_protocol_tvl.py` but no collector populates it — `genkei watchlist health` has surfaced it as EMPTY since the watchlist command shipped (R-034). The chain-level collector works (`defillama.chain_tvl` has 8k rows), but `genkei tvl --protocol aave-v3` returns empty and points users at `watchlist health`. Surfaced again in the LINK /research session (2026-05-17): would let us track LINK's Total Value Secured (TVS) — the actual demand signal for Chainlink's oracle services.
+- **Acceptance criteria:**
+  - Extend `src/genkei/ingest/defillama.py` (or a sibling module) to call DefiLlama's `/protocol/{slug}` endpoint per protocol and land per-(slug, chain, ts) rows in `defillama.protocol_tvl`.
+  - Watchlist-driven: pull the slug list from a `protocols:` section in `src/genkei/data/watchlists.yml` (TBD shape) — start with the slugs whose chains are already in our chain_tvl scope (Ethereum, Solana, Bitcoin, Sui).
+  - `--backfill` mode for historical fill; daily incremental for new ts rows.
+  - `genkei tvl --protocol <slug>` returns rows after a successful collect+normalize.
+  - `genkei watchlist health` flips `defillama.protocol_tvl` from EMPTY to OK.
+
+### B-082 — Chainlink LINK staking flow ingester
+- **Status:** open
+- **Priority:** medium
+- **Context:** Surfaced by the LINK /research session as the single most-missing data point for crypto-core analysis of Chainlink. The Chainlink v0.2 staking pool's net flow (stake-ins minus unbond-exits over a window) is the cleanest on-chain demand signal for LINK — growing pool = holders committing to the network's economic security; shrinking pool = the people closest to the protocol voting with their feet. Without this data, LINK research is forced to "low confidence" because the most important positioning signal is invisible.
+- **Acceptance criteria:**
+  - New ingester (Etherscan API or similar) that reads stake/unbond events from the v0.2 staking contract address.
+  - New table `chainlink.staking_flow` (or under a broader `onchain.*` schema if we want to generalize) keyed on `(ts, block_number, event_type)`.
+  - Daily incremental + initial backfill from contract deployment.
+  - Provides at minimum: cumulative pool size over time, net flow per day, distinct staker count.
+  - Powers a future `genkei staking --asset LINK` subcommand (separate item if/when needed).
+
+### B-083 — Chainlink Labs revenue / oracle-service-fee data
+- **Status:** open
+- **Priority:** low
+- **Context:** Also surfaced by the LINK /research session. Chainlink Labs is private so there's no SEC filings, but oracle service fees paid to node operators are observable on-chain (the fees route through known contracts). This would give the fundamental "is the underlying business growing or shrinking" signal that the macro + price views can't answer. Cousin item to B-082 — both are Chainlink-specific on-chain ingest.
+- **Acceptance criteria:**
+  - Identify the on-chain contracts that disburse oracle fees (off-chain research item before any code).
+  - Ingest fee-disbursement events into a new table (`chainlink.oracle_fees` or similar).
+  - Aggregate to monthly fee revenue + per-network breakdown.
+  - Available via `genkei query` or a typed surface if/when the schema stabilizes.
+  - May depend on a paid data source (Dune, Allium) if direct ingest is too brittle — note alongside the eventual implementation decision.
+
+### B-084 — Oracle market-share data source (likely paid)
+- **Status:** open
+- **Priority:** low
+- **Context:** The third LINK /research data gap. Knowing whether Chainlink is *gaining or losing* oracle market share against Pyth / RedStone / native protocol oracles is the structural-thesis question for any LINK position. No obvious free source today — Pyth publishes some metrics, RedStone publishes some, but a unified comparable view is paid-API territory (Token Terminal, Messari, similar). Tracked here so the next time the project re-opens the "paid data" question this is in the queue.
+- **Acceptance criteria:**
+  - Survey of available sources (free + paid) with rough pricing + coverage assessment — that's the first deliverable.
+  - If a free source emerges or a paid budget opens: schema + collector for cross-oracle TVS share over time, by protocol category (price feeds, randomness, CCIP-style cross-chain).
+  - Pair with B-081 once both exist — would let `genkei query` join LINK's TVS share against competitors' over the same time series.
+
+### B-085 — Investigate stablecoin historical-anchor sparsity in defillama.stablecoins
+- **Status:** open
+- **Priority:** low
+- **Context:** Surfaced by the LINK /research session. Querying `defillama.stablecoins` for `ts::date IN (latest, latest-30, latest-90, ...)` returned only today's row — historical anchor dates had no matching rows. Either the collector only snapshots irregularly, the normalizer drops rows, or the schema requires a different query shape (e.g. monthly buckets, not daily). The data is *somewhere* (the chain_tvl table has daily rows for the same date set, so it isn't a date-format issue) but the query pattern that works for chain_tvl returns sparse results here.
+- **Acceptance criteria:**
+  - Diagnose the root cause: collector cadence, normalizer drop, or schema mismatch.
+  - Either fix the ingest path so daily snapshots actually land daily, OR document the actual cadence + a query pattern that works.
+  - Update the LINK /research decision file's "Backlog implications" note to point at the resolved item.
+
 ## Phase 3 — Custom CLI
 
 The interface the agent (and human user) uses to query the lake.
