@@ -17,11 +17,12 @@ Runs the outcome-pairing cycle defined in `prompts/reflect-on-decisions.md`. Tur
 
 Walk `docs/research/decisions/*.md` (excluding `_template.md` and `README.md`):
 
-1. Parse YAML frontmatter (between `---` fences). Skip files with `status: resolved`.
+1. Parse YAML frontmatter (between `---` fences). Skip files with terminal statuses: `resolved` (already reflected) and `deferred` (explicitly postponed because required data was unavailable). Note both counts in the run summary.
 2. Compute `elapsed_days = (today - frontmatter.date).days`.
 3. Apply horizon mapping from the prompt: `weeks` → 28d, `months` → 180d, `years` → 365d.
-4. If `elapsed_days < horizon_days`, skip — not yet eligible for reflection. Note in the run summary.
-5. If `elapsed_days >= horizon_days`, queue for outcome pairing.
+4. Check trigger metadata if present. If `frontmatter.trigger_fired: true`, or a trigger timestamp such as `frontmatter.trigger_fired_at` / `frontmatter.triggers.triggered_timestamp` is on or before `frontmatter.date + horizon_days`, exclude the decision from outcome pairing; it should be re-evaluated via the trigger path, not the horizon path. Note trigger exclusions in the run summary.
+5. If `elapsed_days < horizon_days`, skip — not yet eligible for reflection. Note in the run summary.
+6. If `elapsed_days >= horizon_days`, queue for outcome pairing.
 
 If the eligible queue is empty, report "no decisions past their horizon" and stop. Don't make commits in this case.
 
@@ -53,8 +54,9 @@ Good reflection: "Insider-cluster signal carried this; macro turned hostile mid-
 
 After processing the queue:
 
-1. **One commit per run** is the convention. Subject: `Reflect on N decisions (resolved: X, deferred: Y)`. Body: short summary of which decisions were touched. Push.
-2. Run `python3 -m unittest discover -s tests` before committing — the frontmatter validator should still pass since you've only flipped status + added body content; if it fails, something went wrong with the YAML edit.
+1. Run `python3 -m unittest discover -s tests` before committing — the frontmatter validator should still pass since you've only flipped status + added body content; if it fails, something went wrong with the YAML edit.
+2. **One commit per run** is the convention. Subject: `Reflect on N decisions (resolved: X, deferred: Y)`. Body: short summary of which decisions were touched.
+3. Push.
 
 ## Aggregate snapshot (optional)
 

@@ -15,7 +15,7 @@ decision file (skipping `_template.md` and `README.md`).
 from __future__ import annotations
 
 import unittest
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import yaml
@@ -108,6 +108,23 @@ class DecisionFrontmatterContractTests(unittest.TestCase):
                 self.assertFalse(
                     missing, f"{path.name}: missing required frontmatter keys: {missing}"
                 )
+                asset = fm.get("asset")
+                self.assertIsInstance(
+                    asset,
+                    str,
+                    f"{path.name}: `asset` must be a non-empty string",
+                )
+                self.assertTrue(
+                    asset.strip() if isinstance(asset, str) else False,
+                    f"{path.name}: `asset` must be a non-empty string",
+                )
+                for key, value in fm.items():
+                    if isinstance(value, date):
+                        self.assertNotIsInstance(
+                            value,
+                            datetime,
+                            f"{path.name}: `{key}` must be date-only, not datetime",
+                        )
 
     def test_date_is_iso(self) -> None:
         for path in _decision_files():
