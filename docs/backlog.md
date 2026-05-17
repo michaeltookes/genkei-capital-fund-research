@@ -222,24 +222,6 @@ The interface the agent (and human user) uses to query the lake.
 
 Wires the data lake to the on-demand AI researcher.
 
-### B-049 — Write the structured research methodology + reflection prompts
-- **Status:** open
-- **Priority:** medium
-- **Context:** Per D-018, the agent layer borrows three patterns from TradingAgents. This item lands the methodology + reflection prompts that drive any Claude Code research session. Depends on Phase 3 CLI being usable enough that the methodology can reference real subcommands (`genkei prices`, `genkei macro`, `genkei filings`).
-- **Acceptance criteria:**
-  - `prompts/research-methodology.md` walks the structured checklist: frame the question → macro context → asset fundamentals → flow/positioning → cross-source signals → counter-thesis check → conclusion + horizon tag → decision-log entry.
-  - `prompts/reflect-on-decisions.md` walks the reflection cycle: scan `docs/research/decisions/` for `status: pending` past their horizon, pull realized data via the CLI, compute alpha vs SPY (equities) or BTC (crypto), append outcome + 2-3 sentence reflection.
-  - Both prompts versioned alongside CLI changes; assume the CLI surface from B-038+ exists.
-
-### B-050 — Implement the decision-log + skill scaffolding
-- **Status:** open
-- **Priority:** medium
-- **Context:** Per D-017, Claude Code is the harness — no Python framework to build. This item lands the decision-log directory + template, plus two `.claude/skills/` invocable skills. Demo of "ad-hoc research question end-to-end" is what proves it works.
-- **Acceptance criteria:**
-  - `docs/research/decisions/` directory + `_template.md` with front-matter (date, asset(s), horizon, confidence, status pending/resolved) + body + outcome/reflection placeholder.
-  - `.claude/skills/research/` skill that loads `prompts/research-methodology.md` + the most recent 5-10 reflections, then runs against the user's question.
-  - `.claude/skills/reflect-decisions/` skill that runs the reflection cycle. Manually triggerable; can be wired to `/schedule` later.
-  - Demo run: ask a real research question via `/research`, complete the methodology, append a decision-log entry. End-to-end works against the live homelab DB.
 
 ### B-051 — Decide brief delivery surface
 - **Status:** open
