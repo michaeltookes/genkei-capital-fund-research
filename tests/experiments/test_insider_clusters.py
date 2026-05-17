@@ -16,6 +16,7 @@ from genkei.experiments.insider_clusters import (
     DEFAULT_MIN_REPORTERS,
     DEFAULT_WINDOW_DAYS,
     Transaction,
+    _query_candidates,
     detect_clusters,
 )
 
@@ -62,6 +63,15 @@ class GuardsTests(unittest.TestCase):
     def test_rejects_window_days_below_1(self) -> None:
         with self.assertRaises(ValueError):
             detect_clusters([], direction="buy", window_days=0)
+
+    def test_rejects_unapproved_sql_direction_filter(self) -> None:
+        with self.assertRaises(ValueError):
+            _query_candidates(
+                "1 = 1",
+                since=None,
+                until=None,
+                issuer_ciks=None,
+            )
 
 
 class CoreDetectionTests(unittest.TestCase):
@@ -239,6 +249,16 @@ class OutputShapeTests(unittest.TestCase):
         self.assertEqual(clusters[0].reporter_count, 3)
         self.assertEqual(clusters[1].issuer_cik, "NEW")
         self.assertEqual(clusters[1].reporter_count, 2)
+
+    def test_cluster_sort_ties_break_by_issuer_then_window_start(self) -> None:
+        txns = [
+            _tx(reporter="A1", day=1, issuer="B"),
+            _tx(reporter="A2", day=2, issuer="B"),
+            _tx(reporter="B1", day=1, issuer="A"),
+            _tx(reporter="B2", day=2, issuer="A"),
+        ]
+        clusters = detect_clusters(txns, direction="buy")
+        self.assertEqual([c.issuer_cik for c in clusters], ["A", "B"])
 
 
 class DefaultsAreSensibleTests(unittest.TestCase):

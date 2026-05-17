@@ -155,12 +155,13 @@ def detect_clusters(
                 i = j
             else:
                 i += 1
-    # Sort: most reporters first, then most recent, then highest value
     clusters.sort(
         key=lambda c: (
             -c.reporter_count,
             -c.window_end.toordinal(),
             -(float(c.total_value_usd) if c.total_value_usd is not None else 0.0),
+            c.issuer_cik or "",
+            c.window_start.toordinal(),
         )
     )
     return clusters
@@ -226,6 +227,7 @@ BUY_FILTER_SQL = (
 SELL_FILTER_SQL = (
     "transaction_code = 'S' AND acquired_disposed = 'D' AND is_derivative = false"
 )
+ALLOWED_DIRECTION_FILTERS = frozenset({BUY_FILTER_SQL, SELL_FILTER_SQL})
 
 
 def query_buy_candidates(
@@ -257,6 +259,8 @@ def _query_candidates(
     until: date | None,
     issuer_ciks: list[str] | None,
 ) -> list[Transaction]:
+    if direction_filter not in ALLOWED_DIRECTION_FILTERS:
+        raise ValueError(f"unsupported direction filter: {direction_filter!r}")
     sql = (
         "SELECT t.issuer_cik, t.reporter_cik, i.reporter_name, "
         "       t.transaction_date, t.transaction_code, t.acquired_disposed, "
