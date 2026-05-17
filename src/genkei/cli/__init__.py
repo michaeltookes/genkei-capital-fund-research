@@ -25,7 +25,7 @@ Subcommand surface (B-037):
 - ``genkei macro``     FRED macro series                      [B-042 ✓]
 - ``genkei news``      GDELT news / events                    [B-043, stub]
 - ``genkei watchlist`` Watchlist coverage / health            [B-044 ✓]
-- ``genkei query``     SQL escape hatch                       [B-045, stub]
+- ``genkei query``     SQL escape hatch                       [B-045 ✓]
 - ``genkei insiders``  SEC Form 4 insider transactions        [B-079 ✓]
 - ``genkei insider-clusters``
                         Detect insider buy/sell clusters       [B-060 ✓]
@@ -37,7 +37,16 @@ import sys
 
 import typer
 
-from genkei.cli import filings, insider_clusters, insiders, macro, prices, tvl, watchlist
+from genkei.cli import (
+    filings,
+    insider_clusters,
+    insiders,
+    macro,
+    prices,
+    query,
+    tvl,
+    watchlist,
+)
 
 app = typer.Typer(
     name="genkei",
@@ -64,6 +73,10 @@ app.command(
     "insider-clusters",
     help="Detect insider buy/sell clusters (≥N reporters within K days).",
 )(insider_clusters.insider_clusters_cmd)
+app.command(
+    "query",
+    help="Ad-hoc SQL escape hatch (read-only, timeout + row cap enforced).",
+)(query.query_cmd)
 # `watchlist` is the first real subcommand group — uses add_typer because
 # it owns its own subcommands (list / health / gaps), unlike the
 # single-action commands above.
@@ -86,7 +99,6 @@ def _stub(group_name: str, item: str) -> typer.Typer:
 
 
 app.add_typer(_stub("news", "B-043"), name="news")
-app.add_typer(_stub("query", "B-045"), name="query")
 
 
 def main(argv: list[str] | None = None) -> int:
