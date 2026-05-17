@@ -59,7 +59,7 @@ Price + market-cap anchors (`/tmp/link_anchors.sql` via `genkei query`):
 | 2026-04-16 | $55.7B |
 | 2026-05-16 | **$44.2B** |
 
-ETH chain TVL is **down 36% over the last month and 36% YoY**, while ETH price is only down 11% YoY. People are pulling capital out of ETH DeFi *faster than the price has fallen* — bearish for the entire sector LINK serves. This is the structural headwind LINK is fighting against.
+ETH chain TVL is **down 20.6% over the last month and 25.5% YoY**, while ETH price is only down 11% YoY. People are pulling capital out of ETH DeFi *faster than the price has fallen* — bearish for the entire sector LINK serves. This is the structural headwind LINK is fighting against.
 
 **Stablecoin supply on ETH** (`/tmp/stables.sql`): $165B today (today-only snapshot; historical anchor dates returned no rows — probably a stablecoin-ingest sparsity issue, flag as gap). $165B is mid-cycle on rough memory, neither depleted nor at peak. Dry powder is there, just not deploying into DeFi.
 
@@ -90,7 +90,7 @@ ETH chain TVL is **down 36% over the last month and 36% YoY**, while ETH price i
 
 **Bear case:**
 
-1. **DeFi sector contraction is real and ongoing.** ETH chain TVL -36% YoY says LINK's demand base is shrinking. LINK pricing power is downstream of how much DeFi activity needs oracle services; less activity = less demand = lower fees = lower token value.
+1. **DeFi sector contraction is real and ongoing.** ETH chain TVL -25.5% YoY says LINK's demand base is shrinking. LINK pricing power is downstream of how much DeFi activity needs oracle services; less activity = less demand = lower fees = lower token value.
 2. **Oracle competition has structurally improved.** Pyth (low-latency pull oracles), RedStone (modular oracles), and native protocol oracles (e.g. Uniswap's own TWAP) have all taken oracle market share over the past 2y. The data isn't in the lake, but the qualitative trend is well-known and is *probably* a real factor in LINK's underperformance.
 3. **Restaking captured the "decentralized service" narrative.** EigenLayer + AVS launched in 2024 promising to do what LINK does but cheaper and with ETH as economic security. Even if AVS doesn't displace LINK technically, it captured the narrative attention that LINK had to itself in 2020-2022.
 4. **No catalyst on the immediate horizon.** No Chainlink-specific event in the near term that would change the narrative — no major CCIP integration announcement, no staking-pool unlock, no fundamental disclosure. Drift continues by default.
