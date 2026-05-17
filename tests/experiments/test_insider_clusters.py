@@ -13,6 +13,7 @@ from datetime import date
 from decimal import Decimal
 
 from genkei.experiments.insider_clusters import (
+    BUY_FILTER_SQL,
     DEFAULT_MIN_REPORTERS,
     DEFAULT_WINDOW_DAYS,
     Transaction,
@@ -27,7 +28,7 @@ def _tx(
     day: int,
     issuer: str = "0000320193",
     shares: int = 100,
-    price: float | None = 200.0,
+    price: float | str | Decimal | None = 200.0,
     direction: str = "buy",  # 'buy' or 'sell'
     accession: str | None = None,
 ) -> Transaction:
@@ -70,6 +71,15 @@ class GuardsTests(unittest.TestCase):
                 "1 = 1",
                 since=None,
                 until=None,
+                issuer_ciks=None,
+            )
+
+    def test_rejects_inverted_candidate_date_range(self) -> None:
+        with self.assertRaises(ValueError):
+            _query_candidates(
+                BUY_FILTER_SQL,
+                since=date(2026, 5, 2),
+                until=date(2026, 5, 1),
                 issuer_ciks=None,
             )
 
@@ -259,6 +269,28 @@ class OutputShapeTests(unittest.TestCase):
         ]
         clusters = detect_clusters(txns, direction="buy")
         self.assertEqual([c.issuer_cik for c in clusters], ["A", "B"])
+
+    def test_cluster_sort_uses_exact_decimal_value(self) -> None:
+        txns = [
+            _tx(
+                reporter="A1",
+                day=1,
+                issuer="A",
+                shares=1,
+                price="100000000000000000000.01",
+            ),
+            _tx(reporter="A2", day=2, issuer="A", shares=1, price="0"),
+            _tx(
+                reporter="B1",
+                day=1,
+                issuer="B",
+                shares=1,
+                price="100000000000000000000.02",
+            ),
+            _tx(reporter="B2", day=2, issuer="B", shares=1, price="0"),
+        ]
+        clusters = detect_clusters(txns, direction="buy")
+        self.assertEqual([c.issuer_cik for c in clusters], ["B", "A"])
 
 
 class DefaultsAreSensibleTests(unittest.TestCase):

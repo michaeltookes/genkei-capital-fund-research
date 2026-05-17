@@ -159,7 +159,7 @@ def detect_clusters(
         key=lambda c: (
             -c.reporter_count,
             -c.window_end.toordinal(),
-            -(float(c.total_value_usd) if c.total_value_usd is not None else 0.0),
+            -(c.total_value_usd or Decimal(0)),
             c.issuer_cik or "",
             c.window_start.toordinal(),
         )
@@ -261,6 +261,8 @@ def _query_candidates(
 ) -> list[Transaction]:
     if direction_filter not in ALLOWED_DIRECTION_FILTERS:
         raise ValueError(f"unsupported direction filter: {direction_filter!r}")
+    if since is not None and until is not None and since > until:
+        raise ValueError(f"since must be on or before until: {since} > {until}")
     sql = (
         "SELECT t.issuer_cik, t.reporter_cik, i.reporter_name, "
         "       t.transaction_date, t.transaction_code, t.acquired_disposed, "
