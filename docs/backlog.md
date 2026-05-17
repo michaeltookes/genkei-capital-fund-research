@@ -330,13 +330,6 @@ First-class — the *point* of having the data lake.
   - Notebook produces regime labels per date.
   - Output materialized as a Postgres view for downstream queries.
 
-### B-060 — Experiment: insider-buying monitor
-- **Status:** open
-- **Priority:** medium
-- **Context:** SEC Form 4 + prices — flag clusters of insider buys.
-- **Acceptance criteria:**
-  - Notebook + a watchlist alert hook.
-
 ### B-061 — Experiment: 13F crowding monitor
 - **Status:** open
 - **Priority:** low
