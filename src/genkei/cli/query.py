@@ -389,9 +389,15 @@ def query_cmd(
 
     capped = len(rows) > limit
     rows = rows[:limit]
-    if output_format == "json":
-        typer.echo(format_json(cols, rows))
-    elif output_format == "csv":
-        typer.echo(format_csv(cols, rows))
-    else:
-        typer.echo(format_table(cols, rows, limit=limit, capped=capped))
+    try:
+        if output_format == "json":
+            typer.echo(format_json(cols, rows))
+        elif output_format == "csv":
+            typer.echo(format_csv(cols, rows))
+        else:
+            typer.echo(format_table(cols, rows, limit=limit, capped=capped))
+    except ValueError as exc:
+        msg = str(exc).strip().splitlines()[0] if str(exc).strip() else "(no message)"
+        msg = re.sub(r"\s+", " ", msg)
+        typer.echo(f"query error [{type(exc).__name__}]: {msg}", err=True)
+        raise typer.Exit(code=1) from exc

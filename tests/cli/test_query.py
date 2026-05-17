@@ -343,6 +343,21 @@ class CliExecutionTests(unittest.TestCase):
         parsed = json_mod.loads(out.getvalue())
         self.assertEqual(parsed, [{"x": 1}, {"x": 2}])
 
+    def test_duplicate_json_labels_render_clean_error(self) -> None:
+        err = io.StringIO()
+        with (
+            patch(
+                "genkei.cli.query.execute_readonly",
+                return_value=(["id", "id"], [(1, 2)]),
+            ),
+            redirect_stderr(err),
+        ):
+            code = main(["query", "SELECT a.id, b.id FROM a JOIN b USING (id)", "--json"])
+        self.assertEqual(code, 1)
+        self.assertIn("query error [ValueError]", err.getvalue())
+        self.assertIn("duplicate labels: id", err.getvalue())
+        self.assertNotIn("Traceback", err.getvalue())
+
     def test_format_csv_emits_csv(self) -> None:
         out = io.StringIO()
         with (
