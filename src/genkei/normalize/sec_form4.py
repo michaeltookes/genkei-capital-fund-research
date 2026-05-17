@@ -400,7 +400,8 @@ def normalize(*, source_run_id: int | None = None) -> tuple[int, int]:
                 # variations which is fine to settle on whichever).
                 insider_rows_by_cik.setdefault(ins["reporter_cik"], ins)
             transaction_rows.extend(transactions)
-            normalized_accessions.append(accession)
+            if insiders or transactions:
+                normalized_accessions.append(accession)
 
         insider_rows = list(insider_rows_by_cik.values())
 

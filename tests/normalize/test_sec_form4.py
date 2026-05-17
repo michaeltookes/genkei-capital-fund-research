@@ -466,6 +466,46 @@ class NormalizeTests(unittest.TestCase):
         self.assertEqual(marked["accessions"], ["0000000000-26-000001"])
         self.assertEqual(marked["ingest_run_id"], 99)
 
+    def test_does_not_mark_unusable_parse_as_normalized(self) -> None:
+        marked: dict[str, object] = {}
+
+        class Run:
+            id = 99
+
+            def add_rows(self, rows: int) -> None:
+                pass
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        @contextmanager
+        def fake_ingest_run(*args, **kwargs):
+            yield Run()
+
+        def fake_mark(conn, accessions, *, ingest_run_id):
+            marked["accessions"] = accessions
+            marked["ingest_run_id"] = ingest_run_id
+
+        with (
+            patch(
+                "genkei.normalize.sec_form4.fetch_unnormalized_form4_blobs",
+                return_value=[("0000000000-26-000001", "url", "<bad/>", NOW)],
+            ),
+            patch("genkei.normalize.sec_form4.parse_form4_xml", return_value=([], [])),
+            patch("genkei.normalize.sec_form4.db.ingest_run", fake_ingest_run),
+            patch("genkei.normalize.sec_form4.db.connection", return_value=FakeConn()),
+            patch("genkei.normalize.sec_form4.db.bulk_upsert", return_value=0),
+            patch("genkei.normalize.sec_form4._mark_normalized_filings", fake_mark),
+        ):
+            self.assertEqual(normalize(), (99, 1))
+
+        self.assertEqual(marked["accessions"], [])
+        self.assertEqual(marked["ingest_run_id"], 99)
+
     def test_marker_insert_upserts_accession_rows(self) -> None:
         captured: dict[str, object] = {}
 
