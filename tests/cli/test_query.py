@@ -22,6 +22,7 @@ from genkei.cli.query import (
     MAX_LIMIT,
     MAX_TIMEOUT_SECONDS,
     _strip_trailing_semicolons,
+    _validate_sql,
     find_multi_statement_position,
     format_csv,
     format_json,
@@ -71,6 +72,16 @@ class FindMultiStatementPositionTests(unittest.TestCase):
         self.assertIsNone(
             find_multi_statement_position("SELECT * FROM t WHERE col = 'a;b'")
         )
+
+    def test_semicolon_inside_quoted_identifier_ignored(self) -> None:
+        self.assertIsNone(find_multi_statement_position('SELECT 1 AS "a;b"'))
+
+    def test_semicolon_inside_escaped_quoted_identifier_ignored(self) -> None:
+        self.assertIsNone(find_multi_statement_position('SELECT 1 AS "a"";b"'))
+
+    def test_semicolon_after_quoted_identifier_close_caught(self) -> None:
+        pos = find_multi_statement_position('SELECT 1 AS "a;b"; SELECT 2')
+        self.assertEqual(pos, 17)
 
     def test_semicolon_inside_dollar_quoted_string_ignored(self) -> None:
         self.assertIsNone(find_multi_statement_position("SELECT $$a;b$$"))
@@ -128,6 +139,12 @@ class WrapQueryForSafetyTests(unittest.TestCase):
         wrapped = wrap_query_for_safety("SELECT 1;", limit=5)
         self.assertNotIn(";)", wrapped)
         self.assertNotIn("; )", wrapped)
+
+
+class ValidateSqlTests(unittest.TestCase):
+    def test_semicolon_only_sql_rejected_as_empty(self) -> None:
+        with self.assertRaisesRegex(Exception, "SQL is empty"):
+            _validate_sql(" ;;; ")
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +274,12 @@ class CliArgumentTests(unittest.TestCase):
             code = main(["query", "   "])
         self.assertEqual(code, 2)
 
+    def test_semicolon_only_sql_rejected(self) -> None:
+        err = io.StringIO()
+        with redirect_stderr(err):
+            code = main(["query", " ;;; "])
+        self.assertEqual(code, 2)
+
 
 class CliExecutionTests(unittest.TestCase):
     def test_default_format_renders_table(self) -> None:
@@ -270,8 +293,8 @@ class CliExecutionTests(unittest.TestCase):
         ):
             code = main(["query", "SELECT generate_series(1,2) AS n"])
         self.assertIn(code, (None, 0))
-        # Default args flow through
-        self.assertEqual(mocked.call_args.kwargs["limit"], DEFAULT_LIMIT)
+        # Over-fetch one row so the command can detect capping precisely.
+        self.assertEqual(mocked.call_args.kwargs["limit"], DEFAULT_LIMIT + 1)
         self.assertEqual(
             mocked.call_args.kwargs["timeout_seconds"], DEFAULT_TIMEOUT_SECONDS
         )
@@ -290,6 +313,19 @@ class CliExecutionTests(unittest.TestCase):
             main(["query", "SELECT 42 AS x", "--json"])
         parsed = json_mod.loads(out.getvalue())
         self.assertEqual(parsed, [{"x": "42"}])
+
+    def test_json_output_trims_overfetch_row(self) -> None:
+        out = io.StringIO()
+        with (
+            patch(
+                "genkei.cli.query.execute_readonly",
+                return_value=(["x"], [(1,), (2,), (3,)]),
+            ),
+            redirect_stdout(out),
+        ):
+            main(["query", "SELECT x FROM t", "--json", "--limit", "2"])
+        parsed = json_mod.loads(out.getvalue())
+        self.assertEqual(parsed, [{"x": 1}, {"x": 2}])
 
     def test_format_csv_emits_csv(self) -> None:
         out = io.StringIO()
@@ -364,7 +400,19 @@ class CliExecutionTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("SyntaxError", err.getvalue())
 
-    def test_capped_marker_shown_in_table_when_result_hits_limit(self) -> None:
+    def test_capped_marker_shown_in_table_when_result_exceeds_limit(self) -> None:
+        out = io.StringIO()
+        with (
+            patch(
+                "genkei.cli.query.execute_readonly",
+                return_value=(["x"], [(i,) for i in range(6)]),
+            ),
+            redirect_stdout(out),
+        ):
+            main(["query", "SELECT * FROM t", "--limit", "5"])
+        self.assertIn("(row cap)", out.getvalue())
+
+    def test_capped_marker_not_shown_when_result_exactly_hits_limit(self) -> None:
         out = io.StringIO()
         with (
             patch(
@@ -374,7 +422,7 @@ class CliExecutionTests(unittest.TestCase):
             redirect_stdout(out),
         ):
             main(["query", "SELECT * FROM t", "--limit", "5"])
-        self.assertIn("(row cap)", out.getvalue())
+        self.assertNotIn("(row cap)", out.getvalue())
 
 
 if __name__ == "__main__":

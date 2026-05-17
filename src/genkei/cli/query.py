@@ -84,7 +84,10 @@ def find_multi_statement_position(sql: str) -> Optional[int]:
     n = len(sql)
     in_single_quote = False
     in_escape_string = False
-    dollar_quote: str | None = None
+    in_identifier = False
+    # pyproject requires Python >=3.10, but CLI modules keep
+    # Optional[...] annotations for Typer/local harness compatibility.
+    dollar_quote: Optional[str] = None
     block_comment_depth = 0
     while i < n:
         ch = sql[i]
@@ -115,6 +118,13 @@ def find_multi_statement_position(sql: str) -> Optional[int]:
             elif in_escape_string and ch == "\\":
                 i += 2
                 continue
+        elif in_identifier:
+            if ch == '"':
+                # Postgres escapes " inside quoted identifiers by doubling it ("")
+                if next_ch == '"':
+                    i += 2
+                    continue
+                in_identifier = False
         else:
             dollar_match = _DOLLAR_QUOTE_RE.match(sql, i)
             if dollar_match is not None:
@@ -134,6 +144,8 @@ def find_multi_statement_position(sql: str) -> Optional[int]:
             if ch == "'":
                 in_single_quote = True
                 in_escape_string = i > 0 and sql[i - 1] in {"e", "E"}
+            elif ch == '"':
+                in_identifier = True
             elif ch == ";":
                 return i
         i += 1
@@ -169,6 +181,8 @@ def _validate_sql(sql: str) -> str:
     # (we strip it before wrapping); a `;` *inside* the body indicates a
     # multi-statement payload.
     body = _strip_trailing_semicolons(stripped)
+    if not body:
+        raise typer.BadParameter("SQL is empty.")
     pos = find_multi_statement_position(body)
     if pos is not None:
         raise typer.BadParameter(
@@ -268,10 +282,10 @@ def format_table(
 
 
 def format_json(cols: list[str], rows: list[tuple[Any, ...]]) -> str:
-    # `strict=` would catch arity mismatches but is Python 3.10+; the
-    # local dev venv is 3.9 (G-002). The psycopg cursor.description
-    # guarantees cols and row have equal length so the check would be
-    # a no-op anyway. noqa keeps ruff B905 quiet on this intentional
+    # pyproject requires Python >=3.10, but the local harness may still
+    # run under G-002's 3.9 venv. The psycopg cursor.description
+    # guarantees cols and row have equal length, so strict=True would
+    # be a no-op anyway. noqa keeps ruff B905 quiet on this intentional
     # omission.
     payload = [dict(zip(cols, row)) for row in rows]  # noqa: B905
     return json.dumps(payload, indent=2, default=_json_default)
@@ -360,7 +374,7 @@ def query_cmd(
 
     try:
         cols, rows = execute_readonly(
-            cleaned, limit=limit, timeout_seconds=timeout_seconds
+            cleaned, limit=limit + 1, timeout_seconds=timeout_seconds
         )
     except USER_ERROR_TYPES as exc:
         # Clean, agent-readable error line — no stack trace.
@@ -372,7 +386,8 @@ def query_cmd(
         typer.echo(f"query error [{kind}]: {msg}", err=True)
         raise typer.Exit(code=1) from exc
 
-    capped = len(rows) == limit
+    capped = len(rows) > limit
+    rows = rows[:limit]
     if output_format == "json":
         typer.echo(format_json(cols, rows))
     elif output_format == "csv":
