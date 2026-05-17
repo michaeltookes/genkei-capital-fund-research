@@ -72,13 +72,19 @@ class FormatHelperTests(unittest.TestCase):
         self.assertEqual(_format_role({}), "-")
 
     def test_empty_rows_hints_at_health_check(self) -> None:
-        out = _format_human(title="AAPL", rows=[])
+        out = _format_human(title="AAPL", rows=[], horizon_tag="equity:core:primary")
         self.assertIn("AAPL", out)
         self.assertIn("genkei watchlist health", out)
+        self.assertIn("horizon=equity:core:primary", out)
 
     def test_table_renders_shares_with_commas(self) -> None:
-        out = _format_human(title="AAPL", rows=[SAMPLE_ISSUER_ROW])
+        out = _format_human(
+            title="AAPL",
+            rows=[SAMPLE_ISSUER_ROW],
+            horizon_tag="equity:core:primary",
+        )
         self.assertIn("AAPL insider transactions", out)
+        self.assertIn("horizon=equity:core:primary", out)
         self.assertIn("1,274", out)
         self.assertIn("290.00", out)
         self.assertIn("Borders Ben", out)
@@ -186,6 +192,7 @@ class InsidersCommandTests(unittest.TestCase):
         # AAPL → CIK 0000320193 resolution
         self.assertEqual(mocked.call_args.args[0], "0000320193")
         self.assertIn("Borders Ben", out.getvalue())
+        self.assertIn("horizon=equity:core:primary", out.getvalue())
 
     def test_reporter_mode_pads_cik_and_skips_watchlist(self) -> None:
         # Reporter-CIK lookup doesn't need the equities watchlist;
@@ -237,6 +244,23 @@ class InsidersCommandTests(unittest.TestCase):
         # as filings --json after the precision-preserving commit).
         self.assertEqual(parsed[0]["shares"], "1274")
         self.assertEqual(parsed[0]["reporter_cik"], "0002100523")
+        self.assertEqual(parsed[0]["horizon_tag"], "equity:core:primary")
+
+    def test_reporter_json_mode_emits_cross_issuer_horizon_tag(self) -> None:
+        row = dict(SAMPLE_ISSUER_ROW)
+        row["issuer_ticker"] = "AAPL"
+        row["issuer_name"] = "Apple Inc."
+        out = io.StringIO()
+        with (
+            patch(
+                "genkei.cli.insiders._query_by_reporter",
+                return_value=[row],
+            ),
+            redirect_stdout(out),
+        ):
+            main(["insiders", "--reporter-cik", "2100523", "--json"])
+        parsed = json_mod.loads(out.getvalue())
+        self.assertEqual(parsed[0]["horizon_tag"], "equity:cross-issuer:reporter")
 
 
 if __name__ == "__main__":

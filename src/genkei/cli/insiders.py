@@ -198,14 +198,20 @@ def _format_human(
     title: str,
     rows: list[dict[str, Any]],
     include_issuer: bool = False,
+    horizon_tag: Optional[str] = None,
 ) -> str:
     if not rows:
+        tag = f" [horizon={horizon_tag}]" if horizon_tag is not None else ""
         return (
-            f"No insider transactions for {title} (sec.form4_transactions). "
+            f"No insider transactions for {title} (sec.form4_transactions){tag}. "
             "Try widening --since, removing --code, or check the company has "
             "Form 4 filings parsed (`genkei watchlist health` shows the table)."
         )
-    header = f"{title} insider transactions ({len(rows)} row{'s' if len(rows) != 1 else ''})"
+    horizon = f", horizon={horizon_tag}" if horizon_tag is not None else ""
+    header = (
+        f"{title} insider transactions "
+        f"({len(rows)} row{'s' if len(rows) != 1 else ''}{horizon})"
+    )
     lines = [header, "-" * len(header)]
     if include_issuer:
         # Reporter-scoped view — show issuer ticker in the first column.
@@ -251,6 +257,18 @@ def _format_role(row: dict[str, Any]) -> str:
     if row.get("is_ten_percent_owner"):
         flags.append("10%-owner")
     return ", ".join(flags) if flags else "-"
+
+
+def _horizon_tag(equity: EquityEntry) -> str:
+    return f"equity:{equity.sleeve}:{equity.tier}"
+
+
+def _reporter_horizon_tag() -> str:
+    return "equity:cross-issuer:reporter"
+
+
+def _tag_rows(rows: list[dict[str, Any]], horizon_tag: str) -> list[dict[str, Any]]:
+    return [{**row, "horizon_tag": horizon_tag} for row in rows]
 
 
 def _resolve_equity(ticker: str, watchlist: Watchlist) -> EquityEntry:
@@ -348,6 +366,7 @@ def insiders_cmd(
             raise typer.Exit(code=2) from exc
         equity = _resolve_equity(ticker, watchlist)
         assert equity.cik is not None
+        horizon_tag = _horizon_tag(equity)
         rows = _query_by_issuer(
             equity.cik,
             code=code,
@@ -356,12 +375,18 @@ def insiders_cmd(
             derivative=derivative_filter,
             limit=limit,
         )
+        rows = _tag_rows(rows, horizon_tag)
         if json_out:
             typer.echo(json.dumps(rows, indent=2, default=_json_default))
         else:
-            typer.echo(_format_human(title=ticker.upper(), rows=rows))
+            typer.echo(
+                _format_human(
+                    title=ticker.upper(), rows=rows, horizon_tag=horizon_tag
+                )
+            )
     else:
         assert reporter_cik is not None
+        horizon_tag = _reporter_horizon_tag()
         rows = _query_by_reporter(
             reporter_cik.zfill(10),
             code=code,
@@ -370,6 +395,7 @@ def insiders_cmd(
             derivative=derivative_filter,
             limit=limit,
         )
+        rows = _tag_rows(rows, horizon_tag)
         if json_out:
             typer.echo(json.dumps(rows, indent=2, default=_json_default))
         else:
@@ -378,5 +404,6 @@ def insiders_cmd(
                     title=f"reporter {reporter_cik.zfill(10)}",
                     rows=rows,
                     include_issuer=True,
+                    horizon_tag=horizon_tag,
                 )
             )

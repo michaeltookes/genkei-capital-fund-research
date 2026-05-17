@@ -97,7 +97,8 @@ class SelectTargetsTests(unittest.TestCase):
 
         self.assertIn("f.form_type IN ('4', '4/A')", str(captured["sql"]))
         self.assertIn("sec.form4_normalized_filings", str(captured["sql"]))
-        self.assertEqual(captured["params"], ["form4_", 10])
+        self.assertNotIn("meta.raw_blobs", str(captured["sql"]))
+        self.assertEqual(captured["params"], [10])
         self.assertEqual(
             rows,
             [
