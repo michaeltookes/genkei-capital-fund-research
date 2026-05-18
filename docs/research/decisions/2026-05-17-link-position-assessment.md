@@ -27,7 +27,7 @@ LINK is one of four crypto-core watchlist assets (BTC / ETH / SOL / LINK per `CL
 
 **Macro regime call: constructive risk-on for crypto.** USD weakening + HY tight + vol benign = no macro headwind to crypto-core long positions. If anything, the macro backdrop suggests crypto-core should be working *better* than it is. The fact that LINK specifically has lagged despite this benign macro is a tell — the underperformance is idiosyncratic / sector-specific, not macro-driven.
 
-**Note on data freshness:** FRED collector failed in the most recent 24h (per `genkei watchlist health`). Macro figures above are 2-4 days stale relative to today's date, which is acceptable for a years-horizon decision.
+**Note on data freshness:** FRED collector failed in the most recent 24h (per `genkei watchlist health`). Most macro figures above are 4 days stale relative to today's date; DTWEXBGS is 10 days stale, so treat the USD-softening signal as directionally useful but less fresh than the rates, credit, and vol inputs. That is acceptable for a years-horizon decision.
 
 ## Fundamentals
 
@@ -94,7 +94,7 @@ ETH chain TVL is **down 20.6% over the last month and 25.5% YoY**, while ETH pri
 2. **Oracle competition has structurally improved.** Pyth (low-latency pull oracles), RedStone (modular oracles), and native protocol oracles (e.g. Uniswap's own TWAP) have all taken oracle market share over the past 2y. The data isn't in the lake, but the qualitative trend is well-known and is *probably* a real factor in LINK's underperformance.
 3. **Restaking captured the "decentralized service" narrative.** EigenLayer + AVS launched in 2024 promising to do what LINK does but cheaper and with ETH as economic security. Even if AVS doesn't displace LINK technically, it captured the narrative attention that LINK had to itself in 2020-2022.
 4. **No catalyst on the immediate horizon.** No Chainlink-specific event in the near term that would change the narrative — no major CCIP integration announcement, no staking-pool unlock, no fundamental disclosure. Drift continues by default.
-5. **Crypto-core inclusion is legacy.** LINK has been in the crypto core watchlist since the project started; was it *re-validated* recently or grandfathered in? If grandfathered, the right move might be to demote LINK to crypto-tactical and rotate the core allocation to BTC/ETH/SOL — the three with stronger 1y performance.
+5. **Crypto-core inclusion is legacy.** LINK has been in the crypto-core watchlist since the project started; was it *re-validated* recently or grandfathered in? If grandfathered, the right move might be to demote LINK to crypto-tactical and rotate the core allocation to BTC/ETH/SOL — the three with stronger 1y performance.
 
 ## Phase B — counter-thesis
 
