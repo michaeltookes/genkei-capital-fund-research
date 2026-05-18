@@ -458,7 +458,6 @@ def collect(
                 run.add_rows(0)
                 return run.id
 
-            fetched_at = datetime.now(timezone.utc)
             total_written = 0
             for pool in pools:
                 head_block = fetch_current_head_block(http, api_key=resolved_key)
@@ -488,6 +487,7 @@ def collect(
                             from_block=chunk_from,
                             to_block=chunk_to,
                         )
+                        fetched_at = datetime.now(timezone.utc)
                     except (httpx.TimeoutException, httpx.NetworkError, RuntimeError) as exc:
                         LOGGER.warning(
                             "%s logs fetch failed for blocks %s-%s: %s",

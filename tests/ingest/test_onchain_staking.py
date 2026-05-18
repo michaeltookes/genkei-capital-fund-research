@@ -9,6 +9,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from genkei.ingest.onchain_staking import (
+    BLOCK_CHUNK_SIZE,
     CHAINLINK_V02_POOL,
     ETHERSCAN_API_KEY_ENV,
     EVENT_TOPIC_STAKED,
@@ -593,6 +594,66 @@ class CollectTests(unittest.TestCase):
 
             fetch_mock.assert_called_once()
             self.assertFalse(hasattr(fake, "_added"))
+
+    def test_fetched_at_is_captured_per_successful_chunk(self) -> None:
+        first_fetched_at = datetime(2026, 5, 17, 12, 0, tzinfo=timezone.utc)
+        second_fetched_at = datetime(2026, 5, 17, 12, 5, tzinfo=timezone.utc)
+        timestamps = [first_fetched_at, second_fetched_at]
+        inserted_batches: list[list[dict[str, object]]] = []
+
+        class FakeDateTime:
+            @classmethod
+            def now(cls, tz: timezone) -> datetime:  # noqa: ARG003
+                return timestamps.pop(0)
+
+            @classmethod
+            def fromtimestamp(cls, value: int, tz: timezone) -> datetime:
+                return datetime.fromtimestamp(value, tz=tz)
+
+        def fake_fetch_logs(
+            *args: object, from_block: int, **kwargs: object
+        ) -> list[dict[str, object]]:
+            tx_hash = (
+                "0xfirst"
+                if from_block == CHAINLINK_V02_POOL.deployment_block
+                else "0xsecond"
+            )
+            return [_build_log(topic0=EVENT_TOPIC_STAKED, tx_hash=tx_hash)]
+
+        def fake_insert_rows(rows: list[dict[str, object]]) -> int:
+            inserted_batches.append(rows)
+            return len(rows)
+
+        with (
+            patch("genkei.ingest.onchain_staking.db.ingest_run") as ingest_run_cm,
+            patch(
+                "genkei.ingest.onchain_staking.fetch_current_head_block",
+                return_value=CHAINLINK_V02_POOL.deployment_block + BLOCK_CHUNK_SIZE,
+            ),
+            patch("genkei.ingest.onchain_staking.latest_block_for_pool", return_value=None),
+            patch("genkei.ingest.onchain_staking.fetch_logs", side_effect=fake_fetch_logs),
+            patch("genkei.ingest.onchain_staking._insert_rows", side_effect=fake_insert_rows),
+            patch("genkei.ingest.onchain_staking.datetime", FakeDateTime),
+        ):
+            class FakeRun:
+                id = 42
+
+                def add_rows(self, n: int) -> None:
+                    self._added = n
+
+            fake = FakeRun()
+            ingest_run_cm.return_value.__enter__.return_value = fake
+            ingest_run_cm.return_value.__exit__.return_value = False
+
+            self.assertEqual(
+                collect(http=_MockHttp(), api_key="k", pools=[CHAINLINK_V02_POOL]),
+                42,
+            )
+
+        self.assertEqual(len(inserted_batches), 2)
+        self.assertEqual(inserted_batches[0][0]["fetched_at"], first_fetched_at)
+        self.assertEqual(inserted_batches[1][0]["fetched_at"], second_fetched_at)
+        self.assertEqual(fake._added, 2)
 
 
 class _MockHttp:
