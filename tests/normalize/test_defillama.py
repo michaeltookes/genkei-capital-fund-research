@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 from genkei.normalize.defillama import (
     _rows_for,
     _stablecoin_supply,
+    _upsert_protocol_fee_rows,
     as_float,
     chain_history_stem,
     merge_fee_revenue_rows,
@@ -491,6 +493,42 @@ class MergeFeeRevenueRowsTests(unittest.TestCase):
         )
         self.assertEqual(len(merged), 2)
         self.assertEqual({row["slug"] for row in merged}, {"aave-v3", "uniswap-v3"})
+
+
+class UpsertProtocolFeeRowsTests(unittest.TestCase):
+    def test_fees_only_rows_do_not_update_revenue_usd_on_conflict(self) -> None:
+        row = {
+            "slug": "chainlink-requests",
+            "ts": datetime(2024, 1, 1, tzinfo=timezone.utc),
+            "fees_usd": 100.0,
+            "revenue_usd": None,
+            "source_endpoint": "fees-url",
+            "fetched_at": NOW,
+            "ingest_run_id": 1,
+        }
+
+        with patch("genkei.normalize.defillama.db.bulk_upsert", return_value=1) as upsert:
+            self.assertEqual(_upsert_protocol_fee_rows(object(), [row]), 1)
+
+        kwargs = upsert.call_args.kwargs
+        self.assertEqual(kwargs["conflict_keys"], ["slug", "ts"])
+        self.assertNotIn("revenue_usd", kwargs["update_cols"])
+
+    def test_rows_with_revenue_update_revenue_usd_on_conflict(self) -> None:
+        row = {
+            "slug": "chainlink-requests",
+            "ts": datetime(2024, 1, 1, tzinfo=timezone.utc),
+            "fees_usd": 100.0,
+            "revenue_usd": 25.0,
+            "source_endpoint": "fees-url",
+            "fetched_at": NOW,
+            "ingest_run_id": 1,
+        }
+
+        with patch("genkei.normalize.defillama.db.bulk_upsert", return_value=1) as upsert:
+            self.assertEqual(_upsert_protocol_fee_rows(object(), [row]), 1)
+
+        self.assertIn("revenue_usd", upsert.call_args.kwargs["update_cols"])
 
 
 if __name__ == "__main__":

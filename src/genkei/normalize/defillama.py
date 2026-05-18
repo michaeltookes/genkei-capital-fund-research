@@ -405,6 +405,36 @@ def merge_fee_revenue_rows(
     return list(merged.values())
 
 
+def _upsert_protocol_fee_rows(conn: Any, rows: list[JsonObject]) -> int:
+    """Upsert fee rows without erasing prior revenue on revenue outages."""
+    rows_with_revenue = [row for row in rows if row.get("revenue_usd") is not None]
+    rows_without_revenue = [row for row in rows if row.get("revenue_usd") is None]
+    total = 0
+    if rows_without_revenue:
+        total += db.bulk_upsert(
+            conn,
+            "defillama.protocol_fees",
+            rows_without_revenue,
+            conflict_keys=["slug", "ts"],
+            update_cols=["fees_usd", "source_endpoint", "fetched_at", "ingest_run_id"],
+        )
+    if rows_with_revenue:
+        total += db.bulk_upsert(
+            conn,
+            "defillama.protocol_fees",
+            rows_with_revenue,
+            conflict_keys=["slug", "ts"],
+            update_cols=[
+                "fees_usd",
+                "revenue_usd",
+                "source_endpoint",
+                "fetched_at",
+                "ingest_run_id",
+            ],
+        )
+    return total
+
+
 def normalize_stablecoin_history(
     payload: Any,
     *,
@@ -634,12 +664,7 @@ def normalize(config_path: Path, *, source_run_id: int | None = None) -> int:
                 )
             )
             run.add_rows(
-                db.bulk_upsert(
-                    conn,
-                    "defillama.protocol_fees",
-                    protocol_fees_rows,
-                    conflict_keys=["slug", "ts"],
-                )
+                _upsert_protocol_fee_rows(conn, protocol_fees_rows)
             )
             run.add_rows(
                 db.bulk_upsert(
