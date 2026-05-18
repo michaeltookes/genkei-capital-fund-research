@@ -30,7 +30,7 @@ from typing import Annotated, Any, Optional
 import typer
 from psycopg import sql
 
-from genkei.cli._helpers import json_default
+from genkei.cli._helpers import json_default as _json_default
 from genkei.common import db
 from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
@@ -128,7 +128,7 @@ def list_cmd(
             payload["macro"] = [
                 {"series_id": m.series_id, "name": m.name} for m in wl.macro
             ]
-        typer.echo(json.dumps(payload, indent=2, default=json_default))
+        typer.echo(json.dumps(payload, indent=2, default=_json_default))
     else:
         typer.echo(_format_list_human(wl, sleeve=sleeve))
 
@@ -343,7 +343,7 @@ def health_cmd(
             json.dumps(
                 _with_health_status(rows, stale_hours=stale_hours),
                 indent=2,
-                default=json_default,
+                default=_json_default,
             )
         )
     else:
@@ -512,7 +512,7 @@ def gaps_cmd(
             json.dumps(
                 _with_gap_status(rows, threshold_hours=threshold_hours),
                 indent=2,
-                default=json_default,
+                default=_json_default,
             )
         )
     else:
