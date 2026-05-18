@@ -1,14 +1,36 @@
 """On-chain staking-pool event ingester (B-082).
 
-Reads Staked / Unstaked log events from a configured staking-pool
-contract via Etherscan's V2 logs API and lands one row per event in
-``onchain.staking_events``. First (and currently only) protocol
-covered: Chainlink v0.2 community staking pool at
+Reads Staked / Unstaked / UnbondingPeriodStarted log events from a
+configured staking-pool contract via Etherscan's V2 logs API and lands
+one row per event in ``onchain.staking_events``. First (and currently
+only) protocol covered: Chainlink v0.2 community staking pool at
 ``0xBc10f2E862ED4502144c7d632a3459F49DFCDB5e`` on Ethereum mainnet.
 
 The schema (migration ``5d3e8b9c1a02``) is deliberately generic so
 adding Lido / RocketPool / EigenLayer in the future is a config
 change plus a contract-address constant, not a new schema.
+
+Signal-interpretation note (learned from the first backfill):
+
+  The Chainlink v0.2 pool runs at a **capped capacity** (~6.5M LINK).
+  Once the cap filled in Nov-Dec 2023, every Unstaked event is
+  immediately matched by a queued Staked event of the same amount —
+  monthly net flow is structurally **zero** in steady state. So
+  "net flow per month" is NOT a useful demand signal for this pool;
+  the framing in B-082's original acceptance criteria was wrong on
+  that front.
+
+  The actual demand signal is the **UnbondingPeriodStarted** count
+  (stakers signaling intent to exit, waiting ~28d before the actual
+  Unstaked event lands). That count has trended from ~150/month in
+  2024 to ~400/month in 2025-2026 — a ~2.5x increase in stakers
+  losing patience, which is real on-chain conviction data of the
+  kind the LINK research session was looking for.
+
+  Queries computing demand signal should aggregate by event_type and
+  look at the unbonding_started count over time, not the
+  staked-minus-unstaked flow. See the example queries in the B-082
+  resolved entry in docs/resolved.md.
 
 Configuration:
   - ``ETHERSCAN_API_KEY`` — Etherscan V2 strictly requires a key (no
