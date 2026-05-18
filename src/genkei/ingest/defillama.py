@@ -290,8 +290,17 @@ def _load_watchlist_protocol_slugs(watchlist_path: Path | None) -> list[str]:
     try:
         with path.open(encoding="utf-8") as handle:
             data = yaml.safe_load(handle)
-    except FileNotFoundError:
-        LOGGER.warning("watchlist not found at %s — skipping per-protocol fetch", path)
+    except FileNotFoundError as exc:
+        LOGGER.warning(
+            "watchlist not found at %s — skipping per-protocol fetch: %s", path, exc
+        )
+        return []
+    except (OSError, yaml.YAMLError) as exc:
+        LOGGER.warning(
+            "watchlist could not be read at %s — skipping per-protocol fetch: %s",
+            path,
+            exc,
+        )
         return []
     if not isinstance(data, dict):
         return []

@@ -188,6 +188,10 @@ class WatchlistProtocolSlugLoaderTests(unittest.TestCase):
             _load_watchlist_protocol_slugs(Path("/no/such/path.yml")), []
         )
 
+    def test_malformed_yaml_returns_empty_not_raise(self) -> None:
+        path = self._write_watchlist("protocols:\n  primary:\n    - slug: [\n")
+        self.assertEqual(_load_watchlist_protocol_slugs(path), [])
+
     def test_skips_malformed_entries(self) -> None:
         path = self._write_watchlist(
             "protocols:\n"
