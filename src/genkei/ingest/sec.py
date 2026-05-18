@@ -38,10 +38,10 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-import yaml
 
 from genkei.common import db
 from genkei.common.http import HttpClient, RateLimit
+from genkei.common.watchlist import load_watchlist
 
 DEFAULT_WATCHLIST_PATH = Path("config/watchlists.yml")
 SOURCE_NAME = "sec"
@@ -57,11 +57,6 @@ COMPANYFACTS_BLOB_PREFIX = "companyfacts_"
 DEFAULT_RATE_LIMIT = RateLimit.per_second(8)
 USER_AGENT_ENV = "SEC_USER_AGENT"
 DEFAULT_USER_AGENT = "Genkei Capital research-desk noreply@example.com"
-RAW_BLOBS_INSERT = (
-    "INSERT INTO meta.raw_blobs (ingest_run_id, endpoint_name, url, payload) "
-    "VALUES (%s, %s, %s, %s::jsonb) "
-    "ON CONFLICT (ingest_run_id, endpoint_name) DO NOTHING"
-)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -77,45 +72,29 @@ class CompanyTarget:
 def load_companies(path: Path) -> list[CompanyTarget]:
     """Read ``equities:`` from watchlists.yml as ``CompanyTarget``s.
 
-    Skips entries without a ``cik`` field. Dedupes on CIK so multi-class
-    listings (GOOG/GOOGL share Alphabet's CIK) only fetch once.
+    Skips entries without a ``cik`` field. Dedupes on the zero-padded CIK
+    so multi-class listings (e.g. GOOG/GOOGL share Alphabet's CIK) only
+    fetch once.
     """
     try:
-        with path.open(encoding="utf-8") as handle:
-            data = yaml.safe_load(handle)
+        watchlist = load_watchlist(path)
     except FileNotFoundError as exc:
         raise SystemExit(f"Watchlist file not found: {path}") from exc
-    except yaml.YAMLError as exc:
-        raise SystemExit(f"Invalid YAML in {path}: {exc}") from exc
-    if not isinstance(data, dict):
-        raise SystemExit("Watchlist root must be a YAML mapping.")
-    equities = data.get("equities", {})
-    if not isinstance(equities, dict):
-        raise SystemExit("watchlists.yml `equities` must be a mapping (tier -> list).")
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
     out: list[CompanyTarget] = []
     seen_ciks: set[str] = set()
-    for tier_name, tier_entries in equities.items():
-        if not isinstance(tier_entries, list):
+    for entry in watchlist.equities:
+        normalized_cik = normalize_cik(entry.cik)
+        if normalized_cik is None:
+            LOGGER.warning("skip equity %s in tier %s — missing cik", entry.symbol, entry.tier)
             continue
-        for entry in tier_entries:
-            if not isinstance(entry, dict):
-                continue
-            cik = entry.get("cik")
-            symbol = entry.get("symbol")
-            name = entry.get("name")
-            normalized_cik = normalize_cik(cik)
-            if normalized_cik is None:
-                LOGGER.warning("skip equity %s in tier %s — missing cik", symbol, tier_name)
-                continue
-            if not isinstance(symbol, str) or not isinstance(name, str):
-                LOGGER.warning("skip malformed equity entry under tier %s", tier_name)
-                continue
-            if normalized_cik in seen_ciks:
-                LOGGER.debug("skip duplicate CIK %s (%s)", normalized_cik, symbol)
-                continue
-            seen_ciks.add(normalized_cik)
-            out.append(CompanyTarget(cik=normalized_cik, symbol=symbol, name=name))
+        if normalized_cik in seen_ciks:
+            LOGGER.debug("skip duplicate CIK %s (%s)", normalized_cik, entry.symbol)
+            continue
+        seen_ciks.add(normalized_cik)
+        out.append(CompanyTarget(cik=normalized_cik, symbol=entry.symbol, name=entry.name))
     if not out:
         raise SystemExit("No equities with CIK found under `equities:` in the watchlist.")
     return out
@@ -165,12 +144,6 @@ def build_submissions_url(cik: str) -> str:
 def build_companyfacts_url(cik: str) -> str:
     """Build the URL for the XBRL company-facts endpoint."""
     return f"{COMPANYFACTS_BASE}/CIK{cik}.json"
-
-
-def _store_blob(ingest_run_id: int, endpoint_name: str, url: str, payload: Any) -> None:
-    """Insert one raw_blobs row."""
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(RAW_BLOBS_INSERT, [ingest_run_id, endpoint_name, url, json.dumps(payload)])
 
 
 def collect(
@@ -290,7 +263,7 @@ def _fetch_blob(
         LOGGER.warning("SEC fetch failed for %s (%s): %s", endpoint_name, target.symbol, exc)
         failures.append({"name": endpoint_name, "url": url, "error": str(exc)})
         return None
-    _store_blob(ingest_run_id, endpoint_name, url, payload)
+    db.store_raw_blob(ingest_run_id, endpoint_name, url, payload)
     return payload
 
 

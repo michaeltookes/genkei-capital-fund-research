@@ -37,10 +37,9 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from genkei.common import db
 from genkei.common.http import HttpClient, RateLimit
+from genkei.common.watchlist import load_watchlist
 
 DEFAULT_WATCHLIST_PATH = Path("config/watchlists.yml")
 SOURCE_NAME = "coingecko"
@@ -69,11 +68,6 @@ DEMO_RATE_LIMIT = RateLimit.per_minute(25)
 # it in the 5-15 req/min range. 5/min is safe and still finishes the
 # daily watchlist run in ~3 minutes.
 KEYLESS_RATE_LIMIT = RateLimit.per_minute(5)
-RAW_BLOBS_INSERT = (
-    "INSERT INTO meta.raw_blobs (ingest_run_id, endpoint_name, url, payload) "
-    "VALUES (%s, %s, %s, %s::jsonb) "
-    "ON CONFLICT (ingest_run_id, endpoint_name) DO NOTHING"
-)
 LOGGER = logging.getLogger(__name__)
 # Sentinel so ``api_key=None`` in collect() can mean "explicit keyless"
 # while the default ``api_key=_USE_ENV`` falls back to ``resolve_api_key``.
@@ -92,45 +86,26 @@ class CoinTarget:
 def load_coins(path: Path) -> list[CoinTarget]:
     """Read ``crypto:`` from watchlists.yml as ``CoinTarget``s.
 
-    Walks both primary and secondary tiers. Skips entries without a
-    ``coingecko_id`` field.
+    Walks both primary and secondary tiers via the shared loader. Skips
+    duplicates so multi-symbol listings sharing one coingecko_id only
+    fetch once.
     """
     try:
-        with path.open(encoding="utf-8") as handle:
-            data = yaml.safe_load(handle)
+        watchlist = load_watchlist(path)
     except FileNotFoundError as exc:
         raise SystemExit(f"Watchlist file not found: {path}") from exc
-    except yaml.YAMLError as exc:
-        raise SystemExit(f"Invalid YAML in {path}: {exc}") from exc
-    if not isinstance(data, dict):
-        raise SystemExit("Watchlist root must be a YAML mapping.")
-    crypto = data.get("crypto", {})
-    if not isinstance(crypto, dict):
-        raise SystemExit("watchlists.yml `crypto` must be a mapping (tier -> list).")
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
     out: list[CoinTarget] = []
     seen_ids: set[str] = set()
-    for tier_name, tier_entries in crypto.items():
-        if not isinstance(tier_entries, list):
+    for entry in watchlist.crypto:
+        if not entry.coingecko_id or entry.coingecko_id in seen_ids:
             continue
-        for entry in tier_entries:
-            if not isinstance(entry, dict):
-                continue
-            cgid = entry.get("coingecko_id")
-            symbol = entry.get("symbol")
-            name = entry.get("name")
-            if not isinstance(cgid, str) or not cgid:
-                LOGGER.warning(
-                    "skip crypto %s in tier %s — missing coingecko_id", symbol, tier_name
-                )
-                continue
-            if not isinstance(symbol, str) or not isinstance(name, str):
-                LOGGER.warning("skip malformed crypto entry under tier %s", tier_name)
-                continue
-            if cgid in seen_ids:
-                continue
-            seen_ids.add(cgid)
-            out.append(CoinTarget(coingecko_id=cgid, symbol=symbol, name=name))
+        seen_ids.add(entry.coingecko_id)
+        out.append(
+            CoinTarget(coingecko_id=entry.coingecko_id, symbol=entry.symbol, name=entry.name)
+        )
     if not out:
         raise SystemExit("No crypto entries with coingecko_id found in the watchlist.")
     return out
@@ -234,12 +209,6 @@ def build_market_chart_range_url(
         f"{base_url}/coins/{coingecko_id}/market_chart/range"
         f"?vs_currency=usd&from={since.isoformat()}&to={until.isoformat()}&interval=daily"
     )
-
-
-def _store_blob(ingest_run_id: int, endpoint_name: str, url: str, payload: Any) -> None:
-    """Insert one raw_blobs row."""
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(RAW_BLOBS_INSERT, [ingest_run_id, endpoint_name, url, json.dumps(payload)])
 
 
 def collect(
@@ -373,7 +342,7 @@ def _fetch_coin_pair(
             )
             failures.append({"name": endpoint_name, "url": url, "error": str(exc)})
         else:
-            _store_blob(ingest_run_id, endpoint_name, url, payload)
+            db.store_raw_blob(ingest_run_id, endpoint_name, url, payload)
             written += 1
     else:
         url = build_market_chart_url(target.coingecko_id, base_url=base_url)
@@ -407,7 +376,7 @@ def _fetch_and_store(
         LOGGER.warning("CoinGecko fetch failed for %s (%s): %s", endpoint_name, target.symbol, exc)
         failures.append({"name": endpoint_name, "url": url, "error": str(exc)})
         return False
-    _store_blob(ingest_run_id, endpoint_name, url, payload)
+    db.store_raw_blob(ingest_run_id, endpoint_name, url, payload)
     return True
 
 

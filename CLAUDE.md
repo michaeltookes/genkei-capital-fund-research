@@ -87,6 +87,19 @@ Briefs, alerts, and agent answers commit to the repo under `reports/`. Future mi
 - **Backlog hygiene**: items in `docs/backlog.md`, completed work in `docs/resolved.md`. Use the `update-backlog` skill after meaningful commits.
 - **Slash commands & skills**: `/pr` opens PRs (size guardrails); the `pr-body` skill drafts PR descriptions automatically when work on a non-main branch is done.
 
+## Clean-code principles
+
+The data lake will grow many sources; duplication compounds fast. Before adding a new ingester, CLI subcommand, or experiment, look for an existing shared helper. If one of these patterns is about to be copied, hoist it instead:
+
+- **Watchlist loading** — `genkei.common.watchlist.load_watchlist()` is the single source of truth for crypto / equity / macro / protocol entries. Every ingester and CLI subcommand reads through it. Do **not** re-parse `watchlists.yml` inline; extend `MacroEntry` / `EquityEntry` / `CryptoEntry` / `ProtocolEntry` if you need a new field.
+- **Raw blob writes** — `genkei.common.db.store_raw_blob(ingest_run_id, endpoint_name, url, payload)` is the only place that writes `meta.raw_blobs`. For resumable backfills, `db.copy_raw_blob_for_run(...)` preserves the original `fetched_at`. Do **not** redefine `RAW_BLOBS_INSERT` SQL strings or per-source `_store_blob` helpers.
+- **CLI helpers** — `genkei.cli._helpers.json_default` (Decimal + isoformat) and `parse_date(raw, *, label)` (YYYY-MM-DD with friendly errors) are shared by every subcommand. Import them as `_json_default` / `_parse_date` to match call-site convention.
+- **Ingest/CLI shape** — every collector wraps work in `db.ingest_run(source, endpoint=…)` and uses `db.bulk_upsert(...)` for writes. Every CLI subcommand supports `--json` and pairs human + JSON formatters in the same module.
+
+When you spot the *third* near-copy of any pattern, that's the signal to extract a shared helper rather than copy again. Bias to the canonical-loader approach (typed dataclasses in `common/`) over inline parsers — it pays back the second time it's used and keeps a fix in one place from rotting elsewhere.
+
+Don't, however, *premature*-abstract. Two similar lines are fine. Wait for the third — by then you know what stays constant and what varies.
+
 ## Open architectural decisions
 
 Tracked as backlog items so they don't block forward motion:

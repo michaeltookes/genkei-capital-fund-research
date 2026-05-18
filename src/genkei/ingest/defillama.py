@@ -32,8 +32,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-import yaml
-
 from genkei.common import db
 from genkei.common.http import HttpClient, RateLimit
 
@@ -41,16 +39,6 @@ DEFAULT_CONFIG_PATH = Path("config/defillama.sources.json")
 SOURCE_NAME = "defillama"
 COLLECT_ENDPOINT_LABEL = "collect"
 BACKFILL_ENDPOINT_LABEL = "backfill"
-RAW_BLOBS_INSERT = (
-    "INSERT INTO meta.raw_blobs (ingest_run_id, endpoint_name, url, payload) "
-    "VALUES (%s, %s, %s, %s::jsonb) "
-    "ON CONFLICT (ingest_run_id, endpoint_name) DO NOTHING"
-)
-RAW_BLOBS_COPY_INSERT = (
-    "INSERT INTO meta.raw_blobs (ingest_run_id, endpoint_name, url, payload, fetched_at) "
-    "VALUES (%s, %s, %s, %s::jsonb, %s) "
-    "ON CONFLICT (ingest_run_id, endpoint_name) DO NOTHING"
-)
 # Backfill-blob naming. Uniqueness is per (ingest_run_id, endpoint_name);
 # these prefixes also drive normalizer dispatch.
 PRICE_HISTORICAL_PREFIX = "prices_historical_"
@@ -191,15 +179,6 @@ def build_collection_targets(config: JsonObject) -> list[CollectionTarget]:
     return targets
 
 
-def _store_blob(ingest_run_id: int, target: CollectionTarget, payload: Any) -> None:
-    """Insert one ``meta.raw_blobs`` row for a successful endpoint fetch."""
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            RAW_BLOBS_INSERT,
-            [ingest_run_id, target.name, target.url, json.dumps(payload)],
-        )
-
-
 def collect(
     config_path: Path,
     *,
@@ -246,7 +225,7 @@ def collect(
                     LOGGER.warning("partial data for %s: %s", target.name, exc)
                     partial.append({"name": target.name, "url": target.url, "error": str(exc)})
                     continue
-                _store_blob(run.id, target, payload)
+                db.store_raw_blob(run.id, target.name, target.url, payload)
                 run.add_rows(1)
 
             # B-081 — watchlist-driven per-protocol /protocol/{slug} pull.
@@ -267,7 +246,7 @@ def collect(
                             {"name": endpoint_name, "url": url, "error": str(exc)}
                         )
                         continue
-                    _store_blob_for_run(run.id, endpoint_name, url, payload)
+                    db.store_raw_blob(run.id, endpoint_name, url, payload)
                     run.add_rows(1)
 
                 # B-083 — watchlist-driven per-protocol fees + revenue.
@@ -303,7 +282,7 @@ def collect(
                                 {"name": endpoint_name, "url": url, "error": str(exc)}
                             )
                             continue
-                        _store_blob_for_run(run.id, endpoint_name, url, payload)
+                        db.store_raw_blob(run.id, endpoint_name, url, payload)
                         run.add_rows(1)
 
             if partial:
@@ -314,64 +293,42 @@ def collect(
             http.close()
 
 
-def _load_watchlist_protocol_slugs(watchlist_path: Path | None) -> list[str]:
-    """Return slugs from the ``protocols:`` watchlist section, primary tier first.
+_TIER_PRIORITY = ("primary", "secondary")
 
-    Lives here (not in the cli._watchlist module) deliberately — the
-    ingest module shouldn't import from cli/. Mirrors the inline YAML
-    parsing the coingecko + sec collectors use for their watchlist
-    sections. Empty list means "no per-protocol fetches this run."
+
+def _load_watchlist_protocol_slugs(watchlist_path: Path | None) -> list[str]:
+    """Return DefiLlama protocol slugs from the watchlist, primary tier first.
+
+    Reads via the shared ``genkei.common.watchlist`` loader; on any I/O or
+    parse error the warning is logged and an empty list is returned so the
+    daily run still lands the fixed-name endpoints.
     """
-    from genkei.cli._watchlist import DEFAULT_WATCHLIST_PATH
+    from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist
 
     path = watchlist_path if watchlist_path is not None else DEFAULT_WATCHLIST_PATH
     try:
-        with path.open(encoding="utf-8") as handle:
-            data = yaml.safe_load(handle)
-    except FileNotFoundError as exc:
-        LOGGER.warning(
-            "watchlist not found at %s — skipping per-protocol fetch: %s", path, exc
-        )
-        return []
-    except (OSError, yaml.YAMLError) as exc:
+        watchlist = load_watchlist(path)
+    except (FileNotFoundError, ValueError, OSError) as exc:
         LOGGER.warning(
             "watchlist could not be read at %s — skipping per-protocol fetch: %s",
             path,
             exc,
         )
         return []
-    if not isinstance(data, dict):
-        return []
-    protocols_root = data.get("protocols", {})
-    if not isinstance(protocols_root, dict):
-        return []
-    slugs: list[str] = []
+
+    def _tier_rank(tier: str) -> int:
+        try:
+            return _TIER_PRIORITY.index(tier)
+        except ValueError:
+            return len(_TIER_PRIORITY)
+
     seen: set[str] = set()
-    # Process primary first so that ordering is stable/predictable.
-    for tier_name in ("primary", "secondary"):
-        entries = protocols_root.get(tier_name, [])
-        if not isinstance(entries, list):
+    slugs: list[str] = []
+    for entry in sorted(watchlist.protocols, key=lambda e: _tier_rank(e.tier)):
+        if entry.slug in seen:
             continue
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
-            slug = entry.get("slug")
-            if not isinstance(slug, str) or not slug or slug in seen:
-                continue
-            seen.add(slug)
-            slugs.append(slug)
-    # Also catch any other tier the user adds beyond primary/secondary.
-    for tier_name, entries in protocols_root.items():
-        if tier_name in {"primary", "secondary"} or not isinstance(entries, list):
-            continue
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
-            slug = entry.get("slug")
-            if not isinstance(slug, str) or not slug or slug in seen:
-                continue
-            seen.add(slug)
-            slugs.append(slug)
+        seen.add(entry.slug)
+        slugs.append(entry.slug)
     return slugs
 
 
@@ -440,27 +397,6 @@ def _cached_blob(url: str) -> tuple[Any, datetime] | None:
     return payload, fetched_at
 
 
-def _store_blob_for_run(ingest_run_id: int, endpoint_name: str, url: str, payload: Any) -> None:
-    """INSERT one raw_blobs row keyed to a backfill ingest_run."""
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(RAW_BLOBS_INSERT, [ingest_run_id, endpoint_name, url, json.dumps(payload)])
-
-
-def _copy_cached_blob_for_run(
-    ingest_run_id: int,
-    endpoint_name: str,
-    url: str,
-    payload: Any,
-    fetched_at: datetime,
-) -> None:
-    """Copy a resumed raw blob into the current backfill run."""
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            RAW_BLOBS_COPY_INSERT,
-            [ingest_run_id, endpoint_name, url, json.dumps(payload), fetched_at],
-        )
-
-
 def _fetch_with_resume(
     url: str,
     endpoint_name: str,
@@ -472,7 +408,7 @@ def _fetch_with_resume(
     cached = _cached_blob(url)
     if cached is not None:
         payload, fetched_at = cached
-        _copy_cached_blob_for_run(ingest_run_id, endpoint_name, url, payload, fetched_at)
+        db.copy_raw_blob_for_run(ingest_run_id, endpoint_name, url, payload, fetched_at)
         LOGGER.debug("reuse %s (already fetched within %s)", endpoint_name, RESUME_WINDOW)
         return True
     try:
@@ -481,7 +417,7 @@ def _fetch_with_resume(
         LOGGER.warning("backfill fetch failed for %s: %s", endpoint_name, exc)
         failures.append({"name": endpoint_name, "url": url, "error": str(exc)})
         return False
-    _store_blob_for_run(ingest_run_id, endpoint_name, url, payload)
+    db.store_raw_blob(ingest_run_id, endpoint_name, url, payload)
     return True
 
 

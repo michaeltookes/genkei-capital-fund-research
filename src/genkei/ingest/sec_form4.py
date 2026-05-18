@@ -53,11 +53,6 @@ COLLECT_FORM4_ENDPOINT_LABEL = "collect_form4"
 FORM4_BLOB_PREFIX = "form4_"
 ARCHIVES_BASE = "https://www.sec.gov/Archives/edgar/data"
 DEFAULT_LIMIT = 200
-RAW_BLOBS_INSERT = (
-    "INSERT INTO meta.raw_blobs (ingest_run_id, endpoint_name, url, payload) "
-    "VALUES (%s, %s, %s, %s::jsonb) "
-    "ON CONFLICT (ingest_run_id, endpoint_name) DO NOTHING"
-)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -143,24 +138,6 @@ def build_form4_xml_url(cik: str, accession_number: str, primary_document: str) 
     return f"{ARCHIVES_BASE}/{cik_int}/{folder}/{basename}"
 
 
-def _store_blob(
-    ingest_run_id: int, endpoint_name: str, url: str, payload_text: str
-) -> None:
-    """Insert one raw_blobs row.
-
-    Form 4 payloads are XML, not JSON. We wrap them in a single-key JSON
-    object (``{"xml": "<...>"}``) so the existing ``payload JSONB``
-    column accepts them without a schema change.
-    """
-    import json as _json
-
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            RAW_BLOBS_INSERT,
-            [ingest_run_id, endpoint_name, url, _json.dumps({"xml": payload_text})],
-        )
-
-
 def collect(
     *,
     http: HttpClient | None = None,
@@ -232,7 +209,7 @@ def _fetch_one(
         )
         failures.append({"name": endpoint_name, "url": url, "error": str(exc)})
         return False
-    _store_blob(ingest_run_id, endpoint_name, url, text)
+    db.store_raw_blob(ingest_run_id, endpoint_name, url, {"xml": text})
     return True
 
 

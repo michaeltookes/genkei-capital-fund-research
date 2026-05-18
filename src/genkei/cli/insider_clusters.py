@@ -24,13 +24,14 @@ Usage:
 
 import json
 from datetime import date
-from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any, Optional
 
 import typer
 
-from genkei.cli._watchlist import (
+from genkei.cli._helpers import json_default as _json_default
+from genkei.cli._helpers import parse_date as _parse_date
+from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
     EquityEntry,
     Watchlist,
@@ -44,21 +45,6 @@ from genkei.experiments.insider_clusters import (
     query_buy_candidates,
     query_sell_candidates,
 )
-
-
-def _json_default(value: Any) -> Any:
-    if isinstance(value, Decimal):
-        return str(value)
-    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
-
-
-def _parse_date(raw: Optional[str], *, label: str) -> Optional[date]:
-    if raw is None:
-        return None
-    try:
-        return date.fromisoformat(raw)
-    except ValueError as exc:
-        raise typer.BadParameter(f"--{label} must be YYYY-MM-DD: {raw}") from exc
 
 
 def _resolve_equity_or_exit(ticker: str, config: Path) -> EquityEntry:

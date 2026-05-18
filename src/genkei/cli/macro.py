@@ -24,22 +24,16 @@ from typing import Annotated, Any, Optional
 
 import typer
 
-from genkei.cli._watchlist import (
+from genkei.cli._helpers import json_default, parse_date
+from genkei.common import db
+from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
     MacroEntry,
     Watchlist,
     load_watchlist,
 )
-from genkei.common import db
 
-
-def _parse_date(raw: Optional[str], *, label: str) -> Optional[date]:
-    if raw is None:
-        return None
-    try:
-        return date.fromisoformat(raw)
-    except ValueError as exc:
-        raise typer.BadParameter(f"--{label} must be YYYY-MM-DD: {raw}") from exc
+_parse_date = parse_date
 
 
 def _utc_start(value: date) -> datetime:
@@ -205,9 +199,9 @@ def macro_cmd(
     ] = DEFAULT_WATCHLIST_PATH,
 ) -> None:
     """Show macro observations (FRED) for a watchlist series."""
-    since_d = _parse_date(since, label="since")
-    until_d = _parse_date(until, label="until")
-    as_of_d = _parse_date(as_of, label="as-of")
+    since_d = parse_date(since, label="since")
+    until_d = parse_date(until, label="until")
+    as_of_d = parse_date(as_of, label="as-of")
     if since_d is not None and until_d is not None and since_d > until_d:
         raise typer.BadParameter("--since must be on or before --until.")
     if all_vintages and as_of_d is not None:
@@ -233,7 +227,7 @@ def macro_cmd(
     )
     rows = _tag_rows(rows, horizon_tag)
     if json_out:
-        typer.echo(json.dumps(rows, indent=2))
+        typer.echo(json.dumps(rows, indent=2, default=json_default))
     else:
         typer.echo(
             _format_human(
