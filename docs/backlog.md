@@ -220,7 +220,7 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Ingest fee-disbursement events into a new table (`chainlink.oracle_fees` or similar).
   - Aggregate to monthly fee revenue + per-network breakdown.
   - Available via `genkei query` or a typed surface if/when the schema stabilizes.
-  - May depend on a paid data source (Dune, Allium) if direct ingest is too brittle — note alongside the eventual implementation decision.
+  - Paid-source paths (Dune, Allium) are blocked unless the architectural stance "Paid APIs deferred until a private-data story exists" is explicitly reopened and changed; note that dependency alongside the eventual implementation decision.
 
 ### B-084 — Oracle market-share data source (likely paid)
 - **Status:** open
