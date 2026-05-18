@@ -364,12 +364,15 @@ protocols:
     # (the gap that drove the LINK research session's low-confidence
     # call; see docs/research/decisions/2026-05-17-link-position-assessment.md).
     # DefiLlama doesn't list a top-level `chainlink` slug — the oracle
-    # business is split into `chainlink-requests` (data services) and
-    # `chainlink-staking` (v0.2 staking pool). Both are tracked.
-    - slug: chainlink-requests
-      name: Chainlink Requests
-      category: Oracle
-      rationale: Chainlink oracle services demand; TVS proxy for the LINK crypto-core thesis.
+    # business is split across multiple slugs in their catalog.
+    #
+    # Only `chainlink-staking` carries useful TVL/TVS data via
+    # /protocol/{slug}. `chainlink-requests` (data services) returns
+    # 200 but with empty `tvl` / `tokens` / `tokensInUsd` arrays — it
+    # doesn't lock value the way a lending or DEX protocol does, so
+    # there's nothing for the TVL collector to land. Oracle service
+    # *demand* (request volume, fee revenue) lives in DefiLlama's
+    # separate /summary/fees/{slug} endpoint — tracked under B-083.
     - slug: chainlink-staking
       name: Chainlink Staking
       category: Oracle
