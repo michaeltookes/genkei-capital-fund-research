@@ -217,6 +217,54 @@ def bulk_upsert(
     return affected
 
 
+_RAW_BLOBS_INSERT = (
+    "INSERT INTO meta.raw_blobs (ingest_run_id, endpoint_name, url, payload) "
+    "VALUES (%s, %s, %s, %s::jsonb) "
+    "ON CONFLICT (ingest_run_id, endpoint_name) DO NOTHING"
+)
+_RAW_BLOBS_COPY_INSERT = (
+    "INSERT INTO meta.raw_blobs (ingest_run_id, endpoint_name, url, payload, fetched_at) "
+    "VALUES (%s, %s, %s, %s::jsonb, %s) "
+    "ON CONFLICT (ingest_run_id, endpoint_name) DO NOTHING"
+)
+
+
+def store_raw_blob(
+    ingest_run_id: int,
+    endpoint_name: str,
+    url: str,
+    payload: Any,
+) -> None:
+    """Insert one ``meta.raw_blobs`` row.
+
+    ``payload`` is JSON-serialized here; pass a dict, list, or pre-formed
+    JSON-shaped value. For non-JSON sources (e.g. XML), wrap the text in a
+    single-key object before calling.
+    """
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute(_RAW_BLOBS_INSERT, [ingest_run_id, endpoint_name, url, json.dumps(payload)])
+
+
+def copy_raw_blob_for_run(
+    ingest_run_id: int,
+    endpoint_name: str,
+    url: str,
+    payload: Any,
+    fetched_at: Any,
+) -> None:
+    """Copy a previously-fetched raw blob into the current run (preserves ``fetched_at``).
+
+    Used by resumable backfills: when a prior run already fetched a URL, the
+    new run links the same data without an HTTP round-trip but keeps the
+    original fetch timestamp for provenance.
+    """
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            _RAW_BLOBS_COPY_INSERT,
+            [ingest_run_id, endpoint_name, url, json.dumps(payload), fetched_at],
+        )
+
+
 @dataclass
 class IngestRun:
     """Handle for a row in ``meta.ingest_runs``.

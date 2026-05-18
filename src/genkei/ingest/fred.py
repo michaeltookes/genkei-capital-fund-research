@@ -38,10 +38,10 @@ from typing import Any
 from urllib.parse import urlencode
 
 import httpx
-import yaml
 
 from genkei.common import db
 from genkei.common.http import HttpClient, RateLimit
+from genkei.common.watchlist import load_watchlist
 
 DEFAULT_WATCHLIST_PATH = Path("config/watchlists.yml")
 SOURCE_NAME = "fred"
@@ -59,11 +59,6 @@ LATEST_REALTIME = "9999-12-31"
 OBSERVATIONS_PAGE_LIMIT = 100_000
 VINTAGE_DATES_PAGE_LIMIT = 10_000
 VINTAGE_DATES_CHUNK_SIZE = 500
-RAW_BLOBS_INSERT = (
-    "INSERT INTO meta.raw_blobs (ingest_run_id, endpoint_name, url, payload) "
-    "VALUES (%s, %s, %s, %s::jsonb) "
-    "ON CONFLICT (ingest_run_id, endpoint_name) DO NOTHING"
-)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -77,39 +72,34 @@ class SeriesTarget:
 
 
 def load_series(path: Path) -> list[SeriesTarget]:
-    """Read ``macro_series:`` from watchlists.yml as ``SeriesTarget``s."""
+    """Read ``macro_series:`` from watchlists.yml as ``SeriesTarget``s.
+
+    Rejects duplicate series IDs since the FRED collector keys on them and
+    a duplicate would silently double-fetch.
+    """
     try:
-        with path.open(encoding="utf-8") as handle:
-            data = yaml.safe_load(handle)
+        watchlist = load_watchlist(path)
     except FileNotFoundError as exc:
         raise SystemExit(f"Watchlist file not found: {path}") from exc
-    except yaml.YAMLError as exc:
-        raise SystemExit(f"Invalid YAML in {path}: {exc}") from exc
-    if not isinstance(data, dict):
-        raise SystemExit("Watchlist root must be a YAML mapping.")
-    raw = data.get("macro_series", [])
-    if not isinstance(raw, list) or not raw:
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    if not watchlist.macro:
         raise SystemExit("watchlists.yml is missing macro_series or it is empty.")
     out: list[SeriesTarget] = []
     seen_ids: set[str] = set()
-    for entry in raw:
-        if not isinstance(entry, dict):
-            raise SystemExit("Each macro_series entry must be a mapping.")
-        sid = entry.get("id")
-        name = entry.get("name")
-        if not isinstance(sid, str) or not sid:
-            raise SystemExit("macro_series entry is missing a string `id`.")
-        if sid in seen_ids:
-            raise SystemExit(f"Duplicate macro_series id: {sid}")
-        seen_ids.add(sid)
-        if not isinstance(name, str) or not name:
-            raise SystemExit(f"macro_series entry {sid!r} is missing a string `name`.")
-        rationale = entry.get("rationale")
+    for entry in watchlist.macro:
+        if entry.series_id in seen_ids:
+            raise SystemExit(f"Duplicate macro_series id: {entry.series_id}")
+        seen_ids.add(entry.series_id)
+        if not entry.name:
+            raise SystemExit(
+                f"macro_series entry {entry.series_id!r} is missing a string `name`."
+            )
         out.append(
             SeriesTarget(
-                series_id=sid,
-                name=name,
-                rationale=rationale if isinstance(rationale, str) else None,
+                series_id=entry.series_id,
+                name=entry.name,
+                rationale=entry.rationale,
             )
         )
     return out
@@ -179,12 +169,6 @@ def build_observations_url(
         "vintage_dates": ",".join(vintage_dates),
     }
     return f"{FRED_BASE_URL}/series/observations?{urlencode(params, safe=',')}"
-
-
-def _store_blob(ingest_run_id: int, endpoint_name: str, url: str, payload: Any) -> None:
-    """Insert one raw_blobs row, redacting the API key from the stored URL."""
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(RAW_BLOBS_INSERT, [ingest_run_id, endpoint_name, url, json.dumps(payload)])
 
 
 def _redact_key(url: str, api_key: str) -> str:
@@ -274,7 +258,7 @@ def _fetch_series_pair(
             )
             continue
         # Persist the redacted URL so raw_blobs.url can't leak the key.
-        _store_blob(ingest_run_id, endpoint_name, _redact_key(url, api_key), payload)
+        db.store_raw_blob(ingest_run_id, endpoint_name, _redact_key(url, api_key), payload)
         written += 1
     return written
 

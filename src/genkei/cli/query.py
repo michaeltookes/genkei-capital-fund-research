@@ -54,20 +54,13 @@ from typing import Annotated, Any, Optional
 import typer
 from psycopg import Error as PsycopgError
 
+from genkei.cli._helpers import json_default as _json_default
 from genkei.common import db
 
 DEFAULT_LIMIT = 100
 MAX_LIMIT = 100_000
 DEFAULT_TIMEOUT_SECONDS = 30
 MAX_TIMEOUT_SECONDS = 300
-
-
-def _json_default(value: Any) -> Any:
-    if isinstance(value, Decimal):
-        return str(value)
-    if hasattr(value, "isoformat"):
-        return value.isoformat()
-    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
 def _strip_trailing_semicolons(sql: str) -> str:

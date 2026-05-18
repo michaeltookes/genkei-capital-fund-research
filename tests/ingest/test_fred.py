@@ -45,10 +45,12 @@ class LoadSeriesTests(unittest.TestCase):
         self.assertEqual(series[1].rationale, None)
 
     def test_rejects_missing_id(self) -> None:
+        # Entries without `id` are dropped by the shared watchlist loader;
+        # load_series surfaces this as "no usable macro_series entries".
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "watchlists.yml"
             path.write_text("macro_series:\n  - name: bad\n", encoding="utf-8")
-            with self.assertRaisesRegex(SystemExit, "missing a string `id`"):
+            with self.assertRaisesRegex(SystemExit, "macro_series"):
                 load_series(path)
 
     def test_rejects_empty_macro_series(self) -> None:

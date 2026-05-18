@@ -20,22 +20,14 @@ from typing import Annotated, Any, Optional
 
 import typer
 
-from genkei.cli._watchlist import (
+from genkei.cli._helpers import parse_date as _parse_date
+from genkei.common import db
+from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
     CryptoEntry,
     Watchlist,
     load_watchlist,
 )
-from genkei.common import db
-
-
-def _parse_date(raw: Optional[str], *, label: str) -> Optional[date]:
-    if raw is None:
-        return None
-    try:
-        return date.fromisoformat(raw)
-    except ValueError as exc:
-        raise typer.BadParameter(f"--{label} must be YYYY-MM-DD: {raw}") from exc
 
 
 def _query_coingecko_market_data(

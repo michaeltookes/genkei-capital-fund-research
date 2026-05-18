@@ -30,12 +30,12 @@ from typing import Annotated, Any, Optional
 import typer
 from psycopg import sql
 
-from genkei.cli._watchlist import (
+from genkei.common import db
+from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
     Watchlist,
     load_watchlist,
 )
-from genkei.common import db
 
 # Subcommand group — registered into the top-level Typer app via
 # ``app.add_typer(watchlist.app, name="watchlist")`` per D-019.

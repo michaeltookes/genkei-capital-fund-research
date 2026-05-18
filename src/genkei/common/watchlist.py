@@ -1,9 +1,9 @@
-"""Shared watchlist resolution for CLI subcommands.
+"""Shared watchlist loader for ingesters and CLI subcommands.
 
 Loads the package's default watchlist and exposes lookup helpers that map a
 user-facing ticker (BTC, AAPL, …) to per-source identifiers (coingecko_id,
-cik, FRED series_id). Centralized so every subcommand resolves tickers
-the same way and a fix in one place propagates.
+cik, FRED series_id). Single source of truth: ingest collectors and CLI
+subcommands both read from here so a fix propagates to every reader.
 """
 
 from __future__ import annotations
@@ -42,6 +42,7 @@ class MacroEntry:
     name: str
     tier: str = "primary"
     sleeve: str = "cross-sleeve"
+    rationale: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -151,12 +152,20 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                 symbol = entry.get("symbol")
                 if not isinstance(symbol, str):
                     continue
-                cik = entry.get("cik")
+                raw_cik = entry.get("cik")
+                if isinstance(raw_cik, bool):
+                    cik: Optional[str] = None
+                elif isinstance(raw_cik, int):
+                    cik = str(raw_cik)
+                elif isinstance(raw_cik, str) and raw_cik:
+                    cik = raw_cik
+                else:
+                    cik = None
                 equities.append(
                     EquityEntry(
                         symbol=symbol,
                         name=str(entry.get("name") or ""),
-                        cik=cik if isinstance(cik, str) and cik else None,
+                        cik=cik,
                         tier=str(tier_name),
                         sleeve=str(entry.get("sleeve") or "core"),
                     )
@@ -177,6 +186,7 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                     name=str(entry.get("name") or ""),
                     tier=str(entry.get("tier") or "primary"),
                     sleeve=str(entry.get("sleeve") or "cross-sleeve"),
+                    rationale=_optional_string(entry.get("rationale")),
                 )
             )
 

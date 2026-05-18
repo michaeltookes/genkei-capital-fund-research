@@ -53,11 +53,6 @@ COLLECT_FORM4_ENDPOINT_LABEL = "collect_form4"
 FORM4_BLOB_PREFIX = "form4_"
 ARCHIVES_BASE = "https://www.sec.gov/Archives/edgar/data"
 DEFAULT_LIMIT = 200
-RAW_BLOBS_INSERT = (
-    "INSERT INTO meta.raw_blobs (ingest_run_id, endpoint_name, url, payload) "
-    "VALUES (%s, %s, %s, %s::jsonb) "
-    "ON CONFLICT (ingest_run_id, endpoint_name) DO NOTHING"
-)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -148,17 +143,11 @@ def _store_blob(
 ) -> None:
     """Insert one raw_blobs row.
 
-    Form 4 payloads are XML, not JSON. We wrap them in a single-key JSON
-    object (``{"xml": "<...>"}``) so the existing ``payload JSONB``
-    column accepts them without a schema change.
+    Form 4 payloads are XML, not JSON. We wrap them in a single-key dict
+    (``{"xml": "<...>"}``) so the existing ``payload JSONB`` column
+    accepts them without a schema change.
     """
-    import json as _json
-
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            RAW_BLOBS_INSERT,
-            [ingest_run_id, endpoint_name, url, _json.dumps({"xml": payload_text})],
-        )
+    db.store_raw_blob(ingest_run_id, endpoint_name, url, {"xml": payload_text})
 
 
 def collect(
