@@ -528,7 +528,27 @@ class UpsertProtocolFeeRowsTests(unittest.TestCase):
         with patch("genkei.normalize.defillama.db.bulk_upsert", return_value=1) as upsert:
             self.assertEqual(_upsert_protocol_fee_rows(object(), [row]), 1)
 
-        self.assertIn("revenue_usd", upsert.call_args.kwargs["update_cols"])
+        update_cols = upsert.call_args.kwargs["update_cols"]
+        self.assertIn("fees_usd", update_cols)
+        self.assertIn("revenue_usd", update_cols)
+
+    def test_revenue_only_rows_do_not_update_fees_usd_on_conflict(self) -> None:
+        row = {
+            "slug": "chainlink-requests",
+            "ts": datetime(2024, 1, 1, tzinfo=timezone.utc),
+            "fees_usd": None,
+            "revenue_usd": 25.0,
+            "source_endpoint": "revenue-url",
+            "fetched_at": NOW,
+            "ingest_run_id": 1,
+        }
+
+        with patch("genkei.normalize.defillama.db.bulk_upsert", return_value=1) as upsert:
+            self.assertEqual(_upsert_protocol_fee_rows(object(), [row]), 1)
+
+        update_cols = upsert.call_args.kwargs["update_cols"]
+        self.assertIn("revenue_usd", update_cols)
+        self.assertNotIn("fees_usd", update_cols)
 
 
 if __name__ == "__main__":

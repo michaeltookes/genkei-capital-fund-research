@@ -406,23 +406,49 @@ def merge_fee_revenue_rows(
 
 
 def _upsert_protocol_fee_rows(conn: Any, rows: list[JsonObject]) -> int:
-    """Upsert fee rows without erasing prior revenue on revenue outages."""
-    rows_with_revenue = [row for row in rows if row.get("revenue_usd") is not None]
-    rows_without_revenue = [row for row in rows if row.get("revenue_usd") is None]
+    """Upsert fee rows without erasing prior values on partial outages."""
+    rows_with_both = [
+        row
+        for row in rows
+        if row.get("fees_usd") is not None and row.get("revenue_usd") is not None
+    ]
+    rows_fees_only = [
+        row
+        for row in rows
+        if row.get("fees_usd") is not None and row.get("revenue_usd") is None
+    ]
+    rows_revenue_only = [
+        row
+        for row in rows
+        if row.get("fees_usd") is None and row.get("revenue_usd") is not None
+    ]
+    rows_missing_both = [
+        row
+        for row in rows
+        if row.get("fees_usd") is None and row.get("revenue_usd") is None
+    ]
     total = 0
-    if rows_without_revenue:
+    if rows_fees_only or rows_missing_both:
         total += db.bulk_upsert(
             conn,
             "defillama.protocol_fees",
-            rows_without_revenue,
+            rows_fees_only + rows_missing_both,
             conflict_keys=["slug", "ts"],
             update_cols=["fees_usd", "source_endpoint", "fetched_at", "ingest_run_id"],
         )
-    if rows_with_revenue:
+    if rows_revenue_only:
         total += db.bulk_upsert(
             conn,
             "defillama.protocol_fees",
-            rows_with_revenue,
+            rows_revenue_only,
+            conflict_keys=["slug", "ts"],
+            update_cols=["revenue_usd", "source_endpoint", "fetched_at", "ingest_run_id"],
+        )
+    if rows_with_both:
+        total += db.bulk_upsert(
+            conn,
+            "defillama.protocol_fees",
+            rows_with_both,
             conflict_keys=["slug", "ts"],
             update_cols=[
                 "fees_usd",
