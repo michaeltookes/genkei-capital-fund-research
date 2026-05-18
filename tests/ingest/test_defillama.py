@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from genkei.ingest.defillama import (
+    _load_watchlist_protocol_slugs,
     build_chain_history_targets,
     build_collection_targets,
     build_price_target,
@@ -137,6 +140,63 @@ class BuildTargetsTests(unittest.TestCase):
 
         with self.assertRaisesRegex(SystemExit, "--since/--endpoint only valid with --backfill"):
             main(["--endpoint", "prices"])
+
+
+class WatchlistProtocolSlugLoaderTests(unittest.TestCase):
+    """B-081 — daily collect dispatches per-protocol fetches via this loader."""
+
+    def _write_watchlist(self, body: str) -> Path:
+        ctx = TemporaryDirectory()
+        self.addCleanup(ctx.cleanup)
+        path = Path(ctx.name) / "watchlists.yml"
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_returns_slugs_primary_first(self) -> None:
+        path = self._write_watchlist(
+            "protocols:\n"
+            "  secondary:\n"
+            "    - slug: balancer-v2\n      name: Balancer\n"
+            "  primary:\n"
+            "    - slug: aave-v3\n      name: Aave V3\n"
+            "    - slug: chainlink\n      name: Chainlink\n"
+        )
+        slugs = _load_watchlist_protocol_slugs(path)
+        # Primary slugs come first, in file order; then secondary.
+        self.assertEqual(slugs, ["aave-v3", "chainlink", "balancer-v2"])
+
+    def test_deduplicates_slugs(self) -> None:
+        path = self._write_watchlist(
+            "protocols:\n"
+            "  primary:\n"
+            "    - slug: aave-v3\n      name: Aave V3\n"
+            "  secondary:\n"
+            "    - slug: aave-v3\n      name: Aave V3 (dup)\n"
+        )
+        self.assertEqual(_load_watchlist_protocol_slugs(path), ["aave-v3"])
+
+    def test_missing_protocols_section_returns_empty(self) -> None:
+        path = self._write_watchlist(
+            "crypto:\n  primary:\n    - symbol: BTC\n      name: BTC\n      coingecko_id: bitcoin\n"
+        )
+        self.assertEqual(_load_watchlist_protocol_slugs(path), [])
+
+    def test_missing_file_returns_empty_not_raise(self) -> None:
+        # collect() shouldn't fail just because the watchlist file
+        # disappeared — the per-protocol step is best-effort.
+        self.assertEqual(
+            _load_watchlist_protocol_slugs(Path("/no/such/path.yml")), []
+        )
+
+    def test_skips_malformed_entries(self) -> None:
+        path = self._write_watchlist(
+            "protocols:\n"
+            "  primary:\n"
+            "    - slug: aave-v3\n"
+            "    - name: missing-slug\n"  # drops
+            "    - 'not a mapping'\n"  # drops
+        )
+        self.assertEqual(_load_watchlist_protocol_slugs(path), ["aave-v3"])
 
 
 if __name__ == "__main__":

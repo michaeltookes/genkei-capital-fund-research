@@ -32,6 +32,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+import yaml
+
 from genkei.common import db
 from genkei.common.http import HttpClient, RateLimit
 
@@ -196,14 +198,28 @@ def _store_blob(ingest_run_id: int, target: CollectionTarget, payload: Any) -> N
         )
 
 
-def collect(config_path: Path, *, http: HttpClient | None = None) -> int:
+def collect(
+    config_path: Path,
+    *,
+    http: HttpClient | None = None,
+    watchlist_path: Path | None = None,
+) -> int:
     """Run the collector once and return the ``meta.ingest_runs`` row id.
 
     ``http`` is injectable for testing; the production path constructs a
     rate-limited :class:`HttpClient`.
+
+    Per B-081, the daily collect also fetches ``/protocol/{slug}`` for
+    every protocol in the watchlist's ``protocols:`` section (~7 calls
+    today) so ``defillama.protocol_tvl`` stays current without needing
+    the full ~3k-protocol backfill on every run. ``watchlist_path``
+    defaults to the package's bundled watchlist; tests pass an
+    explicit path.
     """
     config = load_config(config_path)
     targets = build_collection_targets(config)
+    base_urls = read_base_urls(config)
+    protocol_slugs = _load_watchlist_protocol_slugs(watchlist_path)
 
     owns_http = http is None
     if http is None:
@@ -214,7 +230,10 @@ def collect(config_path: Path, *, http: HttpClient | None = None) -> int:
         with db.ingest_run(
             SOURCE_NAME,
             endpoint=COLLECT_ENDPOINT_LABEL,
-            metadata={"config_path": str(config_path)},
+            metadata={
+                "config_path": str(config_path),
+                "watchlist_protocol_count": len(protocol_slugs),
+            },
         ) as run:
             for target in targets:
                 try:
@@ -228,12 +247,85 @@ def collect(config_path: Path, *, http: HttpClient | None = None) -> int:
                 _store_blob(run.id, target, payload)
                 run.add_rows(1)
 
+            # B-081 — watchlist-driven per-protocol /protocol/{slug} pull.
+            # Soft-failure per slug: a single 404 (e.g. a renamed slug)
+            # doesn't fail the daily run; it's logged + recorded.
+            core_base = base_urls.get("core")
+            if core_base and protocol_slugs:
+                for slug in protocol_slugs:
+                    url = f"{core_base}/protocol/{quote(slug, safe='')}"
+                    endpoint_name = f"{PROTOCOL_HISTORY_PREFIX}{slug}"
+                    try:
+                        payload = http.get_json(url)
+                    except Exception as exc:
+                        LOGGER.warning(
+                            "watchlist protocol fetch failed for %s: %s", slug, exc
+                        )
+                        partial.append(
+                            {"name": endpoint_name, "url": url, "error": str(exc)}
+                        )
+                        continue
+                    _store_blob_for_run(run.id, endpoint_name, url, payload)
+                    run.add_rows(1)
+
             if partial:
                 _record_partial(run.id, partial)
             return run.id
     finally:
         if owns_http:
             http.close()
+
+
+def _load_watchlist_protocol_slugs(watchlist_path: Path | None) -> list[str]:
+    """Return slugs from the ``protocols:`` watchlist section, primary tier first.
+
+    Lives here (not in the cli._watchlist module) deliberately — the
+    ingest module shouldn't import from cli/. Mirrors the inline YAML
+    parsing the coingecko + sec collectors use for their watchlist
+    sections. Empty list means "no per-protocol fetches this run."
+    """
+    from genkei.cli._watchlist import DEFAULT_WATCHLIST_PATH
+
+    path = watchlist_path if watchlist_path is not None else DEFAULT_WATCHLIST_PATH
+    try:
+        with path.open(encoding="utf-8") as handle:
+            data = yaml.safe_load(handle)
+    except FileNotFoundError:
+        LOGGER.warning("watchlist not found at %s — skipping per-protocol fetch", path)
+        return []
+    if not isinstance(data, dict):
+        return []
+    protocols_root = data.get("protocols", {})
+    if not isinstance(protocols_root, dict):
+        return []
+    slugs: list[str] = []
+    seen: set[str] = set()
+    # Process primary first so that ordering is stable/predictable.
+    for tier_name in ("primary", "secondary"):
+        entries = protocols_root.get(tier_name, [])
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            slug = entry.get("slug")
+            if not isinstance(slug, str) or not slug or slug in seen:
+                continue
+            seen.add(slug)
+            slugs.append(slug)
+    # Also catch any other tier the user adds beyond primary/secondary.
+    for tier_name, entries in protocols_root.items():
+        if tier_name in {"primary", "secondary"} or not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            slug = entry.get("slug")
+            if not isinstance(slug, str) or not slug or slug in seen:
+                continue
+            seen.add(slug)
+            slugs.append(slug)
+    return slugs
 
 
 def _record_partial(ingest_run_id: int, partial: list[dict[str, str]]) -> None:

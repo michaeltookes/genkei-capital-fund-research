@@ -347,3 +347,65 @@ macro_series:
   # and IQ12260 (monthly gold export-price index). Plan: re-add a real
   # spot gold series via a commodities feed when one lands (Phase 2
   # follow-up — file a backlog item if a need surfaces before then).
+
+# DeFi-protocol watchlist (B-081).
+#
+# Per-protocol TVL via DefiLlama `/protocol/{slug}` lands in
+# `defillama.protocol_tvl` daily. Slug = the protocol's identifier in
+# DefiLlama's URL path (visible at https://defillama.com/protocol/<slug>).
+#
+# Scope is intentionally narrow — full-watchlist iteration of all ~3k
+# DefiLlama protocols is reserved for the one-shot `--backfill protocols`
+# mode (existing in defillama.py). The daily flow only hits the slugs
+# below, keeping the cron under ~30s extra.
+protocols:
+  primary:
+    # Oracle infrastructure — pairs with the LINK crypto-core position
+    # (the gap that drove the LINK research session's low-confidence
+    # call; see docs/research/decisions/2026-05-17-link-position-assessment.md).
+    # DefiLlama doesn't list a top-level `chainlink` slug — the oracle
+    # business is split into `chainlink-requests` (data services) and
+    # `chainlink-staking` (v0.2 staking pool). Both are tracked.
+    - slug: chainlink-requests
+      name: Chainlink Requests
+      category: Oracle
+      rationale: Chainlink oracle services demand; TVS proxy for the LINK crypto-core thesis.
+    - slug: chainlink-staking
+      name: Chainlink Staking
+      category: Oracle
+      rationale: LINK v0.2 staking pool TVL; on-chain staker commitment signal (companion to B-082).
+
+    # Lending — the original DeFi primitive; sector-health bellwether.
+    - slug: aave-v3
+      name: Aave V3
+      category: Lending
+      rationale: Largest lending market on Ethereum; DeFi sector pulse.
+    - slug: compound-v3
+      name: Compound V3
+      category: Lending
+      rationale: Lending-market diversification beyond Aave.
+
+    # DEX — DEX volume + TVL is the most direct activity signal for DeFi.
+    - slug: uniswap-v3
+      name: Uniswap V3
+      category: DEX
+      rationale: Largest DEX by TVL; cross-chain activity benchmark.
+    - slug: curve-dex
+      name: Curve DEX
+      category: DEX
+      rationale: Stablecoin-pair DEX; stable-asset flow indicator.
+
+    # Liquid staking — captures ETH-staking demand as an asset class.
+    - slug: lido
+      name: Lido
+      category: Liquid Staking
+      rationale: Dominant ETH liquid-staking protocol; stETH supply tracks ETH-staking demand.
+
+    # Stablecoin issuer — MakerDAO rebranded to Sky in 2024 and DefiLlama
+    # split it into sky-lending (CDP / lending) + sky-rwa (real-world
+    # assets). sky-lending is the closest equivalent to the old MKR/DAI
+    # mint-and-borrow primitive.
+    - slug: sky-lending
+      name: Sky Lending (formerly MakerDAO)
+      category: CDP / Stablecoin Issuer
+      rationale: DAI/USDS supply trajectory; decentralized-stablecoin demand proxy.
