@@ -220,6 +220,17 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Either fix the ingest path so daily snapshots actually land daily, OR document the actual cadence + a query pattern that works.
   - Update the LINK /research decision file's "Backlog implications" note to point at the resolved item.
 
+### B-086 — Map the full Chainlink staking surface (cross-source reconciliation)
+- **Status:** open
+- **Priority:** medium
+- **Context:** Surfaced by the first live B-082 backfill (2026-05-17). DefiLlama reports `chainlink-staking` TVL at ~$414.8M, but the v0.2 Community Staking Pool we ingest (`0xBc10f2E862ED4502144c7d632a3459F49DFCDB5e`) only holds ~6.5M LINK ≈ $64M at current price — a **6.5× discrepancy** between sources. Most likely DefiLlama is summing across multiple contracts: the v0.1 community pool (legacy, still holds LINK during unwind), a separate node-operator-only pool, and possibly other staking-related contracts. Until we map and ingest the full set, queries against `onchain.staking_events` give a misleadingly small picture of Chainlink staking demand and the DefiLlama TVL number can't be tied back to on-chain reality.
+- **Acceptance criteria:**
+  - Identify every contract DefiLlama includes under the `chainlink-staking` slug. Likely starting points: DefiLlama's protocol page source, the Chainlink docs (`docs.chain.link/architecture-overview/staking`), Etherscan "Related" addresses for `0xBc10f2E862ED4502...DFCDB5e`.
+  - Add each contract as a new `PoolConfig` entry in `genkei.ingest.onchain_staking.DEFAULT_POOLS` (the schema and collector are already generic across protocols).
+  - Run the historical backfill against the new pools — the schema's `(tx_hash, log_index, block_timestamp)` PK keeps re-runs idempotent so the v0.2 pool's existing 18,827 events don't duplicate.
+  - Verify: `SELECT sum(amount_token) FROM onchain.staking_events WHERE staked-minus-unstaked aggregation across all chainlink-* pools, valued at the latest LINK price, lands within ~10% of DefiLlama's chainlink-staking TVL. If the gap stays large after pool-mapping, document why (DefiLlama including delegated-but-not-pool LINK, accounting differences, etc.).
+  - Update the cap-and-intent interpretation note in `onchain_staking.py`'s module docstring to reflect the full-surface picture (current text only covers the v0.2 community pool).
+
 ## Phase 3 — Custom CLI
 
 The interface the agent (and human user) uses to query the lake.
