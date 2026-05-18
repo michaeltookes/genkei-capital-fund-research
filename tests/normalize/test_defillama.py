@@ -10,8 +10,10 @@ from genkei.normalize.defillama import (
     _stablecoin_supply,
     as_float,
     chain_history_stem,
+    merge_fee_revenue_rows,
     normalize_chain_tvl_history,
     normalize_prices,
+    normalize_protocol_fee_series,
     normalize_protocol_history,
     normalize_protocols,
     normalize_stablecoin_history,
@@ -302,6 +304,193 @@ class NormalizeStablecoinHistoryTests(unittest.TestCase):
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["chain"], "Ethereum")
+
+
+# ---------------------------------------------------------------------------
+# B-083 — fees + revenue series normalization
+# ---------------------------------------------------------------------------
+
+
+class NormalizeProtocolFeeSeriesTests(unittest.TestCase):
+    """Parse `/summary/fees/{slug}` and `/summary/revenue/{slug}` payloads."""
+
+    def test_parses_totaldatachart_into_one_row_per_ts(self) -> None:
+        # Real DefiLlama shape: totalDataChart is a list of
+        # [epoch_seconds, value_usd] pairs. ts is parsed as UTC datetime.
+        payload = {
+            "totalDataChart": [
+                [1691366400, 3844.0],     # 2023-08-07
+                [1691452800, 5120.5],     # 2023-08-08
+                [1691539200, None],       # missing value → skipped
+                [1691625600, 9999.0],     # 2023-08-10
+            ],
+        }
+        rows = normalize_protocol_fee_series(
+            payload,
+            slug="chainlink-requests",
+            value_field="fees_usd",
+            source_endpoint="https://example.com/summary/fees/chainlink-requests",
+            ingest_run_id=42,
+            fetched_at=NOW,
+        )
+        self.assertEqual(len(rows), 3)  # one None value dropped
+        first = rows[0]
+        self.assertEqual(first["slug"], "chainlink-requests")
+        self.assertEqual(first["fees_usd"], 3844.0)
+        self.assertEqual(first["ts"], datetime(2023, 8, 7, tzinfo=timezone.utc))
+        self.assertEqual(first["ingest_run_id"], 42)
+        self.assertIn("source_endpoint", first)
+        # value_field controls which column the value lands in
+        self.assertNotIn("revenue_usd", first)
+
+    def test_value_field_routes_revenue_to_revenue_column(self) -> None:
+        payload = {"totalDataChart": [[1691366400, 100.0]]}
+        rows = normalize_protocol_fee_series(
+            payload,
+            slug="aave-v3",
+            value_field="revenue_usd",
+            source_endpoint="x",
+            ingest_run_id=1,
+            fetched_at=NOW,
+        )
+        self.assertEqual(rows[0]["revenue_usd"], 100.0)
+        self.assertNotIn("fees_usd", rows[0])
+
+    def test_dedupes_within_one_payload(self) -> None:
+        # Defensive — if a payload ever returns the same ts twice, keep
+        # the first and drop the dup so the bulk_upsert doesn't fight.
+        payload = {
+            "totalDataChart": [
+                [1691366400, 100.0],
+                [1691366400, 999.0],  # dup ts — should be skipped
+                [1691452800, 200.0],
+            ],
+        }
+        rows = normalize_protocol_fee_series(
+            payload,
+            slug="aave-v3",
+            value_field="fees_usd",
+            source_endpoint="x",
+            ingest_run_id=1,
+            fetched_at=NOW,
+        )
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["fees_usd"], 100.0)  # first wins
+
+    def test_missing_totaldatachart_returns_empty(self) -> None:
+        # 400-error payloads or unexpected shapes don't crash the
+        # normalizer — they just produce 0 rows.
+        self.assertEqual(
+            normalize_protocol_fee_series(
+                {"error": "Not found"},
+                slug="x",
+                value_field="fees_usd",
+                source_endpoint="x",
+                ingest_run_id=1,
+                fetched_at=NOW,
+            ),
+            [],
+        )
+
+    def test_non_dict_payload_returns_empty(self) -> None:
+        # Robustness against unexpected JSON shapes
+        self.assertEqual(
+            normalize_protocol_fee_series(
+                None,  # type: ignore[arg-type]
+                slug="x",
+                value_field="fees_usd",
+                source_endpoint="x",
+                ingest_run_id=1,
+                fetched_at=NOW,
+            ),
+            [],
+        )
+
+
+class MergeFeeRevenueRowsTests(unittest.TestCase):
+    """Verify fees + revenue merge into one row per (slug, ts)."""
+
+    def _row(
+        self,
+        slug: str,
+        ts: datetime,
+        *,
+        fees_usd: float | None = None,
+        revenue_usd: float | None = None,
+    ) -> dict:
+        row = {
+            "slug": slug,
+            "ts": ts,
+            "source_endpoint": "x",
+            "fetched_at": NOW,
+            "ingest_run_id": 1,
+        }
+        if fees_usd is not None:
+            row["fees_usd"] = fees_usd
+        if revenue_usd is not None:
+            row["revenue_usd"] = revenue_usd
+        return row
+
+    def test_fees_only_merges_with_null_revenue(self) -> None:
+        ts = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        merged = merge_fee_revenue_rows(
+            fees_rows=[self._row("aave-v3", ts, fees_usd=100.0)],
+            revenue_rows=[],
+        )
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["fees_usd"], 100.0)
+        self.assertIsNone(merged[0]["revenue_usd"])
+
+    def test_revenue_only_merges_with_null_fees(self) -> None:
+        # Shouldn't happen in practice (revenue without fees), but the
+        # merge function shouldn't lose the row.
+        ts = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        merged = merge_fee_revenue_rows(
+            fees_rows=[],
+            revenue_rows=[self._row("aave-v3", ts, revenue_usd=50.0)],
+        )
+        self.assertEqual(len(merged), 1)
+        self.assertIsNone(merged[0]["fees_usd"])
+        self.assertEqual(merged[0]["revenue_usd"], 50.0)
+
+    def test_both_present_merge_into_single_row(self) -> None:
+        ts = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        merged = merge_fee_revenue_rows(
+            fees_rows=[self._row("aave-v3", ts, fees_usd=100.0)],
+            revenue_rows=[self._row("aave-v3", ts, revenue_usd=30.0)],
+        )
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["fees_usd"], 100.0)
+        self.assertEqual(merged[0]["revenue_usd"], 30.0)
+
+    def test_different_ts_stay_as_separate_rows(self) -> None:
+        ts1 = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        ts2 = datetime(2024, 1, 2, tzinfo=timezone.utc)
+        merged = merge_fee_revenue_rows(
+            fees_rows=[
+                self._row("aave-v3", ts1, fees_usd=100.0),
+                self._row("aave-v3", ts2, fees_usd=200.0),
+            ],
+            revenue_rows=[self._row("aave-v3", ts2, revenue_usd=50.0)],
+        )
+        self.assertEqual(len(merged), 2)
+        by_ts = {row["ts"]: row for row in merged}
+        self.assertEqual(by_ts[ts1]["fees_usd"], 100.0)
+        self.assertIsNone(by_ts[ts1]["revenue_usd"])
+        self.assertEqual(by_ts[ts2]["fees_usd"], 200.0)
+        self.assertEqual(by_ts[ts2]["revenue_usd"], 50.0)
+
+    def test_different_slugs_at_same_ts_stay_separate(self) -> None:
+        ts = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        merged = merge_fee_revenue_rows(
+            fees_rows=[
+                self._row("aave-v3", ts, fees_usd=100.0),
+                self._row("uniswap-v3", ts, fees_usd=999.0),
+            ],
+            revenue_rows=[],
+        )
+        self.assertEqual(len(merged), 2)
+        self.assertEqual({row["slug"] for row in merged}, {"aave-v3", "uniswap-v3"})
 
 
 if __name__ == "__main__":

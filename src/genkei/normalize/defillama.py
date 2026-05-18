@@ -45,6 +45,8 @@ CHAIN_HISTORY_PREFIX = "chain_tvl_history_"
 # Backfill blob name prefixes (mirror genkei.ingest.defillama).
 PRICE_HISTORICAL_PREFIX = "prices_historical_"
 PROTOCOL_HISTORY_PREFIX = "protocol_"
+PROTOCOL_FEES_PREFIX = "protocol_fees_"
+PROTOCOL_REVENUE_PREFIX = "protocol_revenue_"
 STABLECOIN_HISTORY_PREFIX = "stablecoin_"
 JsonObject = dict[str, Any]
 RawBlob = tuple[str, Any, datetime]
@@ -319,6 +321,90 @@ def normalize_protocol_history(
     return rows
 
 
+def normalize_protocol_fee_series(
+    payload: Any,
+    *,
+    slug: str,
+    value_field: str,
+    source_endpoint: str,
+    ingest_run_id: int,
+    fetched_at: datetime,
+) -> list[JsonObject]:
+    """Map a ``/summary/fees/{slug}`` or ``/summary/revenue/{slug}`` payload
+    to ``defillama.protocol_fees`` row dicts (B-083).
+
+    Both endpoints share the same shape — ``totalDataChart`` is a list of
+    ``[epoch_seconds, value_usd]`` pairs. ``value_field`` chooses which
+    column the value lands in (``"fees_usd"`` or ``"revenue_usd"``); the
+    caller is responsible for merging the two row sets by ``(slug, ts)``
+    so a single row carries both values when both are available.
+    """
+    if not isinstance(payload, dict):
+        return []
+    chart = payload.get("totalDataChart")
+    if not isinstance(chart, list):
+        return []
+    rows: list[JsonObject] = []
+    seen: set[datetime] = set()
+    for point in chart:
+        if not isinstance(point, list) or len(point) < 2:
+            continue
+        ts = parse_history_timestamp(point[0])
+        value = as_float(point[1])
+        if ts is None or value is None:
+            continue
+        if ts in seen:
+            continue
+        seen.add(ts)
+        rows.append(
+            {
+                "slug": slug,
+                "ts": ts,
+                value_field: value,
+                "source_endpoint": source_endpoint,
+                "fetched_at": fetched_at,
+                "ingest_run_id": ingest_run_id,
+            }
+        )
+    return rows
+
+
+def merge_fee_revenue_rows(
+    fees_rows: list[JsonObject], revenue_rows: list[JsonObject]
+) -> list[JsonObject]:
+    """Merge per-(slug, ts) fees + revenue rows into one row per (slug, ts).
+
+    The fees and revenue endpoints are separate per-protocol calls, so we
+    get two parallel row sets. Bulk-upserting them naively would have the
+    second insert clobber the first's value column (psycopg's
+    ``ON CONFLICT DO UPDATE`` replaces every non-key column with the
+    excluded row's value, NULL-ing out the previously-set column).
+    Merging in memory keeps fees_usd + revenue_usd in the same row.
+
+    Provenance columns (source_endpoint, fetched_at, ingest_run_id) are
+    taken from whichever input row is encountered first per key, with
+    the source_endpoint from the merged row's fees side preferred when
+    both are present so the audit trail points at the canonical endpoint.
+    """
+    merged: dict[tuple[str, datetime], JsonObject] = {}
+    # Process fees first so its source_endpoint wins on ties.
+    for row in fees_rows:
+        key = (str(row["slug"]), row["ts"])
+        merged[key] = {**row, "fees_usd": row.get("fees_usd"), "revenue_usd": None}
+    for row in revenue_rows:
+        key = (str(row["slug"]), row["ts"])
+        existing = merged.get(key)
+        if existing is None:
+            merged[key] = {
+                **row,
+                "fees_usd": None,
+                "revenue_usd": row.get("revenue_usd"),
+            }
+        else:
+            existing["revenue_usd"] = row.get("revenue_usd")
+    return list(merged.values())
+
+
 def normalize_stablecoin_history(
     payload: Any,
     *,
@@ -482,20 +568,50 @@ def normalize(config_path: Path, *, source_run_id: int | None = None) -> int:
         # B-081 — daily collect now ships `protocol_<slug>` blobs for
         # every watchlist protocol. Dispatch them the same way the
         # backfill normalizer does so they land in defillama.protocol_tvl.
+        # B-083 — also dispatch protocol_fees_<slug> / protocol_revenue_<slug>
+        # blobs into defillama.protocol_fees. The fees/revenue prefixes
+        # both START with "protocol_" so we must exclude them from the
+        # generic protocol_history dispatch before slug-stripping.
         protocol_tvl_rows: list[JsonObject] = []
+        fees_rows: list[JsonObject] = []
+        revenue_rows: list[JsonObject] = []
         for endpoint_name, (url, payload, fetched_at) in blobs.items():
-            if not endpoint_name.startswith(PROTOCOL_HISTORY_PREFIX):
-                continue
-            slug = endpoint_name[len(PROTOCOL_HISTORY_PREFIX) :]
-            protocol_tvl_rows.extend(
-                normalize_protocol_history(
-                    payload,
-                    slug=slug,
-                    source_endpoint=url,
-                    ingest_run_id=run.id,
-                    fetched_at=fetched_at,
+            if endpoint_name.startswith(PROTOCOL_FEES_PREFIX):
+                slug = endpoint_name[len(PROTOCOL_FEES_PREFIX) :]
+                fees_rows.extend(
+                    normalize_protocol_fee_series(
+                        payload,
+                        slug=slug,
+                        value_field="fees_usd",
+                        source_endpoint=url,
+                        ingest_run_id=run.id,
+                        fetched_at=fetched_at,
+                    )
                 )
-            )
+            elif endpoint_name.startswith(PROTOCOL_REVENUE_PREFIX):
+                slug = endpoint_name[len(PROTOCOL_REVENUE_PREFIX) :]
+                revenue_rows.extend(
+                    normalize_protocol_fee_series(
+                        payload,
+                        slug=slug,
+                        value_field="revenue_usd",
+                        source_endpoint=url,
+                        ingest_run_id=run.id,
+                        fetched_at=fetched_at,
+                    )
+                )
+            elif endpoint_name.startswith(PROTOCOL_HISTORY_PREFIX):
+                slug = endpoint_name[len(PROTOCOL_HISTORY_PREFIX) :]
+                protocol_tvl_rows.extend(
+                    normalize_protocol_history(
+                        payload,
+                        slug=slug,
+                        source_endpoint=url,
+                        ingest_run_id=run.id,
+                        fetched_at=fetched_at,
+                    )
+                )
+        protocol_fees_rows = merge_fee_revenue_rows(fees_rows, revenue_rows)
 
         with db.connection() as conn:
             run.add_rows(
@@ -507,14 +623,22 @@ def normalize(config_path: Path, *, source_run_id: int | None = None) -> int:
                 )
             )
             # Watchlist-driven per-protocol rows — must land AFTER
-            # `defillama.protocols` upsert above because protocol_tvl has
-            # an FK on slug → protocols.
+            # `defillama.protocols` upsert above because protocol_tvl and
+            # protocol_fees both have FKs on slug → protocols.
             run.add_rows(
                 db.bulk_upsert(
                     conn,
                     "defillama.protocol_tvl",
                     protocol_tvl_rows,
                     conflict_keys=["slug", "chain", "ts"],
+                )
+            )
+            run.add_rows(
+                db.bulk_upsert(
+                    conn,
+                    "defillama.protocol_fees",
+                    protocol_fees_rows,
+                    conflict_keys=["slug", "ts"],
                 )
             )
             run.add_rows(
@@ -593,6 +717,16 @@ def normalize_backfill(*, source_run_id: int | None = None) -> int:
                         now=fetched_at,
                     )
                 )
+            elif endpoint_name.startswith(PROTOCOL_FEES_PREFIX) or endpoint_name.startswith(
+                PROTOCOL_REVENUE_PREFIX
+            ):
+                # Backfill mode doesn't currently produce these (the
+                # fees/revenue endpoints already return full history in
+                # the daily collect), so they shouldn't appear here.
+                # Skip explicitly to keep the prefix-collision protection
+                # robust if/when backfill paths get added later.
+                LOGGER.debug("backfill normalizer skipping fees/revenue blob: %s", endpoint_name)
+                continue
             elif endpoint_name.startswith(PROTOCOL_HISTORY_PREFIX):
                 slug = endpoint_name[len(PROTOCOL_HISTORY_PREFIX) :]
                 protocol_tvl_rows.extend(

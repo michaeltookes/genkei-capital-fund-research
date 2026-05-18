@@ -55,6 +55,8 @@ RAW_BLOBS_COPY_INSERT = (
 # these prefixes also drive normalizer dispatch.
 PRICE_HISTORICAL_PREFIX = "prices_historical_"
 PROTOCOL_HISTORY_PREFIX = "protocol_"
+PROTOCOL_FEES_PREFIX = "protocol_fees_"
+PROTOCOL_REVENUE_PREFIX = "protocol_revenue_"
 STABLECOIN_HISTORY_PREFIX = "stablecoin_"
 # Resumability: skip URLs we've fetched within this window. Long enough
 # that crashed-then-resumed runs stay efficient; short enough that data
@@ -267,6 +269,42 @@ def collect(
                         continue
                     _store_blob_for_run(run.id, endpoint_name, url, payload)
                     run.add_rows(1)
+
+                # B-083 — watchlist-driven per-protocol fees + revenue.
+                # Both kinds live behind the same `/summary/fees/{slug}`
+                # endpoint with a `?dataType=` query-param differentiator
+                # — the bare `/summary/revenue/{slug}` path returns 500
+                # across the board (DefiLlama deprecated it). The
+                # fees-side default and `?dataType=dailyRevenue` both
+                # return 200 with the standard `totalDataChart` shape.
+                # Soft-fail per (slug, kind) so each is independent.
+                for slug in protocol_slugs:
+                    for kind, prefix, datatype in (
+                        ("fees", PROTOCOL_FEES_PREFIX, "dailyFees"),
+                        ("revenue", PROTOCOL_REVENUE_PREFIX, "dailyRevenue"),
+                    ):
+                        url = (
+                            f"{core_base}/summary/fees/{quote(slug, safe='')}"
+                            f"?dataType={datatype}"
+                        )
+                        endpoint_name = f"{prefix}{slug}"
+                        try:
+                            payload = http.get_json(url)
+                        except Exception as exc:
+                            LOGGER.info(
+                                "watchlist %s fetch unavailable for %s (expected for "
+                                "protocols where %s isn't tracked): %s",
+                                kind,
+                                slug,
+                                kind,
+                                exc,
+                            )
+                            partial.append(
+                                {"name": endpoint_name, "url": url, "error": str(exc)}
+                            )
+                            continue
+                        _store_blob_for_run(run.id, endpoint_name, url, payload)
+                        run.add_rows(1)
 
             if partial:
                 _record_partial(run.id, partial)
