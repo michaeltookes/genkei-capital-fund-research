@@ -314,7 +314,14 @@ VALID_FORMATS = {"table", "json", "csv"}
 def query_cmd(
     sql: Annotated[
         Optional[str],
-        typer.Argument(help="Positional SQL string. Mutually exclusive with --file."),
+        typer.Argument(
+            help=(
+                "Positional SQL string. Mutually exclusive with --file. "
+                "For non-trivial SQL (string literals, multi-line, embedded "
+                "quotes) prefer --file — shell-quote escaping triple-nested "
+                "(bash → python → SQL) gets ugly fast."
+            ),
+        ),
     ] = None,
     file: Annotated[
         Optional[Path],
