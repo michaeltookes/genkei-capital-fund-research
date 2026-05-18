@@ -140,7 +140,11 @@ def list_cmd(
 # the canonical "is data flowing?" signal. Used by both health (table
 # row counts) and gaps (per-asset freshness queries).
 PRIMARY_TABLES: dict[str, list[str]] = {
-    "defillama": ["defillama.chain_tvl", "defillama.protocol_tvl"],
+    "defillama": [
+        "defillama.chain_tvl",
+        "defillama.protocol_tvl",
+        "defillama.protocol_fees",
+    ],
     "fred": ["fred.observations"],
     "sec": ["sec.companies", "sec.filings", "sec.facts"],
     "coingecko": ["coingecko.market_data"],
