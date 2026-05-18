@@ -15,7 +15,7 @@ from typing import Literal, Optional
 import yaml
 
 DEFAULT_WATCHLIST_PATH = Path(__file__).resolve().parent.parent / "data" / "watchlists.yml"
-SleeveKind = Literal["crypto", "equity", "macro"]
+SleeveKind = Literal["crypto", "equity", "macro", "protocol"]
 
 
 @dataclass(frozen=True)
@@ -45,10 +45,22 @@ class MacroEntry:
 
 
 @dataclass(frozen=True)
+class ProtocolEntry:
+    """A DefiLlama protocol slug we want per-protocol TVL history for (B-081)."""
+
+    slug: str
+    name: str
+    category: Optional[str]  # Lending / DEX / Oracle / Liquid Staking / etc.
+    tier: str  # primary | secondary
+    rationale: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class Watchlist:
     crypto: list[CryptoEntry]
     equities: list[EquityEntry]
     macro: list[MacroEntry]
+    protocols: list[ProtocolEntry]
 
     def find_crypto(self, symbol: str) -> Optional[CryptoEntry]:
         upper = symbol.upper()
@@ -71,14 +83,23 @@ class Watchlist:
                 return entry
         return None
 
+    def find_protocol(self, slug: str) -> Optional[ProtocolEntry]:
+        lower = slug.lower()
+        for entry in self.protocols:
+            if entry.slug.lower() == lower:
+                return entry
+        return None
+
     def classify(self, symbol_or_series: str) -> Optional[SleeveKind]:
-        """Identify whether a label is crypto / equity / macro. None if unknown."""
+        """Identify whether a label is crypto / equity / macro / protocol. None if unknown."""
         if self.find_crypto(symbol_or_series) is not None:
             return "crypto"
         if self.find_equity(symbol_or_series) is not None:
             return "equity"
         if self.find_macro(symbol_or_series) is not None:
             return "macro"
+        if self.find_protocol(symbol_or_series) is not None:
+            return "protocol"
         return None
 
 
@@ -159,7 +180,29 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                 )
             )
 
-    return Watchlist(crypto=crypto, equities=equities, macro=macro)
+    protocols: list[ProtocolEntry] = []
+    protocols_root = data.get("protocols", {})
+    if isinstance(protocols_root, dict):
+        for tier_name, entries in protocols_root.items():
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                slug = entry.get("slug")
+                if not isinstance(slug, str) or not slug:
+                    continue
+                protocols.append(
+                    ProtocolEntry(
+                        slug=slug,
+                        name=str(entry.get("name") or ""),
+                        category=_optional_string(entry.get("category")),
+                        tier=str(tier_name),
+                        rationale=_optional_string(entry.get("rationale")),
+                    )
+                )
+
+    return Watchlist(crypto=crypto, equities=equities, macro=macro, protocols=protocols)
 
 
 def _optional_string(value: object) -> Optional[str]:

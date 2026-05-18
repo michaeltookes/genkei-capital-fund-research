@@ -479,6 +479,24 @@ def normalize(config_path: Path, *, source_run_id: int | None = None) -> int:
         )
         price_rows = _rows_for(blobs, "prices_current", normalize_prices, run.id, source_run_id)
 
+        # B-081 — daily collect now ships `protocol_<slug>` blobs for
+        # every watchlist protocol. Dispatch them the same way the
+        # backfill normalizer does so they land in defillama.protocol_tvl.
+        protocol_tvl_rows: list[JsonObject] = []
+        for endpoint_name, (url, payload, fetched_at) in blobs.items():
+            if not endpoint_name.startswith(PROTOCOL_HISTORY_PREFIX):
+                continue
+            slug = endpoint_name[len(PROTOCOL_HISTORY_PREFIX) :]
+            protocol_tvl_rows.extend(
+                normalize_protocol_history(
+                    payload,
+                    slug=slug,
+                    source_endpoint=url,
+                    ingest_run_id=run.id,
+                    fetched_at=fetched_at,
+                )
+            )
+
         with db.connection() as conn:
             run.add_rows(
                 db.bulk_upsert(conn, "defillama.protocols", protocol_rows, conflict_keys=["slug"])
@@ -486,6 +504,17 @@ def normalize(config_path: Path, *, source_run_id: int | None = None) -> int:
             run.add_rows(
                 db.bulk_upsert(
                     conn, "defillama.chain_tvl", chain_tvl_rows, conflict_keys=["chain", "ts"]
+                )
+            )
+            # Watchlist-driven per-protocol rows — must land AFTER
+            # `defillama.protocols` upsert above because protocol_tvl has
+            # an FK on slug → protocols.
+            run.add_rows(
+                db.bulk_upsert(
+                    conn,
+                    "defillama.protocol_tvl",
+                    protocol_tvl_rows,
+                    conflict_keys=["slug", "chain", "ts"],
                 )
             )
             run.add_rows(

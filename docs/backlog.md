@@ -189,17 +189,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Tests cover (a) value field is in $1000s — the canonical 13F gotcha — and (b) 13F-NT amendments correctly link back to the original 13F-HR.
   - Honors B-027's rate limit + User-Agent.
 
-### B-081 — DeFiLlama per-protocol TVL collector
-- **Status:** open
-- **Priority:** medium
-- **Context:** `defillama.protocol_tvl` table exists from `20260510_create_defillama_protocol_tvl.py` but no collector populates it — `genkei watchlist health` has surfaced it as EMPTY since the watchlist command shipped (R-034). The chain-level collector works (`defillama.chain_tvl` has 8k rows), but `genkei tvl --protocol aave-v3` returns empty and points users at `watchlist health`. Surfaced again in the LINK /research session (2026-05-17): would let us track LINK's Total Value Secured (TVS) — the actual demand signal for Chainlink's oracle services.
-- **Acceptance criteria:**
-  - Extend `src/genkei/ingest/defillama.py` (or a sibling module) to call DefiLlama's `/protocol/{slug}` endpoint per protocol and land per-(slug, chain, ts) rows in `defillama.protocol_tvl`.
-  - Watchlist-driven: pull the slug list from a `protocols:` section in `src/genkei/data/watchlists.yml` (TBD shape) — start with the slugs whose chains are already in our chain_tvl scope (Ethereum, Solana, Bitcoin, Sui).
-  - `--backfill` mode for historical fill; daily incremental for new ts rows.
-  - `genkei tvl --protocol <slug>` returns rows after a successful collect+normalize.
-  - `genkei watchlist health` flips `defillama.protocol_tvl` from EMPTY to OK.
-
 ### B-082 — Chainlink LINK staking flow ingester
 - **Status:** open
 - **Priority:** medium
