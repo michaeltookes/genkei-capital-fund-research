@@ -189,27 +189,18 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Tests cover (a) value field is in $1000s — the canonical 13F gotcha — and (b) 13F-NT amendments correctly link back to the original 13F-HR.
   - Honors B-027's rate limit + User-Agent.
 
-### B-082 — Chainlink LINK staking flow ingester
-- **Status:** open
-- **Priority:** medium
-- **Context:** Surfaced by the LINK /research session as the single most-missing data point for crypto-core analysis of Chainlink. The Chainlink v0.2 staking pool's net flow (stake-ins minus unbond-exits over a window) is the cleanest on-chain demand signal for LINK — growing pool = holders committing to the network's economic security; shrinking pool = the people closest to the protocol voting with their feet. Without this data, LINK research is forced to "low confidence" because the most important positioning signal is invisible.
-- **Acceptance criteria:**
-  - New ingester (Etherscan API or similar) that reads stake/unbond events from the v0.2 staking contract address.
-  - New table `chainlink.staking_flow` (or under a broader `onchain.*` schema if we want to generalize) keyed on `(ts, block_number, event_type)`.
-  - Daily incremental + initial backfill from contract deployment.
-  - Provides at minimum: cumulative pool size over time, net flow per day, distinct staker count.
-  - Powers a future `genkei staking --asset LINK` subcommand (separate item if/when needed).
 
 ### B-083 — Chainlink Labs revenue / oracle-service-fee data
 - **Status:** open
-- **Priority:** low
+- **Priority:** medium (was low; raised 2026-05-17 — free DefiLlama path identified, see below)
 - **Context:** Also surfaced by the LINK /research session. Chainlink Labs is private so there's no SEC filings, but oracle service fees paid to node operators are observable on-chain (the fees route through known contracts). This would give the fundamental "is the underlying business growing or shrinking" signal that the macro + price views can't answer. Cousin item to B-082 — both are Chainlink-specific on-chain ingest.
-- **Acceptance criteria:**
-  - Identify the on-chain contracts that disburse oracle fees (off-chain research item before any code).
-  - Ingest fee-disbursement events into a new table (`chainlink.oracle_fees` or similar).
-  - Aggregate to monthly fee revenue + per-network breakdown.
-  - Available via `genkei query` or a typed surface if/when the schema stabilizes.
-  - Paid-source paths (Dune, Allium) are blocked unless the architectural stance "Paid APIs deferred until a private-data story exists" is explicitly reopened and changed; note that dependency alongside the eventual implementation decision.
+- **Free-data path discovered (2026-05-17, B-081 follow-up):** DefiLlama exposes per-protocol fee + revenue series via `/summary/fees/{slug}` (and `/overview/fees` for aggregate views). That endpoint covers Chainlink as `chainlink-requests` — same slug we just dropped from the TVL collector. New shape: extend the existing DefiLlama collector (or sibling) to also hit the fees endpoint per watchlist protocol, normalize into a `defillama.protocol_fees` table keyed `(slug, ts)`. This eliminates the paid-API gating and brings B-083 in scope without needing the Etherscan-style on-chain contract investigation originally outlined.
+- **Acceptance criteria (updated):**
+  - Extend defillama ingest to call `/summary/fees/{slug}` for every watchlist protocol that has fees data (probe + skip on 404 — not every protocol reports fees).
+  - New table `defillama.protocol_fees` keyed `(slug, ts)`, columns at minimum: `fees_usd`, `revenue_usd`, plus the provenance trio.
+  - `genkei tvl --protocol chainlink-requests` (or a new `genkei fees --protocol …` subcommand) returns the fee/revenue series.
+  - Original on-chain ingest path stays as a fallback option but is no longer the primary plan.
+  - Paid-API paths (Dune, Allium) remain blocked under the existing architectural stance and are only re-considered if DefiLlama's coverage proves insufficient.
 
 ### B-084 — Oracle market-share data source (likely paid)
 - **Status:** open
@@ -228,6 +219,17 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Diagnose the root cause: collector cadence, normalizer drop, or schema mismatch.
   - Either fix the ingest path so daily snapshots actually land daily, OR document the actual cadence + a query pattern that works.
   - Update the LINK /research decision file's "Backlog implications" note to point at the resolved item.
+
+### B-086 — Map the full Chainlink staking surface (cross-source reconciliation)
+- **Status:** open
+- **Priority:** medium
+- **Context:** Surfaced by the first live B-082 backfill (2026-05-17). DefiLlama reports `chainlink-staking` TVL at ~$414.8M, but the v0.2 Community Staking Pool we ingest (`0xBc10f2E862ED4502144c7d632a3459F49DFCDB5e`) only holds ~6.5M LINK ≈ $64M at current price — a **6.5× discrepancy** between sources. Most likely DefiLlama is summing across multiple contracts: the v0.1 community pool (legacy, still holds LINK during unwind), a separate node-operator-only pool, and possibly other staking-related contracts. Until we map and ingest the full set, queries against `onchain.staking_events` give a misleadingly small picture of Chainlink staking demand and the DefiLlama TVL number can't be tied back to on-chain reality.
+- **Acceptance criteria:**
+  - Identify every contract DefiLlama includes under the `chainlink-staking` slug. Likely starting points: DefiLlama's protocol page source, the Chainlink docs (`docs.chain.link/architecture-overview/staking`), Etherscan "Related" addresses for `0xBc10f2E862ED4502...DFCDB5e`.
+  - Add each contract as a new `PoolConfig` entry in `genkei.ingest.onchain_staking.DEFAULT_POOLS` (the schema and collector are already generic across protocols).
+  - Run the historical backfill against the new pools — the schema's `(tx_hash, log_index, block_timestamp)` PK keeps re-runs idempotent so the v0.2 pool's existing 18,827 events don't duplicate.
+  - Verify: compute net staked LINK per pool (`staked` minus `unstaked`), sum across all `chainlink-*` pools, multiply by the latest LINK price, and compare that value to DefiLlama's `chainlink-staking` TVL. The result should land within ~10%; if the gap stays large after pool-mapping, document why (DefiLlama including delegated-but-not-pool LINK, accounting differences, etc.).
+  - Update the cap-and-intent interpretation note in `onchain_staking.py`'s module docstring to reflect the full-surface picture (current text only covers the v0.2 community pool).
 
 ## Phase 3 — Custom CLI
 
