@@ -144,6 +144,7 @@ PRIMARY_TABLES: dict[str, list[str]] = {
     "fred": ["fred.observations"],
     "sec": ["sec.companies", "sec.filings", "sec.facts"],
     "coingecko": ["coingecko.market_data"],
+    "onchain_staking": ["onchain.staking_events"],
 }
 
 # Recurring (daily-cron) endpoints we expect to see in meta.ingest_runs
@@ -158,6 +159,10 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
     "fred": ["collect", "normalize"],
     "sec": ["collect", "normalize"],
     "coingecko": ["collect", "normalize"],
+    # B-082 staking ingester combines collect+normalize in one step
+    # (parses logs inline + writes rows directly to onchain.staking_events,
+    # no raw_blobs hop), so only the 'collect' endpoint is recurring.
+    "onchain_staking": ["collect"],
 }
 
 

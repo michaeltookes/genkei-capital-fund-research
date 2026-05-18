@@ -260,16 +260,29 @@ class QuerySourceHealthTests(unittest.TestCase):
 class ExpectationsRegistryTests(unittest.TestCase):
     """Pin the schema/source registry so a silent drift surfaces in CI."""
 
-    def test_all_four_sources_have_primary_tables(self) -> None:
+    def test_all_known_sources_have_primary_tables(self) -> None:
+        # The registry grows as new ingesters land (B-082 added
+        # onchain_staking). Pin the current shape so an accidental
+        # rename / drop is caught.
         self.assertEqual(
             set(PRIMARY_TABLES),
-            {"defillama", "fred", "sec", "coingecko"},
+            {"defillama", "fred", "sec", "coingecko", "onchain_staking"},
         )
 
-    def test_every_source_expects_collect_and_normalize(self) -> None:
+    def test_every_source_expects_at_least_a_collect_endpoint(self) -> None:
+        # All ingest sources have a `collect` endpoint. Most also have
+        # a separate `normalize` endpoint — the onchain_staking
+        # collector fuses collect+normalize in one step, so it lists
+        # only `collect`.
         for source, eps in RECURRING_ENDPOINTS.items():
             self.assertIn("collect", eps, f"{source} missing collect")
-            self.assertIn("normalize", eps, f"{source} missing normalize")
+        # The classic raw-blob + normalize ingesters still report both:
+        for source in ("defillama", "fred", "sec", "coingecko"):
+            self.assertIn(
+                "normalize",
+                RECURRING_ENDPOINTS[source],
+                f"{source} missing normalize",
+            )
 
 
 class OneShotEndpointFilteringTests(unittest.TestCase):
