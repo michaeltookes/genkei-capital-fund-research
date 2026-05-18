@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
 import yaml
 
@@ -24,14 +24,14 @@ class CryptoEntry:
     name: str
     coingecko_id: str
     tier: str  # primary | secondary
-    sleeve: Optional[str] = None  # core | tactical
+    sleeve: str | None = None  # core | tactical
 
 
 @dataclass(frozen=True)
 class EquityEntry:
     symbol: str
     name: str
-    cik: Optional[str]
+    cik: str | None
     tier: str  # primary | secondary
     sleeve: str = "core"
 
@@ -42,7 +42,7 @@ class MacroEntry:
     name: str
     tier: str = "primary"
     sleeve: str = "cross-sleeve"
-    rationale: Optional[str] = None
+    rationale: str | None = None
 
 
 @dataclass(frozen=True)
@@ -51,9 +51,9 @@ class ProtocolEntry:
 
     slug: str
     name: str
-    category: Optional[str]  # Lending / DEX / Oracle / Liquid Staking / etc.
+    category: str | None  # Lending / DEX / Oracle / Liquid Staking / etc.
     tier: str  # primary | secondary
-    rationale: Optional[str] = None
+    rationale: str | None = None
 
 
 @dataclass(frozen=True)
@@ -63,35 +63,35 @@ class Watchlist:
     macro: list[MacroEntry]
     protocols: list[ProtocolEntry]
 
-    def find_crypto(self, symbol: str) -> Optional[CryptoEntry]:
+    def find_crypto(self, symbol: str) -> CryptoEntry | None:
         upper = symbol.upper()
         for entry in self.crypto:
             if entry.symbol.upper() == upper:
                 return entry
         return None
 
-    def find_equity(self, symbol: str) -> Optional[EquityEntry]:
+    def find_equity(self, symbol: str) -> EquityEntry | None:
         upper = symbol.upper()
         for entry in self.equities:
             if entry.symbol.upper() == upper:
                 return entry
         return None
 
-    def find_macro(self, series_id: str) -> Optional[MacroEntry]:
+    def find_macro(self, series_id: str) -> MacroEntry | None:
         lower = series_id.lower()
         for entry in self.macro:
             if entry.series_id.lower() == lower:
                 return entry
         return None
 
-    def find_protocol(self, slug: str) -> Optional[ProtocolEntry]:
+    def find_protocol(self, slug: str) -> ProtocolEntry | None:
         lower = slug.lower()
         for entry in self.protocols:
             if entry.slug.lower() == lower:
                 return entry
         return None
 
-    def classify(self, symbol_or_series: str) -> Optional[SleeveKind]:
+    def classify(self, symbol_or_series: str) -> SleeveKind | None:
         """Identify whether a label is crypto / equity / macro / protocol. None if unknown."""
         if self.find_crypto(symbol_or_series) is not None:
             return "crypto"
@@ -154,11 +154,12 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                     continue
                 raw_cik = entry.get("cik")
                 if isinstance(raw_cik, bool):
-                    cik: Optional[str] = None
+                    cik: str | None = None
                 elif isinstance(raw_cik, int):
                     cik = str(raw_cik)
-                elif isinstance(raw_cik, str) and raw_cik:
-                    cik = raw_cik
+                elif isinstance(raw_cik, str):
+                    stripped_cik = raw_cik.strip()
+                    cik = stripped_cik if stripped_cik else None
                 else:
                     cik = None
                 equities.append(
@@ -215,5 +216,5 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
     return Watchlist(crypto=crypto, equities=equities, macro=macro, protocols=protocols)
 
 
-def _optional_string(value: object) -> Optional[str]:
+def _optional_string(value: object) -> str | None:
     return value if isinstance(value, str) and value else None

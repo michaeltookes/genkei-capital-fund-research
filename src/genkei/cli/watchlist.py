@@ -30,6 +30,7 @@ from typing import Annotated, Any, Optional
 import typer
 from psycopg import sql
 
+from genkei.cli._helpers import json_default
 from genkei.common import db
 from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
@@ -127,7 +128,7 @@ def list_cmd(
             payload["macro"] = [
                 {"series_id": m.series_id, "name": m.name} for m in wl.macro
             ]
-        typer.echo(json.dumps(payload, indent=2))
+        typer.echo(json.dumps(payload, indent=2, default=json_default))
     else:
         typer.echo(_format_list_human(wl, sleeve=sleeve))
 
@@ -339,7 +340,11 @@ def health_cmd(
     rows = _query_source_health()
     if json_out:
         typer.echo(
-            json.dumps(_with_health_status(rows, stale_hours=stale_hours), indent=2)
+            json.dumps(
+                _with_health_status(rows, stale_hours=stale_hours),
+                indent=2,
+                default=json_default,
+            )
         )
     else:
         typer.echo(_format_health_human(rows, stale_hours=stale_hours))
@@ -504,7 +509,11 @@ def gaps_cmd(
     rows = _query_asset_gaps(wl)
     if json_out:
         typer.echo(
-            json.dumps(_with_gap_status(rows, threshold_hours=threshold_hours), indent=2)
+            json.dumps(
+                _with_gap_status(rows, threshold_hours=threshold_hours),
+                indent=2,
+                default=json_default,
+            )
         )
     else:
         typer.echo(_format_gaps_human(rows, threshold_hours=threshold_hours))

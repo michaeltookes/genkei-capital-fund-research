@@ -179,11 +179,6 @@ def build_collection_targets(config: JsonObject) -> list[CollectionTarget]:
     return targets
 
 
-def _store_blob(ingest_run_id: int, target: CollectionTarget, payload: Any) -> None:
-    """Insert one ``meta.raw_blobs`` row for a successful endpoint fetch."""
-    db.store_raw_blob(ingest_run_id, target.name, target.url, payload)
-
-
 def collect(
     config_path: Path,
     *,
@@ -230,7 +225,7 @@ def collect(
                     LOGGER.warning("partial data for %s: %s", target.name, exc)
                     partial.append({"name": target.name, "url": target.url, "error": str(exc)})
                     continue
-                _store_blob(run.id, target, payload)
+                db.store_raw_blob(run.id, target.name, target.url, payload)
                 run.add_rows(1)
 
             # B-081 — watchlist-driven per-protocol /protocol/{slug} pull.
@@ -251,7 +246,7 @@ def collect(
                             {"name": endpoint_name, "url": url, "error": str(exc)}
                         )
                         continue
-                    _store_blob_for_run(run.id, endpoint_name, url, payload)
+                    db.store_raw_blob(run.id, endpoint_name, url, payload)
                     run.add_rows(1)
 
                 # B-083 — watchlist-driven per-protocol fees + revenue.
@@ -287,7 +282,7 @@ def collect(
                                 {"name": endpoint_name, "url": url, "error": str(exc)}
                             )
                             continue
-                        _store_blob_for_run(run.id, endpoint_name, url, payload)
+                        db.store_raw_blob(run.id, endpoint_name, url, payload)
                         run.add_rows(1)
 
             if partial:
@@ -402,22 +397,6 @@ def _cached_blob(url: str) -> tuple[Any, datetime] | None:
     return payload, fetched_at
 
 
-def _store_blob_for_run(ingest_run_id: int, endpoint_name: str, url: str, payload: Any) -> None:
-    """INSERT one raw_blobs row keyed to a backfill ingest_run."""
-    db.store_raw_blob(ingest_run_id, endpoint_name, url, payload)
-
-
-def _copy_cached_blob_for_run(
-    ingest_run_id: int,
-    endpoint_name: str,
-    url: str,
-    payload: Any,
-    fetched_at: datetime,
-) -> None:
-    """Copy a resumed raw blob into the current backfill run."""
-    db.copy_raw_blob_for_run(ingest_run_id, endpoint_name, url, payload, fetched_at)
-
-
 def _fetch_with_resume(
     url: str,
     endpoint_name: str,
@@ -429,7 +408,7 @@ def _fetch_with_resume(
     cached = _cached_blob(url)
     if cached is not None:
         payload, fetched_at = cached
-        _copy_cached_blob_for_run(ingest_run_id, endpoint_name, url, payload, fetched_at)
+        db.copy_raw_blob_for_run(ingest_run_id, endpoint_name, url, payload, fetched_at)
         LOGGER.debug("reuse %s (already fetched within %s)", endpoint_name, RESUME_WINDOW)
         return True
     try:
@@ -438,7 +417,7 @@ def _fetch_with_resume(
         LOGGER.warning("backfill fetch failed for %s: %s", endpoint_name, exc)
         failures.append({"name": endpoint_name, "url": url, "error": str(exc)})
         return False
-    _store_blob_for_run(ingest_run_id, endpoint_name, url, payload)
+    db.store_raw_blob(ingest_run_id, endpoint_name, url, payload)
     return True
 
 

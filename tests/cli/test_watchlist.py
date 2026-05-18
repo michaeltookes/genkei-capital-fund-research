@@ -120,6 +120,17 @@ class LoadWatchlistTests(unittest.TestCase):
         wl = load_watchlist(path)
         self.assertEqual([c.symbol for c in wl.crypto], ["BTC"])
 
+    def test_whitespace_only_cik_is_treated_as_missing(self) -> None:
+        path = self._write(
+            "equities:\n"
+            "  primary:\n"
+            "    - symbol: BLANK\n"
+            "      name: Blank CIK Co.\n"
+            '      cik: "   "\n'
+        )
+        wl = load_watchlist(path)
+        self.assertIsNone(wl.equities[0].cik)
+
     def test_rejects_missing_file(self) -> None:
         with self.assertRaises(FileNotFoundError):
             load_watchlist(Path("/no/such/path.yml"))

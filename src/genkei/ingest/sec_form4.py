@@ -138,18 +138,6 @@ def build_form4_xml_url(cik: str, accession_number: str, primary_document: str) 
     return f"{ARCHIVES_BASE}/{cik_int}/{folder}/{basename}"
 
 
-def _store_blob(
-    ingest_run_id: int, endpoint_name: str, url: str, payload_text: str
-) -> None:
-    """Insert one raw_blobs row.
-
-    Form 4 payloads are XML, not JSON. We wrap them in a single-key dict
-    (``{"xml": "<...>"}``) so the existing ``payload JSONB`` column
-    accepts them without a schema change.
-    """
-    db.store_raw_blob(ingest_run_id, endpoint_name, url, {"xml": payload_text})
-
-
 def collect(
     *,
     http: HttpClient | None = None,
@@ -221,7 +209,7 @@ def _fetch_one(
         )
         failures.append({"name": endpoint_name, "url": url, "error": str(exc)})
         return False
-    _store_blob(ingest_run_id, endpoint_name, url, text)
+    db.store_raw_blob(ingest_run_id, endpoint_name, url, {"xml": text})
     return True
 
 
