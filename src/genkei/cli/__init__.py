@@ -29,6 +29,8 @@ Subcommand surface (B-037):
 - ``genkei insiders``  SEC Form 4 insider transactions        [B-079 ✓]
 - ``genkei insider-clusters``
                         Detect insider buy/sell clusters       [B-060 ✓]
+- ``genkei revenue-divergence``
+                        Protocol revenue vs token price        [B-062 ✓]
 """
 
 from __future__ import annotations
@@ -44,6 +46,7 @@ from genkei.cli import (
     macro,
     prices,
     query,
+    revenue_divergence,
     tvl,
     watchlist,
 )
@@ -73,6 +76,10 @@ app.command(
     "insider-clusters",
     help="Detect insider buy/sell clusters (≥N reporters within K days).",
 )(insider_clusters.insider_clusters_cmd)
+app.command(
+    "revenue-divergence",
+    help="Protocol revenue vs token price — flag fundamentals/valuation divergence.",
+)(revenue_divergence.revenue_divergence_cmd)
 app.command(
     "query",
     help="Ad-hoc SQL escape hatch (read-only, timeout + row cap enforced).",

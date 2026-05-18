@@ -47,13 +47,21 @@ class MacroEntry:
 
 @dataclass(frozen=True)
 class ProtocolEntry:
-    """A DefiLlama protocol slug we want per-protocol TVL history for (B-081)."""
+    """A DefiLlama protocol slug we want per-protocol TVL history for (B-081).
+
+    ``coingecko_id`` (B-062) optionally pairs the protocol with its governance /
+    fee token so cross-source experiments can join ``defillama.protocol_fees``
+    against ``coingecko.market_data``. Multiple protocols may share one token
+    (Chainlink staking + Chainlink requests both map to ``chainlink``/LINK).
+    Unset when the protocol has no tradable token or no mapping yet.
+    """
 
     slug: str
     name: str
     category: str | None  # Lending / DEX / Oracle / Liquid Staking / etc.
     tier: str  # primary | secondary
     rationale: str | None = None
+    coingecko_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -210,6 +218,7 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                         category=_optional_string(entry.get("category")),
                         tier=str(tier_name),
                         rationale=_optional_string(entry.get("rationale")),
+                        coingecko_id=_optional_string(entry.get("coingecko_id")),
                     )
                 )
 
