@@ -197,7 +197,7 @@ def fetch_logs(
         url = ETHERSCAN_V2_URL + "?" + "&".join(f"{k}={v}" for k, v in params.items())
         payload = http.get_json(url)
         if not isinstance(payload, dict):
-            return logs
+            raise RuntimeError(f"Etherscan getLogs malformed response: {payload!r}")
         status = payload.get("status")
         result = payload.get("result")
         # Etherscan returns status="1" + list on success, status="0" +
@@ -213,7 +213,10 @@ def fetch_logs(
             if result == "No records found":
                 return logs
             raise RuntimeError(f"Etherscan API error: {result}")
-        return logs
+        raise RuntimeError(
+            "Etherscan getLogs malformed response: "
+            f"payload={payload!r}, status={status!r}, result={result!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -330,7 +333,7 @@ def parse_log(
         "staker_address": staker,
         "amount_token": amount,
         "amount_usd": None,  # backfilled later via a price-join, not at ingest time
-        "source_endpoint": ETHERSCAN_V2_URL,
+        "source_endpoint": source_endpoint,
         "fetched_at": fetched_at,
         "ingest_run_id": ingest_run_id,
     }
@@ -346,8 +349,8 @@ def latest_block_for_pool(pool: PoolConfig) -> int | None:
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT max(block_number) FROM onchain.staking_events "
-            "WHERE protocol_slug = %s",
-            [pool.protocol_slug],
+            "WHERE protocol_slug = %s AND contract_address = %s",
+            [pool.protocol_slug, pool.contract_address.lower()],
         )
         row = cur.fetchone()
     return int(row[0]) if row and row[0] is not None else None

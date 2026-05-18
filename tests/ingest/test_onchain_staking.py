@@ -154,6 +154,7 @@ class ParseLogTests(unittest.TestCase):
         self.assertEqual(row["amount_token"], Decimal(42))
         self.assertEqual(row["staker_address"], "0xaabbccddeeff00112233445566778899aabbccdd")
         self.assertEqual(row["ingest_run_id"], 99)
+        self.assertEqual(row["source_endpoint"], "https://example.com")
         # USD value is None at ingest; backfilled later via price join.
         self.assertIsNone(row["amount_usd"])
 
@@ -384,6 +385,90 @@ class FetchLogsTests(unittest.TestCase):
                 to_block=10,
             )
 
+    def test_malformed_payload_raises(self) -> None:
+        class FakeHttp:
+            def get_json(self, url: str) -> object:  # noqa: ARG002
+                return ["not", "a", "dict"]
+
+        with self.assertRaisesRegex(RuntimeError, "malformed response"):
+            fetch_logs(
+                FakeHttp(),  # type: ignore[arg-type]
+                api_key="k",
+                pool=CHAINLINK_V02_POOL,
+                from_block=1,
+                to_block=10,
+            )
+
+    def test_malformed_second_page_raises_after_full_first_page(self) -> None:
+        first_page = [{"x": i} for i in range(1000)]
+
+        class FakeHttp:
+            def get_json(self, url: str) -> object:
+                if "page=1" in url:
+                    return {"status": "1", "message": "OK", "result": first_page}
+                return {"status": "1", "message": "OK", "result": "unexpected"}
+
+        with self.assertRaisesRegex(RuntimeError, "malformed response"):
+            fetch_logs(
+                FakeHttp(),  # type: ignore[arg-type]
+                api_key="k",
+                pool=CHAINLINK_V02_POOL,
+                from_block=1,
+                to_block=10,
+            )
+
+
+# ---------------------------------------------------------------------------
+# Resume state
+# ---------------------------------------------------------------------------
+
+
+class LatestBlockTests(unittest.TestCase):
+    def test_latest_block_is_filtered_by_protocol_and_contract(self) -> None:
+        from genkei.ingest.onchain_staking import latest_block_for_pool
+
+        class FakeCursor:
+            params: list[object] | None = None
+
+            def __enter__(self) -> FakeCursor:
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def execute(self, sql: str, params: list[object]) -> None:
+                self.sql = sql
+                self.params = params
+
+            def fetchone(self) -> tuple[int]:
+                return (123,)
+
+        class FakeConnection:
+            def __init__(self) -> None:
+                self.cursor_obj = FakeCursor()
+
+            def __enter__(self) -> FakeConnection:
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def cursor(self) -> FakeCursor:
+                return self.cursor_obj
+
+        fake_conn = FakeConnection()
+
+        with patch(
+            "genkei.ingest.onchain_staking.db.connection", return_value=fake_conn
+        ):
+            self.assertEqual(latest_block_for_pool(CHAINLINK_V02_POOL), 123)
+
+        self.assertIn("contract_address = %s", fake_conn.cursor_obj.sql)
+        self.assertEqual(
+            fake_conn.cursor_obj.params,
+            [CHAINLINK_V02_POOL.protocol_slug, CHAINLINK_V02_POOL.contract_address.lower()],
+        )
+
 
 # ---------------------------------------------------------------------------
 # Insert accounting
@@ -404,6 +489,7 @@ class InsertRowsTests(unittest.TestCase):
             def executemany(self, sql: str, values: list[tuple[object, ...]]) -> None:
                 self.sql = sql
                 self.values = values
+                self.rowcount = len(values)
 
         class FakeConnection:
             def __init__(self) -> None:
@@ -439,7 +525,7 @@ class InsertRowsTests(unittest.TestCase):
         with patch(
             "genkei.ingest.onchain_staking.db.connection", return_value=fake_conn
         ):
-            self.assertEqual(_insert_rows([row]), 0)
+            self.assertEqual(_insert_rows([row]), 1)
 
 
 # ---------------------------------------------------------------------------
