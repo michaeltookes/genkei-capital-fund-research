@@ -190,18 +190,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Honors B-027's rate limit + User-Agent.
 
 
-### B-083 — Chainlink Labs revenue / oracle-service-fee data
-- **Status:** open
-- **Priority:** medium (was low; raised 2026-05-17 — free DefiLlama path identified, see below)
-- **Context:** Also surfaced by the LINK /research session. Chainlink Labs is private so there's no SEC filings, but oracle service fees paid to node operators are observable on-chain (the fees route through known contracts). This would give the fundamental "is the underlying business growing or shrinking" signal that the macro + price views can't answer. Cousin item to B-082 — both are Chainlink-specific on-chain ingest.
-- **Free-data path discovered (2026-05-17, B-081 follow-up):** DefiLlama exposes per-protocol fee + revenue series via `/summary/fees/{slug}` (and `/overview/fees` for aggregate views). That endpoint covers Chainlink as `chainlink-requests` — same slug we just dropped from the TVL collector. New shape: extend the existing DefiLlama collector (or sibling) to also hit the fees endpoint per watchlist protocol, normalize into a `defillama.protocol_fees` table keyed `(slug, ts)`. This eliminates the paid-API gating and brings B-083 in scope without needing the Etherscan-style on-chain contract investigation originally outlined.
-- **Acceptance criteria (updated):**
-  - Extend defillama ingest to call `/summary/fees/{slug}` for every watchlist protocol that has fees data (probe + skip on 404 — not every protocol reports fees).
-  - New table `defillama.protocol_fees` keyed `(slug, ts)`, columns at minimum: `fees_usd`, `revenue_usd`, plus the provenance trio.
-  - `genkei tvl --protocol chainlink-requests` (or a new `genkei fees --protocol …` subcommand) returns the fee/revenue series.
-  - Original on-chain ingest path stays as a fallback option but is no longer the primary plan.
-  - Paid-API paths (Dune, Allium) remain blocked under the existing architectural stance and are only re-considered if DefiLlama's coverage proves insufficient.
-
 ### B-084 — Oracle market-share data source (likely paid)
 - **Status:** open
 - **Priority:** low
