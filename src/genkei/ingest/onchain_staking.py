@@ -108,12 +108,11 @@ EVENT_TOPIC_UNBONDING_STARTED = "0x5b9cd1c6f24b416d2354b7b7ad07d92bc1c662a403180
 
 ETHERSCAN_API_KEY_ENV = "ETHERSCAN_API_KEY"
 
-# Chunk size for getLogs queries. Etherscan returns ≤1000 logs per
-# call; 50k blocks ≈ 7 days on Ethereum. A high-activity pool inside
-# a single 50k-block window can exceed 1000 events and would need
-# pagination by topic — for the Chainlink pool, observed event rates
-# are well under 1000/week so a flat chunk-walk suffices.
+# Chunk size for getLogs queries. Etherscan returns <=1000 logs per
+# page; 50k blocks is roughly 7 days on Ethereum, with pagination
+# within each block window when activity exceeds one page.
 BLOCK_CHUNK_SIZE = 50_000
+LOG_PAGE_SIZE = 1000
 
 # Etherscan free tier is 3 req/s — using 2/s leaves headroom for the
 # eth_blockNumber probe + concurrent retries. Earlier 4/s setting hit
@@ -175,11 +174,10 @@ def fetch_logs(
 ) -> list[dict[str, Any]]:
     """Fetch Etherscan logs for one contract over a block range.
 
-    Returns the ``result`` list (possibly empty). Raises on transport
-    errors; soft API errors (rate limit, "no records found") surface as
-    empty lists.
+    Returns the combined ``result`` pages (possibly empty). Raises on
+    transport/API errors; "No records found" is the benign empty case.
     """
-    params = {
+    base_params = {
         "chainid": pool.chain_id,
         "module": "logs",
         "action": "getLogs",
@@ -188,25 +186,34 @@ def fetch_logs(
         "toBlock": to_block,
         "apikey": api_key,
     }
-    url = ETHERSCAN_V2_URL + "?" + "&".join(f"{k}={v}" for k, v in params.items())
-    payload = http.get_json(url)
-    if not isinstance(payload, dict):
-        return []
-    status = payload.get("status")
-    result = payload.get("result")
-    # Etherscan returns status="1" + list on success, status="0" +
-    # string message on failure / empty. "No records found" is a
-    # benign empty.
-    if status == "1" and isinstance(result, list):
-        return result
-    if status == "0" and isinstance(result, list):
-        return result  # shouldn't happen but defensive
-    if status == "0" and isinstance(result, str):
-        if result == "No records found":
-            return []
-        # Real error — bubble up so the caller can decide
-        raise RuntimeError(f"Etherscan API error: {result}")
-    return []
+    logs: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        params = {
+            **base_params,
+            "page": page,
+            "offset": LOG_PAGE_SIZE,
+        }
+        url = ETHERSCAN_V2_URL + "?" + "&".join(f"{k}={v}" for k, v in params.items())
+        payload = http.get_json(url)
+        if not isinstance(payload, dict):
+            return logs
+        status = payload.get("status")
+        result = payload.get("result")
+        # Etherscan returns status="1" + list on success, status="0" +
+        # string message on failure / empty. "No records found" is a
+        # benign empty.
+        if isinstance(result, list):
+            logs.extend(result)
+            if len(result) < LOG_PAGE_SIZE:
+                return logs
+            page += 1
+            continue
+        if status == "0" and isinstance(result, str):
+            if result == "No records found":
+                return logs
+            raise RuntimeError(f"Etherscan API error: {result}")
+        return logs
 
 
 # ---------------------------------------------------------------------------
@@ -398,7 +405,7 @@ def _insert_rows(rows: list[dict[str, Any]]) -> int:
     ]
     with db.connection() as conn, conn.cursor() as cur:
         cur.executemany(INSERT_SQL, payload_values)
-    return len(rows)
+        return max(cur.rowcount or 0, 0)
 
 
 # ---------------------------------------------------------------------------
@@ -486,7 +493,7 @@ def collect(
                             chunk_to,
                             exc,
                         )
-                        continue
+                        raise
                     for log in logs:
                         row = parse_log(
                             log,

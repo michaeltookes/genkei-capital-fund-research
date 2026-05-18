@@ -15,6 +15,8 @@ from genkei.ingest.onchain_staking import (
     EVENT_TOPIC_UNBONDING_STARTED,
     EVENT_TOPIC_UNSTAKED,
     LINK_DECIMALS,
+    _insert_rows,
+    collect,
     decode_amount_token,
     event_type_for_topic,
     fetch_logs,
@@ -320,6 +322,36 @@ class FetchLogsTests(unittest.TestCase):
         )
         self.assertEqual(result, sentinel)
 
+    def test_fetches_all_pages_until_short_page(self) -> None:
+        first_page = [{"x": i} for i in range(1000)]
+        second_page = [{"x": 1000}]
+
+        class FakeHttp:
+            def __init__(self) -> None:
+                self.urls: list[str] = []
+
+            def get_json(self, url: str) -> object:
+                self.urls.append(url)
+                if "page=1" in url:
+                    return {"status": "1", "message": "OK", "result": first_page}
+                if "page=2" in url:
+                    return {"status": "1", "message": "OK", "result": second_page}
+                raise AssertionError(f"unexpected URL: {url}")
+
+        fake = FakeHttp()
+        result = fetch_logs(
+            fake,  # type: ignore[arg-type]
+            api_key="k",
+            pool=CHAINLINK_V02_POOL,
+            from_block=1,
+            to_block=10,
+        )
+
+        self.assertEqual(result, first_page + second_page)
+        self.assertIn("offset=1000", fake.urls[0])
+        self.assertIn("page=1", fake.urls[0])
+        self.assertIn("page=2", fake.urls[1])
+
     def test_no_records_found_returns_empty_not_raise(self) -> None:
         # Etherscan signals "no events in this range" with status=0 +
         # result="No records found" — that's a benign empty, not an error.
@@ -354,11 +386,68 @@ class FetchLogsTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# collect() — graceful skip on missing key
+# Insert accounting
 # ---------------------------------------------------------------------------
 
 
-class CollectGracefulSkipTests(unittest.TestCase):
+class InsertRowsTests(unittest.TestCase):
+    def test_insert_rows_returns_actual_rowcount(self) -> None:
+        class FakeCursor:
+            rowcount = 0
+
+            def __enter__(self) -> FakeCursor:
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def executemany(self, sql: str, values: list[tuple[object, ...]]) -> None:
+                self.sql = sql
+                self.values = values
+
+        class FakeConnection:
+            def __init__(self) -> None:
+                self.cursor_obj = FakeCursor()
+
+            def __enter__(self) -> FakeConnection:
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def cursor(self) -> FakeCursor:
+                return self.cursor_obj
+
+        row = {
+            "tx_hash": "0xabc",
+            "log_index": 1,
+            "chain": "ethereum",
+            "protocol_slug": "chainlink-v02",
+            "contract_address": CHAINLINK_V02_POOL.contract_address.lower(),
+            "block_number": 123,
+            "block_timestamp": NOW,
+            "event_type": "staked",
+            "staker_address": "0xaabbccddeeff00112233445566778899aabbccdd",
+            "amount_token": Decimal("1.5"),
+            "amount_usd": None,
+            "source_endpoint": "https://example.com",
+            "fetched_at": NOW,
+            "ingest_run_id": 42,
+        }
+        fake_conn = FakeConnection()
+
+        with patch(
+            "genkei.ingest.onchain_staking.db.connection", return_value=fake_conn
+        ):
+            self.assertEqual(_insert_rows([row]), 0)
+
+
+# ---------------------------------------------------------------------------
+# collect()
+# ---------------------------------------------------------------------------
+
+
+class CollectTests(unittest.TestCase):
     def test_no_api_key_records_zero_row_run_and_returns_cleanly(self) -> None:
         # No DB call should happen for fetch_logs / latest_block_for_pool
         # in this code path — the function bails after recording the run.
@@ -379,8 +468,6 @@ class CollectGracefulSkipTests(unittest.TestCase):
             ingest_run_cm.return_value.__enter__.return_value = fake
             ingest_run_cm.return_value.__exit__.return_value = False
 
-            from genkei.ingest.onchain_staking import collect
-
             result = collect(http=_MockHttp())
             self.assertEqual(result, 42)
             # Bailed before any Etherscan call:
@@ -391,6 +478,35 @@ class CollectGracefulSkipTests(unittest.TestCase):
             # And metadata reflects the missing-key situation:
             metadata = ingest_run_cm.call_args.kwargs.get("metadata", {})
             self.assertFalse(metadata.get("has_api_key"))
+
+    def test_chunk_fetch_failure_fails_run_without_row_count(self) -> None:
+        with (
+            patch("genkei.ingest.onchain_staking.db.ingest_run") as ingest_run_cm,
+            patch(
+                "genkei.ingest.onchain_staking.fetch_current_head_block",
+                return_value=CHAINLINK_V02_POOL.deployment_block + 1,
+            ),
+            patch("genkei.ingest.onchain_staking.latest_block_for_pool", return_value=None),
+            patch(
+                "genkei.ingest.onchain_staking.fetch_logs",
+                side_effect=RuntimeError("rate limit"),
+            ) as fetch_mock,
+        ):
+            class FakeRun:
+                id = 42
+
+                def add_rows(self, n: int) -> None:
+                    self._added = n
+
+            fake = FakeRun()
+            ingest_run_cm.return_value.__enter__.return_value = fake
+            ingest_run_cm.return_value.__exit__.return_value = False
+
+            with self.assertRaisesRegex(RuntimeError, "rate limit"):
+                collect(http=_MockHttp(), api_key="k", pools=[CHAINLINK_V02_POOL])
+
+            fetch_mock.assert_called_once()
+            self.assertFalse(hasattr(fake, "_added"))
 
 
 class _MockHttp:
