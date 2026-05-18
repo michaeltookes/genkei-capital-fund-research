@@ -51,6 +51,14 @@ import httpx
 from genkei.common import db
 from genkei.common.http import HttpClient, RateLimit
 
+# Silence httpx's default INFO-level "HTTP Request: GET <full-url>" logging —
+# Etherscan auth lives in URL params, and INFO-level URL logging leaks the
+# API key to stdout / log aggregators / process output. WARNING still
+# surfaces real problems (4xx, 5xx, network errors); only routine
+# request-completion lines are suppressed. Set at module load so anyone
+# importing this collector is protected.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 SOURCE_NAME = "onchain_staking"
 COLLECT_ENDPOINT_LABEL = "collect"
 ETHERSCAN_V2_URL = "https://api.etherscan.io/v2/api"
@@ -63,12 +71,18 @@ CHAINLINK_V02_POOL_ADDRESS = "0xBc10f2E862ED4502144c7d632a3459F49DFCDB5e"
 CHAINLINK_V02_DEPLOYMENT_BLOCK = 18638000  # ~Nov 2023, safe lower bound
 LINK_DECIMALS = 18  # standard ERC-20
 
-# Event signatures (keccak256 of the canonical event sig). These are
-# verified at ingest time by topic[0]; if Chainlink ever redeploys to
-# a different event shape, the collector will skip those events with
-# a warning rather than mis-decoding them.
-EVENT_TOPIC_STAKED = "0x1449c6dd7851abc30abf37f57715f492010519147cc2552c7283fc869d2e1d72"
-EVENT_TOPIC_UNSTAKED = "0xd71ce17e09a290cae50fcfa3aa44a8a44d5b8a6cd6f6e7a4d6cf1c5e0e1e8a9c"
+# Event signatures (keccak256 of the canonical event sig) for the
+# Chainlink v0.2 Community Staking Pool. Verified live 2026-05-17 by
+# fetching the contract's ABI from Etherscan and computing keccak256
+# of each event's canonical signature — the first attempt at these
+# constants was wrong and the parser silently dropped every event.
+# All three events index the staker as topic[1].
+#   Staked(address,uint256,uint256,uint256) — data = (amount, newStake, newTotalPrincipal)
+#   Unstaked(address,uint256,uint256,uint256) — same data shape
+#   UnbondingPeriodStarted(address) — no data; intent signal preceding Unstaked by ~28d
+EVENT_TOPIC_STAKED = "0xb4caaf29adda3eefee3ad552a8e85058589bf834c7466cae4ee58787f70589ed"
+EVENT_TOPIC_UNSTAKED = "0x204fccf0d92ed8d48f204adb39b2e81e92bad0dedb93f5716ca9478cfb57de00"
+EVENT_TOPIC_UNBONDING_STARTED = "0x5b9cd1c6f24b416d2354b7b7ad07d92bc1c662a403180e84fac2782414a5f4ed"
 
 ETHERSCAN_API_KEY_ENV = "ETHERSCAN_API_KEY"
 
@@ -79,7 +93,11 @@ ETHERSCAN_API_KEY_ENV = "ETHERSCAN_API_KEY"
 # are well under 1000/week so a flat chunk-walk suffices.
 BLOCK_CHUNK_SIZE = 50_000
 
-DEFAULT_RATE_LIMIT = RateLimit.per_second(4)
+# Etherscan free tier is 3 req/s — using 2/s leaves headroom for the
+# eth_blockNumber probe + concurrent retries. Earlier 4/s setting hit
+# "Max calls per sec rate limit reached (3/sec)" repeatedly and
+# dropped chunks in the first backfill attempt.
+DEFAULT_RATE_LIMIT = RateLimit.per_second(2)
 INSERT_SQL = (
     "INSERT INTO onchain.staking_events ("
     "tx_hash, log_index, chain, protocol_slug, contract_address, "
@@ -204,12 +222,21 @@ def decode_amount_token(data_hex: str, decimals: int) -> Decimal:
 
 
 def event_type_for_topic(topic0: str) -> str | None:
-    """Map a topic0 hash to a human event name we know how to decode."""
+    """Map a topic0 hash to a human event name we know how to decode.
+
+    UnbondingPeriodStarted is captured as a separate event_type because
+    it's a meaningful intent signal (staker signaling unbond ~28d before
+    the actual Unstaked event lands). Amount is 0 for those rows since
+    the event carries no amount data; queries that compute net flow
+    should aggregate explicitly by event_type to avoid double-counting.
+    """
     t = topic0.lower()
     if t == EVENT_TOPIC_STAKED.lower():
         return "staked"
     if t == EVENT_TOPIC_UNSTAKED.lower():
         return "unstaked"
+    if t == EVENT_TOPIC_UNBONDING_STARTED.lower():
+        return "unbonding_started"
     return None
 
 
@@ -243,7 +270,14 @@ def parse_log(
     data_hex = log.get("data")
     if not isinstance(data_hex, str):
         return None
-    amount = decode_amount_token(data_hex, pool.token_decimals)
+    # UnbondingPeriodStarted has no data payload — emit amount=0 so the
+    # row still records the intent signal. Staked / Unstaked carry
+    # (amount, newStake, newTotalPrincipal); decode_amount_token reads
+    # just the first 32-byte word (amount).
+    if event_type == "unbonding_started":
+        amount = Decimal(0)
+    else:
+        amount = decode_amount_token(data_hex, pool.token_decimals)
     block_number_raw = log.get("blockNumber")
     timestamp_raw = log.get("timeStamp")
     tx_hash = log.get("transactionHash")

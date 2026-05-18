@@ -12,6 +12,7 @@ from genkei.ingest.onchain_staking import (
     CHAINLINK_V02_POOL,
     ETHERSCAN_API_KEY_ENV,
     EVENT_TOPIC_STAKED,
+    EVENT_TOPIC_UNBONDING_STARTED,
     EVENT_TOPIC_UNSTAKED,
     LINK_DECIMALS,
     decode_amount_token,
@@ -96,6 +97,11 @@ class EventTypeForTopicTests(unittest.TestCase):
     def test_unstaked_topic_returns_unstaked(self) -> None:
         self.assertEqual(event_type_for_topic(EVENT_TOPIC_UNSTAKED), "unstaked")
 
+    def test_unbonding_started_topic_returns_unbonding_started(self) -> None:
+        self.assertEqual(
+            event_type_for_topic(EVENT_TOPIC_UNBONDING_STARTED), "unbonding_started"
+        )
+
     def test_unknown_topic_returns_none(self) -> None:
         # Other events from the same contract (e.g. RewardsAdded) get
         # skipped at parse time rather than mis-decoded.
@@ -160,6 +166,32 @@ class ParseLogTests(unittest.TestCase):
         assert row is not None
         self.assertEqual(row["event_type"], "unstaked")
         self.assertEqual(row["amount_token"], Decimal(7))
+
+    def test_parses_unbonding_started_event_with_zero_amount(self) -> None:
+        # UnbondingPeriodStarted has no data payload (no amount) — captured
+        # as an intent signal with amount_token=0 so the row still records
+        # the event for future analysis without polluting flow aggregates.
+        row = parse_log(
+            # data="0x" simulates an empty data field (no amount word)
+            {
+                "topics": [
+                    EVENT_TOPIC_UNBONDING_STARTED,
+                    "0x000000000000000000000000aabbccddeeff00112233445566778899aabbccdd",
+                ],
+                "data": "0x",
+                "blockNumber": "0x1",
+                "timeStamp": "0x67500000",
+                "transactionHash": "0xabc",
+                "logIndex": "0x0",
+            },
+            pool=CHAINLINK_V02_POOL,
+            source_endpoint="x",
+            ingest_run_id=1,
+            fetched_at=NOW,
+        )
+        assert row is not None
+        self.assertEqual(row["event_type"], "unbonding_started")
+        self.assertEqual(row["amount_token"], Decimal(0))
 
     def test_skips_unknown_event_type(self) -> None:
         # Other contract events (RewardsAdded, etc.) return None — the
