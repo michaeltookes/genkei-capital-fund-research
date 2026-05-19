@@ -409,5 +409,7 @@ def _utc_end(d: date) -> datetime:
 def _to_date(ts: Any) -> date:
     """Coerce Postgres ``timestamptz`` to a calendar date."""
     if isinstance(ts, datetime):
-        return ts.date()
+        if ts.tzinfo is None:
+            return ts.replace(tzinfo=timezone.utc).date()
+        return ts.astimezone(timezone.utc).date()
     return ts

@@ -9,7 +9,7 @@ CLI tests with mocked DB connections.
 from __future__ import annotations
 
 import unittest
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 from genkei.experiments.protocol_revenue import (
@@ -21,6 +21,7 @@ from genkei.experiments.protocol_revenue import (
     _classify,
     _pct_change,
     _safe_ratio,
+    _to_date,
     build_snapshots,
     diagnose_divergence,
 )
@@ -345,6 +346,14 @@ class SafeRatioHelperTests(unittest.TestCase):
     def test_none_args(self) -> None:
         self.assertIsNone(_safe_ratio(None, Decimal("2")))
         self.assertIsNone(_safe_ratio(Decimal("10"), None))
+
+
+class ToDateHelperTests(unittest.TestCase):
+    def test_timestamptz_is_normalized_to_utc_before_date(self) -> None:
+        session_tz = timezone(timedelta(hours=-6))
+        session_value = datetime(2026, 1, 1, 18, 0, tzinfo=session_tz)
+
+        self.assertEqual(_to_date(session_value), date(2026, 1, 2))
 
 
 class DefaultConstantsTests(unittest.TestCase):
