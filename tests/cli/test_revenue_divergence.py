@@ -227,6 +227,39 @@ class SingleSlugTests(unittest.TestCase):
         self.assertGreater(len(payload["snapshots"]), 0)
         self.assertIn("pf_ratio", payload["snapshots"][0])
 
+    def test_since_backfills_fee_window_without_expanding_price_output(self) -> None:
+        path = _watchlist_path(self)
+        out = io.StringIO()
+        with (
+            patch(
+                "genkei.cli.revenue_divergence.load_fee_series",
+                return_value=_fake_fees(),
+            ) as fees_mock,
+            patch(
+                "genkei.cli.revenue_divergence.load_price_series",
+                return_value=_fake_prices(),
+            ) as prices_mock,
+            redirect_stdout(out),
+        ):
+            code = main(
+                [
+                    "revenue-divergence",
+                    "--slug",
+                    "chainlink-requests",
+                    "--since",
+                    "2026-01-01",
+                    "--window-days",
+                    "30",
+                    "--config",
+                    str(path),
+                    "--json",
+                ]
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(fees_mock.call_args.kwargs["since"], date(2025, 12, 3))
+        self.assertEqual(prices_mock.call_args.kwargs["since"], date(2026, 1, 1))
+
     def test_price_leads_up_is_classified(self) -> None:
         path = _watchlist_path(self)
         # Price ramps 10→30 (+200%); fees flat → annualized revenue flat

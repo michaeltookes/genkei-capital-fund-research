@@ -22,7 +22,7 @@ Usage:
 """
 
 import json
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any, Optional
@@ -73,7 +73,8 @@ def _compute_one(
     lookback_days: int,
     significance_pct: Decimal,
 ) -> tuple[list[Snapshot], DivergenceReport]:
-    fees = load_fee_series(protocol.slug, since=since, until=until)
+    fee_since = since - timedelta(days=window_days - 1) if since is not None else None
+    fees = load_fee_series(protocol.slug, since=fee_since, until=until)
     prices = (
         load_price_series(protocol.coingecko_id, since=since, until=until)
         if protocol.coingecko_id is not None
