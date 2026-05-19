@@ -84,6 +84,7 @@ def _compute_one(
         snapshots,
         slug=protocol.slug,
         coingecko_id=protocol.coingecko_id or "",
+        horizon=_horizon_tag(protocol),
         window_days=window_days,
         lookback_days=lookback_days,
         significance_pct=significance_pct,
@@ -91,9 +92,16 @@ def _compute_one(
     return snapshots, report
 
 
+def _horizon_tag(protocol: ProtocolEntry) -> str:
+    sleeve = "core" if protocol.tier == "primary" else "tactical"
+    category = (protocol.category or "uncategorized").lower().replace(" ", "-")
+    return f"crypto:{sleeve}:{category}"
+
+
 def _snapshot_to_dict(snap: Snapshot) -> dict[str, Any]:
     return {
         "ts": snap.ts.isoformat(),
+        "price_usd": snap.price_usd,
         "market_cap_usd": snap.market_cap_usd,
         "trailing_fees_usd": snap.trailing_fees_usd,
         "trailing_revenue_usd": snap.trailing_revenue_usd,
@@ -110,6 +118,7 @@ def _report_to_dict(report: DivergenceReport, protocol: ProtocolEntry) -> dict[s
         "name": protocol.name,
         "category": protocol.category,
         "coingecko_id": report.coingecko_id or None,
+        "horizon_tag": report.horizon,
         "as_of": report.as_of.isoformat(),
         "window_days": report.window_days,
         "lookback_days": report.lookback_days,
@@ -130,7 +139,7 @@ def _format_single_human(
 ) -> str:
     header_line = (
         f"{protocol.slug} → {protocol.coingecko_id or '(unmapped)'} "
-        f"({protocol.name}, {protocol.category or 'uncategorized'})"
+        f"({protocol.name}, {protocol.category or 'uncategorized'}, horizon={report.horizon})"
     )
     lines = [header_line, "-" * len(header_line)]
     lines.append(
@@ -173,7 +182,7 @@ def _format_table_human(rows: list[tuple[ProtocolEntry, DivergenceReport]]) -> s
             "Add `coingecko_id:` to entries under `protocols:` in watchlists.yml."
         )
     header = (
-        f"{'slug':<22} {'token':<22} {'kind':<20} "
+        f"{'slug':<22} {'horizon':<24} {'token':<22} {'kind':<20} "
         f"{'price%':>10} {'rev%':>10} {'P/F now':>12}"
     )
     lines = [header, "-" * len(header)]
@@ -187,6 +196,7 @@ def _format_table_human(rows: list[tuple[ProtocolEntry, DivergenceReport]]) -> s
     for protocol, report in sorted_rows:
         lines.append(
             f"  {protocol.slug:<20} "
+            f"{report.horizon:<24} "
             f"{(protocol.coingecko_id or '-'):<22} "
             f"{report.kind:<20} "
             f"{_fmt_pct(report.price_change_pct):>10} "

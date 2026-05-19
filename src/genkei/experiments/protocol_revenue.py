@@ -88,6 +88,7 @@ class Snapshot:
     annualized_revenue_usd: Decimal | None
     pf_ratio: Decimal | None
     pr_ratio: Decimal | None
+    price_usd: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -96,6 +97,7 @@ class DivergenceReport:
 
     slug: str
     coingecko_id: str
+    horizon: str
     as_of: date
     lookback_days: int
     window_days: int
@@ -185,6 +187,7 @@ def build_snapshots(
                 annualized_revenue_usd=annualized_revenue,
                 pf_ratio=pf_ratio,
                 pr_ratio=pr_ratio,
+                price_usd=point.price_usd,
             )
         )
     return snapshots
@@ -195,6 +198,7 @@ def diagnose_divergence(
     *,
     slug: str,
     coingecko_id: str,
+    horizon: str = "crypto:protocol",
     window_days: int = DEFAULT_WINDOW_DAYS,
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
     significance_pct: Decimal = DEFAULT_SIGNIFICANCE_PCT,
@@ -215,6 +219,7 @@ def diagnose_divergence(
         return DivergenceReport(
             slug=slug,
             coingecko_id=coingecko_id,
+            horizon=horizon,
             as_of=date.today(),
             lookback_days=lookback_days,
             window_days=window_days,
@@ -238,6 +243,7 @@ def diagnose_divergence(
         return DivergenceReport(
             slug=slug,
             coingecko_id=coingecko_id,
+            horizon=horizon,
             as_of=now.ts,
             lookback_days=lookback_days,
             window_days=window_days,
@@ -248,10 +254,20 @@ def diagnose_divergence(
             kind="insufficient-data",
         )
 
-    price_change = _pct_change(lookback.market_cap_usd, now.market_cap_usd)
+    price_change = _pct_change(lookback.price_usd, now.price_usd)
+    lookback_revenue = (
+        lookback.annualized_revenue_usd
+        if lookback.annualized_revenue_usd is not None
+        else lookback.annualized_fees_usd
+    )
+    now_revenue = (
+        now.annualized_revenue_usd
+        if now.annualized_revenue_usd is not None
+        else now.annualized_fees_usd
+    )
     revenue_change = _pct_change(
-        lookback.annualized_revenue_usd or lookback.annualized_fees_usd,
-        now.annualized_revenue_usd or now.annualized_fees_usd,
+        lookback_revenue,
+        now_revenue,
     )
     kind = _classify(
         price_change=price_change,
@@ -261,6 +277,7 @@ def diagnose_divergence(
     return DivergenceReport(
         slug=slug,
         coingecko_id=coingecko_id,
+        horizon=horizon,
         as_of=now.ts,
         lookback_days=lookback_days,
         window_days=window_days,

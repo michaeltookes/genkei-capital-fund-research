@@ -157,6 +157,7 @@ class SingleSlugTests(unittest.TestCase):
         text = out.getvalue()
         self.assertIn("chainlink-requests", text)
         self.assertIn("chainlink", text)  # token mapping
+        self.assertIn("horizon=crypto:core:oracle", text)
         self.assertIn("divergence:", text)
         self.assertIn("P/F now:", text)
 
@@ -188,7 +189,8 @@ class SingleSlugTests(unittest.TestCase):
         payload = json_mod.loads(out.getvalue())
         self.assertEqual(payload["slug"], "chainlink-requests")
         self.assertEqual(payload["coingecko_id"], "chainlink")
-        # Fees are flat, market cap ramps 10M → 30M → price-leads-up.
+        self.assertEqual(payload["horizon_tag"], "crypto:core:oracle")
+        # Fees are flat, token price ramps 10 → 30 → price-leads-up.
         self.assertEqual(payload["kind"], "price-leads-up")
         self.assertIn("pf_ratio_now", payload)
         self.assertNotIn("snapshots", payload)  # no --since → no series
@@ -256,22 +258,25 @@ class SingleSlugTests(unittest.TestCase):
         self.assertEqual(code, 0)
         payload = json_mod.loads(out.getvalue())
         self.assertEqual(payload["kind"], "price-leads-up")
+        self.assertEqual(payload["horizon_tag"], "crypto:core:oracle")
 
 
 def _ramp_prices_after(flat_days: int, total_days: int = 180) -> list[PricePoint]:
-    """Flat market cap for ``flat_days``, then a 3x ramp over the remainder."""
+    """Flat price for ``flat_days``, then a 3x ramp over the remainder."""
     start = date(2026, 1, 1)
     points: list[PricePoint] = []
     for i in range(total_days):
         if i < flat_days:
+            price = 10.0
             mcap = 10_000_000.0
         else:
             frac = (i - flat_days) / max(total_days - flat_days - 1, 1)
+            price = 10.0 + 20.0 * frac
             mcap = 10_000_000.0 + 20_000_000.0 * frac
         points.append(
             PricePoint(
                 ts=start + timedelta(days=i),
-                price_usd=Decimal("10"),
+                price_usd=Decimal(str(price)),
                 market_cap_usd=Decimal(str(mcap)),
             )
         )
@@ -300,3 +305,4 @@ class AllProtocolsTableTests(unittest.TestCase):
         payload = json_mod.loads(out.getvalue())
         slugs = {row["slug"] for row in payload}
         self.assertEqual(slugs, {"chainlink-requests", "aave-v3"})  # unmapped one excluded
+        self.assertTrue(all(row["horizon_tag"] for row in payload))

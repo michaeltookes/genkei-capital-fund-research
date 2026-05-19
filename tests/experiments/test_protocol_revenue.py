@@ -141,9 +141,11 @@ class DiagnoseDivergenceTests(unittest.TestCase):
     ) -> list[Snapshot]:
         """Build two synthetic snapshots N days apart with the given % changes."""
         base_ts = date(2026, 1, 1)
+        base_price = Decimal("10")
         base_mcap = Decimal("1_000_000")
         base_rev = Decimal("100_000")
         now_ts = base_ts + timedelta(days=days_apart)
+        now_price = base_price * (Decimal("1") + Decimal(str(price_pct / 100)))
         now_mcap = base_mcap * (Decimal("1") + Decimal(str(price_pct / 100)))
         now_rev = base_rev * (Decimal("1") + Decimal(str(revenue_pct / 100)))
         return [
@@ -156,6 +158,7 @@ class DiagnoseDivergenceTests(unittest.TestCase):
                 annualized_revenue_usd=base_rev,
                 pf_ratio=base_mcap / base_rev,
                 pr_ratio=base_mcap / base_rev,
+                price_usd=base_price,
             ),
             Snapshot(
                 ts=now_ts,
@@ -166,6 +169,7 @@ class DiagnoseDivergenceTests(unittest.TestCase):
                 annualized_revenue_usd=now_rev,
                 pf_ratio=now_mcap / now_rev,
                 pr_ratio=now_mcap / now_rev,
+                price_usd=now_price,
             ),
         ]
 
@@ -175,6 +179,7 @@ class DiagnoseDivergenceTests(unittest.TestCase):
         self.assertEqual(report.kind, "price-leads-up")
         self.assertEqual(report.price_change_pct, Decimal("30"))
         self.assertEqual(report.revenue_change_pct, Decimal("-30"))
+        self.assertTrue(report.horizon)
 
     def test_price_down_revenue_up_flags_price_leads_down(self) -> None:
         snaps = self._snapshots_with_changes(price_pct=-25, revenue_pct=40)
@@ -218,6 +223,7 @@ class DiagnoseDivergenceTests(unittest.TestCase):
             annualized_revenue_usd=Decimal("80_000"),
             pf_ratio=Decimal("13.75"),
             pr_ratio=Decimal("13.75"),
+            price_usd=Decimal("11"),
         )
         snaps = [snaps_base[0], mid, snaps_base[1]]
         report = diagnose_divergence(snaps, slug="x", coingecko_id="y", lookback_days=60)
@@ -225,6 +231,64 @@ class DiagnoseDivergenceTests(unittest.TestCase):
         # (mcap=1_200_000, rev=70_000) → price +20%, revenue -30%.
         self.assertEqual(report.price_change_pct, Decimal("20"))
         self.assertEqual(report.revenue_change_pct, Decimal("-30"))
+        self.assertEqual(report.kind, "price-leads-up")
+
+    def test_price_change_uses_token_price_not_market_cap(self) -> None:
+        base = Snapshot(
+            ts=date(2026, 1, 1),
+            market_cap_usd=Decimal("1_000_000"),
+            trailing_fees_usd=Decimal("100_000"),
+            trailing_revenue_usd=Decimal("100_000"),
+            annualized_fees_usd=Decimal("100_000"),
+            annualized_revenue_usd=Decimal("100_000"),
+            pf_ratio=Decimal("10"),
+            pr_ratio=Decimal("10"),
+            price_usd=Decimal("10"),
+        )
+        now = Snapshot(
+            ts=date(2026, 4, 1),
+            market_cap_usd=Decimal("2_000_000"),
+            trailing_fees_usd=Decimal("100_000"),
+            trailing_revenue_usd=Decimal("100_000"),
+            annualized_fees_usd=Decimal("100_000"),
+            annualized_revenue_usd=Decimal("100_000"),
+            pf_ratio=Decimal("20"),
+            pr_ratio=Decimal("20"),
+            price_usd=Decimal("10"),
+        )
+
+        report = diagnose_divergence([base, now], slug="x", coingecko_id="y")
+
+        self.assertEqual(report.price_change_pct, Decimal("0"))
+        self.assertEqual(report.kind, "aligned")
+
+    def test_zero_revenue_does_not_fall_back_to_fees(self) -> None:
+        base = Snapshot(
+            ts=date(2026, 1, 1),
+            market_cap_usd=Decimal("1_000_000"),
+            trailing_fees_usd=Decimal("100_000"),
+            trailing_revenue_usd=Decimal("1"),
+            annualized_fees_usd=Decimal("100_000"),
+            annualized_revenue_usd=Decimal("1"),
+            pf_ratio=Decimal("10"),
+            pr_ratio=Decimal("1000000"),
+            price_usd=Decimal("10"),
+        )
+        now = Snapshot(
+            ts=date(2026, 4, 1),
+            market_cap_usd=Decimal("1_000_000"),
+            trailing_fees_usd=Decimal("200_000"),
+            trailing_revenue_usd=Decimal("0"),
+            annualized_fees_usd=Decimal("200_000"),
+            annualized_revenue_usd=Decimal("0"),
+            pf_ratio=Decimal("5"),
+            pr_ratio=None,
+            price_usd=Decimal("10"),
+        )
+
+        report = diagnose_divergence([base, now], slug="x", coingecko_id="y")
+
+        self.assertEqual(report.revenue_change_pct, Decimal("-100"))
         self.assertEqual(report.kind, "price-leads-up")
 
     def test_rejects_zero_lookback_days(self) -> None:
