@@ -208,16 +208,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Either fix the ingest path so daily snapshots actually land daily, OR document the actual cadence + a query pattern that works.
   - Update the LINK + SUI /research decision files' "Backlog implications" notes to point at the resolved item.
 
-### B-087 — Add Sui-native protocols to the DeFiLlama watchlist
-- **Status:** open
-- **Priority:** medium
-- **Context:** Surfaced by the SUI /research session (2026-05-20, `docs/research/decisions/2026-05-20-sui-position-assessment.md`). When researching Sui, no Sui-native protocols were available in `defillama.protocol_tvl` — only the eight slugs B-081 backfilled (chainlink-*, aave-v3, compound-v3, uniswap-v3, curve-dex, lido, sky-lending) are ingested. That meant the session could see Sui chain TVL ($577M) but couldn't drill into *which* Sui ecosystem protocols were bottoming vs still bleeding, which would materially improve confidence on whether the chain-level TVL flatline is "base forming" or "death rattle." The B-081 infrastructure (per-protocol collector + normalizer) is already generic — this is a one-config change to extend coverage.
-- **Acceptance criteria:**
-  - Add a Sui-native section under `protocols:` in `src/genkei/data/watchlists.yml` covering the top Sui DeFi protocols by TVL. Starting candidates (verify each slug at `https://defillama.com/protocol/<slug>`): **Cetus** (DEX, `cetus`), **Suilend** (Lending, `suilend`), **Navi** (Lending, `navi-protocol`), **Aftermath** (DEX, `aftermath-finance`), **Scallop** (Lending, `scallop-lend`), **Bluefin** (DEX/Derivatives, `bluefin`). Five-to-eight slugs total; mirror the existing entry shape (slug, name, category, coingecko_id when token exists, rationale).
-  - Where the protocol has a tradable governance / fee token also tracked by CoinGecko, populate the `coingecko_id` so the R-062 `revenue-divergence` command lights up the new protocols automatically on the next daily run.
-  - First daily run on the self-hosted runner should land `defillama.protocol_tvl` + `defillama.protocol_fees` rows for the new slugs. Verify via `genkei tvl --protocol cetus` (and the others) returning rows, and `genkei revenue-divergence` listing the new protocols.
-  - Update the SUI /research decision file's "Backlog implications" note to point at the resolved item.
-
 ### B-088 — Sui on-chain validator + staking-flow ingester
 - **Status:** open
 - **Priority:** medium
