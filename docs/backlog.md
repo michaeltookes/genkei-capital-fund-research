@@ -201,12 +201,45 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
 
 ### B-085 — Investigate stablecoin historical-anchor sparsity in defillama.stablecoins
 - **Status:** open
-- **Priority:** low
-- **Context:** Surfaced by the LINK /research session. Querying `defillama.stablecoins` for `ts::date IN (latest, latest-30, latest-90, ...)` returned only today's row — historical anchor dates had no matching rows. Either the collector only snapshots irregularly, the normalizer drops rows, or the schema requires a different query shape (e.g. monthly buckets, not daily). The data is *somewhere* (the chain_tvl table has daily rows for the same date set, so it isn't a date-format issue) but the query pattern that works for chain_tvl returns sparse results here.
+- **Priority:** medium  (bumped from low on 2026-05-20 — second research session in a row blocked by this gap)
+- **Context:** Surfaced first by the LINK /research session, then again by the SUI /research session (2026-05-20). Querying `defillama.stablecoins` for `ts::date IN (latest, latest-30, latest-90, ...)` returns only today's row — historical anchor dates have no matching rows. Either the collector only snapshots irregularly, the normalizer drops rows, or the schema requires a different query shape (e.g. monthly buckets, not daily). The data is *somewhere* (the chain_tvl table has daily rows for the same date set, so it isn't a date-format issue) but the query pattern that works for chain_tvl returns sparse results here. Now blocks "is on-chain dry powder growing or shrinking" — a recurring crypto-research question that every session asks.
 - **Acceptance criteria:**
   - Diagnose the root cause: collector cadence, normalizer drop, or schema mismatch.
   - Either fix the ingest path so daily snapshots actually land daily, OR document the actual cadence + a query pattern that works.
-  - Update the LINK /research decision file's "Backlog implications" note to point at the resolved item.
+  - Update the LINK + SUI /research decision files' "Backlog implications" notes to point at the resolved item.
+
+### B-087 — Add Sui-native protocols to the DeFiLlama watchlist
+- **Status:** open
+- **Priority:** medium
+- **Context:** Surfaced by the SUI /research session (2026-05-20, `docs/research/decisions/2026-05-20-sui-position-assessment.md`). When researching Sui, no Sui-native protocols were available in `defillama.protocol_tvl` — only the eight slugs B-081 backfilled (chainlink-*, aave-v3, compound-v3, uniswap-v3, curve-dex, lido, sky-lending) are ingested. That meant the session could see Sui chain TVL ($577M) but couldn't drill into *which* Sui ecosystem protocols were bottoming vs still bleeding, which would materially improve confidence on whether the chain-level TVL flatline is "base forming" or "death rattle." The B-081 infrastructure (per-protocol collector + normalizer) is already generic — this is a one-config change to extend coverage.
+- **Acceptance criteria:**
+  - Add a Sui-native section under `protocols:` in `src/genkei/data/watchlists.yml` covering the top Sui DeFi protocols by TVL. Starting candidates (verify each slug at `https://defillama.com/protocol/<slug>`): **Cetus** (DEX, `cetus`), **Suilend** (Lending, `suilend`), **Navi** (Lending, `navi-protocol`), **Aftermath** (DEX, `aftermath-finance`), **Scallop** (Lending, `scallop-lend`), **Bluefin** (DEX/Derivatives, `bluefin`). Five-to-eight slugs total; mirror the existing entry shape (slug, name, category, coingecko_id when token exists, rationale).
+  - Where the protocol has a tradable governance / fee token also tracked by CoinGecko, populate the `coingecko_id` so the R-062 `revenue-divergence` command lights up the new protocols automatically on the next daily run.
+  - First daily run on the self-hosted runner should land `defillama.protocol_tvl` + `defillama.protocol_fees` rows for the new slugs. Verify via `genkei tvl --protocol cetus` (and the others) returning rows, and `genkei revenue-divergence` listing the new protocols.
+  - Update the SUI /research decision file's "Backlog implications" note to point at the resolved item.
+
+### B-088 — Sui on-chain validator + staking-flow ingester
+- **Status:** open
+- **Priority:** medium
+- **Context:** Surfaced by the SUI /research session (2026-05-20). Equivalent to the LINK B-082 ingester on Ethereum, but for the Sui consensus stake. The session noted "no Sui-chain validator / staking flow" as the second-biggest data gap on crypto-tactical assets — without it, "are stakers committing more capital or unbonding" is unanswerable, which is exactly the signal that would distinguish a Sui-chain bottom from a death-rattle. Blockvision (`https://docs.blockvision.org/reference/rpc-node-for-sui`) exposes a managed Sui JSON-RPC endpoint that supports the standard `suix_getLatestSuiSystemState`, `suix_getValidatorsApy`, `suix_getCommitteeInfo`, and `suix_getStakes` methods — the natural source for validator + staking data. Mirrors the precedent set by B-082's Etherscan-V2-keyed collector for LINK.
+- **Acceptance criteria:**
+  - Verify Blockvision's free-tier availability + rate limits for the Sui RPC endpoint. Document the key registration flow (likely BLOCKVISION_API_KEY env var pattern, mirroring ETHERSCAN_API_KEY in B-082). If a key is required, follow the D-020 graceful-skip-when-no-key pattern: collector records a successful run with 0 rows + loud warning rather than failing the daily cron.
+  - New schema (`onchain.sui_validators` or extend `onchain.staking_events` with a `chain` discriminator column — pick the cleaner of the two given B-086's pending generalization work). Capture per-epoch validator state (`validator_address`, `voting_power`, `stake_amount`, `commission_rate`, `apy`) and per-epoch staking flow (delta vs prior epoch).
+  - New collector module `src/genkei/ingest/sui_staking.py` following the B-082 shape: `PoolConfig`-style parameterization for future multi-chain reuse, soft per-epoch failure, incremental + `--backfill` modes.
+  - `genkei watchlist health` surfaces the new source with the same loud OK / STALE / FAIL / MISSING / EMPTY semantics as the other sources.
+  - `genkei query` against the new table answers "is total Sui staked SUI growing or shrinking over the last 30 days" without needing custom code.
+  - Update the SUI /research decision file's "Backlog implications" note to point at the resolved item.
+
+### B-089 — SUI token unlock / vesting schedule data source
+- **Status:** open
+- **Priority:** medium
+- **Context:** Surfaced by the SUI /research session (2026-05-20). The session noted "no SUI token unlock schedule — Sui had aggressive vesting at launch (3y+ cliff), continued unlocks are a known headwind not visible in the lake." For tactical-sleeve crypto positions on a months horizon, knowing whether a major unlock is imminent is the single most actionable supply-side data point — base-case bear thesis for any post-2023 alt-L1 is "VC unlocks compress the token." Lake-gap-free analysis isn't possible until this lands. Investigation tier first because the Blockvision indexing API documented endpoints (`docs.blockvision.org/reference/sui-indexing-api`) do *not* list token-vesting / unlock-schedule endpoints — coverage stops at account holdings + coin market data. Likely sources: (a) on-chain analysis of known vesting contracts via the Sui RPC + Blockvision's Account Activity endpoint, (b) CryptoRank / TokenUnlocks-style external APIs (may be paid), (c) Sui Foundation's published tokenomics schedule (static, but parseable into a per-month unlock schedule).
+- **Acceptance criteria:**
+  - Survey of available sources (free + paid + on-chain) for SUI vesting / unlock data. First deliverable: a one-page comparison in `docs/sources/sui-unlocks.md` covering coverage (cliff dates, monthly amounts, recipient categorization), staleness, and cost.
+  - If a free / cheap source emerges: new schema (`onchain.sui_unlocks` or similar — `unlock_date`, `unlock_amount_sui`, `category` (team / investor / community / etc.), `cumulative_pct_supply`) + collector + normalizer following the standard `meta.ingest_runs` + `meta.raw_blobs` pattern.
+  - If only paid sources exist: B-089 stays open at low priority; add the survey doc to the repo so the next time the paid-data question opens, this is in the queue (mirrors the precedent set by B-084 for oracle market share).
+  - `genkei query` against the new table answers "how much SUI unlocks in the next 30 / 60 / 90 days, and what % of circulating supply does that represent." That number directly informs position sizing in the crypto-tactical sleeve.
+  - Update the SUI /research decision file's "Backlog implications" note to point at the resolved item.
 
 ### B-086 — Map the full Chainlink staking surface (cross-source reconciliation)
 - **Status:** open
@@ -340,13 +373,6 @@ First-class — the *point* of having the data lake.
 - **Acceptance criteria:**
   - Notebook surfaces top crowded names per quarter.
 
-### B-062 — Experiment: crypto protocol revenue vs token price
-- **Status:** open
-- **Priority:** medium
-- **Context:** DeFiLlama + CoinGecko — fundamental link between revenue and price.
-- **Acceptance criteria:**
-  - Notebook + per-protocol results.
-
 ### B-063 — Experiment template + cookiecutter
 - **Status:** open
 - **Priority:** low
@@ -392,6 +418,17 @@ Once cross-source data is in, the system starts producing investable signals.
 - **Acceptance criteria:**
   - Materialized views per source for common windows.
   - Refresh cadence documented.
+
+### B-090 — Crypto peer relative-strength view + CLI surface
+- **Status:** open
+- **Priority:** medium
+- **Context:** Surfaced by the SUI /research session (2026-05-20). Computing SUI's underperformance vs SOL ("SUI is -22pp worse on price and -37pp worse on TVL over 1y") was the single most decisive signal in the bear thesis — but it was a manual `genkei query` that joined `coingecko.market_data` against itself across two assets at four anchor dates. Every future crypto-tactical research session is going to want this same comparison (PYTH vs LINK, RENDER vs SOL, etc.). Belongs in Phase 6 alongside B-067 because it's a derived metric that every signal pipeline should be able to read, not recompute. Pairs naturally with the R-062 `revenue-divergence` work — divergence catches "price vs fundamentals," relative-strength catches "asset vs peer."
+- **Acceptance criteria:**
+  - New Postgres view (or materialized view) — `analytics.crypto_relative_strength` or similar — that for every (asset, peer, window) tuple emits the asset's return minus the peer's return over that window. Default windows: 7d / 30d / 90d / 180d / 365d. Default peer pairs derive from the crypto watchlist (every primary-tier crypto vs BTC + ETH + SOL as the natural benchmarks).
+  - New CLI subcommand `genkei relative-strength` (single-action command, mirrors `genkei revenue-divergence`'s shape) that surfaces the view with `--ticker X`, `--peer Y`, `--window 30d` options + the standard `--since` / `--until` / `--json` / `--limit` flags. Default mode (no flags) shows the most-recent snapshot for every watchlist crypto vs BTC sorted by 30d relative strength.
+  - Pure-function `compute_relative_strength(price_series_a, price_series_b, *, windows)` in `src/genkei/experiments/relative_strength.py` so the math is unit-testable on synthetic series (mirrors R-062's `experiments/protocol_revenue.py` separation between pure functions and lake helpers).
+  - `genkei watchlist health` surfaces the new derived table with the same OK / STALE / EMPTY semantics.
+  - Update the SUI /research decision file's "Backlog implications" note to point at the resolved item.
 
 ### B-068 — Threshold-based alert engine
 - **Status:** open
