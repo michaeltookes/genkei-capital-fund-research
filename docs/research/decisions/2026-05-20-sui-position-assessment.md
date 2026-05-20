@@ -5,7 +5,7 @@ sleeve: crypto-tactical
 horizon: months
 confidence: medium
 status: pending
-trigger_reassessment: "SUI outperforms SOL by 15pp over 3 months OR Sui chain TVL recovers above $800M OR SUIG insider open-market buy cluster ≥2 reporters at sub-$2 OR Sui chain TVL breaks below $500M"
+trigger_reassessment: "SUI lags SOL by another 15-25pp over 3 months OR Sui chain TVL breaks below $500M OR Sui chain TVL recovers above $800M OR SUIG insider open-market buy cluster ≥2 reporters at sub-$2 within 6 months"
 related:
   - decision: 2026-05-17-link-position-assessment
   - data: coingecko.market_data
@@ -106,7 +106,7 @@ Macro pulled today (`genkei macro --series ...`); FRED collector failed in the l
 2. **Price and TVL collapsed together — no setup for snap-back.** B-062's `revenue-divergence` framework would call this "aligned" (both down materially). The price isn't overshooting fundamentals; it's *tracking* them. A capitulation snap-back typically requires price to have overshot the underlying business; SUI's hasn't.
 3. **NO SUIG insider buying at the lows.** The single best flow signal available on the equity side of a Sui thesis is absent. Insiders took grants but did not write checks. If the people closest to Sui aren't stepping in at $1.05 (down from $3.86), why should we?
 4. **Stablecoin 1:1 ratio = weak DeFi demand, not dry powder.** Reframed: $590M of stables sitting idle for 6+ months with chain TVL stable suggests no one wants to deploy capital into Sui DeFi at any yield. That's not waiting-for-catalyst dry powder; that's structurally weak demand.
-5. **Volume halving — interest waning.** Daily volume ran $1.4B in May 2025 and is now $400-500M (~3x decline). Declining volume on a declining asset is the standard "no one cares anymore" pattern, which is how alt-L1s fade from primary to legacy.
+5. **Volume down ~65-70% — interest waning.** Daily volume ran $1.4B in May 2025 and is now $400-500M (~64-71% decline, roughly a 3x drop). Declining volume on a declining asset is the standard "no one cares anymore" pattern, which is how alt-L1s fade from primary to legacy.
 6. **3-month flat TVL is more "death rattle" than "base formation."** Healthy bottoming patterns on alt-L1s typically show TVL stabilizing while *something* else inflects (developer activity ticking up, a flagship protocol launch, mainnet upgrade). SUI 3m: nothing else is inflecting. Flatline-without-catalyst is a way-station, not a bottom.
 7. **Tactical sleeve discipline = turnover-eligible.** Per `CLAUDE.md`, "the `tactical` sleeve... signals can argue for trimming/adding." The point of having SUI in tactical (vs core) is precisely so we *can* trim when the signal is this bad.
 
@@ -138,13 +138,12 @@ Macro pulled today (`genkei macro --series ...`); FRED collector failed in the l
 
 **Key risks (counter-thesis distilled):**
 
-1. **SUI continues to lag SOL by another 15-25pp** → would confirm idiosyncratic decline isn't done; trigger trim to zero.
-2. **Sui chain TVL breaks below $500M** → would mean the 3-month flat-line was a way-station, not a base; trigger trim to zero.
-3. **No SUIG insider buy cluster materializes at sub-$2** → if 6 more months pass without insiders stepping in, the "wait for capitulation insiders" thesis is dead.
-4. **SUI outperforms SOL by 15pp over 3 months** → would invalidate the bear thesis on relative strength; trigger re-add back to full tactical weight.
-5. **Sui chain TVL recovers above $800M** → DeFi capital re-deploying; trigger re-add.
+1. **SUI lags SOL by another 15-25pp over 3 months** → confirm idiosyncratic decline isn't done; trigger trim to zero.
+2. **Sui chain TVL breaks below $500M** → the 3-month flat-line was a way-station, not a base; trigger trim to zero.
+3. **Sui chain TVL recovers above $800M** → DeFi capital re-deploying; trigger re-add.
+4. **SUIG insider open-market buy cluster ≥2 reporters at sub-$2 within 6 months** → insiders stepping in at the lows; trigger re-add.
 
-**Trigger conditions for reassessment** (see frontmatter): any of (a) SUI outperforms SOL by 15pp over 3 months [bullish re-add], (b) Sui chain TVL recovers above $800M [bullish re-add], (c) SUIG insider open-market buy cluster ≥2 reporters at sub-$2 [bullish re-add], (d) Sui chain TVL breaks below $500M [bearish trim to zero].
+**Trigger conditions for reassessment** (see frontmatter): any of (a) SUI lags SOL by another 15-25pp over 3 months [bearish trim to zero], (b) Sui chain TVL breaks below $500M [bearish trim to zero], (c) Sui chain TVL recovers above $800M [bullish re-add], (d) SUIG insider open-market buy cluster ≥2 reporters at sub-$2 within 6 months [bullish re-add].
 
 **Meta-takeaway (for `/reflect-decisions` in ~6 months):** This is the first decision using the B-062 framework (price-vs-fundamentals divergence), even though SUI presented as "aligned" rather than divergent. The discipline of confirming alignment (rather than assuming a snap-back is coming) is what flipped this from "buy the dip" to "trim the lag." If SUI rebounds materially over the next 6 months despite this call, the lesson is: in crypto-tactical, capitulation depth alone is sometimes enough to override flow-signal absence. If SUI continues to lag or breaks $500M TVL, the lesson is: cross-source bear signals (peer + insider + stablecoin + volume + TVL) compound — when 5 of them point the same way, lean into the call rather than hedge it.
 
