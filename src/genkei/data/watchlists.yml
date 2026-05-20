@@ -371,36 +371,43 @@ protocols:
     - slug: chainlink-staking
       name: Chainlink Staking
       category: Oracle
+      coingecko_id: chainlink
       rationale: LINK v0.2 staking pool TVL; on-chain staker commitment signal (companion to B-082).
     - slug: chainlink-requests
       name: Chainlink Requests
       category: Oracle
+      coingecko_id: chainlink
       rationale: Oracle service demand via DefiLlama fees — `/protocol/` has empty TVL but `/summary/fees/` carries the actual signal (B-083).
 
     # Lending — the original DeFi primitive; sector-health bellwether.
     - slug: aave-v3
       name: Aave V3
       category: Lending
+      coingecko_id: aave
       rationale: Largest lending market on Ethereum; DeFi sector pulse.
     - slug: compound-v3
       name: Compound V3
       category: Lending
+      coingecko_id: compound-governance-token
       rationale: Lending-market diversification beyond Aave.
 
     # DEX — DEX volume + TVL is the most direct activity signal for DeFi.
     - slug: uniswap-v3
       name: Uniswap V3
       category: DEX
+      coingecko_id: uniswap
       rationale: Largest DEX by TVL; cross-chain activity benchmark.
     - slug: curve-dex
       name: Curve DEX
       category: DEX
+      coingecko_id: curve-dao-token
       rationale: Stablecoin-pair DEX; stable-asset flow indicator.
 
     # Liquid staking — captures ETH-staking demand as an asset class.
     - slug: lido
       name: Lido
       category: Liquid Staking
+      coingecko_id: lido-dao
       rationale: Dominant ETH liquid-staking protocol; stETH supply tracks ETH-staking demand.
 
     # Stablecoin issuer — MakerDAO rebranded to Sky in 2024 and DefiLlama
@@ -410,4 +417,5 @@ protocols:
     - slug: sky-lending
       name: Sky Lending (formerly MakerDAO)
       category: CDP / Stablecoin Issuer
+      coingecko_id: sky
       rationale: DAI/USDS supply trajectory; decentralized-stablecoin demand proxy.
