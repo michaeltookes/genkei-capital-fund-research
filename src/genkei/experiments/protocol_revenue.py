@@ -256,16 +256,12 @@ def diagnose_divergence(
         )
 
     price_change = _pct_change(lookback.price_usd, now.price_usd)
-    lookback_revenue = (
-        lookback.annualized_revenue_usd
-        if lookback.annualized_revenue_usd is not None
-        else lookback.annualized_fees_usd
-    )
-    now_revenue = (
-        now.annualized_revenue_usd
-        if now.annualized_revenue_usd is not None
-        else now.annualized_fees_usd
-    )
+    if lookback.annualized_revenue_usd is not None and now.annualized_revenue_usd is not None:
+        lookback_revenue = lookback.annualized_revenue_usd
+        now_revenue = now.annualized_revenue_usd
+    else:
+        lookback_revenue = lookback.annualized_fees_usd
+        now_revenue = now.annualized_fees_usd
     revenue_change = _pct_change(
         lookback_revenue,
         now_revenue,

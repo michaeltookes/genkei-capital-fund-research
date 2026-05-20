@@ -293,6 +293,35 @@ class DiagnoseDivergenceTests(unittest.TestCase):
         self.assertEqual(report.revenue_change_pct, Decimal("-100"))
         self.assertEqual(report.kind, "price-leads-up")
 
+    def test_mixed_revenue_availability_uses_fees_on_both_sides(self) -> None:
+        base = Snapshot(
+            ts=date(2026, 1, 1),
+            market_cap_usd=Decimal("1_000_000"),
+            trailing_fees_usd=Decimal("100_000"),
+            trailing_revenue_usd=Decimal("10_000"),
+            annualized_fees_usd=Decimal("100_000"),
+            annualized_revenue_usd=Decimal("10_000"),
+            pf_ratio=Decimal("10"),
+            pr_ratio=Decimal("100"),
+            price_usd=Decimal("10"),
+        )
+        now = Snapshot(
+            ts=date(2026, 4, 1),
+            market_cap_usd=Decimal("1_000_000"),
+            trailing_fees_usd=Decimal("100_000"),
+            trailing_revenue_usd=None,
+            annualized_fees_usd=Decimal("100_000"),
+            annualized_revenue_usd=None,
+            pf_ratio=Decimal("10"),
+            pr_ratio=None,
+            price_usd=Decimal("10"),
+        )
+
+        report = diagnose_divergence([base, now], slug="x", coingecko_id="y")
+
+        self.assertEqual(report.revenue_change_pct, Decimal("0"))
+        self.assertEqual(report.kind, "aligned")
+
     def test_rejects_zero_lookback_days(self) -> None:
         with self.assertRaises(ValueError):
             diagnose_divergence([], slug="x", coingecko_id="y", lookback_days=0)
