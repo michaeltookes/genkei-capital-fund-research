@@ -149,7 +149,7 @@ Macro pulled today (`genkei macro --series ...`); FRED collector failed in the l
 
 **Backlog implications surfaced by this session** (separate from the decision itself):
 
-1. ~~Sui-native protocols (Cetus, Suilend, Navi, Aftermath) not in `defillama.protocol_tvl` watchlist~~ → **resolved by B-087** (2026-05-20): seven slugs added to the watchlist — navi-lending, suilend, cetus-clmm, scallop-lend, bluefin-spot, bluefin-pro, deepbook-v3. Six carry `coingecko_id` mappings so `revenue-divergence` activates on the next daily run.
+1. ~~Sui-native protocols (Cetus, Suilend, Navi, Aftermath) not in `defillama.protocol_tvl` watchlist~~ → **resolved by B-087** (2026-05-20): seven slugs added to the watchlist — navi-lending, suilend, cetus-clmm, scallop-lend, bluefin-spot, bluefin-pro, deepbook-v3. They carry six unique `coingecko_id` values, but `revenue-divergence` activation is still gated by B-091 wiring protocol-token IDs into CoinGecko ingestion.
 2. SUI token unlock schedule — no source in the lake. **Filed as B-089** (2026-05-20). Token-unlock-aware analysis would materially improve confidence on whether continued dilution is a known headwind or a surprise risk.
 3. Validator / on-chain staking flow for Sui (Move-VM equivalent of the LINK B-082 ingester). **Filed as B-088** (2026-05-20). Same gap as crypto-core, applies to crypto-tactical too.
 4. `defillama.stablecoins` historical sparsity — **B-085** (priority bumped low → medium on 2026-05-20 since this is the second session in a row blocked by it).

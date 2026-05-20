@@ -461,5 +461,5 @@ protocols:
     - slug: deepbook-v3
       name: DeepBook V3
       category: DEX
-      coingecko_id: deep
+      coingecko_id: deepbook
       rationale: Sui Foundation's native on-chain orderbook DEX. Lower TVL than AMMs ($17M) but represents core Sui infrastructure; DEEP token is the canonical Sui-native fee asset.
