@@ -209,6 +209,7 @@ class DiagnoseDivergenceTests(unittest.TestCase):
     def test_empty_snapshots_returns_insufficient_data(self) -> None:
         report = diagnose_divergence([], slug="x", coingecko_id="y", lookback_days=90)
         self.assertEqual(report.kind, "insufficient-data")
+        self.assertEqual(report.horizon, "crypto:core")
         self.assertIsNone(report.pf_ratio_now)
 
     def test_uses_oldest_qualifying_snapshot_as_baseline(self) -> None:

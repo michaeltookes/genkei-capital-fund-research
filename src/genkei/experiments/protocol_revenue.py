@@ -198,7 +198,7 @@ def diagnose_divergence(
     *,
     slug: str,
     coingecko_id: str,
-    horizon: str = "crypto:protocol",
+    horizon: str = "crypto:core",
     window_days: int = DEFAULT_WINDOW_DAYS,
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
     significance_pct: Decimal = DEFAULT_SIGNIFICANCE_PCT,
@@ -208,8 +208,9 @@ def diagnose_divergence(
     The "now" snapshot is the last in the list (assumed time-ordered).
     The "lookback" snapshot is the latest snapshot whose ``ts`` is on
     or before ``now.ts - lookback_days``. Returns a report with the
-    percentage change in market cap and annualized revenue across that
-    span, and a divergence kind.
+    percentage change in token price (``price_usd``), annualized
+    revenue across that span, and a divergence kind. Market cap remains
+    available for P/F and P/R ratios, but not ``price_change_pct``.
     """
     if lookback_days < 1:
         raise ValueError("lookback_days must be >= 1")
