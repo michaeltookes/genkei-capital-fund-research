@@ -262,11 +262,12 @@ class ExpectationsRegistryTests(unittest.TestCase):
 
     def test_all_known_sources_have_primary_tables(self) -> None:
         # The registry grows as new ingesters land (B-082 added
-        # onchain_staking). Pin the current shape so an accidental
-        # rename / drop is caught.
+        # onchain_staking; B-090 added analytics for the
+        # crypto_relative_strength view). Pin the current shape so
+        # an accidental rename / drop is caught.
         self.assertEqual(
             set(PRIMARY_TABLES),
-            {"defillama", "fred", "sec", "coingecko", "onchain_staking"},
+            {"defillama", "fred", "sec", "coingecko", "onchain_staking", "analytics"},
         )
 
     def test_every_source_expects_at_least_a_collect_endpoint(self) -> None:
