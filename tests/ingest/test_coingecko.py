@@ -99,19 +99,113 @@ class LoadCoinsTests(unittest.TestCase):
             coins = load_coins(path)
         self.assertEqual([c.symbol for c in coins], ["BTC"])
 
-    def test_rejects_when_no_crypto_has_coingecko_id(self) -> None:
+    def test_rejects_when_no_crypto_or_protocol_has_coingecko_id(self) -> None:
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "watchlists.yml"
             path.write_text(
                 "crypto:\n  primary:\n    - symbol: NOID\n      name: x\n",
                 encoding="utf-8",
             )
-            with self.assertRaisesRegex(SystemExit, "No crypto entries with coingecko_id"):
+            with self.assertRaisesRegex(SystemExit, "No watchlist entries with a coingecko_id"):
                 load_coins(path)
 
     def test_rejects_missing_file(self) -> None:
         with self.assertRaisesRegex(SystemExit, "Watchlist file not found"):
             load_coins(Path("/no/such/path.yml"))
+
+    # ---- B-091: union with protocols: section ----
+
+    def test_includes_coingecko_ids_from_protocols_section(self) -> None:
+        # A protocol entry with coingecko_id is fetched alongside crypto entries.
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(
+                "crypto:\n"
+                "  primary:\n"
+                "    - symbol: BTC\n"
+                "      name: Bitcoin\n"
+                "      coingecko_id: bitcoin\n"
+                "protocols:\n"
+                "  primary:\n"
+                "    - slug: aave-v3\n"
+                "      name: Aave V3\n"
+                "      category: Lending\n"
+                "      coingecko_id: aave\n",
+                encoding="utf-8",
+            )
+            coins = load_coins(path)
+        ids = [c.coingecko_id for c in coins]
+        self.assertEqual(ids, ["bitcoin", "aave"])  # crypto first, then protocols
+        # Protocol-derived coin carries the protocol name; symbol is empty.
+        aave = next(c for c in coins if c.coingecko_id == "aave")
+        self.assertEqual(aave.symbol, "")
+        self.assertEqual(aave.name, "Aave V3")
+
+    def test_dedupes_coingecko_id_across_crypto_and_protocols(self) -> None:
+        # chainlink appears in both crypto-core and as the token for two
+        # chainlink-* protocols — must be fetched exactly once.
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(
+                "crypto:\n"
+                "  primary:\n"
+                "    - symbol: LINK\n"
+                "      name: Chainlink\n"
+                "      coingecko_id: chainlink\n"
+                "protocols:\n"
+                "  primary:\n"
+                "    - slug: chainlink-staking\n"
+                "      name: Chainlink Staking\n"
+                "      category: Oracle\n"
+                "      coingecko_id: chainlink\n"
+                "    - slug: chainlink-requests\n"
+                "      name: Chainlink Requests\n"
+                "      category: Oracle\n"
+                "      coingecko_id: chainlink\n",
+                encoding="utf-8",
+            )
+            coins = load_coins(path)
+        self.assertEqual(len(coins), 1)
+        # Crypto-side entry wins (preserves the symbol + name from crypto:).
+        self.assertEqual(coins[0].symbol, "LINK")
+        self.assertEqual(coins[0].name, "Chainlink")
+
+    def test_protocols_without_coingecko_id_are_skipped(self) -> None:
+        # Aftermath has no token in the watchlist; should not produce a coin.
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(
+                "crypto:\n"
+                "  primary:\n"
+                "    - symbol: BTC\n"
+                "      name: Bitcoin\n"
+                "      coingecko_id: bitcoin\n"
+                "protocols:\n"
+                "  primary:\n"
+                "    - slug: aftermath-amm\n"
+                "      name: Aftermath AMM\n"
+                "      category: DEX\n",
+                encoding="utf-8",
+            )
+            coins = load_coins(path)
+        self.assertEqual([c.coingecko_id for c in coins], ["bitcoin"])
+
+    def test_protocols_only_watchlist_still_produces_coins(self) -> None:
+        # If a watchlist somehow has no crypto: section but populated
+        # protocols, the union still yields a usable coin list.
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(
+                "protocols:\n"
+                "  primary:\n"
+                "    - slug: aave-v3\n"
+                "      name: Aave V3\n"
+                "      category: Lending\n"
+                "      coingecko_id: aave\n",
+                encoding="utf-8",
+            )
+            coins = load_coins(path)
+        self.assertEqual([c.coingecko_id for c in coins], ["aave"])
 
 
 class UrlBuilderTests(unittest.TestCase):

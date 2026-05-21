@@ -41,9 +41,8 @@ import httpx
 
 from genkei.common import db
 from genkei.common.http import HttpClient, RateLimit
-from genkei.common.watchlist import load_watchlist
+from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist
 
-DEFAULT_WATCHLIST_PATH = Path("config/watchlists.yml")
 SOURCE_NAME = "sec"
 COLLECT_ENDPOINT_LABEL = "collect"
 SUBMISSIONS_BASE = "https://data.sec.gov/submissions"
