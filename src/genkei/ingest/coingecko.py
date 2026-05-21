@@ -84,11 +84,21 @@ class CoinTarget:
 
 
 def load_coins(path: Path) -> list[CoinTarget]:
-    """Read ``crypto:`` from watchlists.yml as ``CoinTarget``s.
+    """Read ``crypto:`` + ``protocols:`` from watchlists.yml as ``CoinTarget``s.
 
-    Walks both primary and secondary tiers via the shared loader. Skips
-    duplicates so multi-symbol listings sharing one coingecko_id only
-    fetch once.
+    Returns the union of every ``coingecko_id`` found in the ``crypto:``
+    section and the ``protocols:`` section, deduped (a token referenced
+    from both — e.g. ``chainlink`` as a crypto-core asset *and* under
+    the chainlink-* protocol entries — is fetched once). Crypto entries
+    are emitted first to preserve the legacy ordering; protocol entries
+    follow.
+
+    Protocols don't carry a token ``symbol`` in the watchlist (the
+    section is keyed on the protocol's DefiLlama slug, not its token),
+    so the resulting ``CoinTarget.symbol`` is empty for protocol-derived
+    coins. ``symbol`` is only used for log readability — the
+    authoritative symbol + name land in ``coingecko.coins`` from the
+    CoinGecko API response itself (B-091).
     """
     try:
         watchlist = load_watchlist(path)
@@ -106,8 +116,17 @@ def load_coins(path: Path) -> list[CoinTarget]:
         out.append(
             CoinTarget(coingecko_id=entry.coingecko_id, symbol=entry.symbol, name=entry.name)
         )
+    for protocol in watchlist.protocols:
+        if not protocol.coingecko_id or protocol.coingecko_id in seen_ids:
+            continue
+        seen_ids.add(protocol.coingecko_id)
+        out.append(
+            CoinTarget(coingecko_id=protocol.coingecko_id, symbol="", name=protocol.name)
+        )
     if not out:
-        raise SystemExit("No crypto entries with coingecko_id found in the watchlist.")
+        raise SystemExit(
+            "No watchlist entries with a coingecko_id found in crypto: or protocols:."
+        )
     return out
 
 
