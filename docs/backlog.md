@@ -208,16 +208,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Either fix the ingest path so daily snapshots actually land daily, OR document the actual cadence + a query pattern that works.
   - Update the LINK + SUI /research decision files' "Backlog implications" notes to point at the resolved item.
 
-### B-087 — Add Sui-native protocols to the DeFiLlama watchlist
-- **Status:** open
-- **Priority:** medium
-- **Context:** Surfaced by the SUI /research session (2026-05-20, `docs/research/decisions/2026-05-20-sui-position-assessment.md`). When researching Sui, no Sui-native protocols were available in `defillama.protocol_tvl` — only the eight slugs B-081 backfilled (chainlink-*, aave-v3, compound-v3, uniswap-v3, curve-dex, lido, sky-lending) are ingested. That meant the session could see Sui chain TVL ($577M) but couldn't drill into *which* Sui ecosystem protocols were bottoming vs still bleeding, which would materially improve confidence on whether the chain-level TVL flatline is "base forming" or "death rattle." The B-081 infrastructure (per-protocol collector + normalizer) is already generic — this is a one-config change to extend coverage.
-- **Acceptance criteria:**
-  - Add a Sui-native section under `protocols:` in `src/genkei/data/watchlists.yml` covering the top Sui DeFi protocols by TVL. Starting candidates (verify each slug at `https://defillama.com/protocol/<slug>`): **Cetus** (DEX, `cetus`), **Suilend** (Lending, `suilend`), **Navi** (Lending, `navi-protocol`), **Aftermath** (DEX, `aftermath-finance`), **Scallop** (Lending, `scallop-lend`), **Bluefin** (DEX/Derivatives, `bluefin`). Five-to-eight slugs total; mirror the existing entry shape (slug, name, category, coingecko_id when token exists, rationale).
-  - Where the protocol has a tradable governance / fee token also tracked by CoinGecko, populate the `coingecko_id` so the R-062 `revenue-divergence` command lights up the new protocols automatically on the next daily run.
-  - First daily run on the self-hosted runner should land `defillama.protocol_tvl` + `defillama.protocol_fees` rows for the new slugs. Verify via `genkei tvl --protocol cetus` (and the others) returning rows, and `genkei revenue-divergence` listing the new protocols.
-  - Update the SUI /research decision file's "Backlog implications" note to point at the resolved item.
-
 ### B-088 — Sui on-chain validator + staking-flow ingester
 - **Status:** open
 - **Priority:** medium
@@ -251,6 +241,18 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Run the historical backfill against the new pools — the schema's `(tx_hash, log_index, block_timestamp)` PK keeps re-runs idempotent so the v0.2 pool's existing 18,827 events don't duplicate.
   - Verify: compute net staked LINK per pool (`staked` minus `unstaked`), sum across all `chainlink-*` pools, multiply by the latest LINK price, and compare that value to DefiLlama's `chainlink-staking` TVL. The result should land within ~10%; if the gap stays large after pool-mapping, document why (DefiLlama including delegated-but-not-pool LINK, accounting differences, etc.).
   - Update the cap-and-intent interpretation note in `onchain_staking.py`'s module docstring to reflect the full-surface picture (current text only covers the v0.2 community pool).
+
+### B-091 — Wire protocol-token coingecko_ids into the CoinGecko ingest path
+- **Status:** open
+- **Priority:** medium
+- **Context:** Surfaced by B-087's live smoke (2026-05-20). With B-087 landed, 15 watchlist protocol entries carry a `coingecko_id` (aave-v3, compound-v3, uniswap-v3, curve-dex, lido, sky-lending, chainlink-staking, chainlink-requests, navi-lending, suilend, cetus-clmm, scallop-lend, bluefin-spot, bluefin-pro, deepbook-v3). Only chainlink-staking + chainlink-requests show real divergence signal in `genkei revenue-divergence` — the other 13 protocol entries return `insufficient-data` because their tokens (12 unique token IDs: AAVE / COMP / UNI / CRV / LDO / SKY / NAVX / SEND / CETUS / SCA / BLUE / DEEP) aren't in the `crypto:` watchlist, so the CoinGecko ingester never fetches them. **The B-062 acceptance criterion's "lights up on next daily run" assumes a wiring that doesn't exist yet.** Two reasonable shapes for the fix: (a) extend `genkei.ingest.coingecko.load_coins()` to also iterate every unique `coingecko_id` under the watchlist's `protocols:` section — pure data-flow change, no investment intent implied; (b) add a `crypto.data-only` tier to the watchlist for tokens we track for protocol-revenue analysis but don't trade. (a) is simpler and matches the "data observability decoupled from investment intent" pattern; (b) is more explicit but doubles the watchlist's surface area.
+- **Acceptance criteria:**
+  - Pick (a) vs (b) — recommendation in this acceptance text is **(a)**: extend the CoinGecko collector to read `coingecko_id` values from the `protocols:` section in addition to `crypto:`. Unique union, dedup. Document the choice in `docs/sources/coingecko.md` (or extend the existing CoinGecko ingester docstring).
+  - After the next daily CoinGecko run, `coingecko.market_data` has rows for all 12 currently-missing tokens.
+  - `genkei revenue-divergence` returns `price-leads-up` / `price-leads-down` / `aligned` classifications (not `insufficient-data`) for the 12 protocols that had been silent. Sanity-check that the headline numbers look reasonable (P/F ratios in a finite range, not absurd 1e15 outputs from price-data corruption).
+  - Watchlist health surfaces the data-only tokens correctly — no false STALE / EMPTY tags from the tier distinction.
+  - Tests cover the union-loading path: `load_coins` returns the union of `crypto:` + unique-`coingecko_id`s-from-`protocols:`, with duplicates collapsed (chainlink appears in both crypto-core and protocols → fetched once).
+  - Note: not a *blocker* for B-087 itself — B-087 satisfied the literal acceptance ("populate the coingecko_id"). This item closes the gap between "populated" and "actually flowing data."
 
 ## Phase 3 — Custom CLI
 

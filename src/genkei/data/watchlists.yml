@@ -419,3 +419,47 @@ protocols:
       category: CDP / Stablecoin Issuer
       coingecko_id: sky
       rationale: DAI/USDS supply trajectory; decentralized-stablecoin demand proxy.
+
+    # Sui ecosystem (B-087) — pairs with the SUI crypto-tactical
+    # watchlist entry. The 2026-05-20 SUI /research session could see
+    # Sui chain TVL ($577M) but couldn't drill into which Sui-native
+    # protocols were bottoming vs still bleeding; this section closes
+    # that gap. Slugs verified live against `defillama.protocols`
+    # (raw blob `gecko_id` was NULL across the board, so coingecko_id
+    # values below come from CoinGecko's /search endpoint — symbol +
+    # name cross-checked). Ordered by TVL at landing time.
+    - slug: navi-lending
+      name: NAVI Lending
+      category: Lending
+      coingecko_id: navi
+      rationale: Largest Sui lending market by TVL (~$160M). NAVX governance token captures protocol revenue; closest Sui analog to aave-v3 on Ethereum.
+    - slug: suilend
+      name: Suilend
+      category: Lending
+      coingecko_id: suilend
+      rationale: Second-largest Sui lending market (~$155M). Solend team's Sui pivot; SEND token launched 2024.
+    - slug: cetus-clmm
+      name: Cetus CLMM
+      category: DEX
+      coingecko_id: cetus-protocol
+      rationale: Primary Sui DEX (concentrated liquidity, Uniswap-v3-style). CETUS token captures fee share.
+    - slug: scallop-lend
+      name: Scallop Lend
+      category: Lending
+      coingecko_id: scallop-2
+      rationale: Third-leg Sui lending diversification (~$22M TVL). SCA token; CoinGecko id is `scallop-2` because of a name collision (the original `scallop` id was taken).
+    - slug: bluefin-spot
+      name: Bluefin Spot
+      category: DEX
+      coingecko_id: bluefin
+      rationale: Sui spot DEX; pairs with bluefin-pro for derivatives volume cross-check. BLUE token shared across spot + perps.
+    - slug: bluefin-pro
+      name: Bluefin Pro
+      category: Derivatives
+      coingecko_id: bluefin
+      rationale: Sui on-chain perps. Same BLUE token as bluefin-spot; separate TVL stream tracks derivatives demand specifically.
+    - slug: deepbook-v3
+      name: DeepBook V3
+      category: DEX
+      coingecko_id: deepbook
+      rationale: Sui Foundation's native on-chain orderbook DEX. Lower TVL than AMMs ($17M) but represents core Sui infrastructure; DEEP token is the canonical Sui-native fee asset.
