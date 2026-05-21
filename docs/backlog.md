@@ -199,15 +199,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - If a free source emerges or a paid budget opens: schema + collector for cross-oracle TVS share over time, by protocol category (price feeds, randomness, CCIP-style cross-chain).
   - Pair with B-081 once both exist — would let `genkei query` join LINK's TVS share against competitors' over the same time series.
 
-### B-085 — Investigate stablecoin historical-anchor sparsity in defillama.stablecoins
-- **Status:** open
-- **Priority:** medium  (bumped from low on 2026-05-20 — second research session in a row blocked by this gap)
-- **Context:** Surfaced first by the LINK /research session, then again by the SUI /research session (2026-05-20). Querying `defillama.stablecoins` for `ts::date IN (latest, latest-30, latest-90, ...)` returns only today's row — historical anchor dates have no matching rows. Either the collector only snapshots irregularly, the normalizer drops rows, or the schema requires a different query shape (e.g. monthly buckets, not daily). The data is *somewhere* (the chain_tvl table has daily rows for the same date set, so it isn't a date-format issue) but the query pattern that works for chain_tvl returns sparse results here. Now blocks "is on-chain dry powder growing or shrinking" — a recurring crypto-research question that every session asks.
-- **Acceptance criteria:**
-  - Diagnose the root cause: collector cadence, normalizer drop, or schema mismatch.
-  - Either fix the ingest path so daily snapshots actually land daily, OR document the actual cadence + a query pattern that works.
-  - Update the LINK + SUI /research decision files' "Backlog implications" notes to point at the resolved item.
-
 ### B-088 — Sui on-chain validator + staking-flow ingester
 - **Status:** open
 - **Priority:** medium
