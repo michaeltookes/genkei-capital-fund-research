@@ -42,6 +42,7 @@ import httpx
 from genkei.common import db
 from genkei.common.http import HttpClient, RateLimit
 from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist
+
 SOURCE_NAME = "fred"
 COLLECT_ENDPOINT_LABEL = "collect"
 FRED_BASE_URL = "https://api.stlouisfed.org/fred"
