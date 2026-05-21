@@ -409,17 +409,6 @@ Once cross-source data is in, the system starts producing investable signals.
   - Materialized views per source for common windows.
   - Refresh cadence documented.
 
-### B-090 — Crypto peer relative-strength view + CLI surface
-- **Status:** open
-- **Priority:** medium
-- **Context:** Surfaced by the SUI /research session (2026-05-20). Computing SUI's underperformance vs SOL ("SUI is -22pp worse on price and -37pp worse on TVL over 1y") was the single most decisive signal in the bear thesis — but it was a manual `genkei query` that joined `coingecko.market_data` against itself across two assets at four anchor dates. Every future crypto-tactical research session is going to want this same comparison (PYTH vs LINK, RENDER vs SOL, etc.). Belongs in Phase 6 alongside B-067 because it's a derived metric that every signal pipeline should be able to read, not recompute. Pairs naturally with the R-062 `revenue-divergence` work — divergence catches "price vs fundamentals," relative-strength catches "asset vs peer."
-- **Acceptance criteria:**
-  - New Postgres view (or materialized view) — `analytics.crypto_relative_strength` or similar — that for every (asset, peer, window) tuple emits the asset's return minus the peer's return over that window. Default windows: 7d / 30d / 90d / 180d / 365d. Default peer pairs derive from the crypto watchlist (every primary-tier crypto vs BTC + ETH + SOL as the natural benchmarks).
-  - New CLI subcommand `genkei relative-strength` (single-action command, mirrors `genkei revenue-divergence`'s shape) that surfaces the view with `--ticker X`, `--peer Y`, `--window 30d` options + the standard `--since` / `--until` / `--json` / `--limit` flags. Default mode (no flags) shows the most-recent snapshot for every watchlist crypto vs BTC sorted by 30d relative strength.
-  - Pure-function `compute_relative_strength(price_series_a, price_series_b, *, windows)` in `src/genkei/experiments/relative_strength.py` so the math is unit-testable on synthetic series (mirrors R-062's `experiments/protocol_revenue.py` separation between pure functions and lake helpers).
-  - `genkei watchlist health` surfaces the new derived table with the same OK / STALE / EMPTY semantics.
-  - Update the SUI /research decision file's "Backlog implications" note to point at the resolved item.
-
 ### B-068 — Threshold-based alert engine
 - **Status:** open
 - **Priority:** low
