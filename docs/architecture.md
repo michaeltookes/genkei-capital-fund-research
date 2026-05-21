@@ -9,7 +9,7 @@ The point of the bottom half: when context gets cleared, the next session (Claud
 
 **Updating discipline:** any commit that makes a non-obvious choice (a tradeoff with a real alternative) or surfaces a non-obvious surprise (a thing future-you wouldn't predict) appends an entry below in the same commit. If the entry is missing, the commit is incomplete.
 
-**Last updated:** 2026-05-10 (Phase 2: 3/10 done — FRED + SEC EDGAR + CoinGecko. Phase 3 underway: CLI scaffolded (B-037, B-038), `genkei prices` shipped (B-039) — 6 stub subcommand groups in place. Phase 4 harness decided per D-017 + D-018.)
+**Last updated:** 2026-05-21 (Phase 2: 4/10 done + 3 carve-outs — FRED + SEC EDGAR + CoinGecko + B-079 Form 4 + B-081 DefiLlama protocol TVL + B-082 on-chain staking + B-083 protocol fees. Phase 3: 9/11 done — `prices`, `filings`, `tvl`, `macro`, `watchlist`, `query`, `insiders`, `insider-clusters`, `revenue-divergence`, `relative-strength`, only `news` stubbed. Phase 4 foundation laid (research methodology + decision log + `/research` and `/reflect-decisions` skills). Phase 5: 3/11 done — `insider_clusters`, `protocol_revenue`, `relative_strength`. Phase 6 started — `analytics.crypto_relative_strength` view + `relative-strength` CLI (B-090).)
 
 > **Read this first if you're new (or future-you after weeks away).** Then dive into the per-component docs at the bottom for depth.
 
@@ -51,19 +51,20 @@ Tier (primary/secondary) and sleeve (core/tactical) are orthogonal: tier = how m
 ## High-level data flow
 
 ```
-External APIs (DeFiLlama today; SEC/FRED/etc. coming)
+External APIs (DefiLlama, CoinGecko, FRED, SEC EDGAR, Etherscan)
        │
        ▼  ┌─────────────────────────────────────────────────────────────┐
           │  Collector  src/genkei/ingest/<source>.py                    │
-          │   - HttpClient (rate limit, retry, backoff)                  │
+          │   - HttpClient (rate limit, retry, backoff, jitter)          │
           │   - db.ingest_run() context (one row in meta.ingest_runs)    │
-          │   - one INSERT per endpoint into meta.raw_blobs              │
+          │   - db.store_raw_blob() per endpoint → meta.raw_blobs        │
+          │   - dual mode: daily collector + one-shot --backfill         │
           └─────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
                      ┌─────────────────────┐
                      │  meta.raw_blobs     │  audit + replay
-                     │  (JSONB payloads)   │  — system of record for raw
+                     │  (JSONB payloads)   │  — 90-day retention policy
                      └─────────────────────┘
                                 │
        ┌─────────────────────────────────────────────────────────────┐
@@ -75,19 +76,39 @@ External APIs (DeFiLlama today; SEC/FRED/etc. coming)
                                 │
                                 ▼
        ┌─────────────────────────────────────────────────────────────┐
-       │  defillama.* / sec.* / fred.* / ...                          │
-       │   per-source schemas, hypertables on time-series facts       │
-       │   provenance trio on every fact row                          │
-       │       (source_endpoint, fetched_at, ingest_run_id FK)        │
+       │  Per-source schemas (hypertables on time-series facts):      │
+       │   defillama.{chain_tvl, protocol_tvl, protocol_fees,         │
+       │              stablecoins, prices, protocols}                 │
+       │   coingecko.{coins, market_data}                             │
+       │   fred.{series, observations} — vintage-aware                │
+       │   sec.{companies, filings, facts, insiders,                  │
+       │        form4_transactions, form4_normalized_filings}         │
+       │   onchain.staking_events                                     │
+       │   analytics.crypto_relative_strength  (derived view, B-090)  │
+       │   meta.{ingest_runs, raw_blobs}                              │
+       │  Provenance trio on every fact row:                          │
+       │   (source_endpoint, fetched_at, ingest_run_id FK)            │
        └─────────────────────────────────────────────────────────────┘
                                 │
-                ┌───────────────┼─────────────────┐
-                ▼               ▼                 ▼
-         (future) CLI    (future) Reports   (future) Agent
-       genkei tvl ...   markdown briefs    on-demand researcher
+              ┌─────────────────┼─────────────────────┐
+              ▼                 ▼                     ▼
+   ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────────┐
+   │  genkei CLI      │  │  Experiments     │  │  Agent (Claude Code) │
+   │                  │  │                  │  │                      │
+   │  10 typed cmds + │  │  Pure detectors  │  │  /research walks the │
+   │  SQL escape      │  │  on lake data:   │  │  methodology, lands  │
+   │  hatch.          │  │  insider_clusters│  │  a decision file at  │
+   │  Bash-composable │  │  protocol_revenue│  │  docs/research/      │
+   │  + --json        │  │  relative_strength│ │  decisions/.         │
+   │                  │  │                  │  │                      │
+   │  prices,filings, │  │  Surfaced via    │  │  /reflect-decisions  │
+   │  tvl,macro,      │  │  CLI commands    │  │  closes loop later   │
+   │  insiders,query, │  │  + queryable     │  │  via realized prices │
+   │  watchlist,...   │  │  by other code   │  │                      │
+   └──────────────────┘  └──────────────────┘  └──────────────────────┘
 ```
 
-The normalizer is **data-lake-shaped**, not report-shaped. It writes the raw shape of every endpoint; derived classifications (momentum, trend, zombie risk, etc.) live in the report layer (currently retired pending B-025).
+The normalizer is **data-lake-shaped**, not report-shaped (D-006). Cross-source derived signals (relative-strength, revenue-divergence) live in either Postgres views under `analytics.*` or in `src/genkei/experiments/<name>.py` pure functions, paired with a CLI surface under `src/genkei/cli/<name>.py`. The legacy markdown daily brief is retired pending B-025.
 
 ---
 
@@ -136,17 +157,25 @@ src/genkei/
 │   ├── http.py      — HttpClient with rate limit + retry/backoff + jitter
 │   └── config.py    — stdlib .env loader
 ├── ingest/
-│   ├── defillama.py — DeFiLlama collector → meta.raw_blobs
-│   ├── fred.py      — FRED collector → meta.raw_blobs
-│   └── sec.py       — SEC EDGAR collector → meta.raw_blobs
-├── normalize/
-│   ├── defillama.py — meta.raw_blobs → defillama.*
-│   ├── fred.py      — meta.raw_blobs → fred.*
-│   └── sec.py       — meta.raw_blobs → sec.*
+│   ├── defillama.py        — DefiLlama collector (collect + --backfill)
+│   ├── fred.py             — FRED collector (vintage-aware, single-mode)
+│   ├── sec.py              — SEC EDGAR submissions + companyfacts
+│   ├── sec_form4.py        — SEC Form 4 XML insider transactions (B-079)
+│   ├── coingecko.py        — CoinGecko market_chart per coin (keyless OK)
+│   └── onchain_staking.py  — Etherscan v2 logs for LINK staking (B-082)
+├── normalize/              — one normalizer per ingester, raw blobs → tables
 ├── reports/
-│   └── defillama_daily.py — legacy markdown brief (broken pending B-025)
-├── cli/             — Typer-based CLI; `genkei prices` shipped (B-039), 6 stubs registered
-└── experiments/     — empty; lands in Phase 5
+│   └── defillama_daily.py  — legacy markdown brief (retired pending B-025)
+├── cli/
+│   ├── prices, filings, tvl, macro, watchlist, query  — typed subcommands
+│   ├── insiders, insider-clusters                     — Form 4 surfaces
+│   ├── revenue-divergence (B-062), relative-strength (B-090)  — Phase 6 signals
+│   ├── _helpers.py (json_default, parse_date)         — shared per simplify branch
+│   └── (news still stubbed pending B-043)
+└── experiments/    — pure detectors paired with CLI commands
+    ├── insider_clusters.py  — Form 4 cluster detection (B-060)
+    ├── protocol_revenue.py  — price-vs-fundamentals divergence (B-062)
+    └── relative_strength.py — asset-vs-peer return math (B-090)
 ```
 
 | Module | What | Where to learn more |
@@ -168,10 +197,10 @@ src/genkei/
 
 | Piece | What | Where to learn more |
 |---|---|---|
-| **Backlog hygiene** | `docs/backlog.md` (open items, 58 active) + `docs/resolved.md` (completed, 24 entries). Updated via the `update-backlog` skill after meaningful commits. | `docs/backlog.md` |
+| **Backlog hygiene** | `docs/backlog.md` (open items, 47 active) + `docs/resolved.md` (completed, 46 entries). Updated via the `update-backlog` skill after meaningful commits. | `docs/backlog.md` |
 | **Mission queue** | `missions/pending/` and `missions/done/`. Async / overnight execution loop driven by the `run-missions` skill. | `docs/missions.md`, R-005 |
 | **Test fixture** | `tests/_postgres.py` — singleton TimescaleDB testcontainer; `postgres_required` decorator gracefully skips when Docker absent. `truncate_all()` for cleanup between tests that go through real `db` helpers. | R-016 |
-| **Test counts** | 125 total — 105 unit + 20 integration (skip locally when Docker absent; CI runs them all). | R-023 |
+| **Test counts** | 599 total — most unit + ~25 integration (skip locally when Docker absent; CI runs them all). | R-023 |
 | **CI workflows** | `.github/workflows/tests.yml` (push to main + PRs) and `.github/workflows/defillama-daily.yml` (cron at 10:30 UTC on the self-hosted runner). | R-019, R-020 |
 | **PR conventions** | Short PRs. `## Summary` + `## Test plan`. No enumerated change lists, no footers. | `CLAUDE.md` |
 
@@ -260,12 +289,12 @@ Each mission is one markdown file: title, context, checklist of acceptance crite
 |---|---|---|
 | **Phase 0** — Foundation: Postgres + project scaffolding | ✅ complete | All 11 items resolved (R-005 through R-013, R-016, R-019). |
 | **Phase 1** — Refactor DeFiLlama onto Postgres | ✅ effectively complete | 9/9 high-priority items done. Three medium items remain: B-020 (config-driven exclusion keywords) and B-023 (freshness check) are follow-ups when consumers need them; B-025 (daily brief fate) is a deferred decision. |
-| **Phase 2** — Free-data ingesters with backfill | 🟡 in progress | 3/10 done — B-028 FRED (R-027), B-027 SEC EDGAR option B (R-028), B-034 CoinGecko (R-029). B-079 + B-080 carved out of B-027 option C, picked up driven by Phase 5 experiments. |
-| **Phase 3** — Custom CLI | 🟡 in progress | 3/11 done — B-037 (name locked: `genkei`), B-038 (Typer scaffold + 7 subcommand groups), B-039 (`genkei prices` against `coingecko.market_data`). 6 stub subcommands point at their backlog item. Next high-leverage: B-040 (`genkei filings` over `sec.filings` + `sec.facts`) and B-042 (`genkei macro` over `fred.observations`). |
-| **Phase 4** — Agent layer | ⚪ not started | 5 items (B-049 through B-053). Harness locked to Claude Code (R-030) per D-017. |
-| **Phase 5** — Experiments framework | ⚪ not started | 10 items (B-054 through B-063). Notebooks + reproducibility pattern + concrete experiments. |
-| **Phase 6** — Inefficiency-detection signals | ⚪ not started | 6 items (B-064 through B-069). Cross-source correlation, scoring rubric, regime classifier integration. |
-| **Phase 7** — Operations & hardening | 🟡 in progress | B-077 (self-hosted runner) done; B-070 backups, B-071 alerting, B-072 schema-drift, B-073 secrets, B-074 architecture diagram, B-075 license audit, B-076 quota tracking still open. |
+| **Phase 2** — Free-data ingesters with backfill | 🟡 in progress | 4/10 done + 4 carve-outs — B-028 FRED, B-027 SEC EDGAR option B, B-034 CoinGecko, B-085 stablecoin sparsity diagnosed; B-079 SEC Form 4, B-081 DefiLlama protocol TVL, B-082 LINK on-chain staking, B-083 DefiLlama protocol fees + revenue. Still open: BEA, Treasury, CFTC, EIA, GDELT, Binance, 13F, and the per-source docs (B-036). |
+| **Phase 3** — Custom CLI | ✅ 10/11 done | `prices`, `filings`, `tvl`, `macro`, `watchlist` (group: list/health/gaps), `insiders`, `insider-clusters`, `revenue-divergence`, `relative-strength`, `query`. Only `news` stubbed pending B-033 GDELT ingester. `--json` on every command for agent consumption. |
+| **Phase 4** — Agent layer | 🟡 foundation laid | `/research` skill walks `prompts/research-methodology.md` and lands decision files in `docs/research/decisions/`; `/reflect-decisions` walks resolved entries. Three decisions on file (LINK, CRM activist, SUI). B-051/052/053 (delivery surface, open-questions log, ingest-health summary) still open. |
+| **Phase 5** — Experiments framework | 🟡 3/11 done | `insider_clusters` (B-060), `protocol_revenue` / `revenue-divergence` (B-062), `relative_strength` (paired with B-090 Phase-6 view). Notebook reproducibility pattern (B-054/055) deferred — CLI + experiments modules have absorbed the experiment shape. |
+| **Phase 6** — Inefficiency-detection signals | 🟡 started | `analytics.crypto_relative_strength` view + `genkei relative-strength` CLI (B-090). Cross-source correlation engine (B-064), scoring rubric (B-065), regime classifier integration (B-066), multi-day trend aggregations (B-067), alert engine (B-068), anomaly detection (B-069) still open. |
+| **Phase 7** — Operations & hardening | 🟡 in progress | B-077 (self-hosted runner) done; B-074 (this doc + README refresh) in flight; B-070 backups, B-071 alerting, B-072 schema-drift, B-073 secrets, B-075 license audit, B-076 quota tracking still open. |
 
 See `docs/backlog.md` for the live list, `docs/resolved.md` for the chronicle.
 
@@ -290,8 +319,11 @@ Tracked as backlog items so they don't block forward motion:
 | `docs/missions.md` | Mission queue format, manual + scheduled invocation, monitoring |
 | `docs/defillama-mvp.md` | DeFiLlama-specific pipeline notes (legacy; predates Postgres refactor) |
 | `docs/defillama-daily-review.md` | Acceptance gates for the legacy markdown brief (relevance pending B-025) |
-| `docs/backlog.md` | Open items, 58 entries across 8 phases |
-| `docs/resolved.md` | Completed milestones, 24 entries with evidence |
+| `docs/backlog.md` | Open items, 47 entries across 8 phases |
+| `docs/resolved.md` | Completed milestones, 46 entries with evidence |
+| `docs/research/README.md` | Investment-research decision log + frontmatter contract |
+| `prompts/research-methodology.md` | The checklist `/research` walks per session |
+| `prompts/reflect-on-decisions.md` | The outcome-pairing cycle `/reflect-decisions` runs |
 
 ### External references
 
@@ -457,6 +489,31 @@ Append-only. Each entry: **what**, **why**, **alternative considered**, **what w
 **Why:** The user opted to stay on the free tier (no key registration). The previously-merged collector hard-required a key and silently failed every daily run for ~3 days, leaving `coingecko.market_data` empty. Keyless is supported by CoinGecko's public API at a stricter rate; 14 daily calls take ~3 min keyless vs ~30s demo — acceptable for daily ingest. Documented in docstring + module constants.
 **Alternative:** Register a free demo key. Rejected for now per user preference; the keyless path is intentionally cheap to revert if/when a key is added.
 **Sentinel:** `collect(api_key=_USE_ENV)` distinguishes "look up env" from caller-passed `None` (explicit keyless) so unit tests can force keyless without env juggling.
+
+### D-021 — Cross-source derived signals: pure-function detector + Postgres view + CLI surface, always paired
+**Date:** 2026-05-20 · **In:** B-062 (`revenue-divergence`), B-090 (`relative-strength`)
+**Decision:** Every Phase 5/6 derived signal lands in three places at once:
+1. **Pure functions** in `src/genkei/experiments/<name>.py` — operate on plain dataclasses, no DB. The math, unit-tested on synthetic series.
+2. **Postgres view** in the `analytics.*` schema (when the math fits SQL cleanly) — computed live against the lake; queryable by `genkei query` without writing Python.
+3. **CLI subcommand** in `src/genkei/cli/<name>.py` — resolves human tickers (BTC, SUI) to coingecko_ids via the watchlist, calls the lake-loader, formats output. `--json` always.
+**Why:** Dual implementation (SQL + Python) lets us cross-check on synthetic data — if the view's output diverges from the pure-function's, one of them is wrong. The CLI gives the agent + human one consistent surface. The pure-function path also keeps the methodology in `experiments/` where future experiments can compose it.
+**Alternative:** Just the SQL view, or just the Python pure function. Rejected — SQL-only loses unit-testability; Python-only loses the ad-hoc `genkei query` surface.
+**Materialized vs live views:** Both `analytics.crypto_relative_strength` (B-090) and any future Phase 6 view start as **live** views (computed on each query). Promote to `MATERIALIZED VIEW` with a refresh job only when the math gets expensive enough to matter — premature materialization adds a refresh-policy headache no current view earns.
+
+### D-022 — Daily collector vs one-shot backfill is the canonical dual-mode for "current state + history" endpoints
+**Date:** 2026-05-21 · **In:** B-085 (`src/genkei/ingest/defillama.py` docstring runbook)
+**Decision:** When an external API splits its data into a "current state" endpoint (cheap, daily) and a "per-entity history" endpoint (expensive, multi-year), the collector ships both paths in the same module:
+- Daily collector writes one row per (entity, sub-key) snapshot at `ts = now()` — keeps the latest known state fresh.
+- `--backfill --since YYYY-MM-DD --endpoint <name>` walks the per-entity history endpoint for every known asset id (from the daily collector's prior runs), lands per-day rows with the historical date as `ts`.
+Both write to the same destination table; the natural `(entity, …, ts)` PK keeps re-runs idempotent. If a new entity first appears in the daily collector after the historical backfill ran, re-run the backfill to land its history too.
+**Why:** Surfaced as a recurring root cause — B-085 was the second research session blocked by this gap. Codifying the runbook + the dual-mode in the module docstring makes the next gap (a new endpoint with the same shape) impossible to miss.
+**Applies to:** DefiLlama `/stablecoins` + `/stablecoin/{id}`, `/protocols` + `/protocol/{slug}`, `/prices/current` + `/coins/prices/historical/{ts}`. The pattern is general — every future ingester that has both shapes follows it.
+
+### D-023 — `coingecko_id` mappings on `ProtocolEntry` are picked up by the CoinGecko collector, decoupled from "tradeable assets in `crypto:`"
+**Date:** 2026-05-20 · **In:** B-091, `src/genkei/ingest/coingecko.py::load_coins`
+**Decision:** The CoinGecko collector's `load_coins(path)` returns the **union** of every `coingecko_id` found in the watchlist's `crypto:` section AND the `protocols:` section, deduped by id. A protocol-derived `CoinTarget` carries an empty `symbol` (the protocols section is keyed on the DefiLlama slug, not the token symbol) — the authoritative symbol + name still land in `coingecko.coins` from the API response itself.
+**Why:** B-087 added 6 Sui-native protocols with `coingecko_id` mappings; B-091's smoke caught that 12 of 14 protocol-side mappings returned `insufficient-data` in `revenue-divergence` because the tokens weren't being fetched. Two reasonable shapes considered: (a) extend `load_coins` to union; (b) add a new `crypto.data-only` tier to the watchlist. Picked (a) — pure data-flow change, no investment intent implied. "We want the data" and "we want to trade the asset" are different concerns; the watchlist's `crypto:` section is for trade-eligible assets, `protocols:` is for tracked protocols. The union just says "fetch whatever has a coingecko_id mapping anywhere."
+**Alternative considered:** Add tokens to `crypto:` directly. Rejected — that implies investment intent on assets we only want for data observability.
 
 ---
 
@@ -648,3 +705,39 @@ Append-only. Each entry: **what bit us**, **how we resolved it**, **how to avoid
 **Symptom:** Omitting `realtime_start` / `realtime_end` from `/series/observations` does not return proper per-observation revision history. FRED defaults the realtime period to today, so each daily collector run returns the current vintage tagged with that day's `realtime_start`. Because `fred.observations` keys on `(series_id, ts, realtime_start)`, this inflates rows as daily snapshots rather than real revisions.
 **Resolution:** Keep D-013's vintage-aware schema and request explicit vintages. The collector now fetches `/series/vintagedates`, chunks the returned dates, and calls `/series/observations` with `output_type=3&vintage_dates=...` for each chunk.
 **Avoid next time:** Any FRED URL test must verify one coherent mode: full-window realtime pagination, explicit `vintage_dates`, or latest-only normalization. Absence of `realtime_start` / `realtime_end` alone is not a valid invariant.
+
+### G-032 — Ingest modules were reading the legacy `config/watchlists.yml` for weeks after the simplify refactor
+**Hit:** 2026-05-20 (surfaced by B-091's live smoke against homelab)
+**Symptom:** Daily CoinGecko collector kept fetching the original 7 crypto-core coins for weeks even though `src/genkei/data/watchlists.yml` had grown 14 `coingecko_id` mappings on protocol entries (added in B-062 and B-087). Same for SEC and FRED daily crons — they had their own stale `DEFAULT_WATCHLIST_PATH = Path("config/watchlists.yml")` constant (CWD-relative) pointing at the pre-simplify-refactor file.
+**Resolution:** All three ingesters now `from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH` (resolved via `__file__`-relative path, works in dev + installed). The legacy `config/watchlists.yml` was deleted entirely (it was a strict subset of the canonical file — no removals needed).
+**Avoid next time:** When a refactor moves a config file under the package (e.g., simplify branch moving `cli/_watchlist.py` → `common/watchlist.py`), audit every module that defines its own path constant. CWD-relative defaults silently bypass package-bundled assets.
+
+### G-033 — DefiLlama's `/protocols` payload has `gecko_id = NULL` for many slugs, especially smaller protocols
+**Hit:** 2026-05-20 (B-087 watchlist setup)
+**Symptom:** Tried to populate `coingecko_id` for 7 Sui-native protocols by reading DefiLlama's `/protocols` JSON `.gecko_id` field. NULL across all 7 candidates (NAVI / Suilend / Cetus / Scallop / Bluefin / DeepBook / Aftermath).
+**Resolution:** Use CoinGecko's `/api/v3/search?query=<symbol>` endpoint to resolve symbol → coingecko_id. Cross-check by symbol + name match to avoid colliding with unrelated coins (see G-035).
+**Avoid next time:** Treat DefiLlama's `gecko_id` field as a best-effort hint, not authoritative. CoinGecko's `/search` is the source of truth.
+
+### G-034 — DefiLlama splits multi-product protocols into per-product slugs
+**Hit:** 2026-05-20 (B-087: aspirational slug names didn't exist)
+**Symptom:** B-087's backlog text proposed candidate slugs `cetus`, `aftermath-finance`, `navi-protocol`, `bluefin`. None existed verbatim on DefiLlama. The real slugs were `cetus-clmm` / `cetus-dlmm` / `cetus-aggregator` (multiple Cetus products); `aftermath-amm` / `aftermath-afsui` / `aftermath-aflp`; `navi-lending`; `bluefin-spot` / `bluefin-pro` / `bluefin-legacy`.
+**Resolution:** Always verify candidate slugs live against `defillama.protocols` before adding to the watchlist. Pick the *primary product slug* per protocol (e.g., `cetus-clmm` for Cetus, since CLMM is the dominant DEX surface); add additional product slugs separately when their separate TVL/fees stream is itself a signal (e.g., `bluefin-spot` + `bluefin-pro` for spot-vs-derivatives split).
+**Avoid next time:** Before B-087-shaped work (adding any protocol slug set), run `SELECT slug, name, chains, category FROM defillama.protocols WHERE 'X' = ANY(chains) ORDER BY slug` against the live lake and pick from the actual catalog.
+
+### G-035 — CoinGecko `deepbook` is an unrelated coin (symbol ADB); the Sui DEEP token's id is `deep`
+**Hit:** 2026-05-21 (B-091 smoke, post-B-087)
+**Symptom:** B-087 watchlist had `coingecko_id: deepbook` for the DeepBook V3 entry — intuitive but wrong. CoinGecko's `deepbook` is a different project with symbol "ADB", name "DeepBook". The Sui DEEP token's coingecko id is just `deep`.
+**Resolution:** Fixed in B-091 with an inline NOTE in the rationale field warning the next reviewer. The watchlist entry now has `coingecko_id: deep` + a comment explaining the gotcha.
+**Avoid next time:** When CoinGecko `/search` returns multiple candidates with similar names, cross-check by **symbol + name + chain** before picking. A protocol with multiple unrelated coins sharing similar names is more common than you'd expect.
+
+### G-036 — `Decimal (a * b) / c` ≠ `a * (b / c)` under default precision
+**Hit:** 2026-05-18 (B-062 unit tests, surfaced during development)
+**Symptom:** `compute_relative_strength`'s annualization math expected `(trailing * 365) / 30 = 36500` for `trailing=3000`, but Python's Decimal returned `36500.00000000000000000001` for `trailing * (365 / 30)` because the intermediate `365/30` was a 28-digit irrational.
+**Resolution:** Always multiply before dividing in monetary math: `(a * b) / c`, not `a * (b / c)`. The tests now pin the exact expected Decimal value to catch any future operator-order regression.
+**Avoid next time:** When porting an SQL formula to Python, parenthesize explicitly. SQL's left-associativity matches Python's, but the moment of forgetting matters.
+
+### G-037 — Backfill's `--since YYYY-MM-DD` is required by argparse but only affects the `prices` endpoint
+**Hit:** 2026-05-21 (B-085 stablecoin backfill)
+**Symptom:** Ran `python -m genkei.ingest.defillama --backfill --endpoint stablecoins` without `--since` — argparse rejected. Re-ran with `--since 2020-01-01`; the stablecoin path ignored the date entirely (it iterates every known asset_id and pulls the full per-stablecoin history per call). `--since` only constrains the prices backfill (which walks daily timestamps).
+**Resolution:** Pass any valid date for `--since` when backfilling protocols / stablecoins. The codified runbook in `src/genkei/ingest/defillama.py`'s docstring captures the gotcha.
+**Avoid next time:** Either make `--since` optional when `--endpoint` is one that doesn't need it, or document loudly that `--since` is a required flag with endpoint-specific semantics. Today the second is in place; the first is worth doing if any future endpoint adds a third semantic.
