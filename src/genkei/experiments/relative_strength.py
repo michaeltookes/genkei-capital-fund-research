@@ -30,6 +30,7 @@ read this as "insufficient data" rather than zero.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -56,6 +57,7 @@ class RelativeStrengthRow:
 
     asset: str
     peer: str
+    horizon: str
     window_days: int
     asset_latest_ts: date | None
     asset_lookback_ts: date | None
@@ -119,6 +121,7 @@ def compute_relative_strength(
     *,
     asset: str,
     peer: str,
+    horizon: str = "crypto:core",
     windows: tuple[int, ...] = DEFAULT_WINDOWS,
 ) -> list[RelativeStrengthRow]:
     """Compute relative-strength rows for an (asset, peer) pair across windows.
@@ -147,6 +150,7 @@ def compute_relative_strength(
             RelativeStrengthRow(
                 asset=asset,
                 peer=peer,
+                horizon=horizon,
                 window_days=w,
                 asset_latest_ts=asset_latest.ts if asset_latest else None,
                 asset_lookback_ts=asset_lookback.ts if asset_lookback else None,
@@ -172,17 +176,24 @@ def compute_relative_strength(
 def load_relative_strength(
     *,
     asset: str | None = None,
+    assets: Sequence[str] | None = None,
     peer: str | None = None,
     window_days: int | None = None,
     limit: int | None = None,
+    asset_horizons: Mapping[str, str] | None = None,
 ) -> list[RelativeStrengthRow]:
     """Pull rows from ``analytics.crypto_relative_strength``.
 
     All filters are optional; any non-None value narrows the result.
-    ``asset`` / ``peer`` match exact coingecko_ids (case-sensitive).
+    ``asset`` / ``assets`` / ``peer`` match exact coingecko_ids (case-sensitive).
     Rows are returned sorted by ``relative_strength_pct DESC NULLS
     LAST`` so the most-outperforming pairs surface first.
     """
+    if asset is not None and assets is not None:
+        raise ValueError("asset and assets filters are mutually exclusive")
+    asset_list = list(dict.fromkeys(assets or []))
+    if assets is not None and not asset_list:
+        return []
     sql = (
         "SELECT asset, peer, window_days, "
         "asset_latest_ts, asset_lookback_ts, "
@@ -197,6 +208,9 @@ def load_relative_strength(
     if asset is not None:
         sql += " AND asset = %s"
         params.append(asset)
+    if assets is not None:
+        sql += " AND asset = ANY(%s)"
+        params.append(asset_list)
     if peer is not None:
         sql += " AND peer = %s"
         params.append(peer)
@@ -214,6 +228,7 @@ def load_relative_strength(
         RelativeStrengthRow(
             asset=r[0],
             peer=r[1],
+            horizon=(asset_horizons or {}).get(r[0], "crypto:unknown"),
             window_days=int(r[2]),
             asset_latest_ts=_to_date(r[3]),
             asset_lookback_ts=_to_date(r[4]),

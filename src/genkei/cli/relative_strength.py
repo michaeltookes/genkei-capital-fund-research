@@ -28,6 +28,7 @@ import typer
 from genkei.cli._helpers import json_default as _json_default
 from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
+    CryptoEntry,
     Watchlist,
     load_watchlist,
 )
@@ -68,10 +69,20 @@ def _coingecko_id_to_ticker(
     return None
 
 
+def _horizon_tag(entry: CryptoEntry) -> str:
+    sleeve = entry.sleeve or "core"
+    return f"crypto:{sleeve}:{entry.tier}"
+
+
+def _crypto_horizons(watchlist: Watchlist) -> dict[str, str]:
+    return {entry.coingecko_id: _horizon_tag(entry) for entry in watchlist.crypto}
+
+
 def _row_to_dict(row: RelativeStrengthRow) -> dict[str, Any]:
     return {
         "asset": row.asset,
         "peer": row.peer,
+        "horizon_tag": row.horizon,
         "window_days": row.window_days,
         "asset_latest_ts": row.asset_latest_ts.isoformat() if row.asset_latest_ts else None,
         "asset_lookback_ts": row.asset_lookback_ts.isoformat() if row.asset_lookback_ts else None,
@@ -101,12 +112,12 @@ def _format_table(
         )
     if show_window_col:
         header = (
-            f"  {'asset':<10} {'peer':<10} {'window':>7} "
+            f"  {'asset':<10} {'peer':<10} {'horizon':<24} {'window':>7} "
             f"{'asset%':>10} {'peer%':>10} {'rel_str%':>10}  as_of"
         )
     else:
         header = (
-            f"  {'asset':<10} {'peer':<10} "
+            f"  {'asset':<10} {'peer':<10} {'horizon':<24} "
             f"{'asset%':>10} {'peer%':>10} {'rel_str%':>10}  as_of"
         )
     lines = [header, "-" * len(header)]
@@ -119,12 +130,13 @@ def _format_table(
         as_of = r.asset_latest_ts.isoformat() if r.asset_latest_ts else "-"
         if show_window_col:
             lines.append(
-                f"  {asset_ticker:<10} {peer_ticker:<10} {r.window_days:>6}d "
+                f"  {asset_ticker:<10} {peer_ticker:<10} {r.horizon:<24} "
+                f"{r.window_days:>6}d "
                 f"{asset_pct:>10} {peer_pct:>10} {rel_pct:>10}  {as_of}"
             )
         else:
             lines.append(
-                f"  {asset_ticker:<10} {peer_ticker:<10} "
+                f"  {asset_ticker:<10} {peer_ticker:<10} {r.horizon:<24} "
                 f"{asset_pct:>10} {peer_pct:>10} {rel_pct:>10}  {as_of}"
             )
     return "\n".join(lines)
@@ -203,6 +215,11 @@ def relative_strength_cmd(
         peer_id = _resolve_ticker_to_coingecko_id(DEFAULT_PEER, watchlist)
     if peer_id is None and asset_id is not None:
         peer_id = _resolve_ticker_to_coingecko_id(DEFAULT_PEER, watchlist)
+    asset_ids: Optional[tuple[str, ...]] = None
+    if asset_id is None:
+        asset_ids = tuple(
+            dict.fromkeys(entry.coingecko_id for entry in watchlist.crypto)
+        )
 
     if window is not None:
         window_filter: Optional[int] = window
@@ -219,9 +236,16 @@ def relative_strength_cmd(
             f"--window must be one of {list(DEFAULT_WINDOWS)}; got {window_filter}."
         )
 
-    rows = load_relative_strength(
-        asset=asset_id, peer=peer_id, window_days=window_filter, limit=limit
-    )
+    load_kwargs: dict[str, Any] = {
+        "asset": asset_id,
+        "peer": peer_id,
+        "window_days": window_filter,
+        "limit": limit,
+        "asset_horizons": _crypto_horizons(watchlist),
+    }
+    if asset_ids is not None:
+        load_kwargs["assets"] = asset_ids
+    rows = load_relative_strength(**load_kwargs)
 
     if json_out:
         typer.echo(

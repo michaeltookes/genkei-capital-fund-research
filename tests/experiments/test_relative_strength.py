@@ -10,12 +10,14 @@ from __future__ import annotations
 import unittest
 from datetime import date, timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
 from genkei.experiments.relative_strength import (
     DEFAULT_WINDOWS,
     PricePoint,
     compute_relative_strength,
     compute_return_pct,
+    load_relative_strength,
 )
 
 
@@ -98,6 +100,7 @@ class ComputeRelativeStrengthTests(unittest.TestCase):
         row = rows[0]
         self.assertEqual(row.asset, "sui")
         self.assertEqual(row.peer, "solana")
+        self.assertEqual(row.horizon, "crypto:core")
         self.assertEqual(row.window_days, 30)
         self.assertEqual(row.asset_return_pct, Decimal(100))
         self.assertEqual(row.peer_return_pct, Decimal(0))
@@ -175,9 +178,88 @@ class ComputeRelativeStrengthTests(unittest.TestCase):
                 series, series, asset="a", peer="p", windows=(7, 0, 30)
             )
 
+    def test_horizon_is_propagated_to_rows(self) -> None:
+        series = _series(date(2026, 1, 1), [10] * 31)
+        rows = compute_relative_strength(
+            series,
+            series,
+            asset="sui",
+            peer="bitcoin",
+            horizon="crypto:tactical:primary",
+            windows=(30,),
+        )
+        self.assertEqual(rows[0].horizon, "crypto:tactical:primary")
+
 
 class DefaultWindowsTests(unittest.TestCase):
     """Pin the headline default-window set so a silent change shows in CI."""
 
     def test_default_windows(self) -> None:
         self.assertEqual(DEFAULT_WINDOWS, (7, 30, 90, 180, 365))
+
+
+class LoadRelativeStrengthTests(unittest.TestCase):
+    def test_assets_filter_is_applied_before_limit_and_horizon_is_mapped(self) -> None:
+        class FakeCursor:
+            sql: str | None = None
+            params: list[object] | None = None
+
+            def __enter__(self) -> FakeCursor:
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def execute(self, sql: str, params: list[object]) -> None:
+                self.sql = sql
+                self.params = params
+
+            def fetchall(self) -> list[tuple[object, ...]]:
+                return [
+                    (
+                        "sui",
+                        "bitcoin",
+                        30,
+                        date(2026, 5, 21),
+                        date(2026, 4, 21),
+                        Decimal("1.0"),
+                        Decimal("0.8"),
+                        Decimal("25.0"),
+                        date(2026, 5, 21),
+                        date(2026, 4, 21),
+                        Decimal("100000"),
+                        Decimal("90000"),
+                        Decimal("11.1"),
+                        Decimal("13.9"),
+                    )
+                ]
+
+        class FakeConn:
+            def __init__(self, cursor: FakeCursor) -> None:
+                self.cursor_obj = cursor
+
+            def __enter__(self) -> FakeConn:
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def cursor(self) -> FakeCursor:
+                return self.cursor_obj
+
+        cursor = FakeCursor()
+        with patch(
+            "genkei.experiments.relative_strength.db.connection",
+            return_value=FakeConn(cursor),
+        ):
+            rows = load_relative_strength(
+                assets=("sui", "solana", "sui"),
+                peer="bitcoin",
+                window_days=30,
+                limit=5,
+                asset_horizons={"sui": "crypto:tactical:primary"},
+            )
+
+        self.assertIn("asset = ANY(%s)", cursor.sql or "")
+        self.assertEqual(cursor.params, [["sui", "solana"], "bitcoin", 30, 5])
+        self.assertEqual(rows[0].horizon, "crypto:tactical:primary")

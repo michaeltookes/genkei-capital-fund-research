@@ -85,7 +85,7 @@ app.command(
 )(revenue_divergence.revenue_divergence_cmd)
 app.command(
     "relative-strength",
-    help="Crypto peer relative-strength (asset return − peer return per window).",
+    help="Crypto peer relative-strength (asset return - peer return per window).",
 )(relative_strength.relative_strength_cmd)
 app.command(
     "query",
