@@ -31,6 +31,8 @@ Subcommand surface (B-037):
                         Detect insider buy/sell clusters       [B-060 ✓]
 - ``genkei revenue-divergence``
                         Protocol revenue vs token price        [B-062 ✓]
+- ``genkei relative-strength``
+                        Crypto peer relative-strength          [B-090 ✓]
 """
 
 from __future__ import annotations
@@ -46,6 +48,7 @@ from genkei.cli import (
     macro,
     prices,
     query,
+    relative_strength,
     revenue_divergence,
     tvl,
     watchlist,
@@ -80,6 +83,10 @@ app.command(
     "revenue-divergence",
     help="Protocol revenue vs token price — flag fundamentals/valuation divergence.",
 )(revenue_divergence.revenue_divergence_cmd)
+app.command(
+    "relative-strength",
+    help="Crypto peer relative-strength (asset return − peer return per window).",
+)(relative_strength.relative_strength_cmd)
 app.command(
     "query",
     help="Ad-hoc SQL escape hatch (read-only, timeout + row cap enforced).",

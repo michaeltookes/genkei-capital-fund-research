@@ -150,6 +150,11 @@ PRIMARY_TABLES: dict[str, list[str]] = {
     "sec": ["sec.companies", "sec.filings", "sec.facts"],
     "coingecko": ["coingecko.market_data"],
     "onchain_staking": ["onchain.staking_events"],
+    # B-090 — derived view, no ingest_runs row (computed live from
+    # coingecko.market_data). Intentionally absent from RECURRING_ENDPOINTS
+    # so it doesn't surface as MISSING on the recurring-cron half of the
+    # report; only the liveness check (EXISTS SELECT 1) applies.
+    "analytics": ["analytics.crypto_relative_strength"],
 }
 
 # Recurring (daily-cron) endpoints we expect to see in meta.ingest_runs
