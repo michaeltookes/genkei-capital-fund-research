@@ -153,7 +153,7 @@ Macro pulled today (`genkei macro --series ...`); FRED collector failed in the l
 2. SUI token unlock schedule — no source in the lake. **Filed as B-089** (2026-05-20). Token-unlock-aware analysis would materially improve confidence on whether continued dilution is a known headwind or a surprise risk.
 3. Validator / on-chain staking flow for Sui (Move-VM equivalent of the LINK B-082 ingester). **Filed as B-088** (2026-05-20). Same gap as crypto-core, applies to crypto-tactical too.
 4. `defillama.stablecoins` historical sparsity — **B-085** (priority bumped low → medium on 2026-05-20 since this is the second session in a row blocked by it).
-5. SUI/SOL relative-strength as a tracked metric — **filed as B-090** (2026-05-20). Manually computed today; would become a derived Postgres view + `genkei relative-strength` CLI surface, paired with B-062 `revenue-divergence`.
+5. ~~SUI/SOL relative-strength as a tracked metric~~ → **resolved by B-090** (2026-05-21): the math is now a Postgres view (`analytics.crypto_relative_strength`) + a `genkei relative-strength` CLI subcommand. The manual SUI-vs-SOL 365d computation from this session (-22.8pp) is now a one-line CLI call (`genkei relative-strength --ticker SUI --peer SOL --window 365`) — reproduces the exact number against live data.
 
 ---
 
