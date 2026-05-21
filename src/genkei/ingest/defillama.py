@@ -18,6 +18,24 @@ Required normalized endpoints raise on failure and the run is marked
 ``failed``. Optional endpoints such as ``chains`` and per-chain history are
 logged and recorded in run metadata under ``partial_endpoints`` so the run
 still completes.
+
+Daily-collector vs one-shot-backfill (B-085 runbook):
+  Three of the endpoints — ``prices``, ``protocols``, ``stablecoins`` —
+  return *current state only* from their daily-collector path. The daily
+  run writes one row per (entity, sub-key) snapshot at ``ts = now()``,
+  which is fine for keeping the latest known state fresh but gives zero
+  historical depth on its own. Historical timeseries for those three
+  comes from the per-entity endpoints (``/coins/prices/historical/{ts}``,
+  ``/protocol/{slug}``, ``/stablecoin/{id}``), reachable via
+  ``--backfill --since YYYY-MM-DD --endpoint <name>``. The backfill is a
+  one-shot — once history is in the lake, the daily collector keeps the
+  current edge fresh and the historical depth is preserved by the natural
+  ``(asset, …, ts)`` PK. If a new stablecoin / protocol / coin first
+  appears in the daily collector after the historical backfill ran, re-run
+  ``--backfill --since YYYY-MM-DD --endpoint <name>`` to land its historical
+  depth too. ``chain_tvl_history`` is excluded from the backfill flow because
+  the daily ``/v2/historicalChainTvl/{chain}`` endpoint already returns full
+  history per call.
 """
 
 from __future__ import annotations
