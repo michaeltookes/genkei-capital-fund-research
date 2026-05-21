@@ -74,8 +74,20 @@ def _horizon_tag(entry: CryptoEntry) -> str:
     return f"crypto:{sleeve}:{entry.tier}"
 
 
+def _crypto_asset_ids(watchlist: Watchlist) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            entry.coingecko_id for entry in watchlist.crypto if entry.coingecko_id
+        )
+    )
+
+
 def _crypto_horizons(watchlist: Watchlist) -> dict[str, str]:
-    return {entry.coingecko_id: _horizon_tag(entry) for entry in watchlist.crypto}
+    return {
+        entry.coingecko_id: _horizon_tag(entry)
+        for entry in watchlist.crypto
+        if entry.coingecko_id
+    }
 
 
 def _row_to_dict(row: RelativeStrengthRow) -> dict[str, Any]:
@@ -217,9 +229,7 @@ def relative_strength_cmd(
         peer_id = _resolve_ticker_to_coingecko_id(DEFAULT_PEER, watchlist)
     asset_ids: Optional[tuple[str, ...]] = None
     if asset_id is None:
-        asset_ids = tuple(
-            dict.fromkeys(entry.coingecko_id for entry in watchlist.crypto)
-        )
+        asset_ids = _crypto_asset_ids(watchlist)
 
     if window is not None:
         window_filter: Optional[int] = window

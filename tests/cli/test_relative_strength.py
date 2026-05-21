@@ -42,6 +42,11 @@ crypto:
       name: Sui
       coingecko_id: sui
       sleeve: tactical
+  secondary:
+    - symbol: NOCG
+      name: Missing CoinGecko
+      coingecko_id: ""
+      sleeve: tactical
 """
 
 
