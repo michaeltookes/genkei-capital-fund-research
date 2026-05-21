@@ -135,7 +135,7 @@ ETH chain TVL is **down 20.6% over the last month and 25.5% YoY**, while ETH pri
 1. Per-protocol DeFiLlama collector (defillama.protocol_tvl is EMPTY — would give LINK TVS).
 2. Oracle market-share data source — no obvious free source, may be a paid-API problem.
 3. On-chain LINK staking flow — Etherscan / Dune-style data needed.
-4. Stablecoin historical anchors — sparse rows on specific dates make trend queries hard.
+4. ~~Stablecoin historical anchors — sparse rows on specific dates make trend queries hard.~~ → **resolved by B-085** (2026-05-21): root cause was that the daily ``/stablecoins`` endpoint returns current-state only, not history. The per-asset ``/stablecoin/{id}`` endpoint (already wired into ``--backfill --endpoint stablecoins``) carries 3-5y of per-chain history — one-shot backfill lands the historical depth and the daily collector keeps the current edge fresh thereafter.
 
 ---
 
