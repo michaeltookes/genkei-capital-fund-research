@@ -53,11 +53,13 @@ summed):
   * USD +1.0 over 30d → strengthening (bear-for-risk)
 """
 
+from __future__ import annotations
+
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 from genkei.common import db
 
@@ -86,13 +88,13 @@ class RegimeInputs:
     """
 
     ts: date
-    dgs10: Optional[Decimal]
-    hy_oas: Optional[Decimal]
-    vix: Optional[Decimal]
-    usd_index: Optional[Decimal]
-    dgs10_30d_ago: Optional[Decimal]
-    hy_oas_30d_ago: Optional[Decimal]
-    usd_index_30d_ago: Optional[Decimal]
+    dgs10: Decimal | None
+    hy_oas: Decimal | None
+    vix: Decimal | None
+    usd_index: Decimal | None
+    dgs10_30d_ago: Decimal | None
+    hy_oas_30d_ago: Decimal | None
+    usd_index_30d_ago: Decimal | None
 
 
 @dataclass(frozen=True)
@@ -104,13 +106,13 @@ class RegimeResult:
     available_inputs: int
     # The same shape the SQL view emits, so a Python-vs-SQL parity
     # test can compare row-by-row.
-    dgs10: Optional[Decimal]
-    dgs10_30d_change: Optional[Decimal]
-    hy_oas: Optional[Decimal]
-    hy_oas_30d_change: Optional[Decimal]
-    vix: Optional[Decimal]
-    usd_index: Optional[Decimal]
-    usd_index_30d_change: Optional[Decimal]
+    dgs10: Decimal | None
+    dgs10_30d_change: Decimal | None
+    hy_oas: Decimal | None
+    hy_oas_30d_change: Decimal | None
+    vix: Decimal | None
+    usd_index: Decimal | None
+    usd_index_30d_change: Decimal | None
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +120,7 @@ class RegimeResult:
 # ---------------------------------------------------------------------------
 
 
-def _delta(now: Optional[Decimal], prior: Optional[Decimal]) -> Optional[Decimal]:
+def _delta(now: Decimal | None, prior: Decimal | None) -> Decimal | None:
     if now is None or prior is None:
         return None
     return now - prior
@@ -188,9 +190,9 @@ def classify(inputs: RegimeInputs) -> RegimeResult:
 
 def load_regimes(
     *,
-    since: Optional[date] = None,
-    until: Optional[date] = None,
-    limit: Optional[int] = None,
+    since: date | None = None,
+    until: date | None = None,
+    limit: int | None = None,
 ) -> list[RegimeResult]:
     """Query ``analytics.macro_regime_per_date`` for a date range.
 
