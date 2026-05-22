@@ -339,14 +339,6 @@ First-class — the *point* of having the data lake.
   - Logistic or simple ML baseline + a notebook.
   - Out-of-sample validation.
 
-### B-059 — Experiment: macro regime classifier
-- **Status:** open
-- **Priority:** medium
-- **Context:** FRED + Treasury + market prices — bucket regimes (e.g. risk-on/risk-off).
-- **Acceptance criteria:**
-  - Notebook produces regime labels per date.
-  - Output materialized as a Postgres view for downstream queries.
-
 ### B-061 — Experiment: 13F crowding monitor
 - **Status:** open
 - **Priority:** low
