@@ -431,14 +431,6 @@ Reliability work that grows in importance as more sources go live.
   - Restore drill performed and documented.
   - Off-site copy strategy decided.
 
-### B-071 — Workflow-failure + ingest-staleness alerting
-- **Status:** open
-- **Priority:** medium
-- **Context:** Silent failures defeat the "constantly gathering" goal.
-- **Acceptance criteria:**
-  - GH Actions failures notify the user (issue auto-open or external channel).
-  - Ingest staleness >threshold per source triggers an alert.
-
 ### B-072 — Schema-drift detection
 - **Status:** open
 - **Priority:** medium
