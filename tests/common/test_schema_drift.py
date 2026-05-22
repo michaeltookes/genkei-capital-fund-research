@@ -11,7 +11,6 @@ import unittest
 
 from genkei.common.schema_drift import (
     SCHEMA_SPECS,
-    DriftIssue,
     EndpointSchema,
     check_payload,
 )
@@ -73,12 +72,18 @@ class ObjectPayloadTests(unittest.TestCase):
         self.assertIn("got null", issues[0].detail)
 
     def test_nested_path_present(self) -> None:
-        spec = _spec(required_keys=("market_data",), nested_paths=("market_data.current_price.usd",))
+        spec = _spec(
+            required_keys=("market_data",),
+            nested_paths=("market_data.current_price.usd",),
+        )
         payload = {"market_data": {"current_price": {"usd": 50_000.0}}}
         self.assertEqual(check_payload(payload, spec), [])
 
     def test_nested_path_missing_at_leaf(self) -> None:
-        spec = _spec(required_keys=("market_data",), nested_paths=("market_data.current_price.usd",))
+        spec = _spec(
+            required_keys=("market_data",),
+            nested_paths=("market_data.current_price.usd",),
+        )
         payload = {"market_data": {"current_price": {}}}
         issues = check_payload(payload, spec)
         self.assertEqual(len(issues), 1)
@@ -123,7 +128,7 @@ class ArrayPayloadTests(unittest.TestCase):
         self.assertEqual(issues[0].kind, "MISSING_REQUIRED_KEY")
         self.assertIn("2/3", issues[0].detail)
 
-    def test_sampling_only_first_N_items(self) -> None:
+    def test_sampling_only_first_n_items(self) -> None:
         # With array_sample_size=2, item 3 (which is missing a key) is
         # not inspected — should report no drift.
         spec = _spec(payload_type="array", required_keys=("slug",), array_sample_size=2)
@@ -226,14 +231,19 @@ class RealisticPayloadShapeTests(unittest.TestCase):
         self.assertEqual(issues[0].kind, "MISSING_REQUIRED_KEY")
         self.assertIn("seriess", issues[0].detail)
 
-    def test_defillama_stablecoin_id_uses_chainCirculating(self) -> None:
+    def test_defillama_stablecoin_id_uses_chain_circulating_key(self) -> None:
         # G-005 lesson: the per-stablecoin endpoint uses
         # `chainCirculating`, NOT `chainBalances`. Spec encodes this.
+        eth_chain = {
+            "tokens": [
+                {"date": 1716000000, "circulating": {"peggedUSD": 50_000_000_000}},
+            ],
+        }
         payload = {
             "symbol": "USDC",
             "name": "USD Coin",
             "pegType": "peggedUSD",
-            "chainCirculating": {"Ethereum": {"tokens": [{"date": 1716000000, "circulating": {"peggedUSD": 50_000_000_000}}]}},
+            "chainCirculating": {"Ethereum": eth_chain},
         }
         spec = next(s for s in SCHEMA_SPECS if s.endpoint_kind == "stablecoin_<id>")
         self.assertEqual(check_payload(payload, spec), [])

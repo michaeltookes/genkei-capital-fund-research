@@ -207,7 +207,9 @@ class DriftIssue:
     source: str
     endpoint_kind: str
     sample_endpoint_name: str | None
-    kind: str  # "MISSING_REQUIRED_KEY" | "WRONG_TOP_LEVEL_TYPE" | "EMPTY_ARRAY" | "MISSING_NESTED_PATH" | "NO_RECENT_SAMPLES"
+    # One of: MISSING_REQUIRED_KEY, WRONG_TOP_LEVEL_TYPE, EMPTY_ARRAY,
+    # MISSING_NESTED_PATH, NO_RECENT_SAMPLES, CHECKER_ERROR.
+    kind: str
     detail: str
 
 
