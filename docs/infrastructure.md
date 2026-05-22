@@ -170,6 +170,10 @@ with connection() as conn, conn.cursor() as cur:
     cur.execute('SELECT current_database(), version()'); print(cur.fetchone())"
 ```
 
+## Backups
+
+See `docs/backups.md` — full posture, retention scheme, restore runbook, and the 2026-05-22 restore drill evidence. The scripts live in `infra/backups/`.
+
 ## What's NOT in this doc (intentionally)
 
 - The actual IP address of the Beelink — use `<beelink-host>` everywhere committed.

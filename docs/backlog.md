@@ -413,15 +413,6 @@ Once cross-source data is in, the system starts producing investable signals.
 
 Reliability work that grows in importance as more sources go live.
 
-### B-070 — Confirm and document Postgres backup posture
-- **Status:** open
-- **Priority:** medium
-- **Context:** Homelab Beelink may already have backups; confirm cadence, test restore, document.
-- **Acceptance criteria:**
-  - Backup cadence verified.
-  - Restore drill performed and documented.
-  - Off-site copy strategy decided.
-
 ### B-073 — Secrets policy and rotation
 - **Status:** open
 - **Priority:** low
