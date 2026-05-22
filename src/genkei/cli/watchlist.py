@@ -1,6 +1,6 @@
 """``genkei watchlist`` — watchlist coverage & data-lake health (B-044).
 
-Four subcommands:
+Five subcommands:
 
 * **list** — dump the watchlist by sleeve (crypto / equities / macro).
 * **health** — per-source ingest health: latest collect + normalize
@@ -15,6 +15,10 @@ Four subcommands:
   no ingest-runs or liveness rows. Use when you want to verify a
   recent normalizer/spec change end-to-end without scanning the full
   health output.
+* **score** — per-asset composite signal score (B-065 rubric).
+  Default: compute in-memory and print sorted by composite_score
+  DESC; ``--persist`` writes to ``meta.signals``; ``--since DATE``
+  reads previously-persisted history.
 * **gaps** — per-asset freshness: when was the most recent data point
   for each watchlist asset, and how many hours ago was that. Surfaces
   individual assets that have fallen behind even when the source as a
@@ -26,7 +30,11 @@ Usage:
   genkei watchlist health
   genkei watchlist health --json
   genkei watchlist drift
-  genkei watchlist drift --json
+  genkei watchlist score
+  genkei watchlist score --persist
+  genkei watchlist score --ticker AAPL
+  genkei watchlist score --sleeve crypto-tactical
+  genkei watchlist score --since 2026-05-01
   genkei watchlist gaps
   genkei watchlist gaps --threshold-hours 48
 """
@@ -39,7 +47,7 @@ from typing import Annotated, Any, Optional
 import typer
 from psycopg import sql
 
-from genkei.cli._helpers import json_default as _json_default
+from genkei.cli._helpers import json_default as _json_default, parse_date as _parse_date
 from genkei.common import db
 from genkei.common.schema_drift import check_recent_blobs
 from genkei.common.watchlist import (
@@ -628,6 +636,232 @@ def _with_gap_status(
         {**row, "status": _gap_status_tag(row, threshold_hours=threshold_hours)}
         for row in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# `genkei watchlist score` (B-065)
+# ---------------------------------------------------------------------------
+
+
+def _format_score_human(scores: list[Any], *, show_breakdown: bool) -> str:
+    """Render AssetScores or persisted-row dicts as a sorted table."""
+    if not scores:
+        return (
+            "No scores match. Either the rubric returned nothing or "
+            "`meta.signals` is empty (run `genkei watchlist score --persist` first)."
+        )
+    sorted_scores = sorted(scores, key=lambda s: -_score_value(s))
+    if show_breakdown:
+        header = (
+            f"  {'asset':<14} {'sleeve':<22} {'class':<8} {'score':>6}  breakdown"
+        )
+    else:
+        header = f"  {'asset':<14} {'sleeve':<22} {'class':<8} {'score':>6}"
+    lines = [header, "-" * len(header)]
+    for s in sorted_scores:
+        asset, sleeve, klass, score, components = _score_fields(s)
+        if show_breakdown:
+            breakdown = " ".join(
+                f"{c['name'].replace('_', '-')}={c['score']:+d}"
+                for c in _components_iter(components)
+            )
+            lines.append(
+                f"  {asset:<14} {sleeve:<22} {klass:<8} {score:>+6}  {breakdown}"
+            )
+        else:
+            lines.append(f"  {asset:<14} {sleeve:<22} {klass:<8} {score:>+6}")
+    return "\n".join(lines)
+
+
+def _score_value(score: Any) -> int:
+    """Pull composite_score from either AssetScore or a meta.signals dict."""
+    if hasattr(score, "composite_score"):
+        return int(score.composite_score)
+    return int(score["composite_score"])
+
+
+def _score_fields(score: Any) -> tuple[str, str, str, int, Any]:
+    """(asset, sleeve, asset_class, composite, components) — works for both shapes."""
+    if hasattr(score, "composite_score"):
+        return (
+            score.asset,
+            score.sleeve,
+            score.asset_class,
+            int(score.composite_score),
+            score.components,
+        )
+    return (
+        score["asset"],
+        score["sleeve"],
+        score["asset_class"],
+        int(score["composite_score"]),
+        score["components"],
+    )
+
+
+def _components_iter(components: Any) -> list[dict[str, Any]]:
+    """Normalize components to list[{name, score, detail}] regardless of source."""
+    if isinstance(components, list):
+        return [
+            c.to_dict() if hasattr(c, "to_dict") else dict(c)
+            for c in components
+        ]
+    if isinstance(components, dict):
+        # meta.signals.components JSONB — dict[name, {score, detail, ...}].
+        normalized: list[dict[str, Any]] = []
+        for name, component in components.items():
+            row = dict(component) if isinstance(component, dict) else {"score": component}
+            row.setdefault("name", str(name))
+            normalized.append(row)
+        return normalized
+    return []
+
+
+def _score_to_json_dict(score: Any) -> dict[str, Any]:
+    asset, sleeve, klass, composite, components = _score_fields(score)
+    return {
+        "asset": asset,
+        "sleeve": sleeve,
+        "asset_class": klass,
+        "composite_score": composite,
+        "components": _components_iter(components),
+    }
+
+
+_SCORE_SLEEVES = {"equity-core", "crypto-core", "crypto-tactical"}
+
+
+def _validate_score_sleeve(sleeve: Optional[str]) -> Optional[str]:
+    if sleeve is None:
+        return None
+    if sleeve not in _SCORE_SLEEVES:
+        allowed = ", ".join(sorted(_SCORE_SLEEVES))
+        raise typer.BadParameter(f"--sleeve must be one of: {allowed}")
+    return sleeve
+
+
+@app.command("score")
+def score_cmd(
+    persist: Annotated[
+        bool,
+        typer.Option(
+            "--persist",
+            help=(
+                "Write today's computed scores to meta.signals. Without "
+                "this flag the scores are computed and rendered but not "
+                "written — useful for dry-run inspection."
+            ),
+        ),
+    ] = False,
+    ticker: Annotated[
+        Optional[str],
+        typer.Option(
+            "--ticker",
+            help=(
+                "Filter to a single asset by equity ticker (AAPL) or "
+                "coingecko_id (bitcoin)."
+            ),
+        ),
+    ] = None,
+    sleeve: Annotated[
+        Optional[str],
+        typer.Option(
+            "--sleeve",
+            help=(
+                "Filter to one sleeve: equity-core, crypto-core, "
+                "crypto-tactical."
+            ),
+        ),
+    ] = None,
+    since: Annotated[
+        Optional[str],
+        typer.Option(
+            "--since",
+            help=(
+                "Read history from meta.signals from this date (YYYY-MM-DD) "
+                "rather than computing today's scores. Implies read-only."
+            ),
+        ),
+    ] = None,
+    no_breakdown: Annotated[
+        bool,
+        typer.Option(
+            "--no-breakdown",
+            help="Suppress the per-component breakdown column.",
+        ),
+    ] = False,
+    json_out: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+    config: Annotated[
+        Path,
+        typer.Option("--config", help="Watchlist path.", show_default=True),
+    ] = DEFAULT_WATCHLIST_PATH,
+) -> None:
+    """Compute or read per-asset composite scores (B-065 rubric).
+
+    Default mode computes today's scores in-memory and prints them
+    (most positive at top). Pass --persist to also write to
+    meta.signals. Pass --since to read previously-persisted history.
+    """
+    from genkei.experiments.watchlist_scoring import (
+        compute_today,
+        load_latest_scores,
+        persist_scores,
+    )
+
+    sleeve = _validate_score_sleeve(sleeve)
+
+    if since is not None:
+        since_date = _parse_date(since, label="since")
+        if persist:
+            raise typer.BadParameter(
+                "--since reads history; it cannot be combined with --persist."
+            )
+        rows = load_latest_scores(sleeve=sleeve, asset=ticker, since=since_date)
+        if json_out:
+            typer.echo(json.dumps(
+                [_score_to_json_dict(r) for r in rows],
+                indent=2,
+                default=_json_default,
+            ))
+            return
+        typer.echo(_format_score_human(rows, show_breakdown=not no_breakdown))
+        return
+
+    # Compute today's scores in-memory.
+    wl = _load_or_exit(config)
+    scores = compute_today(watchlist=wl)
+    if ticker is not None:
+        scores = [s for s in scores if s.asset == ticker]
+    if sleeve is not None:
+        scores = [s for s in scores if s.sleeve == sleeve]
+    if persist:
+        ingest_run_id = persist_scores(scores)
+        if json_out:
+            typer.echo(json.dumps(
+                {
+                    "ingest_run_id": ingest_run_id,
+                    "rows_written": len(scores),
+                    "scores": [_score_to_json_dict(s) for s in scores],
+                },
+                indent=2,
+                default=_json_default,
+            ))
+            return
+        typer.echo(f"Persisted {len(scores)} score(s) (ingest_run_id={ingest_run_id})")
+        typer.echo("")
+        typer.echo(_format_score_human(scores, show_breakdown=not no_breakdown))
+        return
+    if json_out:
+        typer.echo(json.dumps(
+            [_score_to_json_dict(s) for s in scores],
+            indent=2,
+            default=_json_default,
+        ))
+        return
+    typer.echo(_format_score_human(scores, show_breakdown=not no_breakdown))
 
 
 @app.command("gaps")
