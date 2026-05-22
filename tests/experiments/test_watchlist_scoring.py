@@ -12,7 +12,6 @@ from decimal import Decimal
 
 from genkei.experiments.watchlist_scoring import (
     RUBRIC_VERSION,
-    AssetScore,
     ComponentScore,
     compose_crypto_score,
     compose_equity_score,
