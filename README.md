@@ -60,8 +60,15 @@ set +a
 # 5. Apply migrations
 alembic upgrade head
 
-# 6. Sanity check
-genkei watchlist health        # OK status across every primary table
+# 6. Populate the lake before CLI sanity checks
+#    Skip this only when GENKEI_DATABASE_URL points at an already-populated DB.
+python -m genkei.ingest.defillama
+python -m genkei.normalize.defillama
+python -m genkei.ingest.coingecko
+python -m genkei.normalize.coingecko
+
+# 7. Sanity check
+genkei watchlist health        # flags any source tables that are still EMPTY/stale
 genkei prices --ticker BTC     # latest BTC price from the lake
 genkei revenue-divergence      # protocol fundamentals vs token price
 genkei relative-strength       # crypto peer outperformance @ 30d
