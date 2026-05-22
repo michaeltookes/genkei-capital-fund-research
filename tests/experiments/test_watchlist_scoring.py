@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import patch
 
+from genkei.common.watchlist import EquityEntry, Watchlist
 from genkei.experiments.watchlist_scoring import (
     RUBRIC_VERSION,
     ComponentScore,
@@ -29,7 +30,6 @@ from genkei.experiments.watchlist_scoring import (
     score_tvl_trend,
     score_volume_momentum,
 )
-from genkei.common.watchlist import EquityEntry, Watchlist
 
 
 class InsiderFlowTests(unittest.TestCase):
