@@ -58,7 +58,7 @@ External APIs (DefiLlama, CoinGecko, FRED, SEC EDGAR, Etherscan)
           │   - HttpClient (rate limit, retry, backoff, jitter)          │
           │   - db.ingest_run() context (one row in meta.ingest_runs)    │
           │   - db.store_raw_blob() per endpoint → meta.raw_blobs        │
-          │   - dual mode: daily collector + one-shot --backfill         │
+          │   - source-specific modes: daily, single-mode, or --backfill │
           └─────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
@@ -157,12 +157,12 @@ src/genkei/
 │   ├── http.py      — HttpClient with rate limit + retry/backoff + jitter
 │   └── config.py    — stdlib .env loader
 ├── ingest/
-│   ├── defillama.py        — DefiLlama collector (collect + --backfill)
+│   ├── defillama.py        — DefiLlama collector (daily + --backfill)
 │   ├── fred.py             — FRED collector (vintage-aware, single-mode)
-│   ├── sec.py              — SEC EDGAR submissions + companyfacts
-│   ├── sec_form4.py        — SEC Form 4 XML insider transactions (B-079)
-│   ├── coingecko.py        — CoinGecko market_chart per coin (keyless OK)
-│   └── onchain_staking.py  — Etherscan v2 logs for LINK staking (B-082)
+│   ├── sec.py              — SEC EDGAR submissions + companyfacts (single-mode)
+│   ├── sec_form4.py        — SEC Form 4 XML insider transactions (--backfill)
+│   ├── coingecko.py        — CoinGecko market_chart per coin (daily + Pro --backfill)
+│   └── onchain_staking.py  — Etherscan v2 logs for LINK staking (--backfill)
 ├── normalize/              — one normalizer per ingester, raw blobs → tables
 ├── reports/
 │   └── defillama_daily.py  — legacy markdown brief (retired pending B-025)
