@@ -49,7 +49,9 @@ def upgrade() -> None:
             ts              TIMESTAMPTZ NOT NULL,
             rubric_version  TEXT        NOT NULL,
             asset_class     TEXT        NOT NULL CHECK (asset_class IN ('equity', 'crypto')),
-            sleeve          TEXT        NOT NULL,
+            sleeve          TEXT        NOT NULL CHECK (
+                sleeve IN ('equity-core', 'crypto-core', 'crypto-tactical')
+            ),
             composite_score NUMERIC     NOT NULL,
             components      JSONB       NOT NULL,
             ingest_run_id   BIGINT      NOT NULL REFERENCES meta.ingest_runs(id),

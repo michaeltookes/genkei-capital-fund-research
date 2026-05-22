@@ -47,7 +47,7 @@ from typing import Annotated, Any, Optional
 import typer
 from psycopg import sql
 
-from genkei.cli._helpers import json_default as _json_default
+from genkei.cli._helpers import json_default as _json_default, parse_date as _parse_date
 from genkei.common import db
 from genkei.common.schema_drift import check_recent_blobs
 from genkei.common.watchlist import (
@@ -708,7 +708,12 @@ def _components_iter(components: Any) -> list[dict[str, Any]]:
         ]
     if isinstance(components, dict):
         # meta.signals.components JSONB — dict[name, {score, detail, ...}].
-        return list(components.values())
+        normalized: list[dict[str, Any]] = []
+        for name, component in components.items():
+            row = dict(component) if isinstance(component, dict) else {"score": component}
+            row.setdefault("name", str(name))
+            normalized.append(row)
+        return normalized
     return []
 
 
@@ -721,6 +726,18 @@ def _score_to_json_dict(score: Any) -> dict[str, Any]:
         "composite_score": composite,
         "components": _components_iter(components),
     }
+
+
+_SCORE_SLEEVES = {"equity-core", "crypto-core", "crypto-tactical"}
+
+
+def _validate_score_sleeve(sleeve: Optional[str]) -> Optional[str]:
+    if sleeve is None:
+        return None
+    if sleeve not in _SCORE_SLEEVES:
+        allowed = ", ".join(sorted(_SCORE_SLEEVES))
+        raise typer.BadParameter(f"--sleeve must be one of: {allowed}")
+    return sleeve
 
 
 @app.command("score")
@@ -794,14 +811,10 @@ def score_cmd(
         persist_scores,
     )
 
+    sleeve = _validate_score_sleeve(sleeve)
+
     if since is not None:
-        from datetime import date as _date_cls
-        try:
-            since_date = _date_cls.fromisoformat(since)
-        except ValueError as exc:
-            raise typer.BadParameter(
-                f"--since must be YYYY-MM-DD: {since}"
-            ) from exc
+        since_date = _parse_date(since, label="since")
         if persist:
             raise typer.BadParameter(
                 "--since reads history; it cannot be combined with --persist."

@@ -432,7 +432,7 @@ def _load_macro_inputs(ts: datetime) -> dict[str, Decimal | None]:
                 # Latest-vintage per ts; same shape as `genkei macro` default.
                 "SELECT DISTINCT ON (ts) ts, value FROM fred.observations "
                 "WHERE series_id = %s AND ts >= %s "
-                "ORDER BY ts DESC, realtime_start DESC LIMIT 2",
+                "ORDER BY ts DESC, realtime_start DESC",
                 [sid, cutoff],
             )
             rows = cur.fetchall()
@@ -544,7 +544,12 @@ def _load_equity_signals(ticker: str, cik: str | None, ts: datetime) -> dict[str
     return inputs
 
 
-def _load_crypto_signals(coingecko_id: str, ts: datetime) -> dict[str, Any]:
+def _load_crypto_signals(
+    coingecko_id: str,
+    ts: datetime,
+    *,
+    protocol_slugs: list[str] | None = None,
+) -> dict[str, Any]:
     """Pull rel-strength + TVL + volume inputs for one crypto asset."""
     inputs: dict[str, Any] = {
         "rel_strength_pct": None,
@@ -586,6 +591,28 @@ def _load_crypto_signals(coingecko_id: str, ts: datetime) -> dict[str, Any]:
                     (SELECT tvl_usd FROM recent ORDER BY ts ASC LIMIT 1) AS earliest
                 """,
                 [chain_name, ts - timedelta(days=40)],
+            )
+            row = cur.fetchone()
+            if row and row[0] and row[1] and row[1] != 0:
+                latest, earliest = row
+                inputs["tvl_change_30d_pct"] = Decimal(
+                    str(((latest - earliest) / earliest) * 100)
+                )
+        if inputs["tvl_change_30d_pct"] is None and protocol_slugs:
+            cur.execute(
+                """
+                WITH recent AS (
+                    SELECT ts, SUM(tvl_usd) AS tvl_usd
+                    FROM defillama.protocol_tvl
+                    WHERE slug = ANY(%s) AND ts >= %s
+                    GROUP BY ts
+                    ORDER BY ts DESC
+                )
+                SELECT
+                    (SELECT tvl_usd FROM recent ORDER BY ts DESC LIMIT 1) AS latest,
+                    (SELECT tvl_usd FROM recent ORDER BY ts ASC LIMIT 1) AS earliest
+                """,
+                [protocol_slugs, ts - timedelta(days=40)],
             )
             row = cur.fetchone()
             if row and row[0] and row[1] and row[1] != 0:
@@ -635,6 +662,12 @@ def compute_today(
     shared_macro = score_macro_regime(**macro_inputs)
 
     scores: list[AssetScore] = []
+    protocol_slugs_by_coingecko: dict[str, list[str]] = {}
+    for protocol in watchlist.protocols:
+        if protocol.coingecko_id:
+            protocol_slugs_by_coingecko.setdefault(protocol.coingecko_id, []).append(
+                protocol.slug
+            )
 
     for equity in watchlist.equities:
         signals = _load_equity_signals(equity.symbol, equity.cik, now)
@@ -661,7 +694,11 @@ def compute_today(
     for crypto in watchlist.crypto:
         if not crypto.coingecko_id:
             continue
-        signals = _load_crypto_signals(crypto.coingecko_id, now)
+        signals = _load_crypto_signals(
+            crypto.coingecko_id,
+            now,
+            protocol_slugs=protocol_slugs_by_coingecko.get(crypto.coingecko_id),
+        )
         sleeve_label = f"crypto-{crypto.sleeve or 'core'}"
         scores.append(
             compose_crypto_score(

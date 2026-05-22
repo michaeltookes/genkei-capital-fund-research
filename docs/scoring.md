@@ -4,7 +4,7 @@
 
 The goal isn't a black-box "AAPL = 7" output. The goal is *interpretable composition* — every score is the sum of explicit components, each carrying a detail string, all queryable. Future `/research` sessions read the score at the top of any asset analysis instead of re-running the multi-signal synthesis by hand.
 
-```
+```bash
 $ genkei watchlist score --ticker AAPL
   asset    sleeve          class     score   breakdown
   AAPL     equity-core     equity      +2    insider-flow=-2 revenue-trend=+2 filings-velocity=+1 macro-regime=+1
@@ -33,9 +33,9 @@ $ genkei watchlist score --ticker AAPL
 | Component | Range | Inputs | Logic |
 |---|---|---|---|
 | `relative_strength` | -2..+2 | `analytics.crypto_relative_strength` view (B-090) vs BTC at 30d | +2 if outperforming BTC by 10+pp; +1 by 3-10pp; -1 if underperforming by 3-10pp; -2 by 10+pp; 0 within ±3pp. |
-| `tvl_trend` | -2..+2 | `defillama.chain_tvl` for L1s the coingecko_id maps to; otherwise None | +2 if TVL +15%+ over 30d; +1 if +5-15%; -1 if -15 to -5%; -2 if <-15%; 0 otherwise or no coverage. |
+| `tvl_trend` | -2..+2 | `defillama.chain_tvl` for mapped L1s; `defillama.protocol_tvl` for mapped protocol tokens | +2 if TVL +15%+ over 30d; +1 if +5-15%; -1 if -15 to -5%; -2 if <-15%; 0 otherwise or no coverage. |
 | `volume_momentum` | -1..+1 | `coingecko.market_data.volume_usd` 7-day avg vs 30-day avg | +1 if 7d > 130% of 30d (surge — interest building); -1 if 7d < 70% of 30d (fade — interest waning); 0 otherwise. |
-| `macro_regime` | -1..+1 | Same as equity — shared across all assets in a run. |
+| `macro_regime` | -1..+1 | Same as equity | Shared across all assets in a run. |
 
 ### Macro regime (shared component)
 

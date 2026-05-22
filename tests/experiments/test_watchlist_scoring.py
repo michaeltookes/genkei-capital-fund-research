@@ -1,18 +1,22 @@
 """Unit tests for the watchlist scoring rubric (B-065).
 
-Tests are scoped to the pure scoring functions (no DB). The lake
-loaders + compose+persist pipeline are exercised at the CLI integration
-layer via test_watchlist_cmd with mocked DB calls.
+Tests are scoped to the pure scoring functions and mocked DB loaders.
+The compose+persist pipeline is exercised at the CLI integration layer
+via test_watchlist_cmd with mocked DB calls.
 """
 
 from __future__ import annotations
 
 import unittest
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from unittest.mock import patch
 
 from genkei.experiments.watchlist_scoring import (
     RUBRIC_VERSION,
     ComponentScore,
+    _load_crypto_signals,
+    _load_macro_inputs,
     compose_crypto_score,
     compose_equity_score,
     score_filings_velocity,
@@ -306,3 +310,109 @@ class RubricVersionTests(unittest.TestCase):
 
     def test_rubric_version_is_v1(self) -> None:
         self.assertEqual(RUBRIC_VERSION, "v1")
+
+
+class LakeLoaderTests(unittest.TestCase):
+    def test_load_macro_inputs_fetches_full_anchor_window(self) -> None:
+        ts = datetime(2026, 5, 22, tzinfo=timezone.utc)
+        captured_sql: list[str] = []
+
+        class FakeCursor:
+            def __init__(self) -> None:
+                self.series_id = ""
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, sql, params=None):
+                captured_sql.append(sql)
+                self.series_id = params[0]
+
+            def fetchall(self):
+                if self.series_id == "DGS10":
+                    return [
+                        (ts - timedelta(days=1), Decimal("4.8")),
+                        (ts - timedelta(days=10), Decimal("4.7")),
+                        (ts - timedelta(days=31), Decimal("4.2")),
+                    ]
+                if self.series_id == "DTWEXBGS":
+                    return [
+                        (ts - timedelta(days=1), Decimal("118")),
+                        (ts - timedelta(days=31), Decimal("116")),
+                    ]
+                return [(ts - timedelta(days=1), Decimal("3.0"))]
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def cursor(self):
+                return FakeCursor()
+
+        with patch(
+            "genkei.experiments.watchlist_scoring.db.connection",
+            return_value=FakeConn(),
+        ):
+            inputs = _load_macro_inputs(ts)
+
+        self.assertTrue(captured_sql)
+        self.assertNotIn("LIMIT 2", "\n".join(captured_sql))
+        self.assertEqual(inputs["dgs10_pct"], Decimal("4.8"))
+        self.assertEqual(inputs["dgs10_pct_30d_ago"], Decimal("4.2"))
+        self.assertEqual(inputs["usd_index_30d_ago"], Decimal("116"))
+
+    def test_load_crypto_signals_uses_protocol_tvl_fallback(self) -> None:
+        ts = datetime(2026, 5, 22, tzinfo=timezone.utc)
+        captured_params: list[object] = []
+
+        class FakeCursor:
+            def __init__(self) -> None:
+                self.query = ""
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, sql, params=None):
+                self.query = sql
+                captured_params.append(params)
+
+            def fetchone(self):
+                if "analytics.crypto_relative_strength" in self.query:
+                    return [None]
+                if "defillama.protocol_tvl" in self.query:
+                    return [Decimal("120"), Decimal("100")]
+                if "coingecko.market_data" in self.query:
+                    return [None, None]
+                return None
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def cursor(self):
+                return FakeCursor()
+
+        with patch(
+            "genkei.experiments.watchlist_scoring.db.connection",
+            return_value=FakeConn(),
+        ):
+            inputs = _load_crypto_signals(
+                "chainlink",
+                ts,
+                protocol_slugs=["chainlink", "chainlink-ccip"],
+            )
+
+        self.assertEqual(inputs["tvl_change_30d_pct"], Decimal("20.0"))
+        self.assertIn(["chainlink", "chainlink-ccip"], captured_params[1])

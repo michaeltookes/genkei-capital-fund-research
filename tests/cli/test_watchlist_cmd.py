@@ -16,6 +16,7 @@ from genkei.cli import watchlist as watchlist_mod
 from genkei.cli.watchlist import (
     PRIMARY_TABLES,
     RECURRING_ENDPOINTS,
+    _components_iter,
     _drift_rows,
     _format_gaps_human,
     _format_health_human,
@@ -518,6 +519,28 @@ class FormatListDirectTests(unittest.TestCase):
         text = _format_list_human(empty, sleeve="crypto")
         # Sleeve filter returns just the crypto section even if empty.
         self.assertIn("crypto", text)
+
+
+class ScoreCommandTests(unittest.TestCase):
+    def test_components_iter_preserves_names_from_persisted_dict(self) -> None:
+        components = {
+            "macro_regime": {"score": 1, "detail": "risk-on"},
+            "tvl_trend": {"score": -1, "detail": "TVL -8%"},
+        }
+
+        rows = _components_iter(components)
+
+        self.assertEqual(
+            {(row["name"], row["score"]) for row in rows},
+            {("macro_regime", 1), ("tvl_trend", -1)},
+        )
+
+    def test_score_rejects_invalid_sleeve(self) -> None:
+        err = io.StringIO()
+        with redirect_stderr(err):
+            code = main(["watchlist", "score", "--sleeve", "crypto-coree"])
+
+        self.assertEqual(code, 2)
 
 
 if __name__ == "__main__":
