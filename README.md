@@ -45,19 +45,22 @@ python3 -m venv .venv
 .venv/bin/pip install -U pip
 .venv/bin/pip install -e ".[dev]"
 
-# 2. Configure secrets
+# 2. Activate the virtualenv
+source .venv/bin/activate
+
+# 3. Configure secrets
 cp .env.example .env
 $EDITOR .env                   # at minimum: GENKEI_DATABASE_URL
 
-# 3. Load .env into this shell
+# 4. Load .env into this shell
 set -a
 source .env
 set +a
 
-# 4. Apply migrations
+# 5. Apply migrations
 alembic upgrade head
 
-# 5. Sanity check
+# 6. Sanity check
 genkei watchlist health        # OK status across every primary table
 genkei prices --ticker BTC     # latest BTC price from the lake
 genkei revenue-divergence      # protocol fundamentals vs token price
