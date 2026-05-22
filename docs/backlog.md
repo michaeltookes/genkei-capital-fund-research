@@ -375,15 +375,6 @@ Once cross-source data is in, the system starts producing investable signals.
   - Configurable correlation rules.
   - CLI + notebook access to query.
 
-### B-065 — Watchlist scoring rubric
-- **Status:** open
-- **Priority:** medium
-- **Context:** Each asset gets a daily score from a defined formula. Scores persisted so the score itself can be backtested.
-- **Acceptance criteria:**
-  - Rubric documented in `docs/scoring.md`.
-  - Daily scores written to Postgres.
-  - CLI access (`genkei watchlist score`).
-
 ### B-066 — Macro regime classifier integrated into queries
 - **Status:** open
 - **Priority:** low
