@@ -1,0 +1,125 @@
+name: Ingest Staleness Check
+
+# B-071 — daily scheduled health check that runs `genkei watchlist health
+# --json` against the lake, flags any source/endpoint/table tagged
+# STALE / FAIL / MISSING / EMPTY, and opens (or comments on) a per-source
+# GitHub issue.
+#
+# Pairs with workflow-failure-alert.yml: that workflow catches CI runs
+# that *failed*; this one catches sources that *silently stopped working*
+# (a workflow that no longer triggers, a partial-success that didn't fail
+# but didn't write rows either, etc.). Together they cover both kinds of
+# silent breakage that B-071's "constantly gathering" goal requires.
+#
+# Runs on the self-hosted Beelink runner because `genkei watchlist health`
+# queries the homelab Postgres directly (GH-hosted runners can't reach it).
+
+on:
+  schedule:
+    # Daily at 14:00 UTC — after all the morning ingest crons have run
+    # (DeFiLlama 10:30, CoinGecko/FRED/SEC roughly in that window) so
+    # a freshly-stale source surfaces same-day, not 24h late.
+    - cron: "0 14 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    name: Run watchlist health + alert on non-OK rows
+    runs-on: [self-hosted, beelink]
+    timeout-minutes: 10
+    env:
+      GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+
+      - name: Run watchlist health + raise issues for non-OK rows
+        run: |
+          set -euo pipefail
+          DETECTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          # Capture the JSON once, parse with Python (less brittle than jq
+          # for nested optional fields), emit one TSV row per unhealthy
+          # entry. STALE / FAIL / MISSING / EMPTY all qualify; OK skipped.
+          UNHEALTHY=$(genkei watchlist health --json | python3 -c '
+          import json, sys
+          rows = json.load(sys.stdin)
+          for r in rows:
+              tag = r.get("health_status")
+              if tag in (None, "OK"):
+                  continue
+              src = r.get("source", "?")
+              # Ingest-run rows have "endpoint"; primary-table-liveness rows have "table".
+              ep = r.get("endpoint") or r.get("table") or "?"
+              age = r.get("age_hours")
+              age_str = f"{age}h" if age is not None else "n/a"
+              err = (r.get("error") or "").replace("\t", " ").replace("\n", " ")[:200]
+              print(f"{src}\t{ep}\t{tag}\t{age_str}\t{err}")
+          ')
+
+          if [ -z "${UNHEALTHY}" ]; then
+              echo "All sources OK."
+              exit 0
+          fi
+
+          echo "Unhealthy rows:"
+          echo "${UNHEALTHY}"
+
+          # One issue per (source, endpoint) so each can be tracked + closed
+          # independently. Repeat failures on the same row add comments
+          # rather than spawning a new issue per day.
+          echo "${UNHEALTHY}" | while IFS=$'\t' read -r SRC EP TAG AGE ERR; do
+              TITLE="[ingest-alert] ${SRC} ${EP} — ${TAG}"
+              # Exact-title match (not fuzzy search) so sec/collect and
+              # sec/normalize don't collapse onto the same issue.
+              EXISTING_NUMBER=$(gh issue list \
+                  --state open \
+                  --limit 1000 \
+                  --json number,title \
+                  --jq ".[] | select(.title == \"${TITLE}\") | .number" \
+                  | head -1)
+
+              if [ -n "${EXISTING_NUMBER}" ]; then
+                  gh issue comment "${EXISTING_NUMBER}" --body "Still **${TAG}** as of ${DETECTED}. age=${AGE}${ERR:+, last error: ${ERR}}"
+                  echo "Commented on existing issue #${EXISTING_NUMBER} for ${SRC}/${EP}."
+              else
+                  gh issue create \
+                      --title "${TITLE}" \
+                      --body "Source **\`${SRC}\`** endpoint **\`${EP}\`** flagged **${TAG}** by \`genkei watchlist health\`.
+
+          - Age since last successful run: ${AGE}
+          - Last error: ${ERR:-(none)}
+          - Detected at: ${DETECTED}
+
+          ---
+
+          Auto-opened by \`.github/workflows/ingest-staleness-check.yml\` (B-071).
+          Close manually once the underlying source is healthy again; daily
+          re-runs will add comments rather than reopen new issues. To debug
+          locally:
+
+          \`\`\`bash
+          genkei watchlist health
+          # or for the JSON shape this workflow consumes:
+          genkei watchlist health --json
+          \`\`\`"
+                  echo "Opened new issue for ${SRC}/${EP} (${TAG})."
+              fi
+          done
