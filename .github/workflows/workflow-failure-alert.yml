@@ -1,10 +1,10 @@
 name: Workflow Failure Alert
 
 # B-071 — open or update a GitHub issue when a watched workflow fails.
-# Listens to `workflow_run: types: [completed]` for every daily ingest +
-# the CI test workflow. On `conclusion == 'failure'`, opens a per-workflow
-# issue (or comments on the existing open one) so silent overnight
-# failures show up the next time someone looks at the repo.
+# Listens to `workflow_run: types: [completed]` for every daily ingest,
+# the CI test workflow, and the staleness checker. On `conclusion == 'failure'`,
+# opens a per-workflow issue (or comments on the existing open one) so silent
+# overnight failures show up the next time someone looks at the repo.
 #
 # Why workflow_run (centralized) instead of `if: failure()` (per-workflow)?
 # One file to maintain, captures every workflow without per-workflow
@@ -23,6 +23,7 @@ on:
       - "CoinGecko Daily Market Data"
       - "FRED Daily Macro"
       - "SEC EDGAR Daily"
+      - "Ingest Staleness Check"
     types: [completed]
 
 permissions:
