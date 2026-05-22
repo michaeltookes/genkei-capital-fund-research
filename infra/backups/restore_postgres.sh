@@ -33,10 +33,11 @@ IMAGE="${IMAGE:-timescale/timescaledb:latest-pg16}"
 docker info >/dev/null 2>&1 || { echo "docker not available" >&2; exit 1; }
 
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
+die() { log "FATAL: $*" >&2; exit "${2:-1}"; }
 
 cleanup() {
   if [ "${KEEP_CONTAINER:-0}" = "1" ]; then
-    log "container kept as $NAME (port $PORT, password $PASSWORD)"
+    log "container kept as $NAME (port $PORT)"
   else
     docker rm -f "$NAME" >/dev/null 2>&1 || true
   fi
@@ -54,13 +55,16 @@ docker run -d --name "$NAME" \
   -p "$PORT":5432 \
   "$IMAGE" >/dev/null
 
+ready=0
 for i in $(seq 1 30); do
   if docker exec "$NAME" pg_isready -U genkei_capital -d genkei_capital -q; then
     log "container ready after ${i}s"
+    ready=1
     break
   fi
   sleep 1
 done
+[ "$ready" -eq 1 ] || die "restore target $NAME did not become ready within 30s"
 
 # --- TimescaleDB pre-restore --------------------------------------------------
 #
@@ -99,21 +103,35 @@ docker exec "$NAME" psql -U genkei_capital -d genkei_capital -c \
 # the comparison and just report the restored counts.
 
 TABLES=(sec.filings sec.form4_transactions meta.raw_blobs sec.form4_normalized_filings defillama.stablecoins coingecko.market_data meta.ingest_runs meta.signals)
+LIVE_CONTAINER="${LIVE_CONTAINER:-genkeicapital-postgres}"
+live_reachable=0
+if [ "$(docker inspect -f '{{.State.Running}}' "$LIVE_CONTAINER" 2>/dev/null || true)" = "true" ] \
+  && docker exec "$LIVE_CONTAINER" pg_isready -U genkei_capital -d genkei_capital -q; then
+  live_reachable=1
+else
+  log "live container $LIVE_CONTAINER not reachable; reporting restored counts only"
+fi
 
 mismatches=0
 log "parity check across ${#TABLES[@]} tables:"
 for t in "${TABLES[@]}"; do
   restored=$(docker exec "$NAME" psql -U genkei_capital -d genkei_capital -tAc \
     "SELECT count(*) FROM $t" 2>/dev/null || echo "ERR")
-  if docker inspect genkeicapital-postgres >/dev/null 2>&1; then
-    live=$(docker exec genkeicapital-postgres psql -U genkei_capital -d genkei_capital -tAc \
+  if [ "$live_reachable" -eq 1 ]; then
+    live=$(docker exec "$LIVE_CONTAINER" psql -U genkei_capital -d genkei_capital -tAc \
       "SELECT count(*) FROM $t" 2>/dev/null || echo "ERR")
-    if [ "$live" = "$restored" ]; then
+    if [ "$live" = "ERR" ] || [ "$restored" = "ERR" ]; then
+      printf "  %-40s live=%-10s restored=%-10s MISMATCH\n" "$t" "$live" "$restored"
+      mismatches=$((mismatches + 1))
+    elif [ "$live" = "$restored" ]; then
       printf "  %-40s live=%-10s restored=%-10s OK\n" "$t" "$live" "$restored"
     else
       printf "  %-40s live=%-10s restored=%-10s MISMATCH\n" "$t" "$live" "$restored"
       mismatches=$((mismatches + 1))
     fi
+  elif [ "$restored" = "ERR" ]; then
+    printf "  %-40s restored=%-10s MISMATCH\n" "$t" "$restored"
+    mismatches=$((mismatches + 1))
   else
     printf "  %-40s restored=%s (live not reachable)\n" "$t" "$restored"
   fi

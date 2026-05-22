@@ -35,7 +35,7 @@ die() { log "FATAL: $*" >&2; exit "${2:-1}"; }
 
 # --- Preflight ----------------------------------------------------------------
 
-docker inspect "$CONTAINER" >/dev/null 2>&1 \
+[ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null || true)" = "true" ] \
   || die "container $CONTAINER is not running"
 
 mkdir -p "$BACKUP_DIR"/{daily,weekly,monthly}

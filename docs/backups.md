@@ -78,7 +78,7 @@ The scripts live in this repo; installing them on the Beelink is a one-time manu
 
 ```bash
 # On the Beelink:
-ssh michael@192.168.86.36
+ssh michael@<beelink-host>
 mkdir -p ~/homelab/scripts/genkei-backups
 cd ~/homelab/scripts/genkei-backups
 
@@ -175,8 +175,8 @@ The procedure documented above was end-to-end verified on 2026-05-22 against the
 | Restored DB size | 1,448 MB (within 5% of live; expected — no index bloat) |
 | Hypertables restored | 9 |
 | Hypertable chunks restored | 1,094 |
-| Tables checked for row-count parity | 9 |
-| Parity matches | 9 of 9 |
+| Tables checked for row-count parity | 8 |
+| Parity matches | 8 of 8 |
 | Parity mismatches | 0 |
 | TimescaleDB extension restored | yes (`CREATE EXTENSION` → `pre_restore()` → `pg_restore` → `post_restore()`) |
 
