@@ -8,10 +8,13 @@ layer (test_watchlist_cmd) so this module stays offline + deterministic.
 from __future__ import annotations
 
 import unittest
+from datetime import datetime, timezone
+from unittest.mock import patch
 
 from genkei.common.schema_drift import (
     SCHEMA_SPECS,
     EndpointSchema,
+    check_recent_blobs,
     check_payload,
 )
 
@@ -171,6 +174,51 @@ class SpecRegistryTests(unittest.TestCase):
         sources = {s.source for s in SCHEMA_SPECS}
         # Pin coverage so adding a new ingester forces a corresponding spec.
         self.assertEqual(sources, {"defillama", "coingecko", "fred", "sec"})
+
+    def test_sec_submissions_spec_excludes_history_pages(self) -> None:
+        spec = next(s for s in SCHEMA_SPECS if s.endpoint_kind == "submissions_<cik>")
+        self.assertIn("submissions\\_history\\_%", spec.endpoint_pattern_excludes)
+
+
+class RecentBlobQueryTests(unittest.TestCase):
+    def test_exclude_patterns_are_bound_into_recent_blob_query(self) -> None:
+        spec = next(s for s in SCHEMA_SPECS if s.endpoint_kind == "submissions_<cik>")
+        captured: dict[str, object] = {}
+
+        class FakeCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, sql: str, params: list[object]) -> None:
+                captured["sql"] = sql
+                captured["params"] = params
+
+            def fetchone(self):
+                return (
+                    "submissions_0000320193",
+                    {"cik": "0000320193", "name": "Apple Inc.", "filings": {}},
+                    datetime.now(timezone.utc),
+                )
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def cursor(self):
+                return FakeCursor()
+
+        with patch("genkei.common.schema_drift.db.connection", return_value=FakeConn()):
+            issues = check_recent_blobs(max_age_hours=72, specs=(spec,))
+
+        self.assertEqual(issues, [])
+        self.assertIn("endpoint_name NOT LIKE", str(captured["sql"]))
+        self.assertIn("submissions\\_history\\_%", captured["params"])
 
 
 class RealisticPayloadShapeTests(unittest.TestCase):

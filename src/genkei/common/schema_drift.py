@@ -187,6 +187,7 @@ SCHEMA_SPECS: tuple[EndpointSchema, ...] = (
         source="sec",
         endpoint_kind="submissions_<cik>",
         endpoint_pattern="submissions\\_%",
+        endpoint_pattern_excludes=("submissions\\_history\\_%",),
         payload_type="object",
         required_keys=("cik", "name", "filings"),
     ),
