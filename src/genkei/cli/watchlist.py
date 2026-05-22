@@ -1,6 +1,6 @@
 """``genkei watchlist`` — watchlist coverage & data-lake health (B-044).
 
-Three subcommands:
+Four subcommands:
 
 * **list** — dump the watchlist by sleeve (crypto / equities / macro).
 * **health** — per-source ingest health: latest collect + normalize
@@ -8,6 +8,13 @@ Three subcommands:
   that should have existed when 3/4 sources went dark silently for ~4
   days (G-027/G-028/D-020). Built loud: any source with a recent
   failure or a stale primary table prints a clear FAIL or STALE tag.
+  Now also folds in schema-drift findings (B-072) — each drift issue
+  surfaces as a row with ``health_status: "DRIFT"`` so the B-071
+  staleness alerter automatically opens GitHub issues for them.
+* **drift** — focused B-072 view: just the schema-drift findings,
+  no ingest-runs or liveness rows. Use when you want to verify a
+  recent normalizer/spec change end-to-end without scanning the full
+  health output.
 * **gaps** — per-asset freshness: when was the most recent data point
   for each watchlist asset, and how many hours ago was that. Surfaces
   individual assets that have fallen behind even when the source as a
@@ -18,6 +25,8 @@ Usage:
   genkei watchlist list --sleeve crypto
   genkei watchlist health
   genkei watchlist health --json
+  genkei watchlist drift
+  genkei watchlist drift --json
   genkei watchlist gaps
   genkei watchlist gaps --threshold-hours 48
 """
@@ -32,6 +41,7 @@ from psycopg import sql
 
 from genkei.cli._helpers import json_default as _json_default
 from genkei.common import db
+from genkei.common.schema_drift import check_recent_blobs
 from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
     Watchlist,
@@ -262,7 +272,10 @@ def _query_source_health() -> list[dict[str, Any]]:
 
 
 def _health_status_tag(row: dict[str, Any], *, stale_hours: float) -> str:
-    """Render one of OK / STALE / FAIL / MISSING / EMPTY for a row."""
+    """Render one of OK / STALE / FAIL / MISSING / EMPTY / DRIFT for a row."""
+    # Drift rows (B-072) come pre-tagged from `_drift_rows`; preserve.
+    if row.get("drift_kind"):
+        return "DRIFT"
     if "has_rows" in row:
         if row.get("error"):
             return "FAIL"
@@ -286,6 +299,46 @@ def _health_status_tag(row: dict[str, Any], *, stale_hours: float) -> str:
     return "OK"
 
 
+def _drift_rows(max_age_hours: int = 72) -> list[dict[str, Any]]:
+    """Run the B-072 schema-drift check and shape results as health rows.
+
+    Each row has `source`, `endpoint`, `endpoint_kind`, `drift_kind`,
+    `detail`, `error`, and `sample_endpoint_name` — enough for
+    `_health_status_tag` to tag it DRIFT, for the human/JSON formatters
+    to render it, and for the B-071 staleness alerter
+    (`.github/workflows/ingest-staleness-check.yml`) picks them up via
+    its existing "filter out OK rows, open issues for the rest" pass.
+    """
+    try:
+        issues = check_recent_blobs(max_age_hours=max_age_hours)
+    except Exception as exc:  # noqa: BLE001 — defensive
+        # Don't let a drift-check failure mask the rest of the health
+        # output. Surface it as one DRIFT row instead.
+        return [
+            {
+                "source": "schema_drift",
+                "endpoint": "(checker)",
+                "endpoint_kind": "(checker)",
+                "drift_kind": "CHECKER_ERROR",
+                "detail": str(exc)[:300],
+                "error": str(exc)[:300],
+                "sample_endpoint_name": None,
+            }
+        ]
+    return [
+        {
+            "source": issue.source,
+            "endpoint": issue.endpoint_kind,
+            "endpoint_kind": issue.endpoint_kind,
+            "drift_kind": issue.kind,
+            "detail": issue.detail,
+            "error": issue.detail,
+            "sample_endpoint_name": issue.sample_endpoint_name,
+        }
+        for issue in issues
+    ]
+
+
 def _with_health_status(
     rows: list[dict[str, Any]], *, stale_hours: float
 ) -> list[dict[str, Any]]:
@@ -296,8 +349,9 @@ def _with_health_status(
 
 
 def _format_health_human(rows: list[dict[str, Any]], *, stale_hours: float) -> str:
-    runs = [r for r in rows if "endpoint" in r]
+    runs = [r for r in rows if "endpoint" in r and "drift_kind" not in r]
     counts = [r for r in rows if "table" in r]
+    drift = [r for r in rows if r.get("drift_kind")]
     lines: list[str] = []
     lines.append(f"Source ingest runs (stale = no successful run in {stale_hours}h)")
     lines.append("-" * len(lines[-1]))
@@ -324,6 +378,21 @@ def _format_health_human(rows: list[dict[str, Any]], *, stale_hours: float) -> s
         else:
             data = f"{r['row_count']:,}" if r["row_count"] is not None else "-"
         lines.append(f"  {r['source']:<11} {r['table']:<26} {tag:<8} {data:>8}")
+    if drift:
+        lines.append("")
+        lines.append(
+            "Schema drift (B-072 — load-bearing keys missing or wrong type in recent raw_blobs)"
+        )
+        lines.append("-" * len(lines[-1]))
+        lines.append(f"  {'source':<11} {'endpoint_kind':<26} {'kind':<22}  detail")
+        for r in drift:
+            kind = r["drift_kind"]
+            ep_kind = r["endpoint_kind"]
+            sample = r.get("sample_endpoint_name")
+            detail = r["detail"]
+            if sample:
+                detail = f"({sample}) {detail}"
+            lines.append(f"  {r['source']:<11} {ep_kind:<26} {kind:<22}  {detail[:120]}")
     return "\n".join(lines)
 
 
@@ -337,12 +406,29 @@ def health_cmd(
             min=1,
         ),
     ] = 36.0,
+    drift_max_age_hours: Annotated[
+        int,
+        typer.Option(
+            "--drift-max-age-hours",
+            help="Schema-drift check ignores raw_blobs older than this (B-072).",
+            min=1,
+        ),
+    ] = 72,
+    skip_drift: Annotated[
+        bool,
+        typer.Option(
+            "--skip-drift",
+            help="Skip the B-072 schema-drift check (faster, but blind to silent payload changes).",
+        ),
+    ] = False,
     json_out: Annotated[
         bool, typer.Option("--json", help="Emit machine-readable JSON.")
     ] = False,
 ) -> None:
-    """Show per-source ingest health + primary-table liveness."""
+    """Show per-source ingest health + primary-table liveness + schema drift."""
     rows = _query_source_health()
+    if not skip_drift:
+        rows = rows + _drift_rows(max_age_hours=drift_max_age_hours)
     if json_out:
         typer.echo(
             json.dumps(
@@ -353,6 +439,63 @@ def health_cmd(
         )
     else:
         typer.echo(_format_health_human(rows, stale_hours=stale_hours))
+
+
+# ---------------------------------------------------------------------------
+# `genkei watchlist drift`
+# ---------------------------------------------------------------------------
+
+
+@app.command("drift")
+def drift_cmd(
+    max_age_hours: Annotated[
+        int,
+        typer.Option(
+            "--max-age-hours",
+            help="Ignore raw_blobs older than this when sampling.",
+            min=1,
+        ),
+    ] = 72,
+    json_out: Annotated[
+        bool, typer.Option("--json", help="Emit machine-readable JSON.")
+    ] = False,
+) -> None:
+    """B-072 schema-drift check — load-bearing keys per (source, endpoint_kind).
+
+    Surfaces drift findings only — no ingest-runs or primary-table
+    liveness rows. For the full picture run ``genkei watchlist health``,
+    which folds these same rows in (the staleness alerter in
+    ``.github/workflows/ingest-staleness-check.yml`` reads the JSON
+    shape that health emits).
+    """
+    rows = _drift_rows(max_age_hours=max_age_hours)
+    if json_out:
+        # Match the health-JSON shape so consumers can pipe both paths.
+        typer.echo(
+            json.dumps(
+                [{**r, "health_status": "DRIFT"} for r in rows],
+                indent=2,
+                default=_json_default,
+            )
+        )
+        return
+    if not rows:
+        typer.echo("No schema drift detected across recent raw_blobs. ✓")
+        return
+    lines = [
+        f"Schema drift across recent raw_blobs (max age: {max_age_hours}h)",
+        "-" * 80,
+        f"  {'source':<11} {'endpoint_kind':<26} {'kind':<22}  detail",
+    ]
+    for r in rows:
+        kind = r["drift_kind"]
+        ep_kind = r["endpoint_kind"]
+        sample = r.get("sample_endpoint_name")
+        detail = r["detail"]
+        if sample:
+            detail = f"({sample}) {detail}"
+        lines.append(f"  {r['source']:<11} {ep_kind:<26} {kind:<22}  {detail[:120]}")
+    typer.echo("\n".join(lines))
 
 
 # ---------------------------------------------------------------------------

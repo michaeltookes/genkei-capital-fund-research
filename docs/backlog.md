@@ -431,14 +431,6 @@ Reliability work that grows in importance as more sources go live.
   - Restore drill performed and documented.
   - Off-site copy strategy decided.
 
-### B-072 — Schema-drift detection
-- **Status:** open
-- **Priority:** medium
-- **Context:** Source APIs add/remove fields; pipeline should surface this rather than silently degrading.
-- **Acceptance criteria:**
-  - Per-source canary check on field shape.
-  - Drift logged + surfaced in ingest-health summary.
-
 ### B-073 — Secrets policy and rotation
 - **Status:** open
 - **Priority:** low
