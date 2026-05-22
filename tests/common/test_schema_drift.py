@@ -14,8 +14,8 @@ from unittest.mock import patch
 from genkei.common.schema_drift import (
     SCHEMA_SPECS,
     EndpointSchema,
-    check_recent_blobs,
     check_payload,
+    check_recent_blobs,
 )
 
 
