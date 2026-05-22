@@ -2,9 +2,9 @@ name: Workflow Failure Alert
 
 # B-071 — open or update a GitHub issue when a watched workflow fails.
 # Listens to `workflow_run: types: [completed]` for every daily ingest,
-# the CI test workflow, and the staleness checker. On `conclusion == 'failure'`,
-# opens a per-workflow issue (or comments on the existing open one) so silent
-# overnight failures show up the next time someone looks at the repo.
+# the CI test workflow, and the staleness checker. On a failure/timeout
+# conclusion, opens a per-workflow issue (or comments on the existing open one)
+# so silent overnight failures show up the next time someone looks at the repo.
 #
 # Why workflow_run (centralized) instead of `if: failure()` (per-workflow)?
 # One file to maintain, captures every workflow without per-workflow
@@ -32,8 +32,8 @@ permissions:
 
 jobs:
   alert:
-    # Only act on failures. `cancelled` and `success` are ignored.
-    if: ${{ github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == github.event.repository.default_branch }}
+    # Only act on failures/timeouts. `cancelled` and `success` are ignored.
+    if: ${{ (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'timed_out') && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == github.event.repository.default_branch }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -43,6 +43,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           WORKFLOW_URL: ${{ github.event.workflow_run.html_url }}
           RUN_ID: ${{ github.event.workflow_run.id }}
           BRANCH: ${{ github.event.workflow_run.head_branch }}
@@ -65,19 +66,19 @@ jobs:
               | head -1)
 
           if [ -n "${EXISTING_NUMBER}" ]; then
-              gh issue comment "${EXISTING_NUMBER}" --body "Failed again on \`${BRANCH}\` @ \`${SHORT_SHA}\` (event: \`${EVENT}\`).
+              gh issue comment "${EXISTING_NUMBER}" --body "Completed with **${CONCLUSION}** again on \`${BRANCH}\` @ \`${SHORT_SHA}\` (event: \`${EVENT}\`).
           Run: ${WORKFLOW_URL}
           Detected: ${DETECTED}"
               echo "Commented on existing issue #${EXISTING_NUMBER}."
           else
               gh issue create \
                   --title "${TITLE}" \
-                  --body "The **${WORKFLOW_NAME}** workflow failed.
+                  --body "The **${WORKFLOW_NAME}** workflow completed with **${CONCLUSION}**.
 
           - Branch: \`${BRANCH}\`
           - Commit: \`${SHORT_SHA}\`
           - Triggering event: \`${EVENT}\`
-          - Failed run: ${WORKFLOW_URL}
+          - Run: ${WORKFLOW_URL}
           - Detected at: ${DETECTED}
 
           ---
