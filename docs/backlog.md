@@ -456,15 +456,6 @@ Reliability work that grows in importance as more sources go live.
   - Rotation cadence per provider.
   - Access list captured (currently single-user, but documented).
 
-### B-074 — Architecture diagram + expanded README
-- **Status:** open
-- **Priority:** medium
-- **Context:** Onboarding the user-as-future-self after weeks away — and onboarding the agent itself.
-- **Acceptance criteria:**
-  - High-level diagram in `docs/architecture.md`.
-  - README explains data lake + CLI + agent end-to-end.
-  - Per-component pointers to deeper docs.
-
 ### B-075 — License and redistribution audit
 - **Status:** open
 - **Priority:** low
