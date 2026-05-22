@@ -6,7 +6,7 @@ Operating *as if* a real fund — data hygiene, archival, audit trail at fund-gr
 
 ## The loop
 
-```
+```text
    ┌──────────────────┐        ┌──────────────────┐        ┌─────────────────────┐
    │  External APIs   │        │     Postgres     │        │    `genkei` CLI     │
    │                  │        │   (TimescaleDB)  │        │                     │
@@ -49,10 +49,15 @@ python3 -m venv .venv
 cp .env.example .env
 $EDITOR .env                   # at minimum: GENKEI_DATABASE_URL
 
-# 3. Apply migrations
+# 3. Load .env into this shell
+set -a
+source .env
+set +a
+
+# 4. Apply migrations
 alembic upgrade head
 
-# 4. Sanity check
+# 5. Sanity check
 genkei watchlist health        # OK status across every primary table
 genkei prices --ticker BTC     # latest BTC price from the lake
 genkei revenue-divergence      # protocol fundamentals vs token price
@@ -97,7 +102,7 @@ The `genkei` command is the canonical query layer — Bash-composable, `--json` 
 
 The data lake's fourth use case ("on-demand AI researcher") runs through a disciplined methodology — checklist, decision log, reflection cycle.
 
-```
+```text
 /research <question>     → loads prompts/research-methodology.md
                          → walks frame → macro → fundamentals → flow →
                            cross-source (Phase A) → counter-thesis (Phase B) → conclusion
@@ -122,7 +127,7 @@ Tests (`python3 -m unittest discover -s tests`) must pass before any push — 59
 
 ## Repository layout
 
-```
+```text
 src/genkei/
 ├── common/          db.py / http.py / config.py / watchlist.py — shared primitives
 ├── ingest/          one collector per source (defillama, coingecko, sec, fred, sec_form4, onchain_staking)
@@ -146,7 +151,7 @@ tests/               unit + testcontainers-backed integration
 - **Tests** — `python3 -m unittest discover -s tests` must pass before any push. Deterministic + offline by default; integration tests opt in via `testcontainers[postgres]`.
 - **Branches** — feature branches, never push to `main`. PRs short: `## Summary` + `## Test plan`.
 - **Commit messages** — explain the *why*, not the *what*. AI co-author trailer on auto-generated commits.
-- **Backlog hygiene** — `docs/backlog.md` (47 open) + `docs/resolved.md` (46 resolved). Use the `update-backlog` skill after meaningful commits.
+- **Backlog hygiene** — `docs/backlog.md` (46 open) + `docs/resolved.md` (47 resolved). Use the `update-backlog` skill after meaningful commits.
 - **Secrets** — never in the repo. `.env` (gitignored) locally, GH Actions secrets for CI.
 - **Raw vendor data** — never committed. Postgres is the system of record.
 - **Decision files** — append-only. Reconsidering a prior call writes a NEW file referencing the old one.

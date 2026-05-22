@@ -9,7 +9,7 @@ The point of the bottom half: when context gets cleared, the next session (Claud
 
 **Updating discipline:** any commit that makes a non-obvious choice (a tradeoff with a real alternative) or surfaces a non-obvious surprise (a thing future-you wouldn't predict) appends an entry below in the same commit. If the entry is missing, the commit is incomplete.
 
-**Last updated:** 2026-05-21 (Phase 2: 4/10 done + 3 carve-outs — FRED + SEC EDGAR + CoinGecko + B-079 Form 4 + B-081 DefiLlama protocol TVL + B-082 on-chain staking + B-083 protocol fees. Phase 3: 9/11 done — `prices`, `filings`, `tvl`, `macro`, `watchlist`, `query`, `insiders`, `insider-clusters`, `revenue-divergence`, `relative-strength`, only `news` stubbed. Phase 4 foundation laid (research methodology + decision log + `/research` and `/reflect-decisions` skills). Phase 5: 3/11 done — `insider_clusters`, `protocol_revenue`, `relative_strength`. Phase 6 started — `analytics.crypto_relative_strength` view + `relative-strength` CLI (B-090).)
+**Last updated:** 2026-05-21 (Phase 2: 4/10 done + 3 carve-outs — FRED + SEC EDGAR + CoinGecko + B-079 Form 4 + B-081 DefiLlama protocol TVL + B-082 on-chain staking + B-083 protocol fees. Phase 3: 10/11 done — `prices`, `filings`, `tvl`, `macro`, `watchlist`, `query`, `insiders`, `insider-clusters`, `revenue-divergence`, `relative-strength`, only `news` stubbed. Phase 4 foundation laid (research methodology + decision log + `/research` and `/reflect-decisions` skills). Phase 5: 3/11 done — `insider_clusters`, `protocol_revenue`, `relative_strength`. Phase 6 started — `analytics.crypto_relative_strength` view + `relative-strength` CLI (B-090).)
 
 > **Read this first if you're new (or future-you after weeks away).** Then dive into the per-component docs at the bottom for depth.
 
@@ -197,7 +197,7 @@ src/genkei/
 
 | Piece | What | Where to learn more |
 |---|---|---|
-| **Backlog hygiene** | `docs/backlog.md` (open items, 47 active) + `docs/resolved.md` (completed, 46 entries). Updated via the `update-backlog` skill after meaningful commits. | `docs/backlog.md` |
+| **Backlog hygiene** | `docs/backlog.md` (open items, 46 active) + `docs/resolved.md` (completed, 47 entries). Updated via the `update-backlog` skill after meaningful commits. | `docs/backlog.md` |
 | **Mission queue** | `missions/pending/` and `missions/done/`. Async / overnight execution loop driven by the `run-missions` skill. | `docs/missions.md`, R-005 |
 | **Test fixture** | `tests/_postgres.py` — singleton TimescaleDB testcontainer; `postgres_required` decorator gracefully skips when Docker absent. `truncate_all()` for cleanup between tests that go through real `db` helpers. | R-016 |
 | **Test counts** | 599 total — most unit + ~25 integration (skip locally when Docker absent; CI runs them all). | R-023 |
@@ -294,7 +294,7 @@ Each mission is one markdown file: title, context, checklist of acceptance crite
 | **Phase 4** — Agent layer | 🟡 foundation laid | `/research` skill walks `prompts/research-methodology.md` and lands decision files in `docs/research/decisions/`; `/reflect-decisions` walks resolved entries. Three decisions on file (LINK, CRM activist, SUI). B-051/052/053 (delivery surface, open-questions log, ingest-health summary) still open. |
 | **Phase 5** — Experiments framework | 🟡 3/11 done | `insider_clusters` (B-060), `protocol_revenue` / `revenue-divergence` (B-062), `relative_strength` (paired with B-090 Phase-6 view). Notebook reproducibility pattern (B-054/055) deferred — CLI + experiments modules have absorbed the experiment shape. |
 | **Phase 6** — Inefficiency-detection signals | 🟡 started | `analytics.crypto_relative_strength` view + `genkei relative-strength` CLI (B-090). Cross-source correlation engine (B-064), scoring rubric (B-065), regime classifier integration (B-066), multi-day trend aggregations (B-067), alert engine (B-068), anomaly detection (B-069) still open. |
-| **Phase 7** — Operations & hardening | 🟡 in progress | B-077 (self-hosted runner) done; B-074 (this doc + README refresh) in flight; B-070 backups, B-071 alerting, B-072 schema-drift, B-073 secrets, B-075 license audit, B-076 quota tracking still open. |
+| **Phase 7** — Operations & hardening | 🟡 in progress | B-077 (self-hosted runner) done; B-074 (this doc + README refresh) done; B-070 backups, B-071 alerting, B-072 schema-drift, B-073 secrets, B-075 license audit, B-076 quota tracking still open. |
 
 See `docs/backlog.md` for the live list, `docs/resolved.md` for the chronicle.
 
@@ -319,8 +319,8 @@ Tracked as backlog items so they don't block forward motion:
 | `docs/missions.md` | Mission queue format, manual + scheduled invocation, monitoring |
 | `docs/defillama-mvp.md` | DeFiLlama-specific pipeline notes (legacy; predates Postgres refactor) |
 | `docs/defillama-daily-review.md` | Acceptance gates for the legacy markdown brief (relevance pending B-025) |
-| `docs/backlog.md` | Open items, 47 entries across 8 phases |
-| `docs/resolved.md` | Completed milestones, 46 entries with evidence |
+| `docs/backlog.md` | Open items, 46 entries across 8 phases |
+| `docs/resolved.md` | Completed milestones, 47 entries with evidence |
 | `docs/research/README.md` | Investment-research decision log + frontmatter contract |
 | `prompts/research-methodology.md` | The checklist `/research` walks per session |
 | `prompts/reflect-on-decisions.md` | The outcome-pairing cycle `/reflect-decisions` runs |
