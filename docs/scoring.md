@@ -72,7 +72,7 @@ A negative score on an equity-core position doesn't mean "sell" — it means "do
 ```sql
 CREATE TABLE meta.signals (
     asset           TEXT        NOT NULL,    -- ticker (AAPL) or coingecko_id (bitcoin)
-    ts              TIMESTAMPTZ NOT NULL,    -- score timestamp
+    ts              TIMESTAMPTZ NOT NULL,    -- UTC daily score timestamp (00:00)
     rubric_version  TEXT        NOT NULL,    -- "v1" today; future rubrics ship as v2/v3
     asset_class     TEXT        NOT NULL,    -- 'equity' | 'crypto'
     sleeve          TEXT        NOT NULL,    -- equity-core | crypto-core | crypto-tactical
@@ -93,7 +93,7 @@ Plain table — not hypertable. Volume is ~35 watchlist assets × 1 score/day = 
 # Compute today's scores in-memory and print sorted by composite DESC.
 genkei watchlist score
 
-# Same + write to meta.signals (idempotent on (asset, ts, rubric_version)).
+# Same + write to meta.signals (idempotent on (asset, UTC-day ts, rubric_version)).
 genkei watchlist score --persist
 
 # Drill into one asset.

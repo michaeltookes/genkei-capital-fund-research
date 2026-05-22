@@ -15,10 +15,12 @@ from unittest.mock import patch
 from genkei.experiments.watchlist_scoring import (
     RUBRIC_VERSION,
     ComponentScore,
+    _daily_score_ts,
     _load_crypto_signals,
     _load_macro_inputs,
     compose_crypto_score,
     compose_equity_score,
+    compute_today,
     score_filings_velocity,
     score_insider_flow,
     score_macro_regime,
@@ -27,6 +29,7 @@ from genkei.experiments.watchlist_scoring import (
     score_tvl_trend,
     score_volume_momentum,
 )
+from genkei.common.watchlist import EquityEntry, Watchlist
 
 
 class InsiderFlowTests(unittest.TestCase):
@@ -310,6 +313,62 @@ class RubricVersionTests(unittest.TestCase):
 
     def test_rubric_version_is_v1(self) -> None:
         self.assertEqual(RUBRIC_VERSION, "v1")
+
+
+class DailyTimestampTests(unittest.TestCase):
+    def test_daily_score_ts_buckets_same_utc_day(self) -> None:
+        ts = datetime(2026, 5, 22, 15, 45, 30, 123456, tzinfo=timezone.utc)
+
+        self.assertEqual(
+            _daily_score_ts(ts),
+            datetime(2026, 5, 22, tzinfo=timezone.utc),
+        )
+
+    def test_compute_today_uses_daily_score_ts_but_live_loader_ts(self) -> None:
+        run_ts = datetime(2026, 5, 22, 15, 45, tzinfo=timezone.utc)
+        watchlist = Watchlist(
+            crypto=[],
+            equities=[
+                EquityEntry(
+                    symbol="AAPL",
+                    name="Apple Inc.",
+                    cik="0000320193",
+                    tier="primary",
+                    sleeve="core",
+                )
+            ],
+            macro=[],
+            protocols=[],
+        )
+
+        with (
+            patch(
+                "genkei.experiments.watchlist_scoring._load_macro_inputs",
+                return_value={
+                    "dgs10_pct": None,
+                    "dgs10_pct_30d_ago": None,
+                    "hy_oas_pct": None,
+                    "vix": None,
+                    "usd_index": None,
+                    "usd_index_30d_ago": None,
+                },
+            ) as macro_loader,
+            patch(
+                "genkei.experiments.watchlist_scoring._load_equity_signals",
+                return_value={
+                    "buy_cluster_reporters_30d": 0,
+                    "sell_cluster_reporters_30d": 0,
+                    "any_open_market_buy_14d": False,
+                    "revenue_yoy_pct": None,
+                    "eight_k_count_30d": 0,
+                },
+            ) as equity_loader,
+        ):
+            scores = compute_today(watchlist=watchlist, ts=run_ts)
+
+        self.assertEqual(scores[0].ts, datetime(2026, 5, 22, tzinfo=timezone.utc))
+        macro_loader.assert_called_once_with(run_ts)
+        equity_loader.assert_called_once_with("AAPL", "0000320193", run_ts)
 
 
 class LakeLoaderTests(unittest.TestCase):

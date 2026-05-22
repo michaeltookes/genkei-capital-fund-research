@@ -645,6 +645,19 @@ def _load_crypto_signals(
     return inputs
 
 
+def _utc_timestamp(ts: datetime) -> datetime:
+    """Normalize caller-supplied timestamps to aware UTC datetimes."""
+    if ts.tzinfo is None:
+        return ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(timezone.utc)
+
+
+def _daily_score_ts(ts: datetime) -> datetime:
+    """Bucket score timestamps to one UTC row per asset per day."""
+    utc_ts = _utc_timestamp(ts)
+    return utc_ts.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
 def compute_today(
     *,
     watchlist: Watchlist | None = None,
@@ -656,9 +669,10 @@ def compute_today(
     """
     if watchlist is None:
         watchlist = load_watchlist()
-    now = ts or datetime.now(timezone.utc)
+    run_ts = _utc_timestamp(ts or datetime.now(timezone.utc))
+    score_ts = _daily_score_ts(run_ts)
 
-    macro_inputs = _load_macro_inputs(now)
+    macro_inputs = _load_macro_inputs(run_ts)
     shared_macro = score_macro_regime(**macro_inputs)
 
     scores: list[AssetScore] = []
@@ -670,7 +684,7 @@ def compute_today(
             )
 
     for equity in watchlist.equities:
-        signals = _load_equity_signals(equity.symbol, equity.cik, now)
+        signals = _load_equity_signals(equity.symbol, equity.cik, run_ts)
         scores.append(
             compose_equity_score(
                 ticker=equity.symbol,
@@ -687,7 +701,7 @@ def compute_today(
                     eight_k_count_30d=signals["eight_k_count_30d"]
                 ),
                 macro=shared_macro,
-                ts=now,
+                ts=score_ts,
             )
         )
 
@@ -696,7 +710,7 @@ def compute_today(
             continue
         signals = _load_crypto_signals(
             crypto.coingecko_id,
-            now,
+            run_ts,
             protocol_slugs=protocol_slugs_by_coingecko.get(crypto.coingecko_id),
         )
         sleeve_label = f"crypto-{crypto.sleeve or 'core'}"
@@ -715,7 +729,7 @@ def compute_today(
                     volume_30d_avg=signals["volume_30d_avg"],
                 ),
                 macro=shared_macro,
-                ts=now,
+                ts=score_ts,
             )
         )
 
