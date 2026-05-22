@@ -146,6 +146,14 @@ class ArrayPayloadTests(unittest.TestCase):
         self.assertEqual(issues[0].kind, "WRONG_TOP_LEVEL_TYPE")
         self.assertIn("none of the first", issues[0].detail)
 
+    def test_mixed_object_and_non_object_items_report_type_mismatch(self) -> None:
+        spec = _spec(payload_type="array", required_keys=("slug",))
+        payload = [{"slug": "x"}, "not an object", {"slug": "y"}]
+        issues = check_payload(payload, spec)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].kind, "WRONG_TOP_LEVEL_TYPE")
+        self.assertIn("1/3", issues[0].detail)
+
 
 class SpecRegistryTests(unittest.TestCase):
     """Lightweight sanity tests on the SCHEMA_SPECS registry.

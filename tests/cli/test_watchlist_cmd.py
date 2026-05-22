@@ -16,12 +16,14 @@ from genkei.cli import watchlist as watchlist_mod
 from genkei.cli.watchlist import (
     PRIMARY_TABLES,
     RECURRING_ENDPOINTS,
+    _drift_rows,
     _format_gaps_human,
     _format_health_human,
     _format_list_human,
     _health_status_tag,
     _query_source_health,
 )
+from genkei.common.schema_drift import DriftIssue
 
 
 def _watchlist_path(case: unittest.TestCase) -> Path:
@@ -209,6 +211,43 @@ class HealthCommandTests(unittest.TestCase):
             main(["watchlist", "health", "--json", "--stale-hours", "48"])
         parsed = json_mod.loads(out.getvalue())
         self.assertEqual(parsed[0]["health_status"], "STALE")
+
+
+class DriftRowsTests(unittest.TestCase):
+    def test_rows_include_alert_context_fields(self) -> None:
+        issues = [
+            DriftIssue(
+                source="sec",
+                endpoint_kind="submissions_<cik>",
+                sample_endpoint_name="submissions_0000320193",
+                kind="MISSING_REQUIRED_KEY",
+                detail="required key 'filings' not in top-level object",
+            )
+        ]
+        with patch("genkei.cli.watchlist.check_recent_blobs", return_value=issues):
+            rows = _drift_rows(max_age_hours=72)
+
+        self.assertEqual(rows[0]["endpoint"], "submissions_<cik>")
+        self.assertEqual(rows[0]["error"], "required key 'filings' not in top-level object")
+        self.assertEqual(rows[0]["sample_endpoint_name"], "submissions_0000320193")
+
+    def test_no_recent_samples_are_preserved(self) -> None:
+        issues = [
+            DriftIssue(
+                source="fred",
+                endpoint_kind="observations_<id>",
+                sample_endpoint_name=None,
+                kind="NO_RECENT_SAMPLES",
+                detail="no raw_blobs rows matching pattern",
+            )
+        ]
+        with patch("genkei.cli.watchlist.check_recent_blobs", return_value=issues):
+            rows = _drift_rows(max_age_hours=72)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["drift_kind"], "NO_RECENT_SAMPLES")
+        self.assertEqual(rows[0]["endpoint"], "observations_<id>")
+        self.assertEqual(rows[0]["error"], "no raw_blobs rows matching pattern")
 
 
 class QuerySourceHealthTests(unittest.TestCase):

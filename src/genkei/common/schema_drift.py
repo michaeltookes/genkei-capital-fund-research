@@ -305,6 +305,19 @@ def check_payload(payload: Any, spec: EndpointSchema) -> list[DriftIssue]:
                 )
             )
             return issues
+        if non_dict_count > 0:
+            issues.append(
+                DriftIssue(
+                    source=spec.source,
+                    endpoint_kind=spec.endpoint_kind,
+                    sample_endpoint_name=None,
+                    kind="WRONG_TOP_LEVEL_TYPE",
+                    detail=(
+                        f"{non_dict_count}/{len(sample)} sampled array items are not objects "
+                        f"(types: {_describe_sample_types(sample)})"
+                    ),
+                )
+            )
         for key, missing_count in missing_by_key.items():
             if missing_count > 0:
                 issues.append(

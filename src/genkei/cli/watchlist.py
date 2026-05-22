@@ -302,10 +302,10 @@ def _health_status_tag(row: dict[str, Any], *, stale_hours: float) -> str:
 def _drift_rows(max_age_hours: int = 72) -> list[dict[str, Any]]:
     """Run the B-072 schema-drift check and shape results as health rows.
 
-    Each row has `source`, `endpoint_kind`, `drift_kind`, `detail`, and
-    `sample_endpoint_name` — enough for `_health_status_tag` to tag it
-    DRIFT and for the human/JSON formatters to render it. Surfaces these
-    in the same JSON shape so the B-071 staleness alerter
+    Each row has `source`, `endpoint`, `endpoint_kind`, `drift_kind`,
+    `detail`, `error`, and `sample_endpoint_name` — enough for
+    `_health_status_tag` to tag it DRIFT, for the human/JSON formatters
+    to render it, and for the B-071 staleness alerter
     (`.github/workflows/ingest-staleness-check.yml`) picks them up via
     its existing "filter out OK rows, open issues for the rest" pass.
     """
@@ -317,27 +317,25 @@ def _drift_rows(max_age_hours: int = 72) -> list[dict[str, Any]]:
         return [
             {
                 "source": "schema_drift",
+                "endpoint": "(checker)",
                 "endpoint_kind": "(checker)",
                 "drift_kind": "CHECKER_ERROR",
                 "detail": str(exc)[:300],
+                "error": str(exc)[:300],
                 "sample_endpoint_name": None,
             }
         ]
     return [
         {
             "source": issue.source,
+            "endpoint": issue.endpoint_kind,
             "endpoint_kind": issue.endpoint_kind,
             "drift_kind": issue.kind,
             "detail": issue.detail,
+            "error": issue.detail,
             "sample_endpoint_name": issue.sample_endpoint_name,
         }
         for issue in issues
-        # NO_RECENT_SAMPLES is a soft signal (could just mean the
-        # ingester hasn't run yet in the dev environment) — surface in
-        # the human view but skip from the JSON output so B-071's
-        # alerter doesn't open issues for it. STALE rows in the
-        # ingest-runs half of `watchlist health` already cover this.
-        if issue.kind != "NO_RECENT_SAMPLES"
     ]
 
 
