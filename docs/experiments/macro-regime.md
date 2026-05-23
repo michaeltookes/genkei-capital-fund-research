@@ -2,9 +2,9 @@
 
 **B-059.** Phase 5 experiment: bucket every business day into one of five regime labels — `risk_on` / `risk_off` / `easing` / `tightening_stress` / `mixed` — derived from FRED daily series. Output is queryable as the `analytics.macro_regime_per_date` Postgres view, surfaced via `genkei macro-regime`, and consumed by future versions of the watchlist scoring rubric (B-065 v2's `macro_regime` component).
 
-```
+```console
 $ genkei macro-regime
-2026-05-13 — risk_on (inputs=4/4)
+2026-05-13 — risk_on (inputs=4/4, horizon=macro:cross-sleeve:primary)
   DGS10= 4.47 (Δ30d=  0.17), HY= 2.82 (Δ30d= -0.13), VIX=17.87, USD= 118.039 (Δ30d= -0.952)
 ```
 
@@ -16,7 +16,7 @@ The acceptance criteria (B-059) is *"FRED + Treasury + market prices — bucket 
 2. **What regime was the lake in on date X?** A historical view that lets event-study research (B-057, B-061) condition on macro context — "8-K filings tend to move price more in risk_off regimes" becomes a SQL JOIN against the view.
 3. **How long do regimes persist?** The distribution table (`--summary`) shows the empirical base rate of each label.
 
-The bigger question the rubric needs answered eventually — *"does today's regime predict tomorrow's asset returns?"* — is a forward-looking experiment B-058 was supposed to ship. Blocked on B-035 (long-history crypto price ingester); without 5+ years of price data the OOS validation isn't credible. B-059 ships the *regime labels themselves*; pairing them with forward returns is a follow-up.
+The bigger question that needs to be answered eventually — *"does today's regime predict tomorrow's asset returns?"* — is a forward-looking experiment B-058 was supposed to ship. Blocked on B-035 (long-history crypto price ingester); without 5+ years of price data the OOS validation isn't credible. B-059 ships the *regime labels themselves*; pairing them with forward returns is a follow-up.
 
 ## Inputs
 
@@ -55,8 +55,9 @@ Priority-ordered (mutually exclusive — the first match wins):
 
 Distribution across 5,096 days (2006-01-01 → present):
 
-```
+```console
 $ genkei macro-regime --summary --since 2006-01-01
+Regime distribution across 5,096 days (horizon=macro:cross-sleeve:primary)
   regime                   days      share
   tightening_stress           3       0.1%
   risk_off                  871      17.1%

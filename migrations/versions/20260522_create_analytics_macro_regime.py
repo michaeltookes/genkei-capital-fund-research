@@ -16,6 +16,7 @@ Schema:
   ts                   DATE
   regime               TEXT       -- one of {risk_on, risk_off, easing,
                                   --         tightening_stress, mixed}
+  horizon              TEXT       -- macro:cross-sleeve:primary
   dgs10                NUMERIC    -- 10y Treasury yield (%)
   dgs10_30d_change     NUMERIC    -- DGS10 - DGS10@30d_ago (pp)
   hy_oas               NUMERIC    -- BAMLH0A0HYM2 (%)
@@ -161,12 +162,13 @@ def upgrade() -> None:
                 WHEN dgs10_30d_change < -0.5 THEN 'easing'
                 -- Priority 4: risk_on — composite of bull-leaning inputs.
                 -- +1 for each bullish input present, then ≥ 2 to fire.
-                WHEN ((hy_oas < 3.5)::int
-                      + (vix < 18)::int
-                      + (usd_index_30d_change < -1)::int
-                      + (dgs10_30d_change < -0.3)::int) >= 2 THEN 'risk_on'
+                WHEN (COALESCE((hy_oas < 3.5)::int, 0)
+                      + COALESCE((vix < 18)::int, 0)
+                      + COALESCE((usd_index_30d_change < -1)::int, 0)
+                      + COALESCE((dgs10_30d_change < -0.3)::int, 0)) >= 2 THEN 'risk_on'
                 ELSE 'mixed'
             END                              AS regime,
+            'macro:cross-sleeve:primary'::text AS horizon,
             dgs10,
             dgs10_30d_change,
             hy_oas,

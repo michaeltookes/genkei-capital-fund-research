@@ -76,6 +76,8 @@ REGIME_LABELS: tuple[str, ...] = (
     "mixed",
 )
 
+DEFAULT_HORIZON = "macro:cross-sleeve:primary"
+
 
 @dataclass(frozen=True)
 class RegimeInputs:
@@ -103,6 +105,7 @@ class RegimeResult:
 
     ts: date
     regime: str
+    horizon: str
     available_inputs: int
     # The same shape the SQL view emits, so a Python-vs-SQL parity
     # test can compare row-by-row.
@@ -126,7 +129,7 @@ def _delta(now: Decimal | None, prior: Decimal | None) -> Decimal | None:
     return now - prior
 
 
-def classify(inputs: RegimeInputs) -> RegimeResult:
+def classify(inputs: RegimeInputs, *, horizon: str = DEFAULT_HORIZON) -> RegimeResult:
     """Apply the rule-based classifier to one ``RegimeInputs`` row."""
     dgs10_chg = _delta(inputs.dgs10, inputs.dgs10_30d_ago)
     hy_chg = _delta(inputs.hy_oas, inputs.hy_oas_30d_ago)
@@ -172,6 +175,7 @@ def classify(inputs: RegimeInputs) -> RegimeResult:
     return RegimeResult(
         ts=inputs.ts,
         regime=regime,
+        horizon=horizon,
         available_inputs=available,
         dgs10=inputs.dgs10,
         dgs10_30d_change=dgs10_chg,
@@ -211,6 +215,7 @@ def load_regimes(
 
     sql = f"""
         SELECT ts, regime, available_inputs,
+               horizon,
                dgs10, dgs10_30d_change,
                hy_oas, hy_oas_30d_change,
                vix,
@@ -231,6 +236,7 @@ def load_regimes(
         RegimeResult(
             ts=ts,
             regime=regime,
+            horizon=horizon,
             available_inputs=avail,
             dgs10=dgs10,
             dgs10_30d_change=dgs10_chg,
@@ -244,6 +250,7 @@ def load_regimes(
             ts,
             regime,
             avail,
+            horizon,
             dgs10,
             dgs10_chg,
             hy,

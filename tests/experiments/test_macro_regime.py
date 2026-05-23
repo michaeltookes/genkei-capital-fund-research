@@ -8,11 +8,14 @@ separately by the live-smoke during development; not in CI.
 import unittest
 from datetime import date
 from decimal import Decimal
+from unittest.mock import patch
 
 from genkei.experiments.macro_regime import (
+    DEFAULT_HORIZON,
     REGIME_LABELS,
     RegimeInputs,
     classify,
+    load_regimes,
     summarize,
 )
 
@@ -161,6 +164,16 @@ class MixedTests(unittest.TestCase):
         self.assertEqual(r.regime, "mixed")
 
 
+class HorizonTests(unittest.TestCase):
+    def test_classify_emits_default_horizon(self) -> None:
+        r = classify(_inputs())
+        self.assertEqual(r.horizon, DEFAULT_HORIZON)
+
+    def test_classify_accepts_explicit_horizon(self) -> None:
+        r = classify(_inputs(), horizon="macro:custom")
+        self.assertEqual(r.horizon, "macro:custom")
+
+
 class AvailableInputDegradationTests(unittest.TestCase):
     def test_only_one_input_degrades_to_mixed(self) -> None:
         # Pre-1990: only DGS10. Classifier shouldn't extrapolate.
@@ -212,6 +225,7 @@ class SummarizeTests(unittest.TestCase):
             RegimeResult(
                 ts=date(2024, 1, 1),
                 regime="risk_off",
+                horizon=DEFAULT_HORIZON,
                 available_inputs=4,
                 dgs10=None,
                 dgs10_30d_change=None,
@@ -233,6 +247,55 @@ class SummarizeTests(unittest.TestCase):
         counts = summarize([])
         self.assertEqual(set(counts.keys()), set(REGIME_LABELS))
         self.assertTrue(all(v == 0 for v in counts.values()))
+
+
+class LoadRegimesTests(unittest.TestCase):
+    def test_reads_horizon_from_view(self) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, sql, params):
+                captured["sql"] = sql
+                captured["params"] = params
+
+            def fetchall(self):
+                return [
+                    (
+                        date(2024, 6, 1),
+                        "risk_on",
+                        4,
+                        "macro:cross-sleeve:primary",
+                        Decimal("4.0"),
+                        Decimal("-0.4"),
+                        Decimal("3.0"),
+                        Decimal("-0.1"),
+                        Decimal("15"),
+                        Decimal("98"),
+                        Decimal("-2"),
+                    )
+                ]
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def cursor(self):
+                return FakeCursor()
+
+        with patch("genkei.experiments.macro_regime.db.connection", return_value=FakeConn()):
+            rows = load_regimes(since=date(2024, 1, 1), limit=1)
+
+        self.assertIn("horizon", captured["sql"])
+        self.assertEqual(rows[0].horizon, "macro:cross-sleeve:primary")
 
 
 class RegimeLabelsContractTests(unittest.TestCase):
