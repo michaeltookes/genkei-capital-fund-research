@@ -25,6 +25,10 @@ class CryptoEntry:
     coingecko_id: str
     tier: str  # primary | secondary
     sleeve: str | None = None  # core | tactical
+    # Coinbase Exchange product identifier (B-035). Optional because not
+    # every future coin will list on Coinbase; absent → Binance ingester
+    # skips this coin with a logged note.
+    coinbase_product: str | None = None
 
 
 @dataclass(frozen=True)
@@ -145,6 +149,7 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                         coingecko_id=cgid,
                         tier=str(tier_name),
                         sleeve=_optional_string(entry.get("sleeve")),
+                        coinbase_product=_optional_string(entry.get("coinbase_product")),
                     )
                 )
 

@@ -21,30 +21,35 @@ crypto:
     - symbol: BTC
       name: Bitcoin
       coingecko_id: bitcoin
+      coinbase_product: BTC-USD
       ecosystem: Bitcoin
       sleeve: core
       rationale: Long-term core. Reserve asset; macro hedge thesis.
     - symbol: ETH
       name: Ethereum
       coingecko_id: ethereum
+      coinbase_product: ETH-USD
       ecosystem: Ethereum
       sleeve: core
       rationale: Long-term core. Settlement layer for the broader DeFi/L2 economy.
     - symbol: SOL
       name: Solana
       coingecko_id: solana
+      coinbase_product: SOL-USD
       ecosystem: Solana
       sleeve: core
       rationale: Long-term core. High-throughput L1, dominant non-EVM venue.
     - symbol: LINK
       name: Chainlink
       coingecko_id: chainlink
+      coinbase_product: LINK-USD
       ecosystem: Ethereum
       sleeve: core
       rationale: Long-term core. Oracle infrastructure across every major chain.
     - symbol: SUI
       name: Sui
       coingecko_id: sui
+      coinbase_product: SUI-USD
       ecosystem: Sui
       sleeve: tactical
       rationale: Primary-tier coverage, tactical sleeve. Move-based L1 worth tracking closely.
@@ -52,12 +57,14 @@ crypto:
     - symbol: PYTH
       name: Pyth Network
       coingecko_id: pyth-network
+      coinbase_product: PYTH-USD
       ecosystem: Solana
       sleeve: tactical
       rationale: Oracle competitor to LINK; relevant to the Solana stack.
     - symbol: RENDER
       name: Render
       coingecko_id: render-token
+      coinbase_product: RENDER-USD
       ecosystem: Solana
       sleeve: tactical
       rationale: Compute marketplace; AI-adjacent narrative; recently migrated to Solana.
