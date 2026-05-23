@@ -89,7 +89,8 @@ def _product_from_endpoint_name(endpoint_name: str) -> str | None:
         product_parts.append(part)
     if not product_parts:
         return None
-    return "_".join(product_parts)
+    joined = "_".join(product_parts)
+    return joined or None
 
 
 # ---------------------------------------------------------------------------
