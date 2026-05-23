@@ -1,0 +1,60 @@
+name: Coinbase Daily OHLCV
+
+# B-035 — pulls Coinbase Exchange daily OHLCV candles for every
+# watchlist entry with `coinbase_product` set, once a day on the
+# self-hosted Beelink runner. 12:00 UTC chosen after FRED (11:00),
+# SEC (11:30), and CoinGecko (11:45) so the four workloads don't fight
+# for the runner. No API key required.
+
+on:
+  schedule:
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coinbase-daily-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pipeline:
+    name: Coinbase collect + normalize (Postgres-backed)
+    runs-on: [self-hosted, beelink]
+    timeout-minutes: 15
+    env:
+      GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+
+      - name: Apply database migrations
+        run: alembic upgrade head
+
+      - name: Collect Coinbase candles into meta.raw_blobs
+        id: collect
+        run: |
+          output="$(python3 -m genkei.ingest.coinbase)"
+          echo "$output"
+          run_id_line="$(printf '%s\n' "$output" | grep 'ingest_run_id=' | tail -n 1 || true)"
+          source_run_id="${run_id_line##*=}"
+          if [ -z "$source_run_id" ] || [ "$source_run_id" = "$run_id_line" ]; then
+            echo "Could not parse Coinbase collector run id from output: $output" >&2
+            exit 1
+          fi
+          echo "source_run_id=$source_run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Normalize raw payloads into coinbase.candles
+        run: python3 -m genkei.normalize.coinbase --source-run-id "${{ steps.collect.outputs.source_run_id }}"
