@@ -332,20 +332,12 @@ First-class — the *point* of having the data lake.
   - Per-watchlist results.
 
 ### B-058 — Experiment: TVL drawdown early-warning model
-- **Status:** open
+- **Status:** blocked on B-035
 - **Priority:** medium
-- **Context:** DeFiLlama + prices — does TVL change predict price drawdowns?
+- **Context:** DeFiLlama + prices — does TVL change predict price drawdowns? **Blocked on B-035** (Binance public market-data ingester) or equivalent long-history free price source. Investigated 2026-05-22: TVL has 8.5y depth (Ethereum back to 2017) but `coingecko.market_data` has only 377 days because CoinGecko Demo/Public is hard-capped at 365d historical chart; the existing ingester only backfills beyond that on the Pro tier (paid). All 377d sit inside a single macro regime (post-2024 crypto boom), so a credible OOS validation isn't feasible without longer price history. Pivoted to B-059 in the same session.
 - **Acceptance criteria:**
   - Logistic or simple ML baseline + a notebook.
   - Out-of-sample validation.
-
-### B-059 — Experiment: macro regime classifier
-- **Status:** open
-- **Priority:** medium
-- **Context:** FRED + Treasury + market prices — bucket regimes (e.g. risk-on/risk-off).
-- **Acceptance criteria:**
-  - Notebook produces regime labels per date.
-  - Output materialized as a Postgres view for downstream queries.
 
 ### B-061 — Experiment: 13F crowding monitor
 - **Status:** open

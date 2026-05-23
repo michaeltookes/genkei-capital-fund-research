@@ -33,6 +33,8 @@ Subcommand surface (B-037):
                         Protocol revenue vs token price        [B-062 ✓]
 - ``genkei relative-strength``
                         Crypto peer relative-strength          [B-090 ✓]
+- ``genkei macro-regime``
+                        Macro regime label per date            [B-059 ✓]
 """
 
 from __future__ import annotations
@@ -46,6 +48,7 @@ from genkei.cli import (
     insider_clusters,
     insiders,
     macro,
+    macro_regime,
     prices,
     query,
     relative_strength,
@@ -87,6 +90,10 @@ app.command(
     "relative-strength",
     help="Crypto peer relative-strength (asset return - peer return per window).",
 )(relative_strength.relative_strength_cmd)
+app.command(
+    "macro-regime",
+    help="Macro regime label per date (risk_on/risk_off/easing/tightening_stress/mixed).",
+)(macro_regime.macro_regime_cmd)
 app.command(
     "query",
     help="Ad-hoc SQL escape hatch (read-only, timeout + row cap enforced).",
