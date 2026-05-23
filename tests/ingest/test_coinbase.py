@@ -137,8 +137,10 @@ class ChunkWindowsTests(unittest.TestCase):
         self.assertEqual(len(windows), 3)
         self.assertEqual(windows[0][0], date(2020, 1, 1))
         # Chunks are contiguous (no gaps, no overlap).
+        from datetime import timedelta as _td
+
         for i in range(len(windows) - 1):
-            self.assertEqual(windows[i + 1][0], windows[i][1] + __import__("datetime").timedelta(days=1))
+            self.assertEqual(windows[i + 1][0], windows[i][1] + _td(days=1))
 
     def test_uses_default_chunk_size(self) -> None:
         # The 10y BTC backfill (2015-07 to today) should produce ~14

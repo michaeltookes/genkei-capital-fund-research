@@ -15,7 +15,6 @@ from genkei.cli import main
 from genkei.cli.macro_regime import _format_human, _result_to_dict
 from genkei.experiments.macro_regime import DEFAULT_HORIZON, RegimeResult
 
-
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
