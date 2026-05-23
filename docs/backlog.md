@@ -162,15 +162,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Topic + entity + tone fields preserved.
   - Per-watchlist filtering option.
 
-### B-035 — Binance public market-data ingester
-- **Status:** open
-- **Priority:** medium
-- **Context:** Exchange-specific OHLCV cross-checks — useful when CoinGecko aggregates look suspicious.
-- **Acceptance criteria:**
-  - No API key required for public endpoints.
-  - Backfill what's free; document what isn't.
-  - Tables aligned with kline structure.
-
 ### B-036 — Per-source ingest documentation
 - **Status:** open
 - **Priority:** medium
