@@ -50,6 +50,21 @@ class MacroRegimeCommandTests(unittest.TestCase):
         self.assertIn("--since must be YYYY-MM-DD", err.getvalue())
         self.assertNotIn("----since", err.getvalue())
 
+    def test_since_after_until_is_rejected(self) -> None:
+        err = io.StringIO()
+        with redirect_stderr(err):
+            code = main(
+                [
+                    "macro-regime",
+                    "--since",
+                    "2025-01-01",
+                    "--until",
+                    "2024-01-01",
+                ]
+            )
+        self.assertEqual(code, 2)
+        self.assertIn("--since must be on or before --until", err.getvalue())
+
     def test_json_mode_emits_horizon_tag(self) -> None:
         out = io.StringIO()
         with (

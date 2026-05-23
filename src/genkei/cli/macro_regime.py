@@ -146,6 +146,12 @@ def macro_regime_cmd(
     """
     parsed_since = _parse_date(since, label="since") if since else None
     parsed_until = _parse_date(until, label="until") if until else None
+    if (
+        parsed_since is not None
+        and parsed_until is not None
+        and parsed_since > parsed_until
+    ):
+        raise typer.BadParameter("--since must be on or before --until.")
 
     # No range → default to last 1 row (= today's regime).
     effective_limit = limit
