@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json as json_mod
+import re
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import date
@@ -13,6 +14,13 @@ from unittest.mock import patch
 from genkei.cli import main
 from genkei.cli.macro_regime import _format_human, _result_to_dict
 from genkei.experiments.macro_regime import DEFAULT_HORIZON, RegimeResult
+
+
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain(text: str) -> str:
+    return ANSI_RE.sub("", text)
 
 
 def _result() -> RegimeResult:
@@ -47,8 +55,9 @@ class MacroRegimeCommandTests(unittest.TestCase):
         with redirect_stderr(err):
             code = main(["macro-regime", "--since", "nope"])
         self.assertEqual(code, 2)
-        self.assertIn("--since must be YYYY-MM-DD", err.getvalue())
-        self.assertNotIn("----since", err.getvalue())
+        text = _plain(err.getvalue())
+        self.assertIn("--since must be YYYY-MM-DD", text)
+        self.assertNotIn("----since", text)
 
     def test_since_after_until_is_rejected(self) -> None:
         err = io.StringIO()
@@ -63,7 +72,7 @@ class MacroRegimeCommandTests(unittest.TestCase):
                 ]
             )
         self.assertEqual(code, 2)
-        self.assertIn("--since must be on or before --until", err.getvalue())
+        self.assertIn("--since must be on or before --until", _plain(err.getvalue()))
 
     def test_json_mode_emits_horizon_tag(self) -> None:
         out = io.StringIO()
