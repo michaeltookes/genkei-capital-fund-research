@@ -68,6 +68,49 @@ def _query_coingecko_market_data(
     ]
 
 
+def _query_coinbase_candles(
+    product: str,
+    *,
+    since: Optional[date],
+    until: Optional[date],
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Pull rows from coinbase.candles ordered ts DESC.
+
+    Returned shape mirrors the coingecko reader (ts/price_usd/…) so
+    the renderer doesn't need to branch — market_cap is reported as
+    None because exchanges don't carry market-cap data, and volume is
+    the base-asset volume from the exchange (BTC for BTC-USD).
+    """
+    sql = (
+        "SELECT ts, close, volume_base "
+        "FROM coinbase.candles "
+        "WHERE product = %s"
+    )
+    params: list[Any] = [product]
+    if since is not None:
+        sql += " AND ts >= %s"
+        params.append(datetime.combine(since, datetime.min.time(), tzinfo=timezone.utc))
+    if until is not None:
+        sql += " AND ts <= %s"
+        params.append(datetime.combine(until, datetime.max.time(), tzinfo=timezone.utc))
+    sql += " ORDER BY ts DESC LIMIT %s"
+    params.append(limit)
+
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+    return [
+        {
+            "ts": ts.isoformat(),
+            "price_usd": float(close) if close is not None else None,
+            "market_cap_usd": None,
+            "volume_usd": float(vol) if vol is not None else None,
+        }
+        for (ts, close, vol) in rows
+    ]
+
+
 def _format_human(ticker: str, source: str, rows: list[dict[str, Any]]) -> str:
     if not rows:
         return (
@@ -100,6 +143,16 @@ def _resolve_ticker(ticker: str, watchlist: Watchlist) -> Optional[tuple[str, Cr
 
 def prices_cmd(
     ticker: Annotated[str, typer.Option("--ticker", "-t", help="Asset ticker, e.g. BTC.")],
+    source: Annotated[
+        str,
+        typer.Option(
+            "--source",
+            help=(
+                "Price source. `coingecko` (default, 365-day window) or "
+                "`coinbase` (exchange OHLCV close, long history per B-035)."
+            ),
+        ),
+    ] = "coingecko",
     since: Annotated[
         Optional[str],
         typer.Option("--since", help="Start date (YYYY-MM-DD)."),
@@ -119,6 +172,8 @@ def prices_cmd(
     ] = DEFAULT_WATCHLIST_PATH,
 ) -> None:
     """Show prices for a watchlist asset (crypto today, equities later)."""
+    if source not in ("coingecko", "coinbase"):
+        raise typer.BadParameter("--source must be one of: coingecko, coinbase.")
     since_d = _parse_date(since, label="since")
     until_d = _parse_date(until, label="until")
     if since_d is not None and until_d is not None and since_d > until_d:
@@ -130,8 +185,8 @@ def prices_cmd(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=2) from exc
 
-    resolved = _resolve_ticker(ticker, watchlist)
-    if resolved is None:
+    crypto = watchlist.find_crypto(ticker)
+    if crypto is None:
         equity = watchlist.find_equity(ticker)
         if equity is not None:
             typer.echo(
@@ -147,14 +202,21 @@ def prices_cmd(
         )
         raise typer.Exit(code=2)
 
-    source, entry = resolved
     if source == "coingecko":
         rows = _query_coingecko_market_data(
-            entry.coingecko_id, since=since_d, until=until_d, limit=limit
+            crypto.coingecko_id, since=since_d, until=until_d, limit=limit
         )
-    else:  # pragma: no cover — single source today
-        typer.echo(f"Unknown source resolution: {source}", err=True)
-        raise typer.Exit(code=2)
+    else:  # source == "coinbase"
+        if not crypto.coinbase_product:
+            typer.echo(
+                f"{ticker} has no coinbase_product set in the watchlist. "
+                "Add it under crypto: in watchlists.yml or use --source coingecko.",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+        rows = _query_coinbase_candles(
+            crypto.coinbase_product, since=since_d, until=until_d, limit=limit
+        )
 
     if json_out:
         typer.echo(json.dumps(rows, indent=2, default=_json_default))
