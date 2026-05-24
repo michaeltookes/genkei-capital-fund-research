@@ -259,6 +259,33 @@ class BulkUpsertTests(unittest.TestCase):
             )
 
 
+class PartialEndpointMetadataTests(unittest.TestCase):
+    def setUp(self) -> None:
+        db.reset_pool()
+        self.fake_pool = _FakePool()
+        db.set_pool(self.fake_pool)  # type: ignore[arg-type]
+
+    def tearDown(self) -> None:
+        db.reset_pool()
+
+    def test_record_partial_endpoints_stashes_metadata(self) -> None:
+        db.record_partial_endpoints(
+            42,
+            [{"name": "chart_AAPL", "url": "https://example.test", "error": "timeout"}],
+        )
+
+        used = self.fake_pool.connections[0]
+        query, params = used.cursor_obj.executed[0]
+        self.assertIn("partial_endpoints", query)
+        self.assertEqual(
+            params,
+            [
+                '[{"name": "chart_AAPL", "url": "https://example.test", "error": "timeout"}]',
+                42,
+            ],
+        )
+
+
 class IngestRunTests(unittest.TestCase):
     def setUp(self) -> None:
         db.reset_pool()

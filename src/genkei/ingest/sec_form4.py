@@ -179,7 +179,7 @@ def collect(
             # redacted an old one) shouldn't fail the whole run and
             # block the rest. Log + record partials, return success.
             if failures:
-                _record_partial(run.id, failures)
+                db.record_partial_endpoints(run.id, failures)
             return run.id
     finally:
         if owns_http:
@@ -211,19 +211,6 @@ def _fetch_one(
         return False
     db.store_raw_blob(ingest_run_id, endpoint_name, url, {"xml": text})
     return True
-
-
-def _record_partial(ingest_run_id: int, partial: list[dict[str, str]]) -> None:
-    """Stash per-filing partial-failure metadata on the ingest_runs row."""
-    import json as _json
-
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "UPDATE meta.ingest_runs SET metadata = "
-            "COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('partial_endpoints', %s::jsonb) "
-            "WHERE id = %s",
-            [_json.dumps(partial), ingest_run_id],
-        )
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:

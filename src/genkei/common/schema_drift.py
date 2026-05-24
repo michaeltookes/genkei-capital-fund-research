@@ -216,6 +216,23 @@ SCHEMA_SPECS: tuple[EndpointSchema, ...] = (
         required_keys=(),  # ignored for array-of-arrays
         array_item_min_length=6,
     ),
+    # Yahoo Finance (B-092) — chart endpoint returns a nested object
+    # with parallel arrays under `chart.result[0].indicators.quote[0]`
+    # plus the parallel `timestamp` array. The load-bearing keys are
+    # the chart wrapper, the result list, and the indicators block;
+    # validating the nested-array shapes is left to the normalizer
+    # (which skips malformed rows). The `chart_` prefix is distinct
+    # from Coinbase's `candles_` to avoid pattern-LIKE collisions.
+    EndpointSchema(
+        source="yahoo",
+        endpoint_kind="chart_<ticker>",
+        endpoint_pattern="chart\\_%",
+        payload_type="object",
+        required_keys=("chart",),
+        nested_paths=(
+            "chart.result",
+        ),
+    ),
 )
 
 

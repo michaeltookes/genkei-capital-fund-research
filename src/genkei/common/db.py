@@ -265,6 +265,20 @@ def copy_raw_blob_for_run(
         )
 
 
+def record_partial_endpoints(
+    ingest_run_id: int,
+    partial: Sequence[Mapping[str, str]],
+) -> None:
+    """Attach per-endpoint partial-failure metadata to an ingest run."""
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE meta.ingest_runs SET metadata = "
+            "COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('partial_endpoints', %s::jsonb) "
+            "WHERE id = %s",
+            [json.dumps(list(partial)), ingest_run_id],
+        )
+
+
 @dataclass
 class IngestRun:
     """Handle for a row in ``meta.ingest_runs``.

@@ -245,7 +245,9 @@ class SpecRegistryTests(unittest.TestCase):
     def test_expected_sources_have_at_least_one_spec(self) -> None:
         sources = {s.source for s in SCHEMA_SPECS}
         # Pin coverage so adding a new ingester forces a corresponding spec.
-        self.assertEqual(sources, {"defillama", "coingecko", "fred", "sec", "coinbase"})
+        self.assertEqual(
+            sources, {"defillama", "coingecko", "fred", "sec", "coinbase", "yahoo"}
+        )
 
     def test_sec_submissions_spec_excludes_history_pages(self) -> None:
         spec = next(s for s in SCHEMA_SPECS if s.endpoint_kind == "submissions_<cik>")

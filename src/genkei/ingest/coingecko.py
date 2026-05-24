@@ -28,7 +28,6 @@ Auth tiers (configurable via ``COINGECKO_API_KEY`` / ``COINGECKO_API_TIER``):
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import os
 import sys
@@ -298,7 +297,7 @@ def collect(
                     LOGGER.info("CoinGecko collect progress: %s/%s", index, len(coins))
             run.add_rows(written)
             if failures:
-                _record_partial(run.id, failures)
+                db.record_partial_endpoints(run.id, failures)
                 raise RuntimeError(
                     f"CoinGecko fetch failed for {len(failures)} endpoint(s); "
                     "no partial market snapshot will be normalized."
@@ -453,17 +452,6 @@ def _merge_series(chunks: list[dict[str, Any]], key: str) -> list[list[Any]]:
             if isinstance(ts, int):
                 by_ts[ts] = item[1]
     return [[ts, by_ts[ts]] for ts in sorted(by_ts)]
-
-
-def _record_partial(ingest_run_id: int, partial: list[dict[str, str]]) -> None:
-    """Stash per-coin partial-failure metadata on the ingest_runs row."""
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "UPDATE meta.ingest_runs SET metadata = "
-            "COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('partial_endpoints', %s::jsonb) "
-            "WHERE id = %s",
-            [json.dumps(partial), ingest_run_id],
-        )
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:

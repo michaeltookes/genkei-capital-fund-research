@@ -1,13 +1,14 @@
-"""``genkei prices`` — query crypto market data from the lake (B-039).
+"""``genkei prices`` — query crypto and equity market data from the lake.
 
-Today this only queries ``coingecko.market_data`` (per source schema +
-backfill, this is the deepest crypto price history we have). Equity
-prices are not yet ingested; ``genkei prices --ticker AAPL`` will fail
-loudly with a hint pointing at the relevant backlog item rather than
-silently returning empty.
+Crypto prices come from ``coingecko.market_data`` (B-039) or
+``coinbase.candles`` (B-035). Equity prices come from
+``yahoo.candles`` (B-092). The ``--source`` flag controls the data
+source; when omitted, crypto tickers default to CoinGecko and equity
+tickers default to Yahoo.
 
 Usage:
   genkei prices --ticker BTC                     latest price
+  genkei prices --ticker AAPL --source yahoo     equity price
   genkei prices --ticker BTC --since 2024-01-01  daily history since
   genkei prices --ticker BTC --json              machine-readable
   genkei prices --ticker BTC --since 2024-01-01 --until 2024-06-30 --limit 10
@@ -111,6 +112,57 @@ def _query_coinbase_candles(
     ]
 
 
+def _query_yahoo_candles(
+    ticker: str,
+    *,
+    since: Optional[date],
+    until: Optional[date],
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Pull rows from yahoo.candles ordered ts DESC.
+
+    Returns the split-and-dividend-adjusted ``adj_close`` under
+    ``price_usd`` (the right price for return calculations); the
+    unadjusted ``close`` is preserved as ``close_unadjusted`` so a
+    caller that cares about the tape price can still see it. Market
+    cap isn't carried by Yahoo's chart endpoint — None.
+    """
+    sql = (
+        "SELECT ts, close, adj_close, volume "
+        "FROM yahoo.candles "
+        "WHERE ticker = %s"
+    )
+    params: list[Any] = [ticker]
+    if since is not None:
+        sql += " AND ts >= %s"
+        params.append(datetime.combine(since, datetime.min.time(), tzinfo=timezone.utc))
+    if until is not None:
+        sql += " AND ts <= %s"
+        params.append(datetime.combine(until, datetime.max.time(), tzinfo=timezone.utc))
+    sql += " ORDER BY ts DESC LIMIT %s"
+    params.append(limit)
+
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+    out: list[dict[str, Any]] = []
+    for ts, close, adj_close, vol in rows:
+        # Prefer adj_close — split/dividend-adjusted is the right
+        # input for return work. Fall back to close when adj_close is
+        # NULL (very-new tickers, rare).
+        price = adj_close if adj_close is not None else close
+        out.append(
+            {
+                "ts": ts.isoformat(),
+                "price_usd": float(price) if price is not None else None,
+                "market_cap_usd": None,
+                "volume_usd": float(vol) if vol is not None else None,
+                "close_unadjusted": float(close) if close is not None else None,
+            }
+        )
+    return out
+
+
 def _format_human(ticker: str, source: str, rows: list[dict[str, Any]]) -> str:
     if not rows:
         return (
@@ -148,11 +200,13 @@ def prices_cmd(
         typer.Option(
             "--source",
             help=(
-                "Price source. `coingecko` (default, 365-day window) or "
-                "`coinbase` (exchange OHLCV close, long history per B-035)."
+                "Price source. `coingecko` (crypto, 365d window), `coinbase` "
+                "(crypto, long history per B-035), or `yahoo` (equities, long "
+                "history per B-092). Equity tickers default to `yahoo`; crypto "
+                "tickers default to `coingecko`."
             ),
         ),
-    ] = "coingecko",
+    ] = "",
     since: Annotated[
         Optional[str],
         typer.Option("--since", help="Start date (YYYY-MM-DD)."),
@@ -171,9 +225,12 @@ def prices_cmd(
         typer.Option("--config", help="Watchlist path.", show_default=True),
     ] = DEFAULT_WATCHLIST_PATH,
 ) -> None:
-    """Show prices for a watchlist asset (crypto today, equities later)."""
-    if source not in ("coingecko", "coinbase"):
-        raise typer.BadParameter("--source must be one of: coingecko, coinbase.")
+    """Show prices for a watchlist asset (crypto via CoinGecko/Coinbase, equities via Yahoo)."""
+    valid_sources = ("coingecko", "coinbase", "yahoo")
+    if source and source not in valid_sources:
+        raise typer.BadParameter(
+            f"--source must be one of: {', '.join(valid_sources)}."
+        )
     since_d = _parse_date(since, label="since")
     until_d = _parse_date(until, label="until")
     if since_d is not None and until_d is not None and since_d > until_d:
@@ -186,27 +243,50 @@ def prices_cmd(
         raise typer.Exit(code=2) from exc
 
     crypto = watchlist.find_crypto(ticker)
-    if crypto is None:
-        equity = watchlist.find_equity(ticker)
-        if equity is not None:
-            typer.echo(
-                f"{ticker} is an equity in the watchlist (CIK {equity.cik}), but equity prices "
-                "are not yet ingested. Track via a future Phase 2 source (e.g. Yahoo Finance / "
-                "Alpha Vantage); SEC EDGAR (`genkei filings`) only covers filings + XBRL facts.",
-                err=True,
-            )
-            raise typer.Exit(code=2)
+    equity = watchlist.find_equity(ticker)
+    if crypto is None and equity is None:
         typer.echo(
             f"Ticker {ticker!r} not found in {config}. Add it under crypto or equities first.",
             err=True,
         )
         raise typer.Exit(code=2)
 
+    # Default-source-by-asset-class: crypto → coingecko, equity → yahoo.
+    if not source:
+        if crypto is not None and equity is not None:
+            typer.echo(
+                f"Ticker {ticker!r} appears under both crypto and equities in {config}. "
+                "Pass --source coingecko, --source coinbase, or --source yahoo.",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+        source = "yahoo" if equity is not None else "coingecko"
+
+    # Reject source/asset-class mismatches loudly. The previous "equity
+    # has no prices yet" message rotted with B-092; replace with
+    # actionable routing errors.
+    if crypto is None and source != "yahoo":
+        typer.echo(
+            f"{ticker} is an equity; equity prices live in `yahoo.candles` "
+            "(B-092). Use --source yahoo (or omit --source).",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+    if equity is None and source == "yahoo":
+        typer.echo(
+            f"{ticker} is crypto; Yahoo carries equity prices only. "
+            "Use --source coingecko (default) or --source coinbase.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
     if source == "coingecko":
+        assert crypto is not None  # narrowed by class check above
         rows = _query_coingecko_market_data(
             crypto.coingecko_id, since=since_d, until=until_d, limit=limit
         )
-    else:  # source == "coinbase"
+    elif source == "coinbase":
+        assert crypto is not None
         if not crypto.coinbase_product:
             typer.echo(
                 f"{ticker} has no coinbase_product set in the watchlist. "
@@ -216,6 +296,11 @@ def prices_cmd(
             raise typer.Exit(code=2)
         rows = _query_coinbase_candles(
             crypto.coinbase_product, since=since_d, until=until_d, limit=limit
+        )
+    else:  # source == "yahoo"
+        assert equity is not None
+        rows = _query_yahoo_candles(
+            equity.symbol, since=since_d, until=until_d, limit=limit
         )
 
     if json_out:

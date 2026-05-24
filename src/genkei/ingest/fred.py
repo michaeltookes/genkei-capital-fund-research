@@ -216,7 +216,7 @@ def collect(
                     LOGGER.info("FRED collect progress: %s/%s", target_index, len(series))
             run.add_rows(written)
             if failures:
-                _record_partial(run.id, failures)
+                db.record_partial_endpoints(run.id, failures)
                 raise RuntimeError(
                     f"FRED fetch failed for {len(failures)} endpoint(s); "
                     "no partial macro snapshot will be normalized."
@@ -375,17 +375,6 @@ def _fetch_vintage_dates(target: SeriesTarget, api_key: str, http: HttpClient) -
 
 def _chunks(values: list[str], size: int) -> list[list[str]]:
     return [values[index : index + size] for index in range(0, len(values), size)]
-
-
-def _record_partial(ingest_run_id: int, partial: list[dict[str, str]]) -> None:
-    """Stash per-series partial-failure metadata on the ingest_runs row."""
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "UPDATE meta.ingest_runs SET metadata = "
-            "COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('partial_endpoints', %s::jsonb) "
-            "WHERE id = %s",
-            [json.dumps(partial), ingest_run_id],
-        )
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:

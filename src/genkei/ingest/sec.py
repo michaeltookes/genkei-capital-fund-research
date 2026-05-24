@@ -175,7 +175,7 @@ def collect(
                     LOGGER.info("SEC collect progress: %s/%s", index, len(companies))
             run.add_rows(written)
             if failures:
-                _record_partial(run.id, failures)
+                db.record_partial_endpoints(run.id, failures)
                 # Per the FRED-fix lesson (G-019/G-020): partial-fetch failures
                 # mark the run failed so the normalizer doesn't half-load.
                 raise RuntimeError(
@@ -264,17 +264,6 @@ def _fetch_blob(
         return None
     db.store_raw_blob(ingest_run_id, endpoint_name, url, payload)
     return payload
-
-
-def _record_partial(ingest_run_id: int, partial: list[dict[str, str]]) -> None:
-    """Stash per-company partial-failure metadata on the ingest_runs row."""
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "UPDATE meta.ingest_runs SET metadata = "
-            "COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('partial_endpoints', %s::jsonb) "
-            "WHERE id = %s",
-            [json.dumps(partial), ingest_run_id],
-        )
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
