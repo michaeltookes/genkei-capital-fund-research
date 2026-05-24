@@ -1,0 +1,60 @@
+name: Yahoo Daily Equity OHLCV
+
+# B-092 — pulls Yahoo Finance daily OHLCV for every watchlist equity
+# once a day on the self-hosted Beelink runner. 12:15 UTC chosen after
+# FRED (11:00), SEC (11:30), CoinGecko (11:45), and Coinbase (12:00)
+# so the five daily workloads don't fight for the runner. No API key
+# required.
+
+on:
+  schedule:
+    - cron: "15 12 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: yahoo-daily-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pipeline:
+    name: Yahoo collect + normalize (Postgres-backed)
+    runs-on: [self-hosted, beelink]
+    timeout-minutes: 15
+    env:
+      GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+
+      - name: Apply database migrations
+        run: alembic upgrade head
+
+      - name: Collect Yahoo OHLCV into meta.raw_blobs
+        id: collect
+        run: |
+          output="$(python3 -m genkei.ingest.yahoo)"
+          echo "$output"
+          run_id_line="$(printf '%s\n' "$output" | grep 'ingest_run_id=' | tail -n 1 || true)"
+          source_run_id="${run_id_line##*=}"
+          if [ -z "$source_run_id" ] || [ "$source_run_id" = "$run_id_line" ]; then
+            echo "Could not parse Yahoo collector run id from output: $output" >&2
+            exit 1
+          fi
+          echo "source_run_id=$source_run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Normalize raw payloads into yahoo.candles
+        run: python3 -m genkei.normalize.yahoo --source-run-id "${{ steps.collect.outputs.source_run_id }}"
