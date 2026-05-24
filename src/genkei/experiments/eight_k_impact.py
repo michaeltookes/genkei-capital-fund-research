@@ -74,15 +74,22 @@ MARKET_CLOSE_ET = time(16, 0)
 EASTERN_TZ = ZoneInfo("America/New_York")
 
 
+def _next_trading_day(anchor: date) -> date:
+    while anchor.weekday() >= 5:
+        anchor += timedelta(days=1)
+    return anchor
+
+
 def _event_anchor_date(filed_at: date, accepted_at: datetime | None) -> date:
     if accepted_at is None:
         return filed_at
     if accepted_at.tzinfo is None:
         accepted_at = accepted_at.replace(tzinfo=timezone.utc)
     accepted_et = accepted_at.astimezone(EASTERN_TZ)
+    anchor = accepted_et.date()
     if accepted_et.time() >= MARKET_CLOSE_ET:
-        return accepted_et.date() + timedelta(days=1)
-    return accepted_et.date()
+        anchor += timedelta(days=1)
+    return _next_trading_day(anchor)
 
 
 # ---------------------------------------------------------------------------
@@ -344,7 +351,9 @@ def load_filing_events(
     params: list[Any] = [list(ciks)]
     if since is not None:
         sql += " AND filed_at::date >= %s"
-        params.append(since - timedelta(days=1))
+        # After-close Friday acceptances can shift event_date to Monday; the
+        # Python filter below enforces the exact user-facing date bound.
+        params.append(since - timedelta(days=3))
     if until is not None:
         sql += " AND filed_at::date <= %s"
         params.append(until)

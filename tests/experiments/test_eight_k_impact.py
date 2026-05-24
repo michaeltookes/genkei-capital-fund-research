@@ -22,6 +22,7 @@ from genkei.experiments.eight_k_impact import (
     EventReturns,
     FilingEvent,
     PricePoint,
+    _event_anchor_date,
     _hit_rate,
     _mean,
     _median,
@@ -403,7 +404,7 @@ class LoadFilingEventsTests(unittest.TestCase):
 
         self.assertEqual([event.ticker for event in events], ["GOOG"])
 
-    def test_after_market_filing_anchors_to_next_calendar_day(self) -> None:
+    def test_after_market_filing_anchors_to_next_trading_day(self) -> None:
         rows = [
             (
                 "0000320193",
@@ -427,12 +428,30 @@ class LoadFilingEventsTests(unittest.TestCase):
             patch("genkei.common.watchlist.load_watchlist", return_value=watchlist),
             patch("genkei.experiments.eight_k_impact.db.connection", fake_connection),
         ):
-            events = load_filing_events(since=date(2024, 6, 15))
+            events = load_filing_events(since=date(2024, 6, 17))
 
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].filed_at, date(2024, 6, 14))
-        self.assertEqual(events[0].event_date, date(2024, 6, 15))
+        self.assertEqual(events[0].event_date, date(2024, 6, 17))
         self.assertEqual(conn.cursor_obj.executed[0][1][1], date(2024, 6, 14))
+
+    def test_after_market_friday_anchor_skips_weekend(self) -> None:
+        self.assertEqual(
+            _event_anchor_date(
+                date(2024, 6, 14),
+                datetime(2024, 6, 14, 21, 30, tzinfo=timezone.utc),
+            ),
+            date(2024, 6, 17),
+        )
+
+    def test_before_market_close_anchor_keeps_same_trading_day(self) -> None:
+        self.assertEqual(
+            _event_anchor_date(
+                date(2024, 6, 14),
+                datetime(2024, 6, 14, 19, 30, tzinfo=timezone.utc),
+            ),
+            date(2024, 6, 14),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -482,9 +501,9 @@ class RunEventStudyTests(unittest.TestCase):
         ):
             run_event_study()
 
-        self.assertEqual(captured["regime_dates"], [date(2024, 6, 15)])
-        self.assertEqual(captured["since"], date(2024, 6, 1))
-        self.assertEqual(captured["until"], date(2024, 7, 30))
+        self.assertEqual(captured["regime_dates"], [date(2024, 6, 17)])
+        self.assertEqual(captured["since"], date(2024, 6, 3))
+        self.assertEqual(captured["until"], date(2024, 8, 1))
 
     def test_custom_windows_expand_price_padding_with_boundary_cushion(self) -> None:
         captured: dict[str, date] = {}
