@@ -15,7 +15,8 @@ unreliable; today's smoke (all 10 sampled tickers OK, AAPL 11,453
 candles back to 1980) doesn't motivate ship-time fallback wiring.
 
 **API shape.** ``GET /v8/finance/chart/<ticker>?interval=1d&period1=...&period2=...``
-returns ``{chart: {result: [{meta, timestamp, indicators: {quote: [{open, high, low, close, volume}], adjclose: [{adjclose}]}}]}}``.
+returns ``{chart: {result: [{meta, timestamp, indicators: {quote:
+[{open, high, low, close, volume}], adjclose: [{adjclose}]}}]}}``.
 Timestamps are unix seconds; quote and adjclose arrays are parallel
 to ``timestamp``. ``period1`` / ``period2`` are unix seconds; passing
 ``period1=0`` requests from-listing-date.

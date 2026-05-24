@@ -12,7 +12,8 @@ Single blob shape (both daily + backfill modes):
   ``chart_<ticker>_<since>_<until>``  (backfill mode)
 
 Yahoo payload shape:
-  ``{chart: {result: [{meta, timestamp, indicators: {quote: [{open, high, low, close, volume}], adjclose: [{adjclose}]}}]}}``
+  ``{chart: {result: [{meta, timestamp, indicators: {quote: [{open,
+  high, low, close, volume}], adjclose: [{adjclose}]}}]}}``
 
 Each of ``timestamp``, ``quote.open/high/low/close/volume``, and
 ``adjclose.adjclose`` are parallel arrays indexed by position. We
