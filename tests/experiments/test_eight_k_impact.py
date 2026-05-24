@@ -28,6 +28,7 @@ from genkei.experiments.eight_k_impact import (
     _median,
     aggregate,
     compute_windowed_returns,
+    dedupe_by_filing,
     load_filing_events,
     parse_item_codes,
     run_event_study,
@@ -266,6 +267,40 @@ class AggregateTests(unittest.TestCase):
         # n_events is still 3 (the null'd event still exists, just
         # doesn't contribute to that window).
         self.assertEqual(stats.n_events, 3)
+
+
+class DedupeByFilingTests(unittest.TestCase):
+    def test_dedupe_by_filing_keeps_first_share_class_row(self) -> None:
+        event_a = FilingEvent(
+            ticker="GOOG",
+            cik="0001652044",
+            filed_at=date(2024, 1, 2),
+            accession_number="acc",
+            item_codes=("8.01",),
+        )
+        event_b = FilingEvent(
+            ticker="GOOGL",
+            cik="0001652044",
+            filed_at=date(2024, 1, 2),
+            accession_number="acc",
+            item_codes=("8.01",),
+        )
+        event_c = FilingEvent(
+            ticker="AAPL",
+            cik="0000320193",
+            filed_at=date(2024, 1, 3),
+            accession_number="other",
+            item_codes=("8.01",),
+        )
+        rows = [
+            EventReturns(event=event_a, windows={"same_day": Decimal("1")}, regime="risk_on"),
+            EventReturns(event=event_b, windows={"same_day": Decimal("2")}, regime="risk_on"),
+            EventReturns(event=event_c, windows={"same_day": Decimal("3")}, regime="risk_on"),
+        ]
+
+        deduped = dedupe_by_filing(rows)
+
+        self.assertEqual([row.event.ticker for row in deduped], ["GOOG", "AAPL"])
 
 
 # ---------------------------------------------------------------------------

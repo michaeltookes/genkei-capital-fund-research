@@ -29,6 +29,7 @@ from genkei.experiments.eight_k_impact import (
     DEFAULT_WINDOWS,
     StratumStats,
     aggregate,
+    dedupe_by_filing,
     run_event_study,
     stratify_by_item_code,
     stratify_by_regime,
@@ -137,18 +138,21 @@ def eight_k_impact_cmd(
     event_returns = run_event_study(
         ticker=ticker, since=parsed_since, until=parsed_until
     )
-    overall = aggregate(event_returns)
+    unique_filing_returns = dedupe_by_filing(event_returns)
+    overall = aggregate(unique_filing_returns)
 
     by_ticker = (
         stratify_by_ticker(event_returns) if "ticker" in requested_strata else []
     )
     by_item = (
-        stratify_by_item_code(event_returns)
+        stratify_by_item_code(unique_filing_returns)
         if "item-code" in requested_strata
         else []
     )
     by_regime_strata = (
-        stratify_by_regime(event_returns) if "regime" in requested_strata else []
+        stratify_by_regime(unique_filing_returns)
+        if "regime" in requested_strata
+        else []
     )
 
     # Top-N each by event count.

@@ -385,6 +385,22 @@ def aggregate(
     )
 
 
+def dedupe_by_filing(event_returns: Sequence[EventReturns]) -> list[EventReturns]:
+    """Keep one return row per SEC filing identity, preserving input order."""
+    seen: set[tuple[str, str]] = set()
+    out: list[EventReturns] = []
+    for event_return in event_returns:
+        key = (
+            event_return.event.cik,
+            event_return.event.accession_number,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(event_return)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Lake loaders
 # ---------------------------------------------------------------------------
