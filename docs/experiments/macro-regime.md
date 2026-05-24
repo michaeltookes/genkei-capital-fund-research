@@ -105,13 +105,13 @@ The 2008 Q4 and 2022 hiking windows light up risk_off as expected. The 2021 boom
 
 - **HY OAS only goes back to 2023-05.** Pre-2023 historical analysis runs on 3 inputs. The classifier still fires correctly via VIX-alone for major crises (Lehman, COVID), but credit-led stress that doesn't immediately show up in VIX (like a slowly-widening HY in late 2007) won't classify. Backfilling BAMLH0A0HYM2 to 1996 would close this gap — small follow-up.
 - **Absolute thresholds, not regime-relative.** A persistent low-vol regime (like 2017's "everything is 12") would have most days fire `risk_on` because VIX is structurally below 18. Conversely, a persistent high-vol regime would underweight the bearish signal. Future iteration: regime-relative scoring, or a second classifier that runs on a rolling-window-z basis.
-- **Equity prices not included.** B-059's spec mentioned "market prices" but the lake doesn't have equity prices yet (B-039 is open). When equity prices land, S&P 500 / NASDAQ momentum can be added as a 5th input.
-- **No forward-return validation.** A regime classifier's actual value is conditional return distribution by regime — "given today is risk_off, what's the average 30d return on each watchlist asset?" That requires longer crypto price history (B-058's blocker; depends on B-035) and equity prices (B-039). Once both land, the regime classifier's predictive power becomes an empirical question rather than a definitional one.
+- **Equity prices not included.** B-059's spec mentioned "market prices" but the lake didn't have equity prices when B-059 shipped (B-092 was filed and shipped 2026-05-24 to close this gap). S&P 500 / NASDAQ momentum can now be added as a 5th input in a follow-up.
+- **No forward-return validation in v1.** A regime classifier's actual value is conditional return distribution by regime — "given today is risk_off, what's the average 30d return on each watchlist asset?" That required longer crypto price history (B-035, shipped 2026-05-23) and equity prices (B-092, shipped 2026-05-24). Both have landed; the regime-conditional return study is now an unblocked follow-up rather than a structural gap.
 
 ## Open follow-ups (filed elsewhere)
 
 These don't ship in B-059 itself but are the natural next moves:
 
 - **Backfill BAMLH0A0HYM2 to 1996.** Closes the pre-2023 HY blind spot.
-- **B-035 + B-039.** Once long-history crypto prices and equity prices land, run the regime-conditional return study.
+- **Regime-conditional return study** — B-035 (crypto prices, shipped 2026-05-23) and B-092 (equity prices, shipped 2026-05-24) both land the data this study needs. Open as a follow-up.
 - **B-064 / B-066.** Both depend on this view existing.
