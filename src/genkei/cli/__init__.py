@@ -44,6 +44,7 @@ import sys
 import typer
 
 from genkei.cli import (
+    eight_k_impact,
     filings,
     insider_clusters,
     insiders,
@@ -99,6 +100,10 @@ app.command(
     "tvl-drawdown",
     help="TVL drawdown early-warning experiment (B-058) — does TVL stress predict price drawdowns?",
 )(tvl_drawdown.tvl_drawdown_cmd)
+app.command(
+    "eight-k-impact",
+    help="8-K filing impact event study (B-057) — does an 8-K predict short-run drift?",
+)(eight_k_impact.eight_k_impact_cmd)
 app.command(
     "query",
     help="Ad-hoc SQL escape hatch (read-only, timeout + row cap enforced).",
