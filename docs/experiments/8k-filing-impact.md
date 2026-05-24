@@ -2,9 +2,9 @@
 
 **B-057.** Phase 5 event study answering *"does an 8-K filing predict short-run price drift in the issuer's stock?"* The answer the lake gives in one sentence: **yes, modestly — 8-Ks across the watchlist average +2.4% over the 30 days after filing, with substantial variation by item code (Item 1.01 material agreements drive +4.9%, Item 8.01 other-events drive +2.5%) and by macro regime (same-day +1.3% under risk_on flips to -0.3% under risk_off).**
 
-```
+```text
 $ genkei eight-k-impact --ticker AAPL --by item-code,regime --top 5
-8-K filing impact event study (B-057) — 232 events
+8-K filing impact event study (B-057) — 232 events [horizon=equity:core]
 
 Overall (n=232)
   ALL                    232      0.555%      0.159%      0.484%      1.121%      2.520%
@@ -60,7 +60,7 @@ For an 8-K filed on date T, compute return between adj_close at `T + lo` and adj
 | `post_5d` | (0, +5) | Short-term drift |
 | `post_30d` | (0, +30) | Longer-term drift |
 
-**Weekend / holiday handling.** When the filing date or window boundary isn't a trading day, the loader picks the closest available adj_close — `_price_at_or_before` for the start, `_price_at_or_after` for the end. A Friday filing's `same_day` uses Thursday's close to Friday's close (or Monday's if the filing was after-hours Friday); a Saturday filing uses Friday's close to Monday's close.
+**Weekend / holiday handling.** When the filing date or window boundary isn't a trading day, the loader picks the closest available adj_close — `_price_at_or_before` for the start, `_price_at_or_after` for post-event ends, and `_price_at_or_before` for pre-event ends so anticipation windows never include filing-day movement. A Friday filing's `same_day` uses Thursday's close to Friday's close (or Monday's if the filing was after-hours Friday); a Saturday filing uses Friday's close to Monday's close.
 
 **Adjusted vs unadjusted close.** Returns are computed on `adj_close` (split-and-dividend-adjusted) because the experiment is about *return*, not tape price. A 2-for-1 split mid-window would distort an unadjusted-close return calculation by ~50%. Falls back to unadjusted `close` only when `adj_close` is NULL (very-new IPOs, rare).
 

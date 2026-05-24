@@ -9,10 +9,15 @@ not in CI.
 from __future__ import annotations
 
 import unittest
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from genkei.experiments.eight_k_impact import (
+    DEFAULT_HORIZON,
     DEFAULT_WINDOWS,
     EventReturns,
     FilingEvent,
@@ -22,6 +27,7 @@ from genkei.experiments.eight_k_impact import (
     _median,
     aggregate,
     compute_windowed_returns,
+    load_filing_events,
     parse_item_codes,
     stratify_by_item_code,
     stratify_by_regime,
@@ -140,6 +146,24 @@ class ComputeWindowedReturnsTests(unittest.TestCase):
             float(windows["same_day"]), 100 * 6 / 104, places=3
         )
 
+    def test_pre_window_ends_before_monday_filing(self) -> None:
+        prices = [
+            PricePoint(ts=date(2024, 6, 10), adj_close=Decimal("100")),  # Mon
+            PricePoint(ts=date(2024, 6, 11), adj_close=Decimal("101")),
+            PricePoint(ts=date(2024, 6, 12), adj_close=Decimal("102")),
+            PricePoint(ts=date(2024, 6, 13), adj_close=Decimal("103")),
+            PricePoint(ts=date(2024, 6, 14), adj_close=Decimal("104")),  # Fri
+            PricePoint(ts=date(2024, 6, 17), adj_close=Decimal("120")),  # Filing Monday
+        ]
+
+        windows = compute_windowed_returns(
+            prices,
+            event_date=date(2024, 6, 17),
+            windows=(("pre_5d", -6, -1),),
+        )
+
+        self.assertEqual(windows["pre_5d"], Decimal("100") * Decimal("3") / Decimal("101"))
+
     def test_event_before_series_start_yields_nulls(self) -> None:
         # Event in Jan 2023, prices only from Jan 2024 — no pre-window.
         prices = _make_prices(date(2024, 1, 1), [100.0] * 30)
@@ -198,6 +222,7 @@ class AggregateTests(unittest.TestCase):
     def test_empty_input_yields_zero_event_stratum(self) -> None:
         stats = aggregate([])
         self.assertEqual(stats.n_events, 0)
+        self.assertEqual(stats.horizon, DEFAULT_HORIZON)
         for label, _, _ in DEFAULT_WINDOWS:
             self.assertIsNone(stats.mean_pct[label])
             self.assertIsNone(stats.median_pct[label])
@@ -211,6 +236,7 @@ class AggregateTests(unittest.TestCase):
         ]
         stats = aggregate(events)
         self.assertEqual(stats.n_events, 3)
+        self.assertEqual(stats.horizon, DEFAULT_HORIZON)
         self.assertEqual(stats.mean_pct["same_day"], Decimal("3"))
         self.assertEqual(stats.median_pct["same_day"], Decimal("3"))
         self.assertEqual(stats.hit_rate_pct["same_day"], Decimal("100"))
@@ -292,6 +318,85 @@ class StratifierTests(unittest.TestCase):
         # None regime is bucketed as "unknown" rather than silently
         # dropped — explicit honest record over missing-coverage data.
         self.assertEqual(by_key["unknown"].n_events, 1)
+
+
+# ---------------------------------------------------------------------------
+# Lake loader mapping
+# ---------------------------------------------------------------------------
+
+
+class _FakeCursor:
+    def __init__(self, rows: list[tuple[str, date, str, str]]) -> None:
+        self.rows = rows
+        self.executed: list[tuple[str, list[object]]] = []
+
+    def execute(self, query: str, params: list[object]) -> None:
+        self.executed.append((query, params))
+
+    def fetchall(self) -> list[tuple[str, date, str, str]]:
+        return self.rows
+
+    def __enter__(self) -> _FakeCursor:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+
+class _FakeConnection:
+    def __init__(self, rows: list[tuple[str, date, str, str]]) -> None:
+        self.cursor_obj = _FakeCursor(rows)
+
+    def cursor(self) -> _FakeCursor:
+        return self.cursor_obj
+
+
+class LoadFilingEventsTests(unittest.TestCase):
+    def test_shared_cik_emits_one_event_per_ticker(self) -> None:
+        rows = [("0001652044", date(2024, 1, 2), "acc", "2.02,9.01")]
+        conn = _FakeConnection(rows)
+
+        @contextmanager
+        def fake_connection() -> Iterator[_FakeConnection]:
+            yield conn
+
+        watchlist = SimpleNamespace(
+            equities=[
+                SimpleNamespace(symbol="GOOG", cik="0001652044"),
+                SimpleNamespace(symbol="GOOGL", cik="0001652044"),
+            ]
+        )
+
+        with (
+            patch("genkei.common.watchlist.load_watchlist", return_value=watchlist),
+            patch("genkei.experiments.eight_k_impact.db.connection", fake_connection),
+        ):
+            events = load_filing_events()
+
+        self.assertEqual([event.ticker for event in events], ["GOOG", "GOOGL"])
+
+    def test_shared_cik_ticker_filter_keeps_requested_symbol(self) -> None:
+        rows = [("0001652044", date(2024, 1, 2), "acc", "2.02,9.01")]
+        conn = _FakeConnection(rows)
+
+        @contextmanager
+        def fake_connection() -> Iterator[_FakeConnection]:
+            yield conn
+
+        watchlist = SimpleNamespace(
+            equities=[
+                SimpleNamespace(symbol="GOOG", cik="0001652044"),
+                SimpleNamespace(symbol="GOOGL", cik="0001652044"),
+            ]
+        )
+
+        with (
+            patch("genkei.common.watchlist.load_watchlist", return_value=watchlist),
+            patch("genkei.experiments.eight_k_impact.db.connection", fake_connection),
+        ):
+            events = load_filing_events(ticker="GOOG")
+
+        self.assertEqual([event.ticker for event in events], ["GOOG"])
 
 
 # ---------------------------------------------------------------------------

@@ -25,6 +25,7 @@ import typer
 from genkei.cli._helpers import json_default as _json_default
 from genkei.cli._helpers import parse_date as _parse_date
 from genkei.experiments.eight_k_impact import (
+    DEFAULT_HORIZON,
     DEFAULT_WINDOWS,
     StratumStats,
     aggregate,
@@ -65,6 +66,7 @@ def _stratum_to_dict(s: StratumStats) -> dict[str, Any]:
     return {
         "stratum_key": s.stratum_key,
         "n_events": s.n_events,
+        "horizon_tag": s.horizon,
         "mean_pct": s.mean_pct,
         "median_pct": s.median_pct,
         "hit_rate_pct": s.hit_rate_pct,
@@ -150,6 +152,7 @@ def eight_k_impact_cmd(
     if json_output:
         payload: dict[str, Any] = {
             "n_events": overall.n_events,
+            "horizon_tag": overall.horizon,
             "overall": _stratum_to_dict(overall),
             "by_ticker": [_stratum_to_dict(s) for s in by_ticker],
             "by_item_code": [_stratum_to_dict(s) for s in by_item],
@@ -159,7 +162,8 @@ def eight_k_impact_cmd(
         return
 
     typer.echo(
-        f"8-K filing impact event study (B-057) — {overall.n_events:,} events"
+        f"8-K filing impact event study (B-057) — {overall.n_events:,} events "
+        f"[horizon={overall.horizon or DEFAULT_HORIZON}]"
     )
     typer.echo("=" * 80)
     typer.echo(
@@ -168,6 +172,7 @@ def eight_k_impact_cmd(
             StratumStats(
                 stratum_key="ALL",
                 n_events=overall.n_events,
+                horizon=overall.horizon,
                 mean_pct=overall.mean_pct,
                 median_pct=overall.median_pct,
                 hit_rate_pct=overall.hit_rate_pct,

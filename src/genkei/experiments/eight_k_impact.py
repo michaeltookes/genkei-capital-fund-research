@@ -62,6 +62,7 @@ DEFAULT_WINDOWS: tuple[tuple[str, int, int], ...] = (
     ("post_5d", 0, 5),
     ("post_30d", 0, 30),
 )
+DEFAULT_HORIZON = "equity:core"
 
 # The widest window we need history for. Used as a buffer when
 # loading the price series around an event date.
@@ -105,6 +106,7 @@ class EventReturns:
     event: FilingEvent
     windows: dict[str, Decimal | None]
     regime: str | None  # from analytics.macro_regime_per_date (may be None pre-2006)
+    horizon: str = DEFAULT_HORIZON
 
 
 @dataclass(frozen=True)
@@ -113,6 +115,7 @@ class StratumStats:
 
     stratum_key: str
     n_events: int
+    horizon: str = DEFAULT_HORIZON
     # Per-window stats — same labels as the DEFAULT_WINDOWS keys.
     mean_pct: dict[str, Decimal | None] = field(default_factory=dict)
     median_pct: dict[str, Decimal | None] = field(default_factory=dict)
@@ -138,7 +141,12 @@ def parse_item_codes(raw: str | None) -> tuple[str, ...]:
     return tuple(parts)
 
 
-def _price_at_or_before(prices: Sequence[PricePoint], target: date) -> Decimal | None:
+def _price_at_or_before(
+    prices: Sequence[PricePoint],
+    target: date,
+    *,
+    dates: Sequence[date] | None = None,
+) -> Decimal | None:
     """Return the close on-or-before ``target`` (the most recent
     trading day with a price ≤ target).
 
@@ -149,18 +157,23 @@ def _price_at_or_before(prices: Sequence[PricePoint], target: date) -> Decimal |
         return None
     # bisect_right gives us insertion point AFTER any equal element;
     # subtract 1 to get the last index ≤ target.
-    dates = [p.ts for p in prices]
+    dates = dates if dates is not None else [p.ts for p in prices]
     idx = bisect_right(dates, target) - 1
     if idx < 0:
         return None
     return prices[idx].adj_close
 
 
-def _price_at_or_after(prices: Sequence[PricePoint], target: date) -> Decimal | None:
+def _price_at_or_after(
+    prices: Sequence[PricePoint],
+    target: date,
+    *,
+    dates: Sequence[date] | None = None,
+) -> Decimal | None:
     """Return the close on-or-after ``target``."""
     if not prices:
         return None
-    dates = [p.ts for p in prices]
+    dates = dates if dates is not None else [p.ts for p in prices]
     idx = bisect_left(dates, target)
     if idx >= len(prices):
         return None
@@ -184,15 +197,21 @@ def compute_windowed_returns(
 
     For the "start" date (offset lo) we pick the close on-or-before
     that date (so a Friday filing's "same_day" window uses Thursday
-    as the prior close). For the "end" date (offset hi) we pick the
-    close on-or-after (so a Friday filing's "post_1d" uses Monday).
+    as the prior close). For post-event "end" dates we pick the close
+    on-or-after (so a Friday filing's "post_1d" uses Monday). For
+    pre-event windows, the end date also uses on-or-before so the
+    pre-window cannot include the filing-day move.
     """
     out: dict[str, Decimal | None] = {}
+    dates = [p.ts for p in prices]
     for label, lo, hi in windows:
         start_target = event_date + timedelta(days=lo)
         end_target = event_date + timedelta(days=hi)
-        start_price = _price_at_or_before(prices, start_target)
-        end_price = _price_at_or_after(prices, end_target)
+        start_price = _price_at_or_before(prices, start_target, dates=dates)
+        if hi < 0:
+            end_price = _price_at_or_before(prices, end_target, dates=dates)
+        else:
+            end_price = _price_at_or_after(prices, end_target, dates=dates)
         out[label] = _pct_return(start_price, end_price)
     return out
 
@@ -239,6 +258,7 @@ def aggregate(
     contributing to other windows).
     """
     n = len(event_returns)
+    horizon = event_returns[0].horizon if event_returns else DEFAULT_HORIZON
     mean_pct: dict[str, Decimal | None] = {}
     median_pct: dict[str, Decimal | None] = {}
     hit_rate_pct: dict[str, Decimal | None] = {}
@@ -251,6 +271,7 @@ def aggregate(
     return StratumStats(
         stratum_key=stratum_key,
         n_events=n,
+        horizon=horizon,
         mean_pct=mean_pct,
         median_pct=median_pct,
         hit_rate_pct=hit_rate_pct,
@@ -279,19 +300,22 @@ def load_filing_events(
     from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist
 
     watchlist = load_watchlist(DEFAULT_WATCHLIST_PATH)
-    # Build cik → ticker map. Skip equities without CIKs (ETFs / new
+    # Build cik → tickers map. Skip equities without CIKs (ETFs / new
     # entries) — they have no 8-K filings to match anyway.
-    cik_to_ticker: dict[str, str] = {}
+    cik_to_tickers: dict[str, list[str]] = {}
     for entry in watchlist.equities:
         if entry.cik:
-            cik_to_ticker[entry.cik] = entry.symbol
+            cik_to_tickers.setdefault(entry.cik, []).append(entry.symbol)
     if ticker is not None:
-        cik_to_ticker = {
-            cik: t for cik, t in cik_to_ticker.items() if t == ticker
+        wanted = ticker.upper()
+        cik_to_tickers = {
+            cik: [symbol for symbol in tickers if symbol.upper() == wanted]
+            for cik, tickers in cik_to_tickers.items()
         }
-    if not cik_to_ticker:
+        cik_to_tickers = {cik: tickers for cik, tickers in cik_to_tickers.items() if tickers}
+    if not cik_to_tickers:
         return []
-    ciks = tuple(cik_to_ticker.keys())
+    ciks = tuple(cik_to_tickers.keys())
 
     sql = (
         "SELECT cik, filed_at::date AS d, accession_number, items "
@@ -309,16 +333,19 @@ def load_filing_events(
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(sql, params)
         rows = cur.fetchall()
-    return [
-        FilingEvent(
-            ticker=cik_to_ticker[cik],
-            cik=cik,
-            filed_at=filed_at,
-            accession_number=accession,
-            item_codes=parse_item_codes(items),
-        )
-        for cik, filed_at, accession, items in rows
-    ]
+    events: list[FilingEvent] = []
+    for cik, filed_at, accession, items in rows:
+        for symbol in cik_to_tickers[cik]:
+            events.append(
+                FilingEvent(
+                    ticker=symbol,
+                    cik=cik,
+                    filed_at=filed_at,
+                    accession_number=accession,
+                    item_codes=parse_item_codes(items),
+                )
+            )
+    return events
 
 
 def load_price_series(
