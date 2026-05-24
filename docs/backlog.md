@@ -314,14 +314,6 @@ First-class — the *point* of having the data lake.
   - Notebook produces correlation table + a chart.
   - Reproducible from snapshot IDs.
 
-### B-057 — Experiment: 8-K filing impact study
-- **Status:** open
-- **Priority:** medium
-- **Context:** SEC + prices — does a tag/category of 8-K predict short-run drift?
-- **Acceptance criteria:**
-  - Event-study notebook covering pre/post windows.
-  - Per-watchlist results.
-
 ### B-061 — Experiment: 13F crowding monitor
 - **Status:** open
 - **Priority:** low
