@@ -251,9 +251,13 @@ class EvaluateTests(unittest.TestCase):
         rows.append(self._row(date(2024, 1, 3), forward_drawdown=Decimal("25"), fires=True))
         rows.append(self._row(date(2024, 1, 4), forward_drawdown=Decimal("5"), fires=True))
         for i in range(9):
-            rows.append(self._row(date(2024, 2, 1 + i), forward_drawdown=Decimal("5"), fires=False))
+            rows.append(
+                self._row(date(2024, 2, 1 + i), forward_drawdown=Decimal("5"), fires=False)
+            )
         for i in range(3):
-            rows.append(self._row(date(2024, 3, 1 + i), forward_drawdown=Decimal("25"), fires=False))
+            rows.append(
+                self._row(date(2024, 3, 1 + i), forward_drawdown=Decimal("25"), fires=False)
+            )
         r = evaluate(
             rows,
             chain="Test",
