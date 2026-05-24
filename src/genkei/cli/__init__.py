@@ -54,6 +54,7 @@ from genkei.cli import (
     relative_strength,
     revenue_divergence,
     tvl,
+    tvl_drawdown,
     watchlist,
 )
 
@@ -94,6 +95,10 @@ app.command(
     "macro-regime",
     help="Macro regime label per date (risk_on/risk_off/easing/tightening_stress/mixed).",
 )(macro_regime.macro_regime_cmd)
+app.command(
+    "tvl-drawdown",
+    help="TVL drawdown early-warning experiment (B-058) — does TVL stress predict price drawdowns?",
+)(tvl_drawdown.tvl_drawdown_cmd)
 app.command(
     "query",
     help="Ad-hoc SQL escape hatch (read-only, timeout + row cap enforced).",

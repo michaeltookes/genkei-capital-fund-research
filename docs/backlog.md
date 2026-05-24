@@ -322,14 +322,6 @@ First-class — the *point* of having the data lake.
   - Event-study notebook covering pre/post windows.
   - Per-watchlist results.
 
-### B-058 — Experiment: TVL drawdown early-warning model
-- **Status:** open (unblocked 2026-05-23 by B-035 — Coinbase backfill landed 10y of BTC + ETH prices)
-- **Priority:** medium
-- **Context:** DeFiLlama + prices — does TVL change predict price drawdowns? Previously blocked on the price-history asymmetry (TVL 8.5y depth vs CoinGecko 377d). B-035 closed that gap on 2026-05-23: `coinbase.candles` now holds BTC-USD back to 2015-07, ETH-USD to 2016-05, LINK / SOL / SUI / RENDER / PYTH each from listing date. OOS validation now spans 2018 bear / 2020 COVID / 2021 boom / 2022 hiking / 2023 recovery / 2024-25 bull regimes.
-- **Acceptance criteria:**
-  - Logistic or simple ML baseline + a notebook.
-  - Out-of-sample validation.
-
 ### B-061 — Experiment: 13F crowding monitor
 - **Status:** open
 - **Priority:** low
