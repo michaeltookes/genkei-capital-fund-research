@@ -17,7 +17,6 @@ from genkei.experiments.eight_k_impact import (
     EventReturns,
     FilingEvent,
     PricePoint,
-    StratumStats,
     _hit_rate,
     _mean,
     _median,
