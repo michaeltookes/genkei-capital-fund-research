@@ -42,9 +42,10 @@ from __future__ import annotations
 from bisect import bisect_left, bisect_right
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from genkei.common import db
 
@@ -69,6 +70,19 @@ DEFAULT_HORIZON = "equity:core"
 MAX_LOOKBACK_DAYS = 14
 MAX_FORWARD_DAYS = 45
 BOUNDARY_CUSHION_DAYS = 7
+MARKET_CLOSE_ET = time(16, 0)
+EASTERN_TZ = ZoneInfo("America/New_York")
+
+
+def _event_anchor_date(filed_at: date, accepted_at: datetime | None) -> date:
+    if accepted_at is None:
+        return filed_at
+    if accepted_at.tzinfo is None:
+        accepted_at = accepted_at.replace(tzinfo=timezone.utc)
+    accepted_et = accepted_at.astimezone(EASTERN_TZ)
+    if accepted_et.time() >= MARKET_CLOSE_ET:
+        return accepted_et.date() + timedelta(days=1)
+    return accepted_et.date()
 
 
 # ---------------------------------------------------------------------------
@@ -85,6 +99,11 @@ class FilingEvent:
     filed_at: date
     accession_number: str
     item_codes: tuple[str, ...]  # parsed from sec.filings.items
+    accepted_at: datetime | None = None
+
+    @property
+    def event_date(self) -> date:
+        return _event_anchor_date(self.filed_at, self.accepted_at)
 
 
 @dataclass(frozen=True)
@@ -319,13 +338,13 @@ def load_filing_events(
     ciks = tuple(cik_to_tickers.keys())
 
     sql = (
-        "SELECT cik, filed_at::date AS d, accession_number, items "
+        "SELECT cik, filed_at::date AS d, accepted_at, accession_number, items "
         "FROM sec.filings WHERE form_type = '8-K' AND cik = ANY(%s)"
     )
     params: list[Any] = [list(ciks)]
     if since is not None:
         sql += " AND filed_at::date >= %s"
-        params.append(since)
+        params.append(since - timedelta(days=1))
     if until is not None:
         sql += " AND filed_at::date <= %s"
         params.append(until)
@@ -335,7 +354,12 @@ def load_filing_events(
         cur.execute(sql, params)
         rows = cur.fetchall()
     events: list[FilingEvent] = []
-    for cik, filed_at, accession, items in rows:
+    for cik, filed_at, accepted_at, accession, items in rows:
+        event_date = _event_anchor_date(filed_at, accepted_at)
+        if since is not None and event_date < since:
+            continue
+        if until is not None and event_date > until:
+            continue
         for symbol in cik_to_tickers[cik]:
             events.append(
                 FilingEvent(
@@ -344,6 +368,7 @@ def load_filing_events(
                     filed_at=filed_at,
                     accession_number=accession,
                     item_codes=parse_item_codes(items),
+                    accepted_at=accepted_at,
                 )
             )
     return events
@@ -424,14 +449,14 @@ def run_event_study(
     for e in events:
         by_ticker.setdefault(e.ticker, []).append(e)
 
-    regimes = load_regime_for_dates([e.filed_at for e in events])
+    regimes = load_regime_for_dates([e.event_date for e in events])
 
     out: list[EventReturns] = []
     for t, ticker_events in by_ticker.items():
         # Pad the price series so the widest window's lookback /
         # lookahead fits on the edges.
-        first_event = min(e.filed_at for e in ticker_events)
-        last_event = max(e.filed_at for e in ticker_events)
+        first_event = min(e.event_date for e in ticker_events)
+        last_event = max(e.event_date for e in ticker_events)
         prices = load_price_series(
             t,
             since=first_event - timedelta(days=lookback_days),
@@ -439,13 +464,13 @@ def run_event_study(
         )
         for event in ticker_events:
             windows_dict = compute_windowed_returns(
-                prices, event_date=event.filed_at, windows=windows
+                prices, event_date=event.event_date, windows=windows
             )
             out.append(
                 EventReturns(
                     event=event,
                     windows=windows_dict,
-                    regime=regimes.get(event.filed_at),
+                    regime=regimes.get(event.event_date),
                 )
             )
     return out

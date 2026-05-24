@@ -11,7 +11,7 @@ from __future__ import annotations
 import unittest
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -327,14 +327,16 @@ class StratifierTests(unittest.TestCase):
 
 
 class _FakeCursor:
-    def __init__(self, rows: list[tuple[str, date, str, str]]) -> None:
+    def __init__(
+        self, rows: list[tuple[str, date, datetime | None, str, str]]
+    ) -> None:
         self.rows = rows
         self.executed: list[tuple[str, list[object]]] = []
 
     def execute(self, query: str, params: list[object]) -> None:
         self.executed.append((query, params))
 
-    def fetchall(self) -> list[tuple[str, date, str, str]]:
+    def fetchall(self) -> list[tuple[str, date, datetime | None, str, str]]:
         return self.rows
 
     def __enter__(self) -> _FakeCursor:
@@ -345,7 +347,9 @@ class _FakeCursor:
 
 
 class _FakeConnection:
-    def __init__(self, rows: list[tuple[str, date, str, str]]) -> None:
+    def __init__(
+        self, rows: list[tuple[str, date, datetime | None, str, str]]
+    ) -> None:
         self.cursor_obj = _FakeCursor(rows)
 
     def cursor(self) -> _FakeCursor:
@@ -354,7 +358,7 @@ class _FakeConnection:
 
 class LoadFilingEventsTests(unittest.TestCase):
     def test_shared_cik_emits_one_event_per_ticker(self) -> None:
-        rows = [("0001652044", date(2024, 1, 2), "acc", "2.02,9.01")]
+        rows = [("0001652044", date(2024, 1, 2), None, "acc", "2.02,9.01")]
         conn = _FakeConnection(rows)
 
         @contextmanager
@@ -377,7 +381,7 @@ class LoadFilingEventsTests(unittest.TestCase):
         self.assertEqual([event.ticker for event in events], ["GOOG", "GOOGL"])
 
     def test_shared_cik_ticker_filter_keeps_requested_symbol(self) -> None:
-        rows = [("0001652044", date(2024, 1, 2), "acc", "2.02,9.01")]
+        rows = [("0001652044", date(2024, 1, 2), None, "acc", "2.02,9.01")]
         conn = _FakeConnection(rows)
 
         @contextmanager
@@ -399,6 +403,37 @@ class LoadFilingEventsTests(unittest.TestCase):
 
         self.assertEqual([event.ticker for event in events], ["GOOG"])
 
+    def test_after_market_filing_anchors_to_next_calendar_day(self) -> None:
+        rows = [
+            (
+                "0000320193",
+                date(2024, 6, 14),
+                datetime(2024, 6, 14, 21, 30, tzinfo=timezone.utc),
+                "acc",
+                "8.01",
+            )
+        ]
+        conn = _FakeConnection(rows)
+
+        @contextmanager
+        def fake_connection() -> Iterator[_FakeConnection]:
+            yield conn
+
+        watchlist = SimpleNamespace(
+            equities=[SimpleNamespace(symbol="AAPL", cik="0000320193")]
+        )
+
+        with (
+            patch("genkei.common.watchlist.load_watchlist", return_value=watchlist),
+            patch("genkei.experiments.eight_k_impact.db.connection", fake_connection),
+        ):
+            events = load_filing_events(since=date(2024, 6, 15))
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].filed_at, date(2024, 6, 14))
+        self.assertEqual(events[0].event_date, date(2024, 6, 15))
+        self.assertEqual(conn.cursor_obj.executed[0][1][1], date(2024, 6, 14))
+
 
 # ---------------------------------------------------------------------------
 # Event study orchestration
@@ -406,6 +441,51 @@ class LoadFilingEventsTests(unittest.TestCase):
 
 
 class RunEventStudyTests(unittest.TestCase):
+    def test_uses_accepted_at_anchor_for_price_and_regime_dates(self) -> None:
+        event = _make_event(
+            filed_at=date(2024, 6, 14),
+        )
+        event = FilingEvent(
+            ticker=event.ticker,
+            cik=event.cik,
+            filed_at=event.filed_at,
+            accession_number=event.accession_number,
+            item_codes=event.item_codes,
+            accepted_at=datetime(2024, 6, 14, 21, 30, tzinfo=timezone.utc),
+        )
+        captured: dict[str, object] = {}
+
+        def fake_load_regime_for_dates(dates: list[date]) -> dict[date, str]:
+            captured["regime_dates"] = dates
+            return {}
+
+        def fake_load_price_series(
+            ticker: str, *, since: date, until: date
+        ) -> list[PricePoint]:
+            captured["since"] = since
+            captured["until"] = until
+            return []
+
+        with (
+            patch(
+                "genkei.experiments.eight_k_impact.load_filing_events",
+                return_value=[event],
+            ),
+            patch(
+                "genkei.experiments.eight_k_impact.load_regime_for_dates",
+                side_effect=fake_load_regime_for_dates,
+            ),
+            patch(
+                "genkei.experiments.eight_k_impact.load_price_series",
+                side_effect=fake_load_price_series,
+            ),
+        ):
+            run_event_study()
+
+        self.assertEqual(captured["regime_dates"], [date(2024, 6, 15)])
+        self.assertEqual(captured["since"], date(2024, 6, 1))
+        self.assertEqual(captured["until"], date(2024, 7, 30))
+
     def test_custom_windows_expand_price_padding_with_boundary_cushion(self) -> None:
         captured: dict[str, date] = {}
 
