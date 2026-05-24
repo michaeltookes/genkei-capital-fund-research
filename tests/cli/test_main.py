@@ -93,7 +93,11 @@ class PricesCommandTests(unittest.TestCase):
         self.assertIn("UNKNOWN", err.getvalue())
         self.assertIn("not found", err.getvalue())
 
-    def test_equity_ticker_explains_no_price_source_yet(self) -> None:
+    def test_equity_ticker_with_crypto_source_errors_loudly(self) -> None:
+        # B-092 wired Yahoo as the equity price source. The legacy
+        # "no price source yet" branch is gone; what remains is the
+        # source/asset-class mismatch error path — passing a crypto
+        # source for an equity ticker should still error loudly.
         path = self._watchlist(
             "crypto:\n  primary:\n    - symbol: BTC\n"
             "      name: Bitcoin\n      coingecko_id: bitcoin\n"
@@ -102,10 +106,12 @@ class PricesCommandTests(unittest.TestCase):
         )
         err = io.StringIO()
         with redirect_stderr(err):
-            code = main(["prices", "--ticker", "AAPL", "--config", str(path)])
+            code = main(
+                ["prices", "--ticker", "AAPL", "--source", "coingecko", "--config", str(path)]
+            )
         self.assertEqual(code, 2)
-        self.assertIn("equity", err.getvalue())
-        self.assertIn("0000320193", err.getvalue())
+        self.assertIn("equity", err.getvalue().lower())
+        self.assertIn("yahoo", err.getvalue().lower())
 
     def test_crypto_ticker_queries_coingecko_market_data(self) -> None:
         # Patch the DB query to avoid hitting Postgres.
