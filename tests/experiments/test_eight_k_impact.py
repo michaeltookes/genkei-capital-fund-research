@@ -406,7 +406,7 @@ class LoadFilingEventsTests(unittest.TestCase):
 
 
 class RunEventStudyTests(unittest.TestCase):
-    def test_custom_windows_expand_price_padding(self) -> None:
+    def test_custom_windows_expand_price_padding_with_boundary_cushion(self) -> None:
         captured: dict[str, date] = {}
 
         def fake_load_price_series(
@@ -432,8 +432,8 @@ class RunEventStudyTests(unittest.TestCase):
         ):
             run_event_study(windows=(("pre_30d", -30, -1), ("post_90d", 0, 90)))
 
-        self.assertEqual(captured["since"], date(2023, 12, 11))
-        self.assertEqual(captured["until"], date(2024, 4, 9))
+        self.assertEqual(captured["since"], date(2023, 12, 4))
+        self.assertEqual(captured["until"], date(2024, 4, 16))
 
 
 # ---------------------------------------------------------------------------

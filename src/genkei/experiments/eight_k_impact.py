@@ -68,6 +68,7 @@ DEFAULT_HORIZON = "equity:core"
 # loading the price series around an event date.
 MAX_LOOKBACK_DAYS = 14
 MAX_FORWARD_DAYS = 45
+BOUNDARY_CUSHION_DAYS = 7
 
 
 # ---------------------------------------------------------------------------
@@ -415,8 +416,8 @@ def run_event_study(
         (max(-lo, -hi, 0) for _, lo, hi in windows), default=0
     )
     required_forward = max((max(lo, hi, 0) for _, lo, hi in windows), default=0)
-    lookback_days = max(MAX_LOOKBACK_DAYS, required_lookback)
-    forward_days = max(MAX_FORWARD_DAYS, required_forward)
+    lookback_days = max(MAX_LOOKBACK_DAYS, required_lookback + BOUNDARY_CUSHION_DAYS)
+    forward_days = max(MAX_FORWARD_DAYS, required_forward + BOUNDARY_CUSHION_DAYS)
 
     # Group events by ticker so we load each ticker's price series once.
     by_ticker: dict[str, list[FilingEvent]] = {}
