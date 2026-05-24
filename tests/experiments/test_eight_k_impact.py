@@ -270,7 +270,7 @@ class AggregateTests(unittest.TestCase):
 
 
 class DedupeByFilingTests(unittest.TestCase):
-    def test_dedupe_by_filing_keeps_first_share_class_row(self) -> None:
+    def test_dedupe_by_filing_averages_share_class_rows(self) -> None:
         event_a = FilingEvent(
             ticker="GOOG",
             cik="0001652044",
@@ -301,6 +301,7 @@ class DedupeByFilingTests(unittest.TestCase):
         deduped = dedupe_by_filing(rows)
 
         self.assertEqual([row.event.ticker for row in deduped], ["GOOG", "AAPL"])
+        self.assertEqual(deduped[0].windows["same_day"], Decimal("1.5"))
 
 
 # ---------------------------------------------------------------------------

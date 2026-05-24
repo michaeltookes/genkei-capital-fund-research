@@ -97,6 +97,7 @@ class EightKImpactCliTests(unittest.TestCase):
 
         payload = json.loads(out.getvalue())
         self.assertEqual(payload["overall"]["n_events"], 1)
+        self.assertEqual(payload["overall"]["mean_pct"]["same_day"], "2")
         self.assertEqual(payload["by_item_code"][0]["n_events"], 1)
         self.assertEqual(
             {row["stratum_key"]: row["n_events"] for row in payload["by_ticker"]},

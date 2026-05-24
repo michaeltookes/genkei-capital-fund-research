@@ -386,18 +386,35 @@ def aggregate(
 
 
 def dedupe_by_filing(event_returns: Sequence[EventReturns]) -> list[EventReturns]:
-    """Keep one return row per SEC filing identity, preserving input order."""
-    seen: set[tuple[str, str]] = set()
-    out: list[EventReturns] = []
+    """Collapse shared-CIK rows to one issuer-level return row per filing."""
+    grouped: dict[tuple[str, str], list[EventReturns]] = {}
+    key_order: list[tuple[str, str]] = []
     for event_return in event_returns:
-        key = (
-            event_return.event.cik,
-            event_return.event.accession_number,
+        key = (event_return.event.cik, event_return.event.accession_number)
+        if key not in grouped:
+            key_order.append(key)
+            grouped[key] = []
+        grouped[key].append(event_return)
+
+    out: list[EventReturns] = []
+    for key in key_order:
+        rows = sorted(grouped[key], key=lambda row: row.event.ticker)
+        canonical = rows[0]
+        labels = sorted({label for row in rows for label in row.windows})
+        windows = {
+            label: _mean(
+                [value for row in rows if (value := row.windows.get(label)) is not None]
+            )
+            for label in labels
+        }
+        out.append(
+            EventReturns(
+                event=canonical.event,
+                windows=windows,
+                regime=canonical.regime,
+                horizon=canonical.horizon,
+            )
         )
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(event_return)
     return out
 
 
