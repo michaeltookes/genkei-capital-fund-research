@@ -162,15 +162,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Topic + entity + tone fields preserved.
   - Per-watchlist filtering option.
 
-### B-035 — Binance public market-data ingester
-- **Status:** open
-- **Priority:** medium
-- **Context:** Exchange-specific OHLCV cross-checks — useful when CoinGecko aggregates look suspicious.
-- **Acceptance criteria:**
-  - No API key required for public endpoints.
-  - Backfill what's free; document what isn't.
-  - Tables aligned with kline structure.
-
 ### B-036 — Per-source ingest documentation
 - **Status:** open
 - **Priority:** medium
@@ -332,9 +323,9 @@ First-class — the *point* of having the data lake.
   - Per-watchlist results.
 
 ### B-058 — Experiment: TVL drawdown early-warning model
-- **Status:** blocked on B-035
+- **Status:** open (unblocked 2026-05-23 by B-035 — Coinbase backfill landed 10y of BTC + ETH prices)
 - **Priority:** medium
-- **Context:** DeFiLlama + prices — does TVL change predict price drawdowns? **Blocked on B-035** (Binance public market-data ingester) or equivalent long-history free price source. Investigated 2026-05-22: TVL has 8.5y depth (Ethereum back to 2017) but `coingecko.market_data` has only 377 days because CoinGecko Demo/Public is hard-capped at 365d historical chart; the existing ingester only backfills beyond that on the Pro tier (paid). All 377d sit inside a single macro regime (post-2024 crypto boom), so a credible OOS validation isn't feasible without longer price history. Pivoted to B-059 in the same session.
+- **Context:** DeFiLlama + prices — does TVL change predict price drawdowns? Previously blocked on the price-history asymmetry (TVL 8.5y depth vs CoinGecko 377d). B-035 closed that gap on 2026-05-23: `coinbase.candles` now holds BTC-USD back to 2015-07, ETH-USD to 2016-05, LINK / SOL / SUI / RENDER / PYTH each from listing date. OOS validation now spans 2018 bear / 2020 COVID / 2021 boom / 2022 hiking / 2023 recovery / 2024-25 bull regimes.
 - **Acceptance criteria:**
   - Logistic or simple ML baseline + a notebook.
   - Out-of-sample validation.

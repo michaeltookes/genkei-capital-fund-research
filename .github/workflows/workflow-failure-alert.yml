@@ -21,6 +21,7 @@ on:
       - "Tests"
       - "DeFiLlama Daily Brief"
       - "CoinGecko Daily Market Data"
+      - "Coinbase Daily OHLCV"
       - "FRED Daily Macro"
       - "SEC EDGAR Daily"
       - "Ingest Staleness Check"

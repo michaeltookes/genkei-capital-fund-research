@@ -25,6 +25,7 @@ def _spec(
     required_keys: tuple[str, ...] = ("a", "b"),
     array_sample_size: int = 3,
     nested_paths: tuple[str, ...] = (),
+    array_item_min_length: int | None = None,
 ) -> EndpointSchema:
     return EndpointSchema(
         source="testsrc",
@@ -34,6 +35,7 @@ def _spec(
         required_keys=required_keys,
         array_sample_size=array_sample_size,
         nested_paths=nested_paths,
+        array_item_min_length=array_item_min_length,
     )
 
 
@@ -155,6 +157,64 @@ class ArrayPayloadTests(unittest.TestCase):
         self.assertIn("1/3", issues[0].detail)
 
 
+class ArrayOfArraysPayloadTests(unittest.TestCase):
+    """Validates the Coinbase-shaped payload check (B-035 / B-072 extension).
+
+    Coinbase candles return ``[[time, low, high, open, close, volume], ...]``
+    — positional fields, no keys. The spec uses ``array_item_min_length``
+    instead of ``required_keys`` so the check validates item shape
+    without naming individual indices.
+    """
+
+    def test_well_formed_candles_yield_no_issues(self) -> None:
+        spec = _spec(payload_type="array", required_keys=(), array_item_min_length=6)
+        payload = [
+            [1700000000, 100.0, 110.0, 105.0, 108.0, 1234.5],
+            [1700086400, 108.0, 115.0, 109.0, 114.0, 2000.0],
+        ]
+        self.assertEqual(check_payload(payload, spec), [])
+
+    def test_short_items_yield_missing_required_key_issue(self) -> None:
+        spec = _spec(payload_type="array", required_keys=(), array_item_min_length=6)
+        # All items have only 5 elements — Coinbase changed the column count.
+        payload = [
+            [1700000000, 100.0, 110.0, 105.0, 108.0],
+            [1700086400, 108.0, 115.0, 109.0, 114.0],
+        ]
+        issues = check_payload(payload, spec)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].kind, "MISSING_REQUIRED_KEY")
+        self.assertIn("length < 6", issues[0].detail)
+
+    def test_items_that_are_not_lists_yield_type_mismatch(self) -> None:
+        # Coinbase started returning objects instead of arrays.
+        spec = _spec(payload_type="array", required_keys=(), array_item_min_length=6)
+        payload = [{"t": 1700000000, "c": 108.0}, {"t": 1700086400, "c": 114.0}]
+        issues = check_payload(payload, spec)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].kind, "WRONG_TOP_LEVEL_TYPE")
+        self.assertIn("none of the first", issues[0].detail)
+
+    def test_mixed_list_and_non_list_items_yield_type_mismatch(self) -> None:
+        spec = _spec(payload_type="array", required_keys=(), array_item_min_length=6)
+        payload = [
+            [1700000000, 100.0, 110.0, 105.0, 108.0, 1234.5],
+            {"t": 1700086400, "c": 114.0},
+        ]
+        issues = check_payload(payload, spec)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].kind, "WRONG_TOP_LEVEL_TYPE")
+        self.assertIn("1/2", issues[0].detail)
+
+    def test_empty_array_still_flags_via_normal_array_check(self) -> None:
+        # Empty arrays are reported by the outer array check regardless
+        # of array_item_min_length.
+        spec = _spec(payload_type="array", required_keys=(), array_item_min_length=6)
+        issues = check_payload([], spec)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].kind, "EMPTY_ARRAY")
+
+
 class SpecRegistryTests(unittest.TestCase):
     """Lightweight sanity tests on the SCHEMA_SPECS registry.
 
@@ -169,9 +229,13 @@ class SpecRegistryTests(unittest.TestCase):
             self.assertTrue(spec.source, f"empty source on {spec.endpoint_kind}")
             self.assertTrue(spec.endpoint_kind, "empty endpoint_kind")
             self.assertTrue(spec.endpoint_pattern, f"empty pattern on {spec.endpoint_kind}")
+            # Spec must catch *some* drift — either via required_keys
+            # (object / array-of-objects) or via array_item_min_length
+            # (array-of-arrays like Coinbase candles).
             self.assertTrue(
-                spec.required_keys,
-                f"{spec.endpoint_kind} has no required_keys — spec wouldn't catch any drift",
+                spec.required_keys or spec.array_item_min_length is not None,
+                f"{spec.endpoint_kind} has neither required_keys nor "
+                "array_item_min_length — spec wouldn't catch any drift",
             )
 
     def test_endpoint_kinds_are_unique(self) -> None:
@@ -181,7 +245,7 @@ class SpecRegistryTests(unittest.TestCase):
     def test_expected_sources_have_at_least_one_spec(self) -> None:
         sources = {s.source for s in SCHEMA_SPECS}
         # Pin coverage so adding a new ingester forces a corresponding spec.
-        self.assertEqual(sources, {"defillama", "coingecko", "fred", "sec"})
+        self.assertEqual(sources, {"defillama", "coingecko", "fred", "sec", "coinbase"})
 
     def test_sec_submissions_spec_excludes_history_pages(self) -> None:
         spec = next(s for s in SCHEMA_SPECS if s.endpoint_kind == "submissions_<cik>")

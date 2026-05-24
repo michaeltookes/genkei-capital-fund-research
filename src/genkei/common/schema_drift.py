@@ -75,6 +75,12 @@ class EndpointSchema:
     # Nested path check: list of dotted paths whose leaf must exist (for
     # object payloads only). Each path is ``"top.sub.deeper"``.
     nested_paths: tuple[str, ...] = field(default_factory=tuple)
+    # For array-of-arrays payloads (e.g. Coinbase candles, where each
+    # item is ``[time, low, high, open, close, volume]`` not a dict):
+    # validate each sampled item is a list with at least this many
+    # elements. When set, ``required_keys`` is ignored and the
+    # "items must be objects" check is skipped.
+    array_item_min_length: int | None = None
 
 
 # Spec registry. Each entry captures the load-bearing fields the
@@ -198,6 +204,18 @@ SCHEMA_SPECS: tuple[EndpointSchema, ...] = (
         payload_type="object",
         required_keys=("cik", "facts"),
     ),
+    # Coinbase Exchange (B-035) — candle blobs are an array-of-arrays
+    # with positional fields: [time, low, high, open, close, volume].
+    # Both the daily-mode blob (candles_<product>) and the backfill
+    # blob (candles_<product>_<start>_<end>) share this shape.
+    EndpointSchema(
+        source="coinbase",
+        endpoint_kind="candles_<product>",
+        endpoint_pattern="candles\\_%",
+        payload_type="array",
+        required_keys=(),  # ignored for array-of-arrays
+        array_item_min_length=6,
+    ),
 )
 
 
@@ -282,6 +300,55 @@ def check_payload(payload: Any, spec: EndpointSchema) -> list[DriftIssue]:
             )
             return issues
         sample = payload[: max(1, spec.array_sample_size)]
+        # Array-of-arrays mode (Coinbase candles): check item length only.
+        if spec.array_item_min_length is not None:
+            short_count = 0
+            non_list_count = 0
+            for item in sample:
+                if not isinstance(item, list):
+                    non_list_count += 1
+                elif len(item) < spec.array_item_min_length:
+                    short_count += 1
+            if non_list_count == len(sample):
+                issues.append(
+                    DriftIssue(
+                        source=spec.source,
+                        endpoint_kind=spec.endpoint_kind,
+                        sample_endpoint_name=None,
+                        kind="WRONG_TOP_LEVEL_TYPE",
+                        detail=(
+                            f"array-of-arrays: none of the first {len(sample)} items "
+                            f"are lists (types: {_describe_sample_types(sample)})"
+                        ),
+                    )
+                )
+            elif non_list_count > 0:
+                issues.append(
+                    DriftIssue(
+                        source=spec.source,
+                        endpoint_kind=spec.endpoint_kind,
+                        sample_endpoint_name=None,
+                        kind="WRONG_TOP_LEVEL_TYPE",
+                        detail=(
+                            f"array-of-arrays: {non_list_count}/{len(sample)} sampled "
+                            f"items are not lists (types: {_describe_sample_types(sample)})"
+                        ),
+                    )
+                )
+            elif short_count > 0:
+                issues.append(
+                    DriftIssue(
+                        source=spec.source,
+                        endpoint_kind=spec.endpoint_kind,
+                        sample_endpoint_name=None,
+                        kind="MISSING_REQUIRED_KEY",
+                        detail=(
+                            f"array-of-arrays: {short_count}/{len(sample)} items have "
+                            f"length < {spec.array_item_min_length}"
+                        ),
+                    )
+                )
+            return issues
         missing_by_key: dict[str, int] = {key: 0 for key in spec.required_keys}
         non_dict_count = 0
         for item in sample:
