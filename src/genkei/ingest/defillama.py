@@ -304,7 +304,7 @@ def collect(
                         run.add_rows(1)
 
             if partial:
-                _record_partial(run.id, partial)
+                db.record_partial_endpoints(run.id, partial)
             return run.id
     finally:
         if owns_http:
@@ -348,17 +348,6 @@ def _load_watchlist_protocol_slugs(watchlist_path: Path | None) -> list[str]:
         seen.add(entry.slug)
         slugs.append(entry.slug)
     return slugs
-
-
-def _record_partial(ingest_run_id: int, partial: list[dict[str, str]]) -> None:
-    """Stash per-endpoint partial-failure metadata on the ingest_runs row."""
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "UPDATE meta.ingest_runs SET metadata = "
-            "COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('partial_endpoints', %s::jsonb) "
-            "WHERE id = %s",
-            [json.dumps(partial), ingest_run_id],
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -575,7 +564,7 @@ def backfill(
                 total += _backfill_stablecoins(config, http, run.id, failures)
             run.add_rows(total)
             if failures:
-                _record_partial(run.id, failures)
+                db.record_partial_endpoints(run.id, failures)
             return run.id
     finally:
         if owns_http:

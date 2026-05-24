@@ -218,7 +218,7 @@ def collect(
                     written += 1
             run.add_rows(written)
             if failures:
-                _record_partial(run.id, failures)
+                db.record_partial_endpoints(run.id, failures)
                 raise RuntimeError(
                     f"Coinbase fetch failed for {len(failures)} product(s); "
                     "no partial snapshot will be normalized."
@@ -289,7 +289,7 @@ def backfill(
                 LOGGER.info("Coinbase backfill: %s done (%s chunks)", target.product, len(windows))
             run.add_rows(written)
             if failures:
-                _record_partial(run.id, failures)
+                db.record_partial_endpoints(run.id, failures)
                 raise RuntimeError(
                     f"Coinbase backfill failed for {len(failures)} window(s); "
                     "see meta.ingest_runs.metadata.partial_endpoints for details."
@@ -360,17 +360,6 @@ def _fetch_named_window(
         return False
     db.store_raw_blob(ingest_run_id, endpoint_name, url, payload)
     return True
-
-
-def _record_partial(ingest_run_id: int, partial: list[dict[str, str]]) -> None:
-    """Stash per-window partial-failure metadata on the ingest_runs row."""
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "UPDATE meta.ingest_runs SET metadata = "
-            "COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('partial_endpoints', %s::jsonb) "
-            "WHERE id = %s",
-            [json.dumps(partial), ingest_run_id],
-        )
 
 
 # ---------------------------------------------------------------------------
