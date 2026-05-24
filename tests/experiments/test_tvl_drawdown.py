@@ -74,6 +74,12 @@ class FeatureEngineeringTests(unittest.TestCase):
         # window is 80, so the forward drawdown is 20%.
         self.assertEqual(features[0].forward_drawdown_pct, Decimal("20"))
 
+    def test_forward_drawdown_label_is_zero_when_price_only_rises(self) -> None:
+        prices = [Decimal("100"), Decimal("105"), Decimal("110")]
+        aligned = _make_aligned(3, price_path=prices)
+        features = engineer_features(aligned, forward_window_days=2)
+        self.assertEqual(features[0].forward_drawdown_pct, Decimal("0"))
+
     def test_tvl_drawdown_from_peak_tracks_trailing_max(self) -> None:
         # TVL rises to 200 at day 50, falls to 100 by day 100.
         # On day 100, 90d-peak = 200, current = 100 → drawdown 50%.

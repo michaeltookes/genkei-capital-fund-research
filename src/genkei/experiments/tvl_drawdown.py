@@ -237,7 +237,10 @@ def engineer_features(
         if dates[-1] >= forward_end and future_end_index > i:
             future_min = min(r.price_usd for r in aligned[i + 1 : future_end_index + 1])
             forward_drawdown_pct = (
-                Decimal("100") * (row.price_usd - future_min) / row.price_usd
+                max(
+                    Decimal("0"),
+                    Decimal("100") * (row.price_usd - future_min) / row.price_usd,
+                )
                 if row.price_usd > 0
                 else None
             )
