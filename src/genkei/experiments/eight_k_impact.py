@@ -411,6 +411,12 @@ def run_event_study(
     events = load_filing_events(ticker=ticker, since=since, until=until)
     if not events:
         return []
+    required_lookback = max(
+        (max(-lo, -hi, 0) for _, lo, hi in windows), default=0
+    )
+    required_forward = max((max(lo, hi, 0) for _, lo, hi in windows), default=0)
+    lookback_days = max(MAX_LOOKBACK_DAYS, required_lookback)
+    forward_days = max(MAX_FORWARD_DAYS, required_forward)
 
     # Group events by ticker so we load each ticker's price series once.
     by_ticker: dict[str, list[FilingEvent]] = {}
@@ -427,8 +433,8 @@ def run_event_study(
         last_event = max(e.filed_at for e in ticker_events)
         prices = load_price_series(
             t,
-            since=first_event - timedelta(days=MAX_LOOKBACK_DAYS),
-            until=last_event + timedelta(days=MAX_FORWARD_DAYS),
+            since=first_event - timedelta(days=lookback_days),
+            until=last_event + timedelta(days=forward_days),
         )
         for event in ticker_events:
             windows_dict = compute_windowed_returns(

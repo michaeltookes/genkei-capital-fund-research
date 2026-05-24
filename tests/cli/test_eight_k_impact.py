@@ -9,6 +9,8 @@ from contextlib import redirect_stdout
 from decimal import Decimal
 from unittest.mock import patch
 
+import typer
+
 from genkei.cli.eight_k_impact import _stratum_to_dict, eight_k_impact_cmd
 from genkei.experiments.eight_k_impact import DEFAULT_HORIZON, StratumStats
 
@@ -48,6 +50,12 @@ class EightKImpactCliTests(unittest.TestCase):
             eight_k_impact_cmd()
 
         self.assertIn(f"horizon={DEFAULT_HORIZON}", out.getvalue())
+
+    def test_since_after_until_is_rejected(self) -> None:
+        with self.assertRaises(typer.BadParameter) as ctx:
+            eight_k_impact_cmd(since="2024-06-01", until="2024-01-01")
+
+        self.assertIn("--since", str(ctx.exception))
 
 
 if __name__ == "__main__":

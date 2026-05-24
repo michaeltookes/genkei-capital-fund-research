@@ -119,6 +119,13 @@ def eight_k_impact_cmd(
     parsed_until: date_type | None = (
         _parse_date(until, label="--until") if until else None
     )
+    if (
+        parsed_since is not None
+        and parsed_until is not None
+        and parsed_since > parsed_until
+    ):
+        raise typer.BadParameter("--since must be on or before --until.")
+
     requested_strata = {s.strip() for s in by.split(",") if s.strip()}
     unknown = requested_strata - {"ticker", "item-code", "regime"}
     if unknown:

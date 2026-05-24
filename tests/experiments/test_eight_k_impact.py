@@ -29,6 +29,7 @@ from genkei.experiments.eight_k_impact import (
     compute_windowed_returns,
     load_filing_events,
     parse_item_codes,
+    run_event_study,
     stratify_by_item_code,
     stratify_by_regime,
     stratify_by_ticker,
@@ -397,6 +398,42 @@ class LoadFilingEventsTests(unittest.TestCase):
             events = load_filing_events(ticker="GOOG")
 
         self.assertEqual([event.ticker for event in events], ["GOOG"])
+
+
+# ---------------------------------------------------------------------------
+# Event study orchestration
+# ---------------------------------------------------------------------------
+
+
+class RunEventStudyTests(unittest.TestCase):
+    def test_custom_windows_expand_price_padding(self) -> None:
+        captured: dict[str, date] = {}
+
+        def fake_load_price_series(
+            ticker: str, *, since: date, until: date
+        ) -> list[PricePoint]:
+            captured["since"] = since
+            captured["until"] = until
+            return []
+
+        with (
+            patch(
+                "genkei.experiments.eight_k_impact.load_filing_events",
+                return_value=[_make_event(filed_at=date(2024, 1, 10))],
+            ),
+            patch(
+                "genkei.experiments.eight_k_impact.load_regime_for_dates",
+                return_value={},
+            ),
+            patch(
+                "genkei.experiments.eight_k_impact.load_price_series",
+                side_effect=fake_load_price_series,
+            ),
+        ):
+            run_event_study(windows=(("pre_30d", -30, -1), ("post_90d", 0, 90)))
+
+        self.assertEqual(captured["since"], date(2023, 12, 11))
+        self.assertEqual(captured["until"], date(2024, 4, 9))
 
 
 # ---------------------------------------------------------------------------
