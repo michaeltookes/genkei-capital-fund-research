@@ -170,6 +170,18 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - `docs/sources/<name>.md` for every ingester (DeFiLlama first as the template).
   - Acceptance gates included (mirroring `docs/defillama-daily-review.md` pattern).
 
+### B-092 — Equity OHLCV ingester (Yahoo Finance / Stooq fallback)
+- **Status:** open
+- **Priority:** medium
+- **Context:** Equity counterpart to B-035 (Coinbase). The watchlist's 20+ equity tickers (AAPL, MSFT, GOOG, JPM, MSTR, NVDA, TSM, COIN, ...) have no price source today — `genkei prices --ticker AAPL` surfaces a friendly "equity prices not yet ingested" error and points at this gap. Unblocks: the equity sleeve of the B-065 scoring rubric (insider_flow + revenue_trend + filings_velocity have ground truth via SEC but no forward-return validation surface); B-057 (8-K filing impact study); B-061 (13F crowding monitor — needs price moves to score smart-money timing); the regime-conditional return study deferred by B-059's writeup. Yahoo Finance's chart endpoint (`query1.finance.yahoo.com/v8/finance/chart/<ticker>?interval=1d&period1=...&period2=...`) returns daily OHLCV back ~30y with no auth, US-accessible — verify live during kickoff (Yahoo's API has had cookie-requirement quirks in recent years). Stooq.com CSV downloads are the documented fallback if Yahoo proves unreliable (~25y history, no auth either).
+- **Acceptance criteria:**
+  - No API key required (public endpoint, public CSV, or equivalent).
+  - Daily collector + historical backfill (multi-year) modes following the B-035 pattern.
+  - New `<source>.candles` (or `equities.prices`) table keyed on (ticker, ts) with at minimum (open, high, low, close, volume); split-adjusted close called out explicitly if the source provides both adjusted and unadjusted series.
+  - Extend `genkei prices` to dispatch equity tickers to the new source (CLI already has the friendly-error path; replace with a real query).
+  - Schema-drift canary entry (B-072 pattern).
+  - Daily GH Actions workflow.
+
 ### B-080 — SEC 13F (institutional holdings) ingester
 - **Status:** open
 - **Priority:** medium
