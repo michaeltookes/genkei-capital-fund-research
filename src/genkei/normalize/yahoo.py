@@ -8,8 +8,8 @@ the ``(ticker, ts)`` PK.
 
 Single blob shape (both daily + backfill modes):
 
-  ``candles_<ticker>``                  (daily mode)
-  ``candles_<ticker>_<since>_<until>``  (backfill mode)
+  ``chart_<ticker>``                  (daily mode)
+  ``chart_<ticker>_<since>_<until>``  (backfill mode)
 
 Yahoo payload shape:
   ``{chart: {result: [{meta, timestamp, indicators: {quote: [{open, high, low, close, volume}], adjclose: [{adjclose}]}}]}}``
@@ -36,7 +36,7 @@ SOURCE_NAME = "yahoo"
 NORMALIZE_ENDPOINT_LABEL = "normalize"
 COLLECT_ENDPOINT_LABEL = "collect"
 BACKFILL_ENDPOINT_LABEL = "backfill"
-CANDLES_BLOB_PREFIX = "candles_"
+CHART_BLOB_PREFIX = "chart_"
 RawBlob = tuple[str, Any, datetime]
 JsonObject = dict[str, Any]
 LOGGER = logging.getLogger(__name__)
@@ -70,16 +70,18 @@ def _as_numeric(value: Any) -> float | None:
 
 
 def _ticker_from_endpoint_name(endpoint_name: str) -> str | None:
-    """Extract the ticker from ``candles_<ticker>[_<since>_<until>]``.
+    """Extract the ticker from ``chart_<ticker>[_<since>_<until>]``.
 
     Both daily and backfill blob names encode the ticker after the
-    ``candles_`` prefix. Backfill names append ``_<since>_<until>``
-    where each date is ISO-8601 (e.g. ``2015-07-19``). Walk the
+    ``chart_`` prefix (chosen to mirror Yahoo's `/v8/finance/chart/`
+    endpoint and avoid colliding with Coinbase's ``candles_%`` spec
+    pattern in `genkei.common.schema_drift`). Backfill names append
+    ``_<since>_<until>`` where each date is ISO-8601. Walk the
     underscore-split parts and stop at the first 10-char ISO date.
     """
-    if not endpoint_name.startswith(CANDLES_BLOB_PREFIX):
+    if not endpoint_name.startswith(CHART_BLOB_PREFIX):
         return None
-    tail = endpoint_name[len(CANDLES_BLOB_PREFIX) :]
+    tail = endpoint_name[len(CHART_BLOB_PREFIX) :]
     parts = tail.split("_")
     ticker_parts: list[str] = []
     for part in parts:

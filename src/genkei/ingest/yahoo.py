@@ -61,7 +61,7 @@ SOURCE_NAME = "yahoo"
 COLLECT_ENDPOINT_LABEL = "collect"
 BACKFILL_ENDPOINT_LABEL = "backfill"
 YAHOO_BASE_URL = "https://query1.finance.yahoo.com"
-CANDLES_BLOB_PREFIX = "candles_"
+CHART_BLOB_PREFIX = "chart_"
 # Yahoo's public chart endpoint occasionally returns 429 for requests
 # with sparse / empty UAs. A browser-flavored UA stays well under any
 # moderate-bot heuristic.
@@ -289,11 +289,11 @@ def _fetch_window(
     """Fetch one (ticker, window) and persist the raw payload.
 
     ``blob_suffix`` is appended to the endpoint name so daily-mode
-    blobs (``candles_<ticker>``) don't collide with backfill-mode
-    blobs (``candles_<ticker>_<since>_<until>``). The normalizer's
+    blobs (``chart_<ticker>``) don't collide with backfill-mode
+    blobs (``chart_<ticker>_<since>_<until>``). The normalizer's
     product-extraction handles both shapes.
     """
-    endpoint_name = f"{CANDLES_BLOB_PREFIX}{target.ticker}{blob_suffix}"
+    endpoint_name = f"{CHART_BLOB_PREFIX}{target.ticker}{blob_suffix}"
     url = build_chart_url(
         target.ticker, period1=int(start.timestamp()), period2=int(end.timestamp())
     )
