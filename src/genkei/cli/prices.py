@@ -243,7 +243,7 @@ def prices_cmd(
         raise typer.Exit(code=2) from exc
 
     crypto = watchlist.find_crypto(ticker)
-    equity = watchlist.find_equity(ticker) if crypto is None else None
+    equity = watchlist.find_equity(ticker)
     if crypto is None and equity is None:
         typer.echo(
             f"Ticker {ticker!r} not found in {config}. Add it under crypto or equities first.",
@@ -253,19 +253,26 @@ def prices_cmd(
 
     # Default-source-by-asset-class: crypto → coingecko, equity → yahoo.
     if not source:
+        if crypto is not None and equity is not None:
+            typer.echo(
+                f"Ticker {ticker!r} appears under both crypto and equities in {config}. "
+                "Pass --source coingecko, --source coinbase, or --source yahoo.",
+                err=True,
+            )
+            raise typer.Exit(code=2)
         source = "yahoo" if equity is not None else "coingecko"
 
     # Reject source/asset-class mismatches loudly. The previous "equity
     # has no prices yet" message rotted with B-092; replace with
     # actionable routing errors.
-    if equity is not None and source != "yahoo":
+    if crypto is None and source != "yahoo":
         typer.echo(
             f"{ticker} is an equity; equity prices live in `yahoo.candles` "
             "(B-092). Use --source yahoo (or omit --source).",
             err=True,
         )
         raise typer.Exit(code=2)
-    if crypto is not None and source == "yahoo":
+    if equity is None and source == "yahoo":
         typer.echo(
             f"{ticker} is crypto; Yahoo carries equity prices only. "
             "Use --source coingecko (default) or --source coinbase.",

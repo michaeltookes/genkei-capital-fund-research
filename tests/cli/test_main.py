@@ -113,6 +113,47 @@ class PricesCommandTests(unittest.TestCase):
         self.assertIn("equity", err.getvalue().lower())
         self.assertIn("yahoo", err.getvalue().lower())
 
+    def test_overlapping_symbol_uses_explicit_yahoo_source_for_equity(self) -> None:
+        path = self._watchlist(
+            "crypto:\n  primary:\n    - symbol: ABC\n"
+            "      name: ABC Token\n      coingecko_id: abc-token\n"
+            "equities:\n  primary:\n    - symbol: ABC\n"
+            '      name: AmerisourceBergen\n      cik: "0001140859"\n'
+        )
+        rows = [
+            {
+                "ts": "2024-01-01T00:00:00+00:00",
+                "price_usd": 100.0,
+                "market_cap_usd": None,
+                "volume_usd": 1000.0,
+                "close_unadjusted": 100.0,
+            }
+        ]
+        out = io.StringIO()
+        with (
+            patch("genkei.cli.prices._query_yahoo_candles", return_value=rows) as query,
+            redirect_stdout(out),
+        ):
+            code = main(["prices", "--ticker", "ABC", "--source", "yahoo", "--config", str(path)])
+        self.assertIn(code, (None, 0))
+        query.assert_called_once()
+        self.assertIn("ABC", out.getvalue())
+        self.assertIn("100.00", out.getvalue())
+
+    def test_overlapping_symbol_without_source_errors_loudly(self) -> None:
+        path = self._watchlist(
+            "crypto:\n  primary:\n    - symbol: ABC\n"
+            "      name: ABC Token\n      coingecko_id: abc-token\n"
+            "equities:\n  primary:\n    - symbol: ABC\n"
+            '      name: AmerisourceBergen\n      cik: "0001140859"\n'
+        )
+        err = io.StringIO()
+        with redirect_stderr(err):
+            code = main(["prices", "--ticker", "ABC", "--config", str(path)])
+        self.assertEqual(code, 2)
+        self.assertIn("both crypto and equities", err.getvalue())
+        self.assertIn("--source yahoo", err.getvalue())
+
     def test_crypto_ticker_queries_coingecko_market_data(self) -> None:
         # Patch the DB query to avoid hitting Postgres.
         path = self._watchlist(
