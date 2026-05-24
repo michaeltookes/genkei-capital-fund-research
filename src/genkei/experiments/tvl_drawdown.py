@@ -50,9 +50,10 @@ information into the training set and inflate metrics.
 
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -183,22 +184,33 @@ def engineer_features(
     is the same length with features filled in where the lookback /
     lookahead windows have enough data.
     """
+    if forward_window_days <= 0:
+        raise ValueError("forward_window_days must be a positive integer")
     if not aligned:
         return []
-    # Date index → row. We assume aligned is sorted ascending by ts.
+    dates = [row.ts for row in aligned]
     out: list[FeatureRow] = []
-    n = len(aligned)
+
+    def row_at_or_before(current: date, days_back: int) -> AlignedRow | None:
+        target = current - timedelta(days=days_back)
+        prior_index = bisect_right(dates, target) - 1
+        return aligned[prior_index] if prior_index >= 0 else None
+
     for i, row in enumerate(aligned):
-        # Trailing TVL deltas — pick the row at offset i-d if it exists.
-        tvl_7d = aligned[i - 7].tvl_usd if i >= 7 else None
-        tvl_30d = aligned[i - 30].tvl_usd if i >= 30 else None
-        tvl_90d = aligned[i - 90].tvl_usd if i >= 90 else None
+        tvl_7d_row = row_at_or_before(row.ts, 7)
+        tvl_30d_row = row_at_or_before(row.ts, 30)
+        tvl_90d_row = row_at_or_before(row.ts, 90)
+        tvl_7d = tvl_7d_row.tvl_usd if tvl_7d_row is not None else None
+        tvl_30d = tvl_30d_row.tvl_usd if tvl_30d_row is not None else None
+        tvl_90d = tvl_90d_row.tvl_usd if tvl_90d_row is not None else None
 
         # Drawdown from trailing 90d peak (positive number = currently
         # below peak). None when we don't have 90 days of history yet.
+        lookback_90_start = row.ts - timedelta(days=90)
+        lookback_90_start_index = bisect_left(dates, lookback_90_start)
         peak_90d = (
-            _max([r.tvl_usd for r in aligned[max(0, i - 90) : i + 1]])
-            if i >= 90
+            _max([r.tvl_usd for r in aligned[lookback_90_start_index : i + 1]])
+            if tvl_90d_row is not None
             else None
         )
         tvl_drawdown_pct = (
@@ -209,7 +221,7 @@ def engineer_features(
 
         # 90d z-score: where does today's TVL sit in the trailing 90d
         # distribution? Negative = unusually low.
-        window = [r.tvl_usd for r in aligned[max(0, i - 89) : i + 1]]
+        window = [r.tvl_usd for r in aligned[lookback_90_start_index : i + 1]]
         zscore = None
         if len(window) >= 30:
             mu = _mean(window)
@@ -220,10 +232,10 @@ def engineer_features(
         # Forward drawdown: worst (largest) pct drop from row.price_usd
         # within the next forward_window_days days. None if the window
         # doesn't fit.
-        if i + forward_window_days < n:
-            future_min = min(
-                r.price_usd for r in aligned[i + 1 : i + 1 + forward_window_days]
-            )
+        forward_end = row.ts + timedelta(days=forward_window_days)
+        future_end_index = bisect_right(dates, forward_end) - 1
+        if dates[-1] >= forward_end and future_end_index > i:
+            future_min = min(r.price_usd for r in aligned[i + 1 : future_end_index + 1])
             forward_drawdown_pct = (
                 Decimal("100") * (row.price_usd - future_min) / row.price_usd
                 if row.price_usd > 0
@@ -337,7 +349,7 @@ def evaluate(
 
     tp = fp = tn = fn = 0
     for r in evaluable:
-        positive = r.forward_drawdown_pct > drawdown_threshold_pct
+        positive = r.forward_drawdown_pct >= drawdown_threshold_pct
         fires = classifier_fires(
             r,
             tvl_change_30d_threshold_pct=tvl_change_30d_threshold_pct,
@@ -443,6 +455,8 @@ def run_chain_evaluation(
     until: date | None = None,
 ) -> tuple[ClassifierResult, ClassifierResult]:
     """Run the experiment for one (chain, product) pair. Returns (train, test) results."""
+    if forward_window_days <= 0:
+        raise ValueError("forward_window_days must be a positive integer")
     aligned = load_aligned_series(chain, product, until=until)
     features = engineer_features(aligned, forward_window_days=forward_window_days)
     if not aligned:
@@ -470,14 +484,14 @@ def run_chain_evaluation(
         chain=chain,
         product=product,
         period_start=series_start,
-        period_end=min(train_end, series_end),
+        period_end=min(train_end - timedelta(days=forward_window_days), series_end),
         drawdown_threshold_pct=drawdown_threshold_pct,
     )
     test = evaluate(
         features,
         chain=chain,
         product=product,
-        period_start=train_end,
+        period_start=train_end + timedelta(days=1),
         period_end=series_end,
         drawdown_threshold_pct=drawdown_threshold_pct,
     )

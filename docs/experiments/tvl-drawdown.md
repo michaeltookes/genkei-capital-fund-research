@@ -2,9 +2,9 @@
 
 **B-058.** Phase 5 experiment that asks: *does on-chain TVL change predict future price drawdowns?* The answer the lake gives, in a sentence: **TVL stress is a precision-positive but rare signal — when the rule fires it's correct ~2× as often as the base rate, but it fires on less than 1% of days and missed every drawdown in the 2024-2026 test window.**
 
-```
+```bash
 $ genkei tvl-drawdown --chain Ethereum
-TVL drawdown early-warning (B-058) — train ≤ 2024-01-01, test > 2024-01-01
+TVL drawdown early-warning (B-058) — split 2024-01-01, test > split
 
 Ethereum (ETH-USD) — forward window 30d, drawdown threshold 15.0%
   period  days     base   signal precision  recall   lift   confusion (TP/FP/TN/FN)
@@ -61,7 +61,7 @@ All features are computed in pure Python (no numpy/pandas) on `Decimal` so the m
 
 Rule-based 3-AND threshold:
 
-```
+```text
 fire = (tvl_change_30d_pct < -10%)
     AND (tvl_drawdown_from_peak_90d_pct > 15%)
     AND (tvl_zscore_90d < -1)
@@ -73,9 +73,9 @@ fire = (tvl_change_30d_pct < -10%)
 
 ## Out-of-sample evaluation
 
-Time-based train/test split — NOT random — to avoid leaking future information into the training set.
+Time-based train/test split — NOT random — to avoid leaking future information into the training set. Train metrics exclude rows whose forward labels would read beyond the split date.
 
-- **Train**: data ≤ 2024-01-01 (covers 2017-2018 bear, 2020 COVID, 2021 boom, 2022 hiking, late-2022 trough)
+- **Train**: labels contained within data ≤ 2024-01-01 (covers 2017-2018 bear, 2020 COVID, 2021 boom, 2022 hiking, late-2022 trough)
 - **Test**: data > 2024-01-01 (covers 2024-25 bull)
 
 Results across all three default chains, drawdown threshold 15% over 30 days:

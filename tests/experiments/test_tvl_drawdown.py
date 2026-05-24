@@ -10,6 +10,7 @@ from __future__ import annotations
 import unittest
 from datetime import date, timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
 from genkei.experiments.tvl_drawdown import (
     AlignedRow,
@@ -17,6 +18,7 @@ from genkei.experiments.tvl_drawdown import (
     classifier_fires,
     engineer_features,
     evaluate,
+    run_chain_evaluation,
 )
 
 
@@ -97,7 +99,7 @@ class FeatureEngineeringTests(unittest.TestCase):
     def test_zscore_negative_when_current_is_below_recent_average(self) -> None:
         # TVL stable at 100 for 60 days, then drops to 60 for 30 days
         # → on the last day, current = 60 vs trailing 90d window
-        # spanning all 90 days including the drop → mean ≈ 86.7, σ ≈ 19,
+        # spanning all 90 days including the drop → mean ≈ 86.7, sigma ≈ 19,
         # z = (60 - 86.7) / 19 ≈ -1.4.
         tvl = [Decimal("100")] * 60 + [Decimal("60")] * 30
         aligned = _make_aligned(90, tvl_path=tvl)
@@ -119,6 +121,20 @@ class FeatureEngineeringTests(unittest.TestCase):
         self.assertIsNone(features[-15].forward_drawdown_pct)
         # 35 days before the end: window fits.
         self.assertIsNotNone(features[14].forward_drawdown_pct)
+
+    def test_rejects_non_positive_forward_window(self) -> None:
+        with self.assertRaisesRegex(ValueError, "forward_window_days"):
+            engineer_features(_make_aligned(10), forward_window_days=0)
+
+    def test_calendar_windows_ignore_missing_observation_count(self) -> None:
+        aligned = [
+            AlignedRow(date(2024, 1, 1), Decimal("100"), Decimal("100")),
+            AlignedRow(date(2024, 1, 31), Decimal("80"), Decimal("100")),
+            AlignedRow(date(2024, 2, 1), Decimal("80"), Decimal("90")),
+        ]
+        features = engineer_features(aligned, forward_window_days=1)
+        self.assertEqual(features[1].tvl_change_30d_pct, Decimal("-20"))
+        self.assertEqual(features[1].forward_drawdown_pct, Decimal("10"))
 
 
 class ClassifierFiresTests(unittest.TestCase):
@@ -313,6 +329,36 @@ class EvaluateTests(unittest.TestCase):
             period_end=date(2024, 12, 31),
         )
         self.assertEqual(r.days_evaluated, 1)
+
+    def test_exact_threshold_drawdown_is_positive(self) -> None:
+        rows = [
+            self._row(date(2024, 1, 1), forward_drawdown=Decimal("15"), fires=True),
+        ]
+        r = evaluate(
+            rows,
+            chain="Test",
+            product="TST-USD",
+            period_start=date(2024, 1, 1),
+            period_end=date(2024, 1, 31),
+        )
+        self.assertEqual(r.true_positives, 1)
+
+
+class RunChainEvaluationTests(unittest.TestCase):
+    def test_split_boundaries_do_not_share_days_or_forward_labels(self) -> None:
+        aligned = _make_aligned(12, start=date(2024, 1, 1))
+        with patch(
+            "genkei.experiments.tvl_drawdown.load_aligned_series",
+            return_value=aligned,
+        ):
+            train, test = run_chain_evaluation(
+                "Test",
+                "TST-USD",
+                train_end=date(2024, 1, 6),
+                forward_window_days=2,
+            )
+        self.assertEqual(train.period_end, date(2024, 1, 4))
+        self.assertEqual(test.period_start, date(2024, 1, 7))
 
 
 if __name__ == "__main__":

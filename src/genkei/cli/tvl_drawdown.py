@@ -2,8 +2,8 @@
 
 Thin CLI wrapper over ``genkei.experiments.tvl_drawdown``. Runs the
 rule-based threshold classifier on each (chain, native token) pair
-in the watchlist, evaluating train (default ≤ 2024-01-01) and test
-(default ≥ 2024-01-01) periods side-by-side.
+in the watchlist, evaluating label-safe train and test periods around
+the default 2024-01-01 split.
 
 Usage:
   genkei tvl-drawdown                            # all chain/product pairs, defaults
@@ -22,8 +22,8 @@ import typer
 
 from genkei.cli._helpers import json_default as _json_default
 from genkei.cli._helpers import parse_date as _parse_date
+from genkei.common.watchlist import Watchlist, load_watchlist
 from genkei.experiments.tvl_drawdown import (
-    DEFAULT_CHAIN_PRODUCT_PAIRS,
     DEFAULT_DRAWDOWN_THRESHOLD_PCT,
     DEFAULT_FORWARD_WINDOW_DAYS,
     DEFAULT_TRAIN_END,
@@ -31,12 +31,31 @@ from genkei.experiments.tvl_drawdown import (
     run_chain_evaluation,
 )
 
+DEFAULT_CHAIN_SYMBOLS = ("ETH", "SOL", "SUI")
+
+
+def _chain_product_pairs(watchlist: Watchlist) -> tuple[tuple[str, str], ...]:
+    pairs: list[tuple[str, str]] = []
+    by_symbol = {entry.symbol.upper(): entry for entry in watchlist.crypto}
+    for symbol in DEFAULT_CHAIN_SYMBOLS:
+        entry = by_symbol.get(symbol)
+        if entry is not None and entry.coinbase_product:
+            pairs.append((entry.name, entry.coinbase_product))
+    return tuple(pairs)
+
+
+def _bitcoin_pair(watchlist: Watchlist) -> Optional[tuple[str, str]]:
+    entry = watchlist.find_crypto("BTC")
+    if entry is None or not entry.coinbase_product:
+        return None
+    return (entry.name, entry.coinbase_product)
+
 
 def _format_result(label: str, r: ClassifierResult) -> str:
     return (
         f"  {label:<6} {r.days_evaluated:>5} {float(r.base_rate_pct):>7.2f}%"
         f" {float(r.signal_rate_pct):>7.2f}% {float(r.precision_pct):>7.2f}%"
-        f" {float(r.recall_pct):>6.2f}% {float(r.lift):>5.2f}×"
+        f" {float(r.recall_pct):>6.2f}% {float(r.lift):>5.2f}x"
         f"   TP={r.true_positives} FP={r.false_positives}"
         f" TN={r.true_negatives} FN={r.false_negatives}"
     )
@@ -105,7 +124,8 @@ def tvl_drawdown_cmd(
     )
     drawdown_decimal = Decimal(str(drawdown))
 
-    pairs = DEFAULT_CHAIN_PRODUCT_PAIRS
+    watchlist = load_watchlist()
+    pairs = _chain_product_pairs(watchlist)
     if chain is not None:
         # Tolerate case mismatch — chain names in the lake are
         # title-case ("Ethereum"); the CLI accepts any casing.
@@ -117,11 +137,13 @@ def tvl_drawdown_cmd(
             # Bitcoin is intentionally excluded from defaults but the
             # data exists. Let users opt in.
             if chain.lower() == "bitcoin":
-                match = ("Bitcoin", "BTC-USD")
+                match = _bitcoin_pair(watchlist)
             else:
                 raise typer.BadParameter(
                     f"Unknown chain {chain!r}. Known: {', '.join(c for c, _ in pairs)}, Bitcoin."
                 )
+            if match is None:
+                raise typer.BadParameter("Bitcoin has no coinbase_product in the watchlist.")
         pairs = (match,)
 
     rows: list[dict[str, Any]] = []
@@ -149,11 +171,11 @@ def tvl_drawdown_cmd(
             human_lines.append(_format_result("test", test))
 
     if json_output:
-        typer.echo(json.dumps({"results": rows}, default=_json_default, indent=2))
+        typer.echo(json.dumps(rows, default=_json_default, indent=2))
     else:
         typer.echo(
-            f"TVL drawdown early-warning (B-058) — train ≤ {parsed_train_end.isoformat()}, "
-            f"test > {parsed_train_end.isoformat()}"
+            f"TVL drawdown early-warning (B-058) — split {parsed_train_end.isoformat()}, "
+            f"test > split"
         )
         typer.echo("=" * 84)
         for line in human_lines:
