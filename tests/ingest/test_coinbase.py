@@ -153,6 +153,12 @@ class ChunkWindowsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _chunk_windows(date(2024, 6, 1), date(2024, 1, 1), 280)
 
+    def test_rejects_non_positive_chunk_size(self) -> None:
+        with self.assertRaises(ValueError):
+            _chunk_windows(date(2024, 6, 1), date(2024, 6, 30), 0)
+        with self.assertRaises(ValueError):
+            _chunk_windows(date(2024, 6, 1), date(2024, 6, 30), -10)
+
 
 if __name__ == "__main__":
     unittest.main()

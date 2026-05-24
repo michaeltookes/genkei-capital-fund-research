@@ -40,9 +40,9 @@ failure picks up cleanly.
 
 **Auth + rate limits.** No API key required. Public REST has a 10
 req/sec ceiling per source IP; we cap at 5/sec to stay well below.
-The full daily-mode run touches 7 products × 1 call = 7 calls (<2s).
+The full daily-mode run touches 7 products x 1 call = 7 calls (<2s).
 A full historical backfill of BTC-USD (~4,000 days) takes 14 chunks
-× 7 products = 98 calls (<25s).
+x 7 products = 98 calls (<25s).
 """
 
 from __future__ import annotations
@@ -163,6 +163,8 @@ def _chunk_windows(
     Each window's end is the *last day included* in that chunk; the
     URL builder converts to half-open UTC datetimes downstream.
     """
+    if chunk_days <= 0:
+        raise ValueError(f"chunk_windows: chunk_days must be > 0, got {chunk_days}")
     if end < start:
         raise ValueError(f"chunk_windows: end {end} < start {start}")
     windows: list[tuple[date, date]] = []

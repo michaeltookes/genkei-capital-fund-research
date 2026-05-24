@@ -26,7 +26,7 @@ class CryptoEntry:
     tier: str  # primary | secondary
     sleeve: str | None = None  # core | tactical
     # Coinbase Exchange product identifier (B-035). Optional because not
-    # every future coin will list on Coinbase; absent → Binance ingester
+    # every future coin will list on Coinbase; absent → Coinbase ingester
     # skips this coin with a logged note.
     coinbase_product: str | None = None
 

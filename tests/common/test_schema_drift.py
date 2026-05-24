@@ -195,6 +195,17 @@ class ArrayOfArraysPayloadTests(unittest.TestCase):
         self.assertEqual(issues[0].kind, "WRONG_TOP_LEVEL_TYPE")
         self.assertIn("none of the first", issues[0].detail)
 
+    def test_mixed_list_and_non_list_items_yield_type_mismatch(self) -> None:
+        spec = _spec(payload_type="array", required_keys=(), array_item_min_length=6)
+        payload = [
+            [1700000000, 100.0, 110.0, 105.0, 108.0, 1234.5],
+            {"t": 1700086400, "c": 114.0},
+        ]
+        issues = check_payload(payload, spec)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].kind, "WRONG_TOP_LEVEL_TYPE")
+        self.assertIn("1/2", issues[0].detail)
+
     def test_empty_array_still_flags_via_normal_array_check(self) -> None:
         # Empty arrays are reported by the outer array check regardless
         # of array_item_min_length.

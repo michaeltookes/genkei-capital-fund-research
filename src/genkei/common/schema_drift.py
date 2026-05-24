@@ -322,6 +322,19 @@ def check_payload(payload: Any, spec: EndpointSchema) -> list[DriftIssue]:
                         ),
                     )
                 )
+            elif non_list_count > 0:
+                issues.append(
+                    DriftIssue(
+                        source=spec.source,
+                        endpoint_kind=spec.endpoint_kind,
+                        sample_endpoint_name=None,
+                        kind="WRONG_TOP_LEVEL_TYPE",
+                        detail=(
+                            f"array-of-arrays: {non_list_count}/{len(sample)} sampled "
+                            f"items are not lists (types: {_describe_sample_types(sample)})"
+                        ),
+                    )
+                )
             elif short_count > 0:
                 issues.append(
                     DriftIssue(

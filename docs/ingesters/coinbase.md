@@ -2,7 +2,7 @@
 
 **B-035.** Daily OHLCV candles from the Coinbase Exchange public REST API. First ingester to break the 365-day ceiling on `coingecko.market_data` — Coinbase candles go back to product-listing date (BTC-USD to 2015-07, ETH-USD to 2016-05) on a free, US-accessible, no-auth endpoint.
 
-```
+```text
 $ genkei prices --ticker BTC --source coinbase --since 2015-07-19 --limit 3
 BTC prices (source: coinbase, 3 rows)
   timestamp                     price (USD)        market cap            volume
