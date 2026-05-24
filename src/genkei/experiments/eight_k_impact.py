@@ -70,19 +70,99 @@ DEFAULT_HORIZON = "equity:core"
 MAX_LOOKBACK_DAYS = 14
 MAX_FORWARD_DAYS = 45
 BOUNDARY_CUSHION_DAYS = 7
+EVENT_ANCHOR_PREFILTER_DAYS = 7
 MARKET_CLOSE_ET = time(16, 0)
 EASTERN_TZ = ZoneInfo("America/New_York")
+SPECIAL_MARKET_CLOSURES = {
+    date(1994, 4, 27),  # Richard Nixon funeral
+    date(2001, 9, 11),
+    date(2001, 9, 12),
+    date(2001, 9, 13),
+    date(2001, 9, 14),
+    date(2004, 6, 11),  # Ronald Reagan funeral
+    date(2007, 1, 2),  # Gerald Ford funeral
+    date(2012, 10, 29),  # Hurricane Sandy
+    date(2012, 10, 30),
+    date(2018, 12, 5),  # George H.W. Bush funeral
+    date(2025, 1, 9),  # Jimmy Carter funeral
+}
+
+
+def _nth_weekday(year: int, month: int, weekday: int, n: int) -> date:
+    candidate = date(year, month, 1)
+    offset = (weekday - candidate.weekday()) % 7
+    return candidate + timedelta(days=offset + (n - 1) * 7)
+
+
+def _last_weekday(year: int, month: int, weekday: int) -> date:
+    if month == 12:
+        candidate = date(year + 1, 1, 1) - timedelta(days=1)
+    else:
+        candidate = date(year, month + 1, 1) - timedelta(days=1)
+    return candidate - timedelta(days=(candidate.weekday() - weekday) % 7)
+
+
+def _observed_fixed_holiday(year: int, month: int, day: int) -> date:
+    holiday = date(year, month, day)
+    if holiday.weekday() == 5:
+        return holiday - timedelta(days=1)
+    if holiday.weekday() == 6:
+        return holiday + timedelta(days=1)
+    return holiday
+
+
+def _easter_date(year: int) -> date:
+    a = year % 19
+    b = year // 100
+    c = year % 100
+    d = b // 4
+    e = b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    offset = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * offset) // 451
+    month = (h + offset - 7 * m + 114) // 31
+    day = ((h + offset - 7 * m + 114) % 31) + 1
+    return date(year, month, day)
+
+
+def _market_holidays(year: int) -> set[date]:
+    holidays = {
+        _observed_fixed_holiday(year, 1, 1),
+        _nth_weekday(year, 2, 0, 3),
+        _easter_date(year) - timedelta(days=2),
+        _last_weekday(year, 5, 0),
+        _observed_fixed_holiday(year, 7, 4),
+        _nth_weekday(year, 9, 0, 1),
+        _nth_weekday(year, 11, 3, 4),
+        _observed_fixed_holiday(year, 12, 25),
+        _observed_fixed_holiday(year + 1, 1, 1),
+    }
+    if year >= 1998:
+        holidays.add(_nth_weekday(year, 1, 0, 3))
+    if year >= 2022:
+        holidays.add(_observed_fixed_holiday(year, 6, 19))
+    return {day for day in holidays if day.year == year} | {
+        day for day in SPECIAL_MARKET_CLOSURES if day.year == year
+    }
+
+
+def _is_trading_day(anchor: date) -> bool:
+    return anchor.weekday() < 5 and anchor not in _market_holidays(anchor.year)
 
 
 def _next_trading_day(anchor: date) -> date:
-    while anchor.weekday() >= 5:
+    while not _is_trading_day(anchor):
         anchor += timedelta(days=1)
     return anchor
 
 
 def _event_anchor_date(filed_at: date, accepted_at: datetime | None) -> date:
     if accepted_at is None:
-        return filed_at
+        return _next_trading_day(filed_at)
     if accepted_at.tzinfo is None:
         accepted_at = accepted_at.replace(tzinfo=timezone.utc)
     accepted_et = accepted_at.astimezone(EASTERN_TZ)
@@ -351,9 +431,9 @@ def load_filing_events(
     params: list[Any] = [list(ciks)]
     if since is not None:
         sql += " AND filed_at::date >= %s"
-        # After-close Friday acceptances can shift event_date to Monday; the
-        # Python filter below enforces the exact user-facing date bound.
-        params.append(since - timedelta(days=3))
+        # Market closures can shift event_date after filed_at; the Python
+        # filter below enforces the exact user-facing date bound.
+        params.append(since - timedelta(days=EVENT_ANCHOR_PREFILTER_DAYS))
     if until is not None:
         sql += " AND filed_at::date <= %s"
         params.append(until)

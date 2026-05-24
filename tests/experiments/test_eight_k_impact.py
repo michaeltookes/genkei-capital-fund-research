@@ -433,7 +433,7 @@ class LoadFilingEventsTests(unittest.TestCase):
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].filed_at, date(2024, 6, 14))
         self.assertEqual(events[0].event_date, date(2024, 6, 17))
-        self.assertEqual(conn.cursor_obj.executed[0][1][1], date(2024, 6, 14))
+        self.assertEqual(conn.cursor_obj.executed[0][1][1], date(2024, 6, 10))
 
     def test_after_market_friday_anchor_skips_weekend(self) -> None:
         self.assertEqual(
@@ -451,6 +451,21 @@ class LoadFilingEventsTests(unittest.TestCase):
                 datetime(2024, 6, 14, 19, 30, tzinfo=timezone.utc),
             ),
             date(2024, 6, 14),
+        )
+
+    def test_after_market_before_good_friday_anchors_to_monday(self) -> None:
+        self.assertEqual(
+            _event_anchor_date(
+                date(2024, 3, 28),
+                datetime(2024, 3, 28, 21, 30, tzinfo=timezone.utc),
+            ),
+            date(2024, 4, 1),
+        )
+
+    def test_holiday_filing_without_acceptance_anchors_to_next_trading_day(self) -> None:
+        self.assertEqual(
+            _event_anchor_date(date(2024, 3, 29), None),
+            date(2024, 4, 1),
         )
 
 
