@@ -2,7 +2,7 @@
 
 **B-092.** Daily OHLCV candles from Yahoo Finance's public chart endpoint. Equity counterpart to B-035 (Coinbase, crypto). Free, no auth, US-accessible, full history per ticker in a single request.
 
-```
+```console
 $ genkei prices --ticker AAPL --since 1980-12-12 --limit 3
 AAPL prices (source: yahoo, 3 rows)
   timestamp                     price (USD)        market cap            volume

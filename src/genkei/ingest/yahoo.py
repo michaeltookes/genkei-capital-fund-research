@@ -158,6 +158,15 @@ def _build_http() -> HttpClient:
     )
 
 
+def _exclusive_period_end(until: date) -> datetime:
+    """Convert an inclusive date bound to Yahoo's exclusive period2 timestamp."""
+    return datetime.combine(
+        until + timedelta(days=1),
+        datetime.min.time(),
+        tzinfo=timezone.utc,
+    )
+
+
 def collect(
     config_path: Path = DEFAULT_WATCHLIST_PATH,
     *,
@@ -165,6 +174,8 @@ def collect(
     days: int = DAILY_LOOKBACK_DAYS,
 ) -> int:
     """Run the Yahoo daily collector once. Returns ``meta.ingest_runs.id``."""
+    if days <= 0:
+        raise ValueError("days must be a positive integer")
     equities = load_equities(config_path)
     now = datetime.now(timezone.utc).replace(microsecond=0)
     start = now - timedelta(days=days)
@@ -218,11 +229,14 @@ def backfill(
     pre-listing-window handling beyond Yahoo just returning fewer
     rows for newer tickers.
     """
+    if since is not None and until is not None and until < since:
+        raise SystemExit(f"--until {until} is before --since {since}")
     end_dt = (
-        datetime.combine(until, datetime.min.time(), tzinfo=timezone.utc)
+        _exclusive_period_end(until)
         if until is not None
         else datetime.now(timezone.utc).replace(microsecond=0)
     )
+    until_date = until if until is not None else end_dt.date()
     start_dt = (
         datetime.combine(since, datetime.min.time(), tzinfo=timezone.utc)
         if since is not None
@@ -245,12 +259,12 @@ def backfill(
                 "watchlist_path": str(config_path),
                 "ticker_count": len(equities),
                 "since": start_dt.date().isoformat(),
-                "until": end_dt.date().isoformat(),
+                "until": until_date.isoformat(),
             },
         ) as run:
             written = 0
             since_iso = start_dt.date().isoformat()
-            until_iso = end_dt.date().isoformat()
+            until_iso = until_date.isoformat()
             blob_suffix = f"_{since_iso}_{until_iso}"
             for target in equities:
                 if _fetch_window(
@@ -381,12 +395,15 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=DAILY_LOOKBACK_DAYS,
         help=f"Daily lookback window in days (default {DAILY_LOOKBACK_DAYS}).",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.days <= 0:
+        parser.error("--days must be a positive integer")
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    args = parse_args(argv or sys.argv[1:])
+    args = parse_args(argv if argv is not None else sys.argv[1:])
     if args.backfill:
         run_id = backfill(args.config, since=args.since, until=args.until)
         print(f"Yahoo backfill wrote ingest_run_id={run_id}")

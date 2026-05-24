@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import unittest
+from contextlib import redirect_stderr
 from datetime import datetime, timezone
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from genkei.ingest.yahoo import (
     DAILY_LOOKBACK_DAYS,
     EquityTarget,
+    _exclusive_period_end,
     build_chart_url,
     load_equities,
+    parse_args,
 )
 
 
@@ -102,6 +106,19 @@ class LookbackDefaultTests(unittest.TestCase):
         # is documented in the module docstring; a behavior-defining
         # pin keeps us from quietly drifting it.
         self.assertEqual(DAILY_LOOKBACK_DAYS, 14)
+
+    def test_parse_args_rejects_non_positive_days(self) -> None:
+        with redirect_stderr(StringIO()):
+            with self.assertRaises(SystemExit):
+                parse_args(["--days", "0"])
+            with self.assertRaises(SystemExit):
+                parse_args(["--days", "-1"])
+
+
+class BackfillBoundsTests(unittest.TestCase):
+    def test_until_date_is_converted_to_next_day_exclusive_boundary(self) -> None:
+        end = _exclusive_period_end(datetime(2024, 12, 31).date())
+        self.assertEqual(end, datetime(2025, 1, 1, tzinfo=timezone.utc))
 
 
 if __name__ == "__main__":

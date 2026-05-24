@@ -1,13 +1,14 @@
-"""``genkei prices`` — query crypto market data from the lake (B-039).
+"""``genkei prices`` — query crypto and equity market data from the lake.
 
-Today this only queries ``coingecko.market_data`` (per source schema +
-backfill, this is the deepest crypto price history we have). Equity
-prices are not yet ingested; ``genkei prices --ticker AAPL`` will fail
-loudly with a hint pointing at the relevant backlog item rather than
-silently returning empty.
+Crypto prices come from ``coingecko.market_data`` (B-039) or
+``coinbase.candles`` (B-035). Equity prices come from
+``yahoo.candles`` (B-092). The ``--source`` flag controls the data
+source; when omitted, crypto tickers default to CoinGecko and equity
+tickers default to Yahoo.
 
 Usage:
   genkei prices --ticker BTC                     latest price
+  genkei prices --ticker AAPL --source yahoo     equity price
   genkei prices --ticker BTC --since 2024-01-01  daily history since
   genkei prices --ticker BTC --json              machine-readable
   genkei prices --ticker BTC --since 2024-01-01 --until 2024-06-30 --limit 10
