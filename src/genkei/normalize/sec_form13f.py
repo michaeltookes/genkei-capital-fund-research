@@ -613,7 +613,10 @@ def _stringify(value: Any) -> str | None:
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Normalize SEC 13F raw blobs into sec.filers + sec.form13f_filings + sec.form13f_holdings."
+        description=(
+            "Normalize SEC 13F raw blobs into sec.filers + "
+            "sec.form13f_filings + sec.form13f_holdings."
+        )
     )
     parser.add_argument(
         "--source-run-id",

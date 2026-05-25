@@ -23,7 +23,6 @@ from genkei.cli.holdings import (
 )
 from genkei.common.watchlist import FilerEntry, Watchlist
 
-
 # Bare-minimum watchlist exercising every find_filer path: by name,
 # by CIK (bare digits), by CIK (zero-padded).
 WATCHLIST_YAML = (

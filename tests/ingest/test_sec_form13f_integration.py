@@ -17,7 +17,6 @@ two acceptance criteria from B-080:
 from __future__ import annotations
 
 import unittest
-from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory

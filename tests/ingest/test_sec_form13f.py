@@ -5,8 +5,8 @@ from __future__ import annotations
 import unittest
 
 from genkei.ingest.sec_form13f import (
-    Form13FCandidate,
     HOLDINGS_BEARING_FORM_TYPES,
+    Form13FCandidate,
     _select_phase_b_candidates,
     build_filer_submissions_url,
     build_filing_file_url,
