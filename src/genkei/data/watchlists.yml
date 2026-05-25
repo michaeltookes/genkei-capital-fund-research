@@ -470,3 +470,44 @@ protocols:
       category: DEX
       coingecko_id: deep
       rationale: Sui Foundation's native on-chain orderbook DEX. Lower TVL than AMMs ($17M) but represents core Sui infrastructure; DEEP token is the canonical Sui-native fee asset. NOTE the coingecko_id is `deep` (CoinGecko's id for the Sui DEEP token), NOT `deepbook` (an unrelated coin with symbol ADB).
+
+# SEC 13F filers (institutional investment managers). One submissions
+# fetch per filer per day in the daily SEC pipeline; per-filing 13F-HR
+# information-table XML lands as a separate blob and is normalized into
+# `sec.form13f_holdings` (B-080). The starter list focuses on managers
+# whose positioning is signal-rich — concentrated activists, well-known
+# quant shops, and a handful of long-only mega-allocators for crowding
+# context. Adding a filer is one-line; the next daily SEC run picks it up.
+filers:
+  primary:
+    - cik: 1067983
+      name: Berkshire Hathaway Inc
+      rationale: Buffett. Concentrated long-only book; every quarter's move informs the equity-core thesis. The single most-watched 13F.
+    - cik: 1418814
+      name: ValueAct Capital Management LP
+      rationale: Activist value. Drove the 2025-12 CRM cluster that lives in `docs/research/decisions/`. Small book, high-conviction adds matter.
+    - cik: 1336528
+      name: Pershing Square Capital Management LP
+      rationale: Ackman. Highly concentrated activist book; positions are typically held in size for years.
+    - cik: 1167483
+      name: Tiger Global Management LLC
+      rationale: Crossover growth (public + private). Public-side 13F is one of the most-cited indicators of growth-tech positioning.
+    - cik: 1037389
+      name: Renaissance Technologies LLC
+      rationale: Quant flagship. Diffuse book but cluster moves on watchlist names are interesting; benchmark for quant positioning.
+    - cik: 1697748
+      name: ARK Investment Management LLC
+      rationale: Wood. Concentrated thematic-growth book; daily disclosures make 13F redundant for new positions but quarterly snapshot is still useful for sizing/composition.
+    - cik: 1040273
+      name: Third Point LLC
+      rationale: Loeb. Event-driven + activist; conviction adds on watchlist names are signal-rich.
+    - cik: 1061165
+      name: Lone Pine Capital LLC
+      rationale: Tiger-cub growth-quality manager. Long-running consistent style; cluster adds on watchlist names worth watching.
+    - cik: 1179392
+      name: Two Sigma Investments LP
+      rationale: Quant. Like RenTech a diffuse book but a useful cross-check on quant positioning.
+    - cik: 1350694
+      name: Bridgewater Associates LP
+      rationale: Macro-regime-driven public book. Position rotation correlates with regime calls; useful next to `analytics.macro_regime`.
+

@@ -339,6 +339,7 @@ class DailyTimestampTests(unittest.TestCase):
             ],
             macro=[],
             protocols=[],
+            filers=[],
         )
 
         with (
