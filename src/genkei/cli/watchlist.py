@@ -166,7 +166,14 @@ PRIMARY_TABLES: dict[str, list[str]] = {
         "defillama.protocol_fees",
     ],
     "fred": ["fred.observations"],
-    "sec": ["sec.companies", "sec.filings", "sec.facts"],
+    "sec": [
+        "sec.companies",
+        "sec.filings",
+        "sec.facts",
+        "sec.form4_transactions",
+        "sec.form13f_filings",
+        "sec.form13f_holdings",
+    ],
     "coingecko": ["coingecko.market_data"],
     "onchain_staking": ["onchain.staking_events"],
     # B-090 — derived view, no ingest_runs row (computed live from
