@@ -303,13 +303,6 @@ First-class — the *point* of having the data lake.
   - Notebook produces correlation table + a chart.
   - Reproducible from snapshot IDs.
 
-### B-061 — Experiment: 13F crowding monitor
-- **Status:** open
-- **Priority:** low
-- **Context:** SEC 13F + holdings — track crowding in watchlist names.
-- **Acceptance criteria:**
-  - Notebook surfaces top crowded names per quarter.
-
 ### B-063 — Experiment template + cookiecutter
 - **Status:** open
 - **Priority:** low

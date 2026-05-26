@@ -28,6 +28,7 @@ Subcommand surface (B-037):
 - ``genkei query``     SQL escape hatch                       [B-045 ✓]
 - ``genkei insiders``  SEC Form 4 insider transactions        [B-079 ✓]
 - ``genkei holdings``  SEC 13F institutional holdings         [B-080 ✓]
+- ``genkei crowding``  13F crowding monitor                    [B-061 ✓]
 - ``genkei insider-clusters``
                         Detect insider buy/sell clusters       [B-060 ✓]
 - ``genkei revenue-divergence``
@@ -45,6 +46,7 @@ import sys
 import typer
 
 from genkei.cli import (
+    crowding,
     eight_k_impact,
     filings,
     holdings,
@@ -86,6 +88,10 @@ app.command(
     "holdings",
     help="SEC 13F institutional holdings (--filer / --filer-cik / --cusip).",
 )(holdings.holdings_cmd)
+app.command(
+    "crowding",
+    help="13F crowding monitor — top crowded watchlist names per quarter + deltas.",
+)(crowding.crowding_cmd)
 app.command(
     "insider-clusters",
     help="Detect insider buy/sell clusters (≥N reporters within K days).",
