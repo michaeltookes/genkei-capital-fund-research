@@ -38,6 +38,11 @@ class EquityEntry:
     cik: str | None
     tier: str  # primary | secondary
     sleeve: str = "core"
+    # 9-character SEC CUSIP — the natural join key for 13F holdings
+    # (B-080). Optional because the watchlist gets populated incrementally
+    # as the 13F crowding monitor needs each ticker; entries without a
+    # CUSIP still work for everything else (Form 4, 8-K event study, etc.).
+    cusip: str | None = None
 
 
 @dataclass(frozen=True)
@@ -97,6 +102,16 @@ class Watchlist:
         upper = symbol.upper()
         for entry in self.equities:
             if entry.symbol.upper() == upper:
+                return entry
+        return None
+
+    def find_equity_by_cusip(self, cusip: str) -> EquityEntry | None:
+        """Reverse lookup: CUSIP → EquityEntry (or None if not mapped)."""
+        if not cusip:
+            return None
+        target = cusip.strip().upper()
+        for entry in self.equities:
+            if entry.cusip and entry.cusip.upper() == target:
                 return entry
         return None
 
@@ -211,6 +226,13 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                     cik = stripped_cik if stripped_cik else None
                 else:
                     cik = None
+                raw_cusip = entry.get("cusip")
+                cusip: str | None
+                if isinstance(raw_cusip, str):
+                    stripped_cusip = raw_cusip.strip()
+                    cusip = stripped_cusip.upper() if stripped_cusip else None
+                else:
+                    cusip = None
                 equities.append(
                     EquityEntry(
                         symbol=symbol,
@@ -218,6 +240,7 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                         cik=cik,
                         tier=str(tier_name),
                         sleeve=str(entry.get("sleeve") or "core"),
+                        cusip=cusip,
                     )
                 )
 

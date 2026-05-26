@@ -79,36 +79,42 @@ equities:
     # Mega-cap tech compounders
     - symbol: AAPL
       cik: "0000320193"
+      cusip: "037833100"
       name: Apple Inc.
       sector: Consumer technology
       sleeve: core
       rationale: Mega-cap compounder; durable consumer hardware + services franchise.
     - symbol: MSFT
       cik: "0000789019"
+      cusip: "594918104"
       name: Microsoft Corporation
       sector: Software / cloud
       sleeve: core
       rationale: Cloud + enterprise software duopoly position; AI distribution leader.
     - symbol: GOOG
       cik: "0001652044"
+      cusip: "02079K107"
       name: Alphabet Inc. (Class C)
       sector: Internet / cloud / AI
       sleeve: core
       rationale: Search cash flow + cloud + AI optionality; held alongside GOOGL.
     - symbol: GOOGL
       cik: "0001652044"
+      cusip: "02079K305"
       name: Alphabet Inc. (Class A)
       sector: Internet / cloud / AI
       sleeve: core
       rationale: Voting share class of Alphabet; same thesis as GOOG.
     - symbol: AMZN
       cik: "0001018724"
+      cusip: "023135106"
       name: Amazon.com, Inc.
       sector: E-commerce / cloud
       sleeve: core
       rationale: AWS cash flow + retail margin recovery; long-term compounder.
     - symbol: META
       cik: "0001326801"
+      cusip: "30303M102"
       name: Meta Platforms, Inc.
       sector: Internet / advertising / AI
       sleeve: core
@@ -117,24 +123,28 @@ equities:
     # Semiconductors / AI compute
     - symbol: NVDA
       cik: "0001045810"
+      cusip: "67066G104"
       name: NVIDIA Corporation
       sector: Semiconductors
       sleeve: core
       rationale: Dominant AI training/inference compute supplier.
     - symbol: AMD
       cik: "0000002488"
+      cusip: "007903107"
       name: Advanced Micro Devices, Inc.
       sector: Semiconductors
       sleeve: core
       rationale: Second-source AI accelerator + CPU share-take story.
     - symbol: AVGO
       cik: "0001730168"
+      cusip: "11135F101"
       name: Broadcom Inc.
       sector: Semiconductors / software
       sleeve: core
       rationale: Custom silicon (XPU) + diversified semis + VMware cash flow.
     - symbol: MU
       cik: "0000723125"
+      cusip: "595017104"
       name: Micron Technology, Inc.
       sector: Semiconductors / memory
       sleeve: core
@@ -147,6 +157,7 @@ equities:
       rationale: AI server integrator; NVIDIA partner exposure.
     - symbol: TSM
       cik: "0001046179"
+      cusip: "874039100"
       name: Taiwan Semiconductor Manufacturing Company
       sector: Semiconductors / foundry
       sleeve: core
@@ -155,6 +166,7 @@ equities:
     # Software / data / defense
     - symbol: CRM
       cik: "0001108524"
+      cusip: "79466L302"
       name: Salesforce, Inc.
       sector: Enterprise software
       sleeve: core
@@ -175,12 +187,14 @@ equities:
     # Financials / payments / fintech
     - symbol: JPM
       cik: "0000019617"
+      cusip: "46625H100"
       name: JPMorgan Chase & Co.
       sector: Banking
       sleeve: core
       rationale: Best-of-breed money-center bank; rates and credit-cycle exposure.
     - symbol: V
       cik: "0001403161"
+      cusip: "92826C839"
       name: Visa Inc.
       sector: Payments
       sleeve: core
@@ -201,6 +215,7 @@ equities:
     # Crypto-adjacent equities
     - symbol: COIN
       cik: "0001679788"
+      cusip: "19260Q107"
       name: Coinbase Global, Inc.
       sector: Crypto exchange
       sleeve: core
@@ -227,24 +242,28 @@ equities:
     # Mobility / energy / materials
     - symbol: TSLA
       cik: "0001318605"
+      cusip: "88160R101"
       name: Tesla, Inc.
       sector: EV / energy
       sleeve: core
       rationale: EV manufacturer with energy storage + AI/robotics optionality.
     - symbol: UBER
       cik: "0001543151"
+      cusip: "90353T100"
       name: Uber Technologies, Inc.
       sector: Mobility
       sleeve: core
       rationale: Mobility + delivery network; profitable scale, AV optionality.
     - symbol: CCJ
       cik: "0001009001"
+      cusip: "13321L108"
       name: Cameco Corporation
       sector: Mining / uranium
       sleeve: core
       rationale: Uranium pure-play; nuclear-renaissance + AI-power-demand thesis.
     - symbol: XOM
       cik: "0000034088"
+      cusip: "30231G102"
       name: Exxon Mobil Corporation
       sector: Oil & gas
       sleeve: core
