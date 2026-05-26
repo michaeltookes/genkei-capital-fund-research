@@ -321,7 +321,7 @@ def crowding_cmd(
 
     # Restrict to the *requested* period window for output, even though
     # the loader pulled an extra prior period for delta computation.
-    visible_rows: "list[CrowdingRow]" = list(rows)
+    visible_rows: list[CrowdingRow] = list(rows)
     if effective_since is not None:
         visible_rows = [r for r in visible_rows if r.period_of_report >= effective_since]
     if effective_until is not None:

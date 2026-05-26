@@ -22,7 +22,6 @@ from genkei.cli.crowding import (
 from genkei.common.watchlist import EquityEntry, FilerEntry, Watchlist
 from genkei.experiments.crowding_monitor import CrowdingRow
 
-
 # Watchlist YAML used to back end-to-end CLI argument tests. AAPL has
 # a CUSIP, NOCUSIP intentionally doesn't (exercises the friendly-error
 # path), BTC is crypto (exercises the crypto-redirect path).
