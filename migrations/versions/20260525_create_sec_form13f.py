@@ -52,7 +52,7 @@ range. Same call we made for ``sec.filings`` (see 20260510_create_sec_schema).
 
 Indexes:
   - sec.form13f_filings (filer_cik, period_of_report DESC)
-  - sec.form13f_holdings (filer_cik, period_of_report DESC)  — "what does Berkshire hold this quarter"
+  - sec.form13f_holdings (filer_cik, period_of_report DESC)  — manager view
   - sec.form13f_holdings (cusip, period_of_report DESC)      — "who holds CUSIP X"
 
 Revision ID: a1f3e8d20571
@@ -101,7 +101,8 @@ def upgrade() -> None:
             other_managers         JSONB,
             source_endpoint        TEXT        NOT NULL,
             fetched_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
-            ingest_run_id          BIGINT      NOT NULL REFERENCES meta.ingest_runs(id)
+            ingest_run_id          BIGINT      NOT NULL REFERENCES meta.ingest_runs(id),
+            UNIQUE (accession_number, filer_cik)
         )
         """
     )
@@ -117,9 +118,9 @@ def upgrade() -> None:
     op.execute(
         """
         CREATE TABLE sec.form13f_holdings (
-            accession_number          TEXT        NOT NULL REFERENCES sec.form13f_filings(accession_number),
+            accession_number          TEXT        NOT NULL,
             holding_idx               INTEGER     NOT NULL,
-            filer_cik                 TEXT        NOT NULL REFERENCES sec.filers(filer_cik),
+            filer_cik                 TEXT        NOT NULL,
             period_of_report          DATE        NOT NULL,
             cusip                     TEXT        NOT NULL,
             issuer_name               TEXT,
@@ -136,7 +137,9 @@ def upgrade() -> None:
             source_endpoint           TEXT        NOT NULL,
             fetched_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
             ingest_run_id             BIGINT      NOT NULL REFERENCES meta.ingest_runs(id),
-            PRIMARY KEY (accession_number, holding_idx)
+            PRIMARY KEY (accession_number, holding_idx),
+            FOREIGN KEY (accession_number, filer_cik)
+                REFERENCES sec.form13f_filings(accession_number, filer_cik)
         )
         """
     )
@@ -152,7 +155,8 @@ def upgrade() -> None:
     op.execute(
         """
         CREATE TABLE sec.form13f_normalized_filings (
-            accession_number TEXT        PRIMARY KEY REFERENCES sec.form13f_filings(accession_number),
+            accession_number TEXT        PRIMARY KEY
+                REFERENCES sec.form13f_filings(accession_number),
             normalized_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
             ingest_run_id    BIGINT      NOT NULL REFERENCES meta.ingest_runs(id)
         )

@@ -119,12 +119,21 @@ class ExtractCandidatesTests(unittest.TestCase):
 
 
 class SelectPhaseBCandidatesTests(unittest.TestCase):
-    def _cand(self, accn: str, form: str) -> Form13FCandidate:
+    def _cand(
+        self,
+        accn: str,
+        form: str,
+        *,
+        filed_at: str | None = None,
+        accepted_at: str | None = None,
+    ) -> Form13FCandidate:
         return Form13FCandidate(
             accession_number=accn,
             filer_cik="0001067983",
             form_type=form,
             primary_document="primary_doc.xml",
+            filed_at=filed_at,
+            accepted_at=accepted_at,
         )
 
     def test_filters_to_holdings_bearing_forms(self) -> None:
@@ -158,18 +167,30 @@ class SelectPhaseBCandidatesTests(unittest.TestCase):
         )
         self.assertEqual([c.accession_number for c in out], ["A-HR"])
 
-    def test_respects_limit(self) -> None:
-        # Sort is desc on accession_number; the highest two should survive.
+    def test_respects_limit_after_newest_first_sort(self) -> None:
         cands = [
-            self._cand("A-001", "13F-HR"),
-            self._cand("A-002", "13F-HR"),
-            self._cand("A-003", "13F-HR"),
+            self._cand(
+                "0009999999-26-000001",
+                "13F-HR",
+                accepted_at="2026-01-02T10:00:00.000Z",
+            ),
+            self._cand(
+                "0000000001-26-000001",
+                "13F-HR",
+                accepted_at="2026-01-03T10:00:00.000Z",
+            ),
+            self._cand(
+                "0001067983-26-000001",
+                "13F-HR",
+                accepted_at="2026-01-01T10:00:00.000Z",
+            ),
         ]
         out = _select_phase_b_candidates(
             cands, already_normalized=set(), limit=2
         )
         self.assertEqual(
-            [c.accession_number for c in out], ["A-003", "A-002"]
+            [c.accession_number for c in out],
+            ["0000000001-26-000001", "0009999999-26-000001"],
         )
 
 

@@ -197,8 +197,9 @@ class CommandValidationTests(unittest.TestCase):
 
     def test_since_after_until_rejected(self) -> None:
         wpath = _watchlist_path(self)
-        buf = io.StringIO()
-        with redirect_stderr(buf):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
             code = main(
                 [
                     "holdings",
@@ -213,7 +214,7 @@ class CommandValidationTests(unittest.TestCase):
                 ]
             )
         self.assertEqual(code, 2)
-        self.assertIn("--since", buf.getvalue())
+        self.assertIn("on or before --until", stdout.getvalue() + stderr.getvalue())
 
     def test_period_and_all_periods_rejected(self) -> None:
         wpath = _watchlist_path(self)

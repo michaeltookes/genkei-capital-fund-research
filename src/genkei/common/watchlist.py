@@ -282,10 +282,10 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                     # source of truth and we don't want one cut-and-paste
                     # accident to FK-violate ingestion.
                     continue
-                seen_filer_ciks.add(padded_cik)
                 name = entry.get("name")
                 if not isinstance(name, str) or not name:
                     continue
+                seen_filer_ciks.add(padded_cik)
                 filers.append(
                     FilerEntry(
                         filer_cik=padded_cik,

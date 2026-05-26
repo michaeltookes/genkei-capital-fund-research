@@ -109,6 +109,8 @@ class Form13FCandidate:
     filer_cik: str
     form_type: str
     primary_document: str | None
+    filed_at: str | None = None
+    accepted_at: str | None = None
 
 
 def build_filer_submissions_url(filer_cik: str) -> str:
@@ -204,10 +206,16 @@ def extract_form13f_candidates(payload: Any, filer_cik: str) -> list[Form13FCand
         accessions = parallel.get("accessionNumber")
         forms = parallel.get("form")
         primary_docs = parallel.get("primaryDocument")
+        filing_dates = parallel.get("filingDate")
+        acceptance_dates = parallel.get("acceptanceDateTime")
         if not isinstance(accessions, list) or not isinstance(forms, list):
             return
         n = min(len(accessions), len(forms))
         primary_docs_list = primary_docs if isinstance(primary_docs, list) else []
+        filing_dates_list = filing_dates if isinstance(filing_dates, list) else []
+        acceptance_dates_list = (
+            acceptance_dates if isinstance(acceptance_dates, list) else []
+        )
         for i in range(n):
             accn = accessions[i]
             form = forms[i]
@@ -218,12 +226,18 @@ def extract_form13f_candidates(payload: Any, filer_cik: str) -> list[Form13FCand
             primary_doc = (
                 primary_docs_list[i] if i < len(primary_docs_list) else None
             )
+            filed_at = filing_dates_list[i] if i < len(filing_dates_list) else None
+            accepted_at = (
+                acceptance_dates_list[i] if i < len(acceptance_dates_list) else None
+            )
             candidates.append(
                 Form13FCandidate(
                     accession_number=accn,
                     filer_cik=filer_cik,
                     form_type=form,
                     primary_document=primary_doc if isinstance(primary_doc, str) else None,
+                    filed_at=filed_at if isinstance(filed_at, str) else None,
+                    accepted_at=accepted_at if isinstance(accepted_at, str) else None,
                 )
             )
 
@@ -349,12 +363,10 @@ def _select_phase_b_candidates(
         if c.form_type in HOLDINGS_BEARING_FORM_TYPES
         and c.accession_number not in already_normalized
     ]
-    # Sort by accession_number descending. SEC accession numbers begin
-    # with the filer's 10-digit CIK followed by the filing's seq number,
-    # so within a single filer they sort chronologically. Across filers
-    # the sort is mixed, but newest-first is still a sensible default
-    # for the incremental cap.
-    holdings_bearing.sort(key=lambda c: c.accession_number, reverse=True)
+    holdings_bearing.sort(
+        key=lambda c: (c.accepted_at or "", c.filed_at or "", c.accession_number),
+        reverse=True,
+    )
     # Dedupe on accession_number — phase A walks both `filings.recent`
     # and any history pages, and a single recent filing could plausibly
     # appear in both shapes on edge cases.
