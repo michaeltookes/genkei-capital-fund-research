@@ -27,6 +27,7 @@ Subcommand surface (B-037):
 - ``genkei watchlist`` Watchlist coverage / health            [B-044 ✓]
 - ``genkei query``     SQL escape hatch                       [B-045 ✓]
 - ``genkei insiders``  SEC Form 4 insider transactions        [B-079 ✓]
+- ``genkei holdings``  SEC 13F institutional holdings         [B-080 ✓]
 - ``genkei insider-clusters``
                         Detect insider buy/sell clusters       [B-060 ✓]
 - ``genkei revenue-divergence``
@@ -46,6 +47,7 @@ import typer
 from genkei.cli import (
     eight_k_impact,
     filings,
+    holdings,
     insider_clusters,
     insiders,
     macro,
@@ -80,6 +82,10 @@ app.command(
     "insiders",
     help="SEC Form 4 insider transactions (--ticker issuer view or --reporter-cik).",
 )(insiders.insiders_cmd)
+app.command(
+    "holdings",
+    help="SEC 13F institutional holdings (--filer / --filer-cik / --cusip).",
+)(holdings.holdings_cmd)
 app.command(
     "insider-clusters",
     help="Detect insider buy/sell clusters (≥N reporters within K days).",

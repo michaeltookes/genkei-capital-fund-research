@@ -515,7 +515,7 @@ class FormatListDirectTests(unittest.TestCase):
     def test_no_sleeves_renders_placeholder(self) -> None:
         from genkei.common.watchlist import Watchlist
 
-        empty = Watchlist(crypto=[], equities=[], macro=[], protocols=[])
+        empty = Watchlist(crypto=[], equities=[], macro=[], protocols=[], filers=[])
         text = _format_list_human(empty, sleeve="crypto")
         # Sleeve filter returns just the crypto section even if empty.
         self.assertIn("crypto", text)

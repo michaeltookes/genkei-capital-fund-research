@@ -1,7 +1,7 @@
 name: SEC EDGAR Daily
 
-# B-027 + B-079 — pulls the SEC submissions index + XBRL company facts
-# for every equity in the watchlist once a day on the self-hosted
+# B-027 + B-079 + B-080 — pulls the SEC submissions index + XBRL company
+# facts for every equity in the watchlist once a day on the self-hosted
 # Beelink runner. 11:30 UTC chosen to land just after FRED finishes
 # (11:00 UTC) so we don't run two ingesters in parallel on the same
 # runner. SEC filings come in throughout the day; daily is a deliberate
@@ -14,6 +14,13 @@ name: SEC EDGAR Daily
 # filings per run (~25s at 8 req/s); the one-time historical backfill
 # is a manual `python -m genkei.ingest.sec_form4 --backfill` from the
 # homelab and runs ~76 min for ~36k filings.
+#
+# 13F (institutional holdings) is the last step: walks every filer in
+# the watchlist's `filers:` section, lands submissions blobs, then in
+# Phase B fetches the information-table XML for each uncached 13F-HR
+# (default --limit 50 per run; one-time historical backfill via
+# `python -m genkei.ingest.sec_form13f --backfill` runs the full ~1k
+# managed-filings history).
 
 on:
   schedule:
@@ -28,8 +35,10 @@ jobs:
     name: SEC collect + normalize (Postgres-backed)
     runs-on: [self-hosted, beelink]
     # SEC main: ~5-10 min. Form 4 incremental (200 filings @ 8 req/s): ~30s.
+    # 13F: submissions per filer (~10 filers) + Phase B up to 50 XML
+    # fetches at 8 req/s ≈ ~10s steady-state, ~5min on a fat-quarter cycle.
     # Generous buffer for slow EDGAR responses.
-    timeout-minutes: 25
+    timeout-minutes: 30
     env:
       GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
       SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
@@ -80,3 +89,18 @@ jobs:
         # yet in sec.form4_transactions — naturally idempotent across
         # the incremental collect + any prior unnormalized blobs.
         run: python3 -m genkei.normalize.sec_form4
+
+      - name: Collect 13F submissions + uncached information-table XML
+        # Two-phase collector (B-080). Phase A is per-filer submissions
+        # — required, so any 404/500 fails the run. Phase B is per-13F-HR
+        # XML; soft-failure mode logs + records partial without blocking
+        # the rest. Default --limit 50 keeps the daily cron bounded; the
+        # one-time historical run uses --backfill from the homelab.
+        run: python3 -m genkei.ingest.sec_form13f
+
+      - name: Normalize 13F raw blobs into sec.form13f_*
+        # Default mode upserts sec.filers + sec.form13f_filings from every
+        # submissions_filer_* blob (latest-per-filer dedupe), then walks
+        # every form13f_* XML blob whose accession isn't already in
+        # sec.form13f_normalized_filings.
+        run: python3 -m genkei.normalize.sec_form13f

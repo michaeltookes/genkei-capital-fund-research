@@ -170,17 +170,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - `docs/sources/<name>.md` for every ingester (DeFiLlama first as the template).
   - Acceptance gates included (mirroring `docs/defillama-daily-review.md` pattern).
 
-### B-080 — SEC 13F (institutional holdings) ingester
-- **Status:** open
-- **Priority:** medium
-- **Context:** Split out from B-027 (option C). 13F filings are quarterly institutional position reports. Each has hundreds of holdings rows; schema needs CUSIP-keyed positions plus the 13F-HR vs 13F-NT (notice-only) distinction. Pick this up *driven by* B-061 (13F crowding monitor) so the schema is shaped by a concrete query.
-- **Acceptance criteria:**
-  - New `sec.form13f_holdings` (or similar) table keyed on `(filer_cik, period_of_report, cusip)` or similar natural composite.
-  - Backfill walks all 13F-HR filings; primary information-table XML parsed and rows land.
-  - Tests cover (a) value field is in $1000s — the canonical 13F gotcha — and (b) 13F-NT amendments correctly link back to the original 13F-HR.
-  - Honors B-027's rate limit + User-Agent.
-
-
 ### B-084 — Oracle market-share data source (likely paid)
 - **Status:** open
 - **Priority:** low

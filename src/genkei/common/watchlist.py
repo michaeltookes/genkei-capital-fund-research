@@ -15,7 +15,7 @@ from typing import Literal
 import yaml
 
 DEFAULT_WATCHLIST_PATH = Path(__file__).resolve().parent.parent / "data" / "watchlists.yml"
-SleeveKind = Literal["crypto", "equity", "macro", "protocol"]
+SleeveKind = Literal["crypto", "equity", "macro", "protocol", "filer"]
 
 
 @dataclass(frozen=True)
@@ -69,11 +69,22 @@ class ProtocolEntry:
 
 
 @dataclass(frozen=True)
+class FilerEntry:
+    """A SEC 13F filer (institutional investment manager) we want to track (B-080)."""
+
+    filer_cik: str  # zero-padded 10-char to match sec.filers.filer_cik
+    name: str
+    tier: str  # primary | secondary
+    rationale: str | None = None
+
+
+@dataclass(frozen=True)
 class Watchlist:
     crypto: list[CryptoEntry]
     equities: list[EquityEntry]
     macro: list[MacroEntry]
     protocols: list[ProtocolEntry]
+    filers: list[FilerEntry]
 
     def find_crypto(self, symbol: str) -> CryptoEntry | None:
         upper = symbol.upper()
@@ -103,8 +114,31 @@ class Watchlist:
                 return entry
         return None
 
+    def find_filer(self, identifier: str) -> FilerEntry | None:
+        """Lookup a filer by CIK (with or without zero-padding) or by exact name.
+
+        CIK match is the primary path — `find_filer("1067983")` and
+        `find_filer("0001067983")` both return Berkshire. Name match is a
+        secondary path supporting case-insensitive exact match of the
+        watchlist `name` field; the CLI uses it for `--filer "Berkshire …"`.
+        """
+        if not identifier:
+            return None
+        stripped = identifier.strip()
+        if stripped.isdigit():
+            padded = stripped.zfill(10)
+            for entry in self.filers:
+                if entry.filer_cik == padded:
+                    return entry
+            return None
+        lowered = stripped.lower()
+        for entry in self.filers:
+            if entry.name.lower() == lowered:
+                return entry
+        return None
+
     def classify(self, symbol_or_series: str) -> SleeveKind | None:
-        """Identify whether a label is crypto / equity / macro / protocol. None if unknown."""
+        """Identify the label's sleeve. None if unknown."""
         if self.find_crypto(symbol_or_series) is not None:
             return "crypto"
         if self.find_equity(symbol_or_series) is not None:
@@ -113,6 +147,8 @@ class Watchlist:
             return "macro"
         if self.find_protocol(symbol_or_series) is not None:
             return "protocol"
+        if self.find_filer(symbol_or_series) is not None:
+            return "filer"
         return None
 
 
@@ -227,7 +263,60 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                     )
                 )
 
-    return Watchlist(crypto=crypto, equities=equities, macro=macro, protocols=protocols)
+    filers: list[FilerEntry] = []
+    filers_root = data.get("filers", {})
+    if isinstance(filers_root, dict):
+        seen_filer_ciks: set[str] = set()
+        for tier_name, entries in filers_root.items():
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                raw_cik = entry.get("cik")
+                padded_cik = _normalize_filer_cik(raw_cik)
+                if padded_cik is None:
+                    continue
+                if padded_cik in seen_filer_ciks:
+                    # Silently dedupe — the watchlist file should be the
+                    # source of truth and we don't want one cut-and-paste
+                    # accident to FK-violate ingestion.
+                    continue
+                name = entry.get("name")
+                if not isinstance(name, str) or not name:
+                    continue
+                seen_filer_ciks.add(padded_cik)
+                filers.append(
+                    FilerEntry(
+                        filer_cik=padded_cik,
+                        name=name,
+                        tier=str(tier_name),
+                        rationale=_optional_string(entry.get("rationale")),
+                    )
+                )
+
+    return Watchlist(
+        crypto=crypto,
+        equities=equities,
+        macro=macro,
+        protocols=protocols,
+        filers=filers,
+    )
+
+
+def _normalize_filer_cik(raw: object) -> str | None:
+    """Zero-pad a numeric CIK to 10 chars; return None if not parseable."""
+    if isinstance(raw, bool) or raw is None:
+        return None
+    if isinstance(raw, int):
+        text = str(raw)
+    elif isinstance(raw, str):
+        text = raw.strip()
+    else:
+        return None
+    if not text.isdigit() or len(text) > 10:
+        return None
+    return text.zfill(10)
 
 
 def _optional_string(value: object) -> str | None:
