@@ -53,6 +53,8 @@ from typing import Any
 
 from genkei.common import db
 
+DEFAULT_HORIZON = "equity:core"
+
 # ---------------------------------------------------------------------------
 # Domain types
 # ---------------------------------------------------------------------------
@@ -79,8 +81,8 @@ class CrowdingRow:
     period_of_report: date
     cusip: str
     issuer_name: str | None
-    horizon: str
     holder_count: int
+    horizon: str = DEFAULT_HORIZON
     holder_ciks: list[str] = field(default_factory=list)
     holder_names: list[str] = field(default_factory=list)
     total_value_usd: Decimal | None = None
@@ -181,8 +183,8 @@ def compute_crowding(positions: list[Position]) -> list[CrowdingRow]:
                 period_of_report=period,
                 cusip=cusip,
                 issuer_name=issuer_by_cusip.get(cusip),
-                horizon="equity:unknown",
                 holder_count=len(current_holders),
+                horizon=DEFAULT_HORIZON,
                 holder_ciks=[pp.filer_cik for pp in sorted_filers],
                 holder_names=[pp.filer_name for pp in sorted_filers],
                 total_value_usd=total_value,

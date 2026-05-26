@@ -394,7 +394,13 @@ def _expand_since_for_delta(
         return effective_since
     if not cusips_filter:
         return earlier_periods[0]
+    positions = load_positions(
+        since=min(earlier_periods),
+        until=max(earlier_periods),
+        cusips=cusips_filter,
+    )
+    periods_with_data = {p.period_of_report for p in positions}
     for period in earlier_periods:
-        if load_positions(since=period, until=period, cusips=cusips_filter):
+        if period in periods_with_data:
             return period
     return effective_since

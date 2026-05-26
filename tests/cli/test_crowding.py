@@ -11,6 +11,7 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from genkei.cli import main
@@ -534,9 +535,9 @@ class ExpandSinceForDeltaTests(unittest.TestCase):
     def test_filtered_uses_latest_earlier_period_with_cusip_data(self) -> None:
         def fake_load_positions(*, since, until, cusips):
             self.assertEqual(cusips, ["037833100"])
-            if since == date(2024, 9, 30) and until == date(2024, 9, 30):
-                return [object()]
-            return []
+            self.assertEqual(since, date(2024, 9, 30))
+            self.assertEqual(until, date(2024, 12, 31))
+            return [SimpleNamespace(period_of_report=date(2024, 9, 30))]
 
         with (
             patch(
