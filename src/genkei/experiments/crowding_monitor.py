@@ -111,19 +111,26 @@ def compute_crowding(positions: list[Position]) -> list[CrowdingRow]:
     ``period_of_report DESC, holder_count DESC, cusip ASC`` so the
     default "latest period, most crowded first" rendering is correct.
     """
-    # Bucket positions by (period, cusip). Within a bucket dedupe on
-    # filer_cik — a single filer can in principle file two 13F-HRs for
-    # the same period (e.g. a Q4 restatement), in which case we count
-    # them once and take the most-recent accession's value.
-    by_period_cusip: dict[tuple[date, str], dict[str, Position]] = defaultdict(dict)
+    # Bucket positions by (period, cusip). Within a bucket, keep every
+    # holding row from the latest accession for each filer: split rows
+    # are additive, while later amendments supersede older filings.
+    by_period_cusip: dict[tuple[date, str], dict[str, list[Position]]] = defaultdict(
+        dict
+    )
     issuer_by_cusip: dict[str, str | None] = {}
     for p in positions:
         bucket = by_period_cusip[(p.period_of_report, p.cusip)]
-        existing = bucket.get(p.filer_cik)
-        # Later accession_number wins (string sort works — accession
-        # numbers are timestamp-derived). Stable for restatement edges.
-        if existing is None or p.accession_number > existing.accession_number:
-            bucket[p.filer_cik] = p
+        existing_rows = bucket.get(p.filer_cik)
+        if existing_rows is None:
+            bucket[p.filer_cik] = [p]
+        else:
+            existing_accession = existing_rows[0].accession_number
+            # Later accession_number wins (string sort works —
+            # accession numbers are timestamp-derived).
+            if p.accession_number > existing_accession:
+                bucket[p.filer_cik] = [p]
+            elif p.accession_number == existing_accession:
+                existing_rows.append(p)
         # Cache an issuer_name per CUSIP (first non-null wins) so we can
         # surface it on rows where this batch only has nulls.
         if p.issuer_name and issuer_by_cusip.get(p.cusip) is None:
@@ -163,19 +170,24 @@ def compute_crowding(positions: list[Position]) -> list[CrowdingRow]:
 
         total_value: Decimal | None = None
         total_shares: Decimal | None = None
-        for pos in filers.values():
-            if pos.value_usd is not None:
-                total_value = (total_value or Decimal(0)) + pos.value_usd
-            if pos.shares_or_principal is not None:
-                total_shares = (total_shares or Decimal(0)) + pos.shares_or_principal
+        filer_rollups: list[tuple[str, str, Decimal]] = []
+        for filer_cik, filer_positions in filers.items():
+            filer_value = Decimal(0)
+            for pos in filer_positions:
+                if pos.value_usd is not None:
+                    total_value = (total_value or Decimal(0)) + pos.value_usd
+                    filer_value += pos.value_usd
+                if pos.shares_or_principal is not None:
+                    total_shares = (total_shares or Decimal(0)) + pos.shares_or_principal
+            filer_rollups.append(
+                (filer_cik, filer_positions[0].filer_name, filer_value)
+            )
 
-        # Sort holder names by value desc so the human render is "biggest
-        # holder first" without the caller re-sorting.
         sorted_filers = sorted(
-            filers.values(),
-            key=lambda pp: (
-                -(pp.value_usd if pp.value_usd is not None else Decimal(0)),
-                pp.filer_name,
+            filer_rollups,
+            key=lambda item: (
+                -item[2],
+                item[1],
             ),
         )
         rows.append(
@@ -185,8 +197,8 @@ def compute_crowding(positions: list[Position]) -> list[CrowdingRow]:
                 issuer_name=issuer_by_cusip.get(cusip),
                 holder_count=len(current_holders),
                 horizon=DEFAULT_HORIZON,
-                holder_ciks=[pp.filer_cik for pp in sorted_filers],
-                holder_names=[pp.filer_name for pp in sorted_filers],
+                holder_ciks=[item[0] for item in sorted_filers],
+                holder_names=[item[1] for item in sorted_filers],
                 total_value_usd=total_value,
                 total_shares=total_shares,
                 prior_holder_count=prior_count,

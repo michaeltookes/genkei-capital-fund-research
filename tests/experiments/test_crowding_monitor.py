@@ -136,6 +136,38 @@ class SinglePeriodCrowdingTests(unittest.TestCase):
         # Amendment's value wins, not the sum.
         self.assertEqual(rows[0].total_value_usd, Decimal("250"))
 
+    def test_preserves_same_filer_rows_within_latest_accession(self) -> None:
+        positions = [
+            _pos(
+                filer_cik="A",
+                filer_name="Alpha LP",
+                period=date(2025, 3, 31),
+                value_usd=Decimal("100"),
+                shares=Decimal("10"),
+                accession_number="0001000000-25-000001",
+            ),
+            _pos(
+                filer_cik="A",
+                filer_name="Alpha LP",
+                period=date(2025, 3, 31),
+                value_usd=Decimal("250"),
+                shares=Decimal("25"),
+                accession_number="0001000000-25-000001",
+            ),
+            _pos(
+                filer_cik="B",
+                filer_name="Beta Capital",
+                period=date(2025, 3, 31),
+                value_usd=Decimal("50"),
+                shares=Decimal("5"),
+            ),
+        ]
+        rows = compute_crowding(positions)
+        self.assertEqual(rows[0].holder_count, 2)
+        self.assertEqual(rows[0].total_value_usd, Decimal("400"))
+        self.assertEqual(rows[0].total_shares, Decimal("40"))
+        self.assertEqual(rows[0].holder_ciks, ["A", "B"])
+
 
 class DeltaCrowdingTests(unittest.TestCase):
     """Verify the prior-period delta logic — the actionable signal."""
