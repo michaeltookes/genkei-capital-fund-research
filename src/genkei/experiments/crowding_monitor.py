@@ -79,6 +79,7 @@ class CrowdingRow:
     period_of_report: date
     cusip: str
     issuer_name: str | None
+    horizon: str
     holder_count: int
     holder_ciks: list[str] = field(default_factory=list)
     holder_names: list[str] = field(default_factory=list)
@@ -180,6 +181,7 @@ def compute_crowding(positions: list[Position]) -> list[CrowdingRow]:
                 period_of_report=period,
                 cusip=cusip,
                 issuer_name=issuer_by_cusip.get(cusip),
+                horizon="equity:unknown",
                 holder_count=len(current_holders),
                 holder_ciks=[pp.filer_cik for pp in sorted_filers],
                 holder_names=[pp.filer_name for pp in sorted_filers],

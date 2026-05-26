@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json as json_mod
+import re
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import date
@@ -14,6 +15,7 @@ from unittest.mock import patch
 
 from genkei.cli import main
 from genkei.cli.crowding import (
+    _expand_since_for_delta,
     _format_human,
     _resolve_ticker_to_cusip,
     _row_to_dict,
@@ -68,6 +70,7 @@ def _sample_row(
         period_of_report=period,
         cusip=cusip,
         issuer_name="APPLE INC",
+        horizon="equity:core:primary",
         holder_count=holder_count,
         holder_ciks=["A", "B", "C", "D"][:holder_count],
         holder_names=[
@@ -83,6 +86,10 @@ def _sample_row(
         exits=[],
         net_change=net_change,
     )
+
+
+def _strip_ansi(text: str) -> str:
+    return re.sub(r"\x1b\[[0-9;]*m", "", text)
 
 
 class ResolveTickerToCusipTests(unittest.TestCase):
@@ -125,6 +132,7 @@ class ResolveTickerToCusipTests(unittest.TestCase):
             _resolve_ticker_to_cusip("NOCUSIP", self._watchlist())
         # Error guides the user to fix the watchlist.
         self.assertIn("cusip:", str(cm.exception))
+        self.assertIn("--ticker NOCUSIP", str(cm.exception))
 
 
 class TickerLookupTests(unittest.TestCase):
@@ -200,6 +208,7 @@ class FormatHumanTests(unittest.TestCase):
         self.assertIn("(2→4)", text)
         # Ticker resolves via watchlist
         self.assertIn("AAPL", text)
+        self.assertIn("equity:core:primary", text)
         # Dollar formatting includes commas
         self.assertIn("$42,000,000,000", text)
         # Top holders abbreviated; "+1 more" when count > 3
@@ -225,6 +234,7 @@ class RowToDictTests(unittest.TestCase):
         d = _row_to_dict(row, ticker="AAPL")
         self.assertEqual(d["cusip"], "037833100")
         self.assertEqual(d["ticker"], "AAPL")
+        self.assertEqual(d["horizon_tag"], "equity:core:primary")
         self.assertEqual(d["holder_count"], 4)
         self.assertEqual(d["prior_holder_count"], 2)
         self.assertEqual(d["net_change"], 2)
@@ -269,6 +279,76 @@ class CommandValidationTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("mutually exclusive", buf.getvalue())
 
+    def test_period_and_since_mutually_exclusive(self) -> None:
+        wpath = _watchlist_path(self)
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code = main(
+                [
+                    "crowding",
+                    "--period",
+                    "2025-03-31",
+                    "--since",
+                    "2024-12-31",
+                    "--config",
+                    str(wpath),
+                ]
+            )
+        self.assertEqual(code, 2)
+        self.assertIn("mutually exclusive", buf.getvalue())
+
+    def test_period_and_until_mutually_exclusive(self) -> None:
+        wpath = _watchlist_path(self)
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code = main(
+                [
+                    "crowding",
+                    "--period",
+                    "2025-03-31",
+                    "--until",
+                    "2025-06-30",
+                    "--config",
+                    str(wpath),
+                ]
+            )
+        self.assertEqual(code, 2)
+        self.assertIn("mutually exclusive", buf.getvalue())
+
+    def test_all_periods_and_since_mutually_exclusive(self) -> None:
+        wpath = _watchlist_path(self)
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code = main(
+                [
+                    "crowding",
+                    "--all-periods",
+                    "--since",
+                    "2024-12-31",
+                    "--config",
+                    str(wpath),
+                ]
+            )
+        self.assertEqual(code, 2)
+        self.assertIn("mutually exclusive", buf.getvalue())
+
+    def test_all_periods_and_until_mutually_exclusive(self) -> None:
+        wpath = _watchlist_path(self)
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code = main(
+                [
+                    "crowding",
+                    "--all-periods",
+                    "--until",
+                    "2025-06-30",
+                    "--config",
+                    str(wpath),
+                ]
+            )
+        self.assertEqual(code, 2)
+        self.assertIn("mutually exclusive", buf.getvalue())
+
     def test_since_after_until_rejected(self) -> None:
         wpath = _watchlist_path(self)
         buf = io.StringIO()
@@ -285,7 +365,7 @@ class CommandValidationTests(unittest.TestCase):
                 ]
             )
         self.assertEqual(code, 2)
-        self.assertIn("--since", buf.getvalue())
+        self.assertRegex(_strip_ansi(buf.getvalue()), r"-{1,2}since\b")
 
     def test_crypto_ticker_redirects_to_prices(self) -> None:
         wpath = _watchlist_path(self)
@@ -369,6 +449,7 @@ class CommandEndToEndTests(unittest.TestCase):
         # Decimal → string preserves full precision (B-079 era contract).
         self.assertEqual(parsed[0]["total_value_usd"], "42000000000")
         self.assertEqual(parsed[0]["ticker"], "AAPL")
+        self.assertEqual(parsed[0]["horizon_tag"], "equity:core:primary")
         self.assertEqual(parsed[0]["holder_count"], 4)
         self.assertEqual(parsed[0]["net_change"], 2)
 
@@ -433,6 +514,47 @@ class CommandEndToEndTests(unittest.TestCase):
         # being more crowded by holder_count.
         self.assertEqual(parsed[0]["cusip"], "11111A111")
         self.assertEqual(parsed[1]["cusip"], "22222B222")
+
+
+class ExpandSinceForDeltaTests(unittest.TestCase):
+    def test_unfiltered_uses_latest_earlier_period(self) -> None:
+        with patch(
+            "genkei.cli.crowding.available_periods",
+            return_value=[
+                date(2025, 3, 31),
+                date(2024, 12, 31),
+                date(2024, 9, 30),
+            ],
+        ):
+            self.assertEqual(
+                _expand_since_for_delta(date(2025, 3, 31), cusips_filter=None),
+                date(2024, 12, 31),
+            )
+
+    def test_filtered_uses_latest_earlier_period_with_cusip_data(self) -> None:
+        def fake_load_positions(*, since, until, cusips):
+            self.assertEqual(cusips, ["037833100"])
+            if since == date(2024, 9, 30) and until == date(2024, 9, 30):
+                return [object()]
+            return []
+
+        with (
+            patch(
+                "genkei.cli.crowding.available_periods",
+                return_value=[
+                    date(2025, 3, 31),
+                    date(2024, 12, 31),
+                    date(2024, 9, 30),
+                ],
+            ),
+            patch("genkei.cli.crowding.load_positions", side_effect=fake_load_positions),
+        ):
+            self.assertEqual(
+                _expand_since_for_delta(
+                    date(2025, 3, 31), cusips_filter=["037833100"]
+                ),
+                date(2024, 9, 30),
+            )
 
 
 if __name__ == "__main__":

@@ -72,6 +72,7 @@ class SinglePeriodCrowdingTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         r = rows[0]
         self.assertEqual(r.holder_count, 2)
+        self.assertEqual(r.horizon, "equity:unknown")
         self.assertEqual(r.total_value_usd, Decimal("300"))
         self.assertEqual(r.total_shares, Decimal("20"))
         # First-observed period for this CUSIP has no delta state.

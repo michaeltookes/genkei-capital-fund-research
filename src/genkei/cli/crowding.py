@@ -40,6 +40,7 @@ Usage:
 """
 
 import json
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -88,7 +89,7 @@ def _resolve_ticker_to_cusip(ticker: str, watchlist: Watchlist) -> tuple[str, Eq
         raise typer.BadParameter(
             f"{ticker} has no CUSIP in the watchlist — add `cusip:` to its entry "
             "in config/watchlists.yml (9-char SEC CUSIP) before running "
-            "`genkei crowding --ticker {ticker}`."
+            f"`genkei crowding --ticker {ticker}`."
         )
     return equity.cusip, equity
 
@@ -98,12 +99,22 @@ def _ticker_for_cusip(cusip: str, watchlist: Watchlist) -> Optional[str]:
     return entry.symbol if entry else None
 
 
+def _horizon_tag(entry: EquityEntry) -> str:
+    return f"equity:{entry.sleeve}:{entry.tier}"
+
+
+def _horizon_for_cusip(cusip: str, watchlist: Watchlist) -> str:
+    entry = watchlist.find_equity_by_cusip(cusip)
+    return _horizon_tag(entry) if entry else "equity:unknown"
+
+
 def _row_to_dict(row: CrowdingRow, *, ticker: Optional[str]) -> dict[str, Any]:
     return {
         "period_of_report": row.period_of_report.isoformat(),
         "cusip": row.cusip,
         "issuer_name": row.issuer_name,
         "ticker": ticker,
+        "horizon_tag": row.horizon,
         "holder_count": row.holder_count,
         "holder_ciks": list(row.holder_ciks),
         "holder_names": list(row.holder_names),
@@ -150,7 +161,7 @@ def _format_human(
         )
     lines = [header, "-" * len(header)]
     lines.append(
-        f"  {'period':<12} {'tkr':<6} {'cusip':<12} "
+        f"  {'period':<12} {'tkr':<6} {'horizon':<20} {'cusip':<12} "
         f"{'#':>3} {'Δvs prior':<18} {'$value':>20}  top holders"
     )
     for r in rows:
@@ -162,7 +173,7 @@ def _format_human(
         if len(r.holder_names) > 3:
             names += f", +{len(r.holder_names) - 3} more"
         lines.append(
-            f"  {period:<12} {tkr:<6} {r.cusip:<12} "
+            f"  {period:<12} {tkr:<6} {r.horizon:<20} {r.cusip:<12} "
             f"{r.holder_count:>3} {delta:<18} {value}  {names}"
         )
     return "\n".join(lines)
@@ -281,6 +292,12 @@ def crowding_cmd(
         raise typer.BadParameter("--ticker and --cusip are mutually exclusive.")
     if period is not None and all_periods:
         raise typer.BadParameter("--period and --all-periods are mutually exclusive.")
+    if period is not None and (since is not None or until is not None):
+        raise typer.BadParameter("--period and --since/--until are mutually exclusive.")
+    if all_periods and (since is not None or until is not None):
+        raise typer.BadParameter(
+            "--all-periods and --since/--until are mutually exclusive."
+        )
 
     period_d = _parse_date(period, label="period")
     since_d = _parse_date(since, label="since")
@@ -336,6 +353,10 @@ def crowding_cmd(
                 r.cusip,
             ),
         )
+    visible_rows = [
+        replace(r, horizon=_horizon_for_cusip(r.cusip, watchlist))
+        for r in visible_rows
+    ]
     visible_rows = visible_rows[:top]
 
     if json_out:
@@ -368,9 +389,12 @@ def _expand_since_for_delta(
     """
     if effective_since is None:
         return None
-    earlier_periods = [
-        p for p in available_periods() if p < effective_since
-    ]
+    earlier_periods = [p for p in available_periods() if p < effective_since]
     if not earlier_periods:
         return effective_since
-    return earlier_periods[0]  # available_periods is DESC-sorted; index 0 is largest-earlier
+    if not cusips_filter:
+        return earlier_periods[0]
+    for period in earlier_periods:
+        if load_positions(since=period, until=period, cusips=cusips_filter):
+            return period
+    return effective_since
