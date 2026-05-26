@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json as json_mod
+import re
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import date
@@ -214,7 +215,9 @@ class CommandValidationTests(unittest.TestCase):
                 ]
             )
         self.assertEqual(code, 2)
-        self.assertIn("on or before --until", stdout.getvalue() + stderr.getvalue())
+        rendered = stdout.getvalue() + stderr.getvalue()
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", rendered)
+        self.assertRegex(plain, r"on or before\s+--until\.?")
 
     def test_period_and_all_periods_rejected(self) -> None:
         wpath = _watchlist_path(self)
