@@ -1,0 +1,106 @@
+# Genkei Capital — cross-source signal correlation rules (B-064)
+#
+# Each rule defines a stack: a configuration of (source, signal_kind)
+# components, each with a weight. The correlator walks `meta.signal_events`
+# and emits a stack when, within `window_days` on the same asset, the
+# weighted-strength score exceeds `min_score` AND at least
+# `min_distinct_sources` distinct sources have contributed.
+#
+# `min_distinct_sources` is load-bearing — without it a single noisy emitter
+# firing twice would fake a "multi-source" stack. Default is 2; bump it for
+# higher-confidence rules.
+#
+# Wildcard components use `signal_kind: null` to match any kind from the
+# source. Exact-kind components win ties over wildcards when both are
+# configured for the same source.
+#
+# As of 2026-05-28 only the insider_clusters emitter is wired up (B-064
+# ships the reference emitter; B-064.1 / B-064.2 / B-064.3 will add the
+# crowding / 8-K / TVL-drawdown emitters). Rules below are pre-configured
+# for the full multi-source picture so stacks light up automatically as
+# each emitter lands.
+version: 1
+
+rules:
+  # Bullish stacks — "smart money is piling in"
+
+  - name: smart_money_buy
+    description: >-
+      Insider buy cluster + 13F crowding add + 8-K material agreement
+      filing on the same equity within a week. The canonical institutional-
+      stack signal — three independent sources agreeing that something
+      is happening.
+    direction: bullish
+    window_days: 7
+    min_score: 1.5
+    min_distinct_sources: 2
+    components:
+      - source: insider_clusters
+        signal_kind: buy_cluster
+        weight: 1.0
+      - source: crowding
+        signal_kind: crowding_add
+        weight: 1.0
+      - source: eight_k_impact
+        signal_kind: item_1_01  # Material Definitive Agreement
+        weight: 0.6
+      - source: eight_k_impact
+        signal_kind: item_2_02  # Results of Operations / earnings
+        weight: 0.5
+
+  - name: activist_position_take
+    description: >-
+      Insider buy cluster + 13F crowding add from a known activist filer
+      within a quarter. Wider window because 13F filings lag the actual
+      position-take by up to 45 days.
+    direction: bullish
+    window_days: 60
+    min_score: 1.4
+    min_distinct_sources: 2
+    components:
+      - source: insider_clusters
+        signal_kind: buy_cluster
+        weight: 1.0
+      - source: crowding
+        signal_kind: crowding_jump  # ≥3 net new entrants (defined per emitter)
+        weight: 1.0
+
+  # Bearish stacks — "smart money is bailing"
+
+  - name: broad_exit
+    description: >-
+      Insider sell cluster + 13F holders dropping on the same equity
+      within a quarter. Sell clusters alone are noisy (10b5-1 plans,
+      tax planning); pairing with 13F exits filters most of the noise.
+    direction: bearish
+    window_days: 90
+    min_score: 1.5
+    min_distinct_sources: 2
+    components:
+      - source: insider_clusters
+        signal_kind: sell_cluster
+        weight: 1.0
+      - source: crowding
+        signal_kind: crowding_exit
+        weight: 1.0
+
+  - name: deterioration_stack
+    description: >-
+      8-K disclosure (any item code that historically drove negative
+      drift, e.g. 5.02 officer changes / 4.02 non-reliance) plus a
+      sell-cluster within a month — the typical "the news is bad and
+      insiders aren't waiting" pattern.
+    direction: bearish
+    window_days: 30
+    min_score: 1.4
+    min_distinct_sources: 2
+    components:
+      - source: insider_clusters
+        signal_kind: sell_cluster
+        weight: 1.0
+      - source: eight_k_impact
+        signal_kind: item_5_02  # Officer departures / appointments
+        weight: 0.6
+      - source: eight_k_impact
+        signal_kind: item_4_02  # Non-reliance on prior financials
+        weight: 0.8
