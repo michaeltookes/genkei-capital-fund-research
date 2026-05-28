@@ -315,15 +315,6 @@ First-class — the *point* of having the data lake.
 
 Once cross-source data is in, the system starts producing investable signals.
 
-### B-064 — Cross-source signal correlation engine
-- **Status:** open
-- **Priority:** medium
-- **Context:** TVL change + 8-K event + news cluster on the same ticker/protocol is more meaningful than any single signal.
-- **Acceptance criteria:**
-  - Engine produces a `meta.signals` table.
-  - Configurable correlation rules.
-  - CLI + notebook access to query.
-
 ### B-066 — Macro regime classifier integrated into queries
 - **Status:** open
 - **Priority:** low
