@@ -19,8 +19,6 @@ from genkei.cli.signals import (
     _stack_to_dict,
 )
 from genkei.experiments.signal_store import (
-    CorrelationRule,
-    RuleComponent,
     SignalEvent,
     Stack,
 )

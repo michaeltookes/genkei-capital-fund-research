@@ -14,10 +14,9 @@ from genkei.experiments.signal_store import (
     CorrelationRule,
     RuleComponent,
     SignalEvent,
-    Stack,
-    detect_stacks,
     _filter_by_rule,
     _score_window,
+    detect_stacks,
 )
 
 
@@ -49,14 +48,15 @@ def _dt(day: int, month: int = 5, year: int = 2026) -> datetime:
     return datetime(year, month, day, tzinfo=timezone.utc)
 
 
+_W = Decimal  # ruff line-length squeeze without losing readability
 SMART_MONEY_RULE = CorrelationRule(
     name="smart_money_buy",
     description="test rule",
     direction="bullish",
     components=[
-        RuleComponent(source="insider_clusters", signal_kind="buy_cluster", weight=Decimal("1.0")),
-        RuleComponent(source="crowding", signal_kind="crowding_add", weight=Decimal("1.0")),
-        RuleComponent(source="eight_k_impact", signal_kind="item_1_01", weight=Decimal("0.6")),
+        RuleComponent(source="insider_clusters", signal_kind="buy_cluster", weight=_W("1.0")),
+        RuleComponent(source="crowding", signal_kind="crowding_add", weight=_W("1.0")),
+        RuleComponent(source="eight_k_impact", signal_kind="item_1_01", weight=_W("0.6")),
     ],
     window_days=7,
     min_score=Decimal("1.5"),
@@ -70,7 +70,12 @@ class FilterByRuleTests(unittest.TestCase):
             _ev(ts=_dt(5), source="insider_clusters", signal_kind="buy_cluster"),
             _ev(ts=_dt(5), source="crowding", signal_kind="crowding_add"),
             # Wrong direction — should be filtered out.
-            _ev(ts=_dt(5), source="insider_clusters", signal_kind="buy_cluster", direction="bearish"),
+            _ev(
+                ts=_dt(5),
+                source="insider_clusters",
+                signal_kind="buy_cluster",
+                direction="bearish",
+            ),
             # Source not in rule.
             _ev(ts=_dt(5), source="macro_regime", signal_kind="risk_on"),
             # Source in rule but kind not configured.
@@ -108,8 +113,18 @@ class FilterByRuleTests(unittest.TestCase):
 class ScoreWindowTests(unittest.TestCase):
     def test_score_sums_weight_times_strength(self) -> None:
         events = [
-            _ev(ts=_dt(5), source="insider_clusters", signal_kind="buy_cluster", strength=Decimal("0.8")),
-            _ev(ts=_dt(6), source="crowding", signal_kind="crowding_add", strength=Decimal("1.0")),
+            _ev(
+                ts=_dt(5),
+                source="insider_clusters",
+                signal_kind="buy_cluster",
+                strength=Decimal("0.8"),
+            ),
+            _ev(
+                ts=_dt(6),
+                source="crowding",
+                signal_kind="crowding_add",
+                strength=Decimal("1.0"),
+            ),
         ]
         score, sources = _score_window(events, SMART_MONEY_RULE)
         # 1.0 * 0.8 + 1.0 * 1.0 = 1.8; two distinct sources.
@@ -133,8 +148,16 @@ class ScoreWindowTests(unittest.TestCase):
             description="",
             direction="bullish",
             components=[
-                RuleComponent(source="eight_k_impact", signal_kind=None, weight=Decimal("0.3")),
-                RuleComponent(source="eight_k_impact", signal_kind="item_1_01", weight=Decimal("1.0")),
+                RuleComponent(
+                    source="eight_k_impact",
+                    signal_kind=None,
+                    weight=Decimal("0.3"),
+                ),
+                RuleComponent(
+                    source="eight_k_impact",
+                    signal_kind="item_1_01",
+                    weight=Decimal("1.0"),
+                ),
             ],
             window_days=7,
             min_score=Decimal("0.1"),

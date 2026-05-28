@@ -42,7 +42,6 @@ from psycopg.types.json import Jsonb
 
 from genkei.common import db
 
-
 # ---------------------------------------------------------------------------
 # Allowed enum values (must match the migration's CHECK constraints).
 # ---------------------------------------------------------------------------

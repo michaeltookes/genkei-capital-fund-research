@@ -17,7 +17,6 @@ from genkei.experiments.emitters.insider_clusters_emitter import (
 )
 from genkei.experiments.insider_clusters import Cluster, ReporterSummary
 
-
 WATCHLIST_YAML = (
     "equities:\n"
     "  primary:\n"
@@ -28,12 +27,10 @@ WATCHLIST_YAML = (
 
 
 def _watchlist_ticker_map() -> dict[str, EquityEntry]:
-    ctx = TemporaryDirectory()
-    unittest.TestCase.addCleanup  # quiet linters
-    path = Path(ctx.name) / "watchlists.yml"
-    path.write_text(WATCHLIST_YAML, encoding="utf-8")
-    w = load_watchlist(path)
-    ctx.cleanup()
+    with TemporaryDirectory() as tmp:
+        path = Path(tmp) / "watchlists.yml"
+        path.write_text(WATCHLIST_YAML, encoding="utf-8")
+        w = load_watchlist(path)
     return {e.cik: e for e in w.equities if e.cik}
 
 
