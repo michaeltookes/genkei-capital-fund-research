@@ -181,6 +181,10 @@ PRIMARY_TABLES: dict[str, list[str]] = {
     # so it doesn't surface as MISSING on the recurring-cron half of the
     # report; only the liveness check (EXISTS SELECT 1) applies.
     "analytics": ["analytics.crypto_relative_strength"],
+    # B-064 — cross-source signal events; populated by the per-source
+    # emitters chained off the daily ingest workflows. RECURRING_ENDPOINTS
+    # tracks each emitter individually below.
+    "signal_emitter": ["meta.signal_events"],
 }
 
 # Recurring (daily-cron) endpoints we expect to see in meta.ingest_runs
@@ -199,6 +203,9 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
     # (parses logs inline + writes rows directly to onchain.staking_events,
     # no raw_blobs hop), so only the 'collect' endpoint is recurring.
     "onchain_staking": ["collect"],
+    # B-064 — one entry per signal emitter that runs on a daily cron.
+    # As more emitters land (crowding, eight_k, etc.), append to this list.
+    "signal_emitter": ["insider_clusters"],
 }
 
 

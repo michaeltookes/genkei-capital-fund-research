@@ -303,19 +303,32 @@ class ExpectationsRegistryTests(unittest.TestCase):
     def test_all_known_sources_have_primary_tables(self) -> None:
         # The registry grows as new ingesters land (B-082 added
         # onchain_staking; B-090 added analytics for the
-        # crypto_relative_strength view). Pin the current shape so
-        # an accidental rename / drop is caught.
+        # crypto_relative_strength view; B-064 added signal_emitter
+        # for the cross-source correlation event store). Pin the
+        # current shape so an accidental rename / drop is caught.
         self.assertEqual(
             set(PRIMARY_TABLES),
-            {"defillama", "fred", "sec", "coingecko", "onchain_staking", "analytics"},
+            {
+                "defillama",
+                "fred",
+                "sec",
+                "coingecko",
+                "onchain_staking",
+                "analytics",
+                "signal_emitter",
+            },
         )
 
     def test_every_source_expects_at_least_a_collect_endpoint(self) -> None:
-        # All ingest sources have a `collect` endpoint. Most also have
-        # a separate `normalize` endpoint — the onchain_staking
-        # collector fuses collect+normalize in one step, so it lists
-        # only `collect`.
+        # All classic ingest sources have a `collect` endpoint. Some
+        # exceptions: onchain_staking fuses collect+normalize, and
+        # signal_emitter's endpoints are per-emitter (insider_clusters,
+        # crowding, etc.) rather than the classic collect/normalize pair.
+        emitter_exempt = {"signal_emitter"}
         for source, eps in RECURRING_ENDPOINTS.items():
+            if source in emitter_exempt:
+                self.assertTrue(eps, f"{source} should declare at least one emitter")
+                continue
             self.assertIn("collect", eps, f"{source} missing collect")
         # The classic raw-blob + normalize ingesters still report both:
         for source in ("defillama", "fred", "sec", "coingecko"):
