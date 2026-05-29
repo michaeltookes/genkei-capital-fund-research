@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json as json_mod
+import re
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
@@ -174,9 +175,11 @@ class ValidationTests(unittest.TestCase):
                 ]
             )
         self.assertEqual(code, 2)
-        msg = buf.getvalue()
+        msg = re.sub(r"\x1b\[[0-9;]*m", "", buf.getvalue())
         self.assertIn("Invalid value", msg)
-        self.assertIn("on or before --until", msg)
+        self.assertIn("since", msg)
+        self.assertIn("on or before", msg)
+        self.assertIn("until", msg)
 
     def test_unknown_direction_rejected(self) -> None:
         rpath = _rules_path(self)
