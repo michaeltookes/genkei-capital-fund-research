@@ -4,11 +4,12 @@ Adapts B-060's ``detect_clusters`` output into atomic signal events
 suitable for the cross-source correlator. Each detected cluster
 becomes one ``meta.signal_events`` row:
 
-* ``asset``         = issuer ticker (resolved via ``cik`` lookup in the
-                      watchlist; clusters on non-watchlist issuers are
-                      logged + skipped because the correlator's
-                      asset-grouping needs a stable identifier and we
-                      don't want to leak raw CIKs into the events table)
+* ``asset``         = issuer ticker (one event per watchlist ticker
+                      resolved via ``cik`` lookup; clusters on
+                      non-watchlist issuers are logged + skipped because
+                      the correlator's asset-grouping needs a stable
+                      identifier and we don't want to leak raw CIKs into
+                      the events table)
 * ``ts``            = ``cluster.window_end`` (the cluster becomes
                       actionable when the *last* reporter has filed)
 * ``source``        = ``"insider_clusters"``
@@ -38,6 +39,7 @@ provenance trail is uniform with the rest of the lake.
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
@@ -75,8 +77,12 @@ class EmitResult:
     clusters_skipped_no_ticker: int
 
 
-def _ticker_by_cik(watchlist: Watchlist) -> dict[str, EquityEntry]:
-    return {e.cik: e for e in watchlist.equities if e.cik is not None}
+def _ticker_by_cik(watchlist: Watchlist) -> dict[str, list[EquityEntry]]:
+    out: dict[str, list[EquityEntry]] = defaultdict(list)
+    for entry in watchlist.equities:
+        if entry.cik is not None:
+            out[entry.cik].append(entry)
+    return dict(out)
 
 
 def _strength_from_reporter_count(reporter_count: int) -> Decimal:
@@ -99,63 +105,70 @@ def _window_end_to_ts(window_end: date) -> datetime:
 
 
 def _horizon_tag(equity: EquityEntry) -> str:
-    return f"equity:{equity.sleeve}:{equity.tier}"
+    return f"equity:{equity.sleeve}"
 
 
-def _build_event(
-    cluster: Cluster, ticker_by_cik: dict[str, EquityEntry]
-) -> dict[str, Any] | None:
-    """Map one Cluster → a signal_events row dict, or None if skipped."""
-    equity = ticker_by_cik.get(cluster.issuer_cik)
-    if equity is None:
+def _build_events(
+    cluster: Cluster, ticker_by_cik: dict[str, list[EquityEntry]]
+) -> list[dict[str, Any]]:
+    """Map one Cluster to one signal event per watchlist ticker for its CIK."""
+    equities = ticker_by_cik.get(cluster.issuer_cik)
+    if not equities:
         LOGGER.warning(
             "insider-cluster on CIK %s not in equity watchlist; skipping signal emission",
             cluster.issuer_cik,
         )
-        return None
+        return []
     direction = "bullish" if cluster.direction == "buy" else "bearish"
     signal_kind = "buy_cluster" if cluster.direction == "buy" else "sell_cluster"
     ts = _window_end_to_ts(cluster.window_end)
     source_ref = f"{cluster.issuer_cik}:{cluster.window_end.isoformat()}"
-    payload: dict[str, Any] = {
-        "issuer_cik": cluster.issuer_cik,
-        "ticker": equity.symbol,
-        "window_start": cluster.window_start.isoformat(),
-        "window_end": cluster.window_end.isoformat(),
-        "span_days": (cluster.window_end - cluster.window_start).days,
-        "reporter_count": cluster.reporter_count,
-        "total_shares": str(cluster.total_shares),
-        "total_value_usd": (
-            str(cluster.total_value_usd)
-            if cluster.total_value_usd is not None
-            else None
-        ),
-        "reporters": [
+    events: list[dict[str, Any]] = []
+    for equity in equities:
+        payload: dict[str, Any] = {
+            "issuer_cik": cluster.issuer_cik,
+            "ticker": equity.symbol,
+            "sleeve": equity.sleeve,
+            "tier": equity.tier,
+            "window_start": cluster.window_start.isoformat(),
+            "window_end": cluster.window_end.isoformat(),
+            "span_days": (cluster.window_end - cluster.window_start).days,
+            "reporter_count": cluster.reporter_count,
+            "total_shares": str(cluster.total_shares),
+            "total_value_usd": (
+                str(cluster.total_value_usd)
+                if cluster.total_value_usd is not None
+                else None
+            ),
+            "reporters": [
+                {
+                    "reporter_cik": r.reporter_cik,
+                    "reporter_name": r.reporter_name,
+                    "shares": str(r.shares),
+                    "value_usd": str(r.value_usd) if r.value_usd is not None else None,
+                    "is_officer": r.is_officer,
+                    "is_director": r.is_director,
+                    "is_ten_percent_owner": r.is_ten_percent_owner,
+                    "officer_title": r.officer_title,
+                }
+                for r in cluster.reporters
+            ],
+        }
+        events.append(
             {
-                "reporter_cik": r.reporter_cik,
-                "reporter_name": r.reporter_name,
-                "shares": str(r.shares),
-                "value_usd": str(r.value_usd) if r.value_usd is not None else None,
-                "is_officer": r.is_officer,
-                "is_director": r.is_director,
-                "is_ten_percent_owner": r.is_ten_percent_owner,
-                "officer_title": r.officer_title,
+                "asset": equity.symbol,
+                "asset_class": "equity",
+                "horizon": _horizon_tag(equity),
+                "ts": ts,
+                "source": EMITTER_SOURCE,
+                "signal_kind": signal_kind,
+                "direction": direction,
+                "strength": _strength_from_reporter_count(cluster.reporter_count),
+                "payload": payload,
+                "source_ref": source_ref,
             }
-            for r in cluster.reporters
-        ],
-    }
-    return {
-        "asset": equity.symbol,
-        "asset_class": "equity",
-        "horizon": _horizon_tag(equity),
-        "ts": ts,
-        "source": EMITTER_SOURCE,
-        "signal_kind": signal_kind,
-        "direction": direction,
-        "strength": _strength_from_reporter_count(cluster.reporter_count),
-        "payload": payload,
-        "source_ref": source_ref,
-    }
+        )
+    return events
 
 
 def emit_recent_clusters(
@@ -201,11 +214,11 @@ def emit_recent_clusters(
         events: list[dict[str, Any]] = []
         skipped = 0
         for cluster in (*buy_clusters, *sell_clusters):
-            row = _build_event(cluster, ticker_by_cik)
-            if row is None:
+            rows = _build_events(cluster, ticker_by_cik)
+            if not rows:
                 skipped += 1
                 continue
-            events.append(row)
+            events.extend(rows)
         rows_written = emit_signals_bulk(events, ingest_run_id=run.id)
         run.add_rows(rows_written)
         return EmitResult(

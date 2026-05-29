@@ -28,13 +28,14 @@ def _ev(
     source: str,
     signal_kind: str,
     direction: str = "bullish",
+    horizon: str = "equity:core",
     strength: Decimal | None = Decimal("1.0"),
     source_ref: str | None = None,
 ) -> SignalEvent:
     return SignalEvent(
         asset=asset,
         asset_class=asset_class,
-        horizon="equity:core",
+        horizon=horizon,
         ts=ts,
         source=source,
         signal_kind=signal_kind,
@@ -109,6 +110,34 @@ class FilterByRuleTests(unittest.TestCase):
         ]
         filtered = _filter_by_rule(events, wildcard_rule)
         self.assertEqual(len(filtered), 2)
+
+    def test_filters_to_rule_horizon(self) -> None:
+        events = [
+            _ev(ts=_dt(5), source="insider_clusters", signal_kind="buy_cluster"),
+            _ev(
+                ts=_dt(5),
+                source="crowding",
+                signal_kind="crowding_add",
+                horizon="equity:tactical",
+            ),
+        ]
+        filtered = _filter_by_rule(events, SMART_MONEY_RULE)
+        self.assertEqual(
+            [(e.source, e.signal_kind) for e in filtered],
+            [("insider_clusters", "buy_cluster")],
+        )
+
+    def test_different_horizons_dont_combine(self) -> None:
+        events = [
+            _ev(ts=_dt(5), source="insider_clusters", signal_kind="buy_cluster"),
+            _ev(
+                ts=_dt(6),
+                source="crowding",
+                signal_kind="crowding_add",
+                horizon="equity:tactical",
+            ),
+        ]
+        self.assertEqual(detect_stacks(events, [SMART_MONEY_RULE]), [])
 
 
 class ScoreWindowTests(unittest.TestCase):

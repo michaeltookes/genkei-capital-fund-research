@@ -192,6 +192,8 @@ def _filter_by_rule(
         by_source[c.source].append(c)
     out: list[SignalEvent] = []
     for ev in events:
+        if ev.horizon != rule.horizon:
+            continue
         if ev.direction != rule.direction:
             continue
         components_for_source = by_source.get(ev.source)

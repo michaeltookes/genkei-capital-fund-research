@@ -11,8 +11,9 @@ from tempfile import TemporaryDirectory
 from genkei.common.watchlist import EquityEntry, load_watchlist
 from genkei.experiments.emitters.insider_clusters_emitter import (
     STRENGTH_SATURATION_REPORTERS,
-    _build_event,
+    _build_events,
     _strength_from_reporter_count,
+    _ticker_by_cik,
     _window_end_to_ts,
 )
 from genkei.experiments.insider_clusters import Cluster, ReporterSummary
@@ -26,12 +27,16 @@ WATCHLIST_YAML = (
 )
 
 
-def _watchlist_ticker_map() -> dict[str, EquityEntry]:
+def _watchlist_ticker_map() -> dict[str, list[EquityEntry]]:
     with TemporaryDirectory() as tmp:
         path = Path(tmp) / "watchlists.yml"
         path.write_text(WATCHLIST_YAML, encoding="utf-8")
         w = load_watchlist(path)
-    return {e.cik: e for e in w.equities if e.cik}
+    out: dict[str, list[EquityEntry]] = {}
+    for entry in w.equities:
+        if entry.cik:
+            out.setdefault(entry.cik, []).append(entry)
+    return out
 
 
 def _reporter(cik: str = "0000111111", name: str = "Alice") -> ReporterSummary:
@@ -98,11 +103,10 @@ class BuildEventTests(unittest.TestCase):
 
     def test_builds_canonical_bullish_buy_cluster(self) -> None:
         cluster = _cluster()
-        event = _build_event(cluster, self.ticker_map)
-        assert event is not None
+        event = _build_events(cluster, self.ticker_map)[0]
         self.assertEqual(event["asset"], "AAPL")
         self.assertEqual(event["asset_class"], "equity")
-        self.assertEqual(event["horizon"], "equity:core:primary")
+        self.assertEqual(event["horizon"], "equity:core")
         self.assertEqual(event["source"], "insider_clusters")
         self.assertEqual(event["signal_kind"], "buy_cluster")
         self.assertEqual(event["direction"], "bullish")
@@ -113,26 +117,74 @@ class BuildEventTests(unittest.TestCase):
         # payload includes per-reporter detail with Decimal serialized as
         # string (matches the project convention from B-079)
         self.assertEqual(event["payload"]["ticker"], "AAPL")
+        self.assertEqual(event["payload"]["tier"], "primary")
         self.assertEqual(event["payload"]["reporter_count"], 2)
         self.assertEqual(event["payload"]["total_value_usd"], "100000")
         self.assertEqual(len(event["payload"]["reporters"]), 2)
 
     def test_maps_sell_cluster_to_bearish(self) -> None:
         cluster = _cluster(direction="sell")
-        event = _build_event(cluster, self.ticker_map)
-        assert event is not None
+        event = _build_events(cluster, self.ticker_map)[0]
         self.assertEqual(event["signal_kind"], "sell_cluster")
         self.assertEqual(event["direction"], "bearish")
 
     def test_non_watchlist_issuer_returns_none(self) -> None:
         cluster = _cluster(issuer_cik="9999999999")  # not in watchlist
-        self.assertIsNone(_build_event(cluster, self.ticker_map))
+        self.assertEqual(_build_events(cluster, self.ticker_map), [])
 
     def test_null_total_value_becomes_null_payload_field(self) -> None:
         cluster = _cluster(total_value_usd=None)
-        event = _build_event(cluster, self.ticker_map)
-        assert event is not None
+        event = _build_events(cluster, self.ticker_map)[0]
         self.assertIsNone(event["payload"]["total_value_usd"])
+
+    def test_emits_one_event_per_ticker_for_shared_cik(self) -> None:
+        cluster = _cluster(issuer_cik="0001652044")
+        ticker_map = {
+            "0001652044": [
+                EquityEntry(
+                    symbol="GOOG",
+                    name="Alphabet Inc.",
+                    cik="0001652044",
+                    tier="primary",
+                    sleeve="core",
+                ),
+                EquityEntry(
+                    symbol="GOOGL",
+                    name="Alphabet Inc.",
+                    cik="0001652044",
+                    tier="primary",
+                    sleeve="core",
+                ),
+            ]
+        }
+        events = _build_events(cluster, ticker_map)
+        self.assertEqual([event["asset"] for event in events], ["GOOG", "GOOGL"])
+        self.assertTrue(all(event["horizon"] == "equity:core" for event in events))
+
+
+class TickerByCikTests(unittest.TestCase):
+    def test_preserves_multiple_tickers_for_shared_cik(self) -> None:
+        yaml_text = (
+            "equities:\n"
+            "  primary:\n"
+            "    - symbol: GOOG\n"
+            "      cik: \"0001652044\"\n"
+            "      name: Alphabet Inc.\n"
+            "    - symbol: GOOGL\n"
+            "      cik: \"0001652044\"\n"
+            "      name: Alphabet Inc.\n"
+        )
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(yaml_text, encoding="utf-8")
+            watchlist = load_watchlist(path)
+
+        mapping = _ticker_by_cik(watchlist)
+
+        self.assertEqual(
+            [entry.symbol for entry in mapping["0001652044"]],
+            ["GOOG", "GOOGL"],
+        )
 
 
 if __name__ == "__main__":
