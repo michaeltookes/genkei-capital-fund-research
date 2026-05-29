@@ -28,13 +28,13 @@ Renaming the existing `meta.signals` to free up the cleaner name would have been
 
 ## What the engine actually does
 
-1. **Emitters** (one per experiment) walk their source data and write events into `meta.signal_events`. Each event has an `asset`, a `ts`, a `(source, signal_kind)` discriminator, a `direction` (`bullish` / `bearish` / `neutral`), a `strength` (typically 0–1), an arbitrary JSONB `payload`, and a `source_ref` natural key that makes re-emission idempotent through the table's UNIQUE constraint on `(asset, ts, source, signal_kind, source_ref)`.
+1. **Emitters** (one per experiment) walk their source data and write events into `meta.signal_events`. Each event has an `asset`, a `horizon` sleeve tag, a `ts`, a `(source, signal_kind)` discriminator, a `direction` (`bullish` / `bearish` / `neutral`), a `strength` (typically 0–1), an arbitrary JSONB `payload`, and a non-null `source_ref` natural key that makes re-emission idempotent through the table's UNIQUE constraint on `(asset, ts, source, signal_kind, source_ref, horizon)`.
 
-2. **Rules** (declared in YAML) describe co-occurrence patterns to detect. A rule is a name + description + direction + list of `RuleComponent`s (`source` + optional `signal_kind` + `weight`) + a `window_days` + a `min_score` + a `min_distinct_sources` threshold.
+2. **Rules** (declared in YAML) describe co-occurrence patterns to detect. A rule is a name + description + horizon + direction + list of `RuleComponent`s (`source` + optional `signal_kind` + `weight`) + a `window_days` + a `min_score` + a `min_distinct_sources` threshold.
 
 3. **Correlator** (`signal_store.detect_stacks`) walks the events against each rule:
    - Filter events to those matching the rule's direction and one of its components.
-   - Group by asset and slide a window of `window_days` over each asset's chronologically sorted events.
+   - Group by asset + asset class and slide a window of `window_days` over each chronologically sorted event stream.
    - For each window, sum `weight × strength` over the matching components. Count distinct sources.
    - Emit a `Stack` if `score ≥ min_score` AND `distinct_sources ≥ min_distinct_sources`.
    - Greedy advance — once a stack emits, skip past its window so a long burst on one asset doesn't produce overlapping stacks.
@@ -45,12 +45,12 @@ Renaming the existing `meta.signals` to free up the cleaner name would have been
 
 `src/genkei/data/signal_rules.yml` ships with four rules — two bullish, two bearish:
 
-| Rule | Direction | Window | Components | Min score |
-|---|---|---|---|---|
-| `smart_money_buy`        | bullish | 7d  | insider buy cluster (1.0) + crowding add (1.0) + 8-K item 1.01 (0.6) + 8-K item 2.02 (0.5) | 1.5 |
-| `activist_position_take` | bullish | 60d | insider buy cluster (1.0) + crowding jump (1.0)                                            | 1.4 |
-| `broad_exit`             | bearish | 90d | sell cluster (1.0) + crowding exit (1.0)                                                   | 1.5 |
-| `deterioration_stack`    | bearish | 30d | sell cluster (1.0) + 8-K item 5.02 (0.6) + 8-K item 4.02 (0.8)                             | 1.4 |
+| Rule | Direction | Horizon | Window | Components | Min score |
+|---|---|---|---|---|---|
+| `smart_money_buy`        | bullish | `equity:core` | 7d  | insider buy cluster (1.0) + crowding add (1.0) + 8-K item 1.01 (0.6) + 8-K item 2.02 (0.5) | 1.5 |
+| `activist_position_take` | bullish | `equity:core` | 60d | insider buy cluster (1.0) + crowding jump (1.0)                                            | 1.4 |
+| `broad_exit`             | bearish | `equity:core` | 90d | sell cluster (1.0) + crowding exit (1.0)                                                   | 1.5 |
+| `deterioration_stack`    | bearish | `equity:core` | 30d | sell cluster (1.0) + 8-K item 5.02 (0.6) + 8-K item 4.02 (0.8)                             | 1.4 |
 
 Rules can use `signal_kind: null` as a wildcard to match any kind from a source — useful for "any 8-K counts" baseline weighting. When both an exact-kind component and a wildcard from the same source match an event, the exact-kind weight wins.
 
@@ -107,7 +107,7 @@ genkei signals --events --asset AAPL --top 50      # raw events for AAPL
 * **Cross-asset events don't combine** — a cluster on AAPL + a crowding add on MSFT never form a stack on either name.
 * **Greedy window advance** — once a stack emits at window-start `t0`, scanning resumes at `t0 + window_days` so a long burst doesn't manufacture three overlapping stacks.
 * **Sort order is recent-strongest-first** — the default CLI render shows what's *currently actionable*, not historical clutter.
-* **`ON CONFLICT DO UPDATE`** — re-emitting the same `(asset, ts, source, signal_kind, source_ref)` updates the existing row rather than failing or duplicating. The Postgres integration test pins this explicitly.
+* **`ON CONFLICT DO UPDATE`** — re-emitting the same `(asset, ts, source, signal_kind, source_ref, horizon)` updates the existing row rather than failing or duplicating. The Postgres integration test pins this explicitly, including the empty-string `source_ref` fallback for emitters without a natural source ref.
 
 ## What B-064 deliberately does NOT cover
 

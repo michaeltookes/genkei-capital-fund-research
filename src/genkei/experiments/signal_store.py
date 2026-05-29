@@ -6,7 +6,7 @@ Two halves to this module:
     ``meta.signal_events``; ``query_events`` reads them. The store is
     intentionally thin — it doesn't know what a signal *means*, only
     how to persist it idempotently (UNIQUE conflict on
-    ``(asset, ts, source, signal_kind, source_ref)`` so a re-emission
+    ``(asset, ts, source, signal_kind, source_ref, horizon)`` so a re-emission
     updates the latest payload rather than blowing up).
 
   * **Correlator** — pure function ``detect_stacks`` walks events
@@ -34,7 +34,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -48,6 +48,7 @@ from genkei.common import db
 
 ASSET_CLASSES = frozenset({"equity", "crypto", "protocol"})
 DIRECTIONS = frozenset({"bullish", "bearish", "neutral"})
+DEFAULT_HORIZON = "equity:core"
 
 
 # ---------------------------------------------------------------------------
@@ -61,6 +62,7 @@ class SignalEvent:
 
     asset: str
     asset_class: str
+    horizon: str
     ts: datetime
     source: str
     signal_kind: str
@@ -99,6 +101,7 @@ class CorrelationRule:
     description: str
     direction: str
     components: list[RuleComponent]
+    horizon: str = DEFAULT_HORIZON
     window_days: int = 7
     min_score: Decimal = Decimal("1.5")
     min_distinct_sources: int = 2
@@ -117,6 +120,7 @@ class Stack:
     score: Decimal
     distinct_sources: int
     event_count: int
+    horizon: str = DEFAULT_HORIZON
     events: list[SignalEvent] = field(default_factory=list)
 
 
@@ -137,7 +141,7 @@ def detect_stacks(
     Algorithm per rule:
       1. Filter events to those whose direction matches the rule and
          whose (source, signal_kind) is a component of the rule.
-      2. Group by asset.
+      2. Group by asset + asset class.
       3. Sort each asset's events chronologically.
       4. Greedy window scan — for each event, see if any subsequent
          events within ``window_days`` push the total weighted-strength
@@ -155,7 +159,7 @@ def detect_stacks(
     out.sort(
         key=lambda s: (
             -s.window_end.timestamp(),
-            -float(s.score),
+            -s.score,
             s.asset,
             s.rule_name,
         )
@@ -168,12 +172,12 @@ def _detect_for_rule(events: list[SignalEvent], rule: CorrelationRule) -> list[S
     if not matching:
         return []
 
-    by_asset: dict[str, list[SignalEvent]] = defaultdict(list)
+    by_asset: dict[tuple[str, str], list[SignalEvent]] = defaultdict(list)
     for ev in matching:
-        by_asset[ev.asset].append(ev)
+        by_asset[(ev.asset, ev.asset_class)].append(ev)
 
     stacks: list[Stack] = []
-    for asset, asset_events in by_asset.items():
+    for (asset, _asset_class), asset_events in by_asset.items():
         asset_events.sort(key=lambda e: (e.ts, e.source, e.signal_kind))
         stacks.extend(_scan_asset_events(asset, asset_events, rule))
     return stacks
@@ -233,6 +237,7 @@ def _scan_asset_events(
                     score=score,
                     distinct_sources=distinct_sources,
                     event_count=len(window),
+                    horizon=rule.horizon,
                     events=list(window),
                 )
             )
@@ -280,6 +285,7 @@ def emit_signal(
     *,
     asset: str,
     asset_class: str,
+    horizon: str,
     ts: datetime,
     source: str,
     signal_kind: str,
@@ -291,21 +297,21 @@ def emit_signal(
 ) -> int:
     """Insert one signal event; upsert on UNIQUE conflict, return event_id.
 
-    The UNIQUE key is ``(asset, ts, source, signal_kind, source_ref)`` —
-    re-emitting the same event with a freshened payload updates the
-    existing row rather than duplicating it.
+    The UNIQUE key is ``(asset, ts, source, signal_kind, source_ref, horizon)``;
+    re-emitting the same event with a freshened payload updates the existing row.
     """
-    _validate(asset_class=asset_class, direction=direction)
+    _validate(asset_class=asset_class, direction=direction, horizon=horizon)
     payload_value = Jsonb(payload or {})
+    source_ref_value = source_ref or ""
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(
             """
             INSERT INTO meta.signal_events (
-                asset, asset_class, ts, source, signal_kind, direction,
+                asset, asset_class, horizon, ts, source, signal_kind, direction,
                 strength, payload, source_ref, ingest_run_id
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (asset, ts, source, signal_kind, source_ref)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (asset, ts, source, signal_kind, source_ref, horizon)
             DO UPDATE SET
                 direction     = EXCLUDED.direction,
                 strength      = EXCLUDED.strength,
@@ -318,13 +324,14 @@ def emit_signal(
             [
                 asset,
                 asset_class,
+                horizon,
                 ts,
                 source,
                 signal_kind,
                 direction,
                 strength,
                 payload_value,
-                source_ref,
+                source_ref_value,
                 ingest_run_id,
             ],
         )
@@ -344,41 +351,45 @@ def emit_signals_bulk(
     """
     if not events:
         return 0
-    sql = """
-        INSERT INTO meta.signal_events (
-            asset, asset_class, ts, source, signal_kind, direction,
-            strength, payload, source_ref, ingest_run_id
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT (asset, ts, source, signal_kind, source_ref)
-        DO UPDATE SET
-            direction     = EXCLUDED.direction,
-            strength      = EXCLUDED.strength,
-            payload       = EXCLUDED.payload,
-            asset_class   = EXCLUDED.asset_class,
-            computed_at   = now(),
-            ingest_run_id = EXCLUDED.ingest_run_id
-    """
-    rows = []
+    rows: list[dict[str, Any]] = []
+    computed_at = datetime.now(timezone.utc)
     for ev in events:
-        _validate(asset_class=ev["asset_class"], direction=ev["direction"])
-        rows.append(
-            (
-                ev["asset"],
-                ev["asset_class"],
-                ev["ts"],
-                ev["source"],
-                ev["signal_kind"],
-                ev["direction"],
-                ev.get("strength"),
-                Jsonb(ev.get("payload") or {}),
-                ev.get("source_ref"),
-                ingest_run_id,
-            )
+        _validate(
+            asset_class=ev["asset_class"],
+            direction=ev["direction"],
+            horizon=ev["horizon"],
         )
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.executemany(sql, rows)
-    return len(rows)
+        rows.append(
+            {
+                "asset": ev["asset"],
+                "asset_class": ev["asset_class"],
+                "horizon": ev["horizon"],
+                "ts": ev["ts"],
+                "source": ev["source"],
+                "signal_kind": ev["signal_kind"],
+                "direction": ev["direction"],
+                "strength": ev.get("strength"),
+                "payload": Jsonb(ev.get("payload") or {}),
+                "source_ref": ev.get("source_ref") or "",
+                "computed_at": computed_at,
+                "ingest_run_id": ingest_run_id,
+            }
+        )
+    with db.connection() as conn:
+        return db.bulk_upsert(
+            conn,
+            "meta.signal_events",
+            rows,
+            conflict_keys=["asset", "ts", "source", "signal_kind", "source_ref", "horizon"],
+            update_cols=[
+                "direction",
+                "strength",
+                "payload",
+                "asset_class",
+                "computed_at",
+                "ingest_run_id",
+            ],
+        )
 
 
 def query_events(
@@ -393,7 +404,7 @@ def query_events(
 ) -> list[SignalEvent]:
     """Read signal events from ``meta.signal_events`` with optional filters."""
     sql = (
-        "SELECT event_id, asset, asset_class, ts, source, signal_kind, "
+        "SELECT event_id, asset, asset_class, horizon, ts, source, signal_kind, "
         "       direction, strength, payload, source_ref "
         "FROM meta.signal_events WHERE 1 = 1 "
     )
@@ -429,6 +440,7 @@ def query_events(
                 event_id,
                 asset_v,
                 asset_class,
+                horizon,
                 ts,
                 source_v,
                 signal_kind_v,
@@ -442,6 +454,7 @@ def query_events(
                     event_id=int(event_id),
                     asset=asset_v,
                     asset_class=asset_class,
+                    horizon=horizon,
                     ts=ts,
                     source=source_v,
                     signal_kind=signal_kind_v,
@@ -454,7 +467,7 @@ def query_events(
     return out
 
 
-def _validate(*, asset_class: str, direction: str) -> None:
+def _validate(*, asset_class: str, direction: str, horizon: str) -> None:
     if asset_class not in ASSET_CLASSES:
         raise ValueError(
             f"asset_class must be one of {sorted(ASSET_CLASSES)}, got {asset_class!r}"
@@ -463,3 +476,5 @@ def _validate(*, asset_class: str, direction: str) -> None:
         raise ValueError(
             f"direction must be one of {sorted(DIRECTIONS)}, got {direction!r}"
         )
+    if not isinstance(horizon, str) or not horizon.strip():
+        raise ValueError(f"horizon must be a non-empty string, got {horizon!r}")

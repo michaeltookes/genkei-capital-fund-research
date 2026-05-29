@@ -34,6 +34,7 @@ def _ev(
     return SignalEvent(
         asset=asset,
         asset_class=asset_class,
+        horizon="equity:core",
         ts=ts,
         source=source,
         signal_kind=signal_kind,
@@ -237,6 +238,25 @@ class DetectStacksTests(unittest.TestCase):
         ]
         self.assertEqual(detect_stacks(events, [SMART_MONEY_RULE]), [])
 
+    def test_same_asset_string_different_asset_classes_dont_combine(self) -> None:
+        events = [
+            _ev(
+                asset="AAPL",
+                asset_class="equity",
+                ts=_dt(5),
+                source="insider_clusters",
+                signal_kind="buy_cluster",
+            ),
+            _ev(
+                asset="AAPL",
+                asset_class="crypto",
+                ts=_dt(5),
+                source="crowding",
+                signal_kind="crowding_add",
+            ),
+        ]
+        self.assertEqual(detect_stacks(events, [SMART_MONEY_RULE]), [])
+
     def test_greedy_advance_prevents_overlapping_stacks(self) -> None:
         # Long burst on the same asset within the window — the detector
         # should emit one stack, not three.
@@ -426,6 +446,23 @@ class LoadRulesTests(unittest.TestCase):
         )
         self.assertEqual(len(rules), 1)
         self.assertEqual(rules[0].direction, "neutral")
+
+    def test_rejects_boolean_int_fields(self) -> None:
+        path = self._write(
+            """
+            version: 1
+            rules:
+              - name: x
+                direction: bullish
+                window_days: true
+                components:
+                  - source: s
+                    weight: 1
+            """
+        )
+        with self.assertRaises(ValueError) as cm:
+            load_rules(path)
+        self.assertIn("not an integer", str(cm.exception))
 
 
 if __name__ == "__main__":

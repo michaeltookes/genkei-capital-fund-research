@@ -109,7 +109,7 @@ jobs:
         # Walks the freshly-normalized sec.form4_transactions data over a
         # rolling 60-day window and writes any qualifying clusters into
         # meta.signal_events. Idempotent — the UNIQUE constraint on
-        # (asset, ts, source, signal_kind, source_ref) means re-runs
+        # (asset, ts, source, signal_kind, source_ref, horizon) means re-runs
         # update the latest payload rather than duplicating events.
         # 60-day rolling window covers gaps from cron failures + the
         # detector's window_days=7 default; cluster window_end dates

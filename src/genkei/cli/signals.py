@@ -35,10 +35,15 @@ from genkei.experiments.signal_store import (
 )
 
 
-def _date_to_dt(d: Optional[date]) -> Optional[datetime]:
+def _date_to_dt(d: Optional[date], *, end_of_day: bool = False) -> Optional[datetime]:
     if d is None:
         return None
-    return datetime.combine(d, time(0, 0, tzinfo=timezone.utc))
+    day_time = (
+        time(23, 59, 59, 999999, tzinfo=timezone.utc)
+        if end_of_day
+        else time(0, 0, tzinfo=timezone.utc)
+    )
+    return datetime.combine(d, day_time)
 
 
 def _stack_to_dict(stack: Stack) -> dict[str, Any]:
@@ -46,6 +51,7 @@ def _stack_to_dict(stack: Stack) -> dict[str, Any]:
         "rule": stack.rule_name,
         "asset": stack.asset,
         "asset_class": stack.asset_class,
+        "horizon_tag": stack.horizon,
         "direction": stack.direction,
         "window_start": stack.window_start.isoformat(),
         "window_end": stack.window_end.isoformat(),
@@ -79,7 +85,7 @@ def _format_stacks_human(stacks: list[Stack]) -> str:
     lines = [header, "-" * len(header)]
     lines.append(
         f"  {'window_end':<12} {'asset':<8} {'dir':<8} {'rule':<24} "
-        f"{'score':>6} {'sources':>7}  events"
+        f"{'horizon':<18} {'score':>6} {'sources':>7}  events"
     )
     for s in stacks:
         date_str = s.window_end.date().isoformat()
@@ -91,7 +97,7 @@ def _format_stacks_human(stacks: list[Stack]) -> str:
             events += f", +{len(s.events) - 4} more"
         lines.append(
             f"  {date_str:<12} {s.asset:<8} {s.direction:<8} {s.rule_name:<24} "
-            f"{score} {s.distinct_sources:>7}  {events}"
+            f"{s.horizon:<18} {score} {s.distinct_sources:>7}  {events}"
         )
     return "\n".join(lines)
 
@@ -107,7 +113,7 @@ def _format_events_human(events: list[Any]) -> str:
     lines = [header, "-" * len(header)]
     lines.append(
         f"  {'ts':<12} {'asset':<8} {'source':<22} {'signal_kind':<18} "
-        f"{'dir':<8} {'strength':>8}  source_ref"
+        f"{'horizon':<18} {'dir':<8} {'strength':>8}  source_ref"
     )
     for ev in events:
         d = ev.ts.date().isoformat()
@@ -117,7 +123,7 @@ def _format_events_human(events: list[Any]) -> str:
         ref = ev.source_ref or "-"
         lines.append(
             f"  {d:<12} {ev.asset:<8} {ev.source:<22} {ev.signal_kind:<18} "
-            f"{ev.direction:<8} {strength}  {ref}"
+            f"{ev.horizon:<18} {ev.direction:<8} {strength}  {ref}"
         )
     return "\n".join(lines)
 
@@ -192,7 +198,7 @@ def signals_cmd(
             asset=asset,
             direction=direction,
             since=_date_to_dt(since_d),
-            until=_date_to_dt(until_d),
+            until=_date_to_dt(until_d, end_of_day=True),
             limit=top,
         )
         if json_out:
@@ -203,6 +209,7 @@ def signals_cmd(
                             "ts": ev.ts.isoformat(),
                             "asset": ev.asset,
                             "asset_class": ev.asset_class,
+                            "horizon_tag": ev.horizon,
                             "source": ev.source,
                             "signal_kind": ev.signal_kind,
                             "direction": ev.direction,
@@ -236,7 +243,7 @@ def signals_cmd(
         asset=asset,
         direction=direction,
         since=_date_to_dt(since_d),
-        until=_date_to_dt(until_d),
+        until=_date_to_dt(until_d, end_of_day=True),
     )
     stacks = detect_stacks(event_rows, rules)
     stacks = stacks[:top]

@@ -23,12 +23,14 @@ Schema design choices:
   * **``event_id BIGSERIAL`` surrogate PK** — synthetic. Lets a single
     natural-key clash (e.g. an experiment re-emits the same event with
     a different payload during a backfill) resolve via the
-    ``(asset, ts, source, signal_kind, source_ref)`` UNIQUE constraint
+    ``(asset, ts, source, signal_kind, source_ref, horizon)`` UNIQUE constraint
     and ``ON CONFLICT DO UPDATE`` rather than blowing up.
   * **``asset`` + ``asset_class``** mirror the watchlist-scoring shape
     (the ``meta.signals`` rows already use this convention). Crypto
     assets use the CoinGecko id; equities use the ticker; protocols
     use the DeFiLlama slug.
+  * **``horizon``** carries the sleeve tag that downstream signal
+    outputs must show for routing.
   * **``source`` + ``signal_kind`` discriminators** — two levels of
     discriminator so a single experiment can emit multiple kinds. For
     example ``source='insider_clusters'`` paired with either
@@ -47,8 +49,9 @@ Schema design choices:
     etc. The correlator doesn't read it; it's there for the CLI / agent.
   * **``source_ref``** — natural identifier in the upstream source.
     For SEC events it's the ``accession_number``; for crowding events
-    it's ``<filer_cik>:<cusip>:<period>``. Carries enough to dedupe
-    across re-emissions.
+    it's ``<filer_cik>:<cusip>:<period>``. Empty string means the
+    emitter had no natural ref; keeping it non-null preserves upsert
+    idempotency across re-emissions.
   * **Plain table, not hypertable.** Volume estimate: 7 emitters × at
     most a few events per asset per quarter × 35 watchlist assets ×
     ~30 years ≈ 200k rows steady-state. Plain-PG range. Same call
@@ -86,18 +89,21 @@ def upgrade() -> None:
             asset_class   TEXT         NOT NULL CHECK (
                               asset_class IN ('equity', 'crypto', 'protocol')
                           ),
+            horizon       TEXT         NOT NULL,
             ts            TIMESTAMPTZ  NOT NULL,
             source        TEXT         NOT NULL,
             signal_kind   TEXT         NOT NULL,
             direction     TEXT         NOT NULL CHECK (
                               direction IN ('bullish', 'bearish', 'neutral')
                           ),
-            strength      NUMERIC,
+            strength      NUMERIC CHECK (
+                              strength IS NULL OR (strength >= 0 AND strength <= 1)
+                          ),
             payload       JSONB        NOT NULL DEFAULT '{}'::jsonb,
-            source_ref    TEXT,
+            source_ref    TEXT         NOT NULL DEFAULT '',
             computed_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
             ingest_run_id BIGINT       NOT NULL REFERENCES meta.ingest_runs(id),
-            UNIQUE (asset, ts, source, signal_kind, source_ref)
+            UNIQUE (asset, ts, source, signal_kind, source_ref, horizon)
         )
         """
     )

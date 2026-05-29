@@ -107,11 +107,15 @@ def _parse_rule(raw: dict, *, idx: int, source: str) -> CorrelationRule:
         rule_name=name,
         source=source,
     )
+    horizon = raw.get("horizon", "equity:core")
+    if not isinstance(horizon, str) or not horizon.strip():
+        raise ValueError(f"{source}: rule {name!r} horizon must be a non-empty string")
     return CorrelationRule(
         name=name,
         description=description,
         direction=direction,
         components=components,
+        horizon=horizon.strip(),
         window_days=window_days,
         min_score=min_score,
         min_distinct_sources=min_distinct_sources,
@@ -165,6 +169,10 @@ def _parse_decimal(value: object, *, label: str, rule_name: str, source: str) ->
 def _parse_positive_int(
     value: object, *, label: str, rule_name: str, source: str
 ) -> int:
+    if isinstance(value, bool):
+        raise ValueError(
+            f"{source}: rule {rule_name!r} {label} not an integer: {value!r}"
+        )
     try:
         parsed = int(value)  # type: ignore[arg-type]
     except (TypeError, ValueError) as exc:

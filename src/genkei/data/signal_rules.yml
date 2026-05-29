@@ -31,6 +31,7 @@ rules:
       stack signal — three independent sources agreeing that something
       is happening.
     direction: bullish
+    horizon: equity:core
     window_days: 7
     min_score: 1.5
     min_distinct_sources: 2
@@ -54,6 +55,7 @@ rules:
       within a quarter. Wider window because 13F filings lag the actual
       position-take by up to 45 days.
     direction: bullish
+    horizon: equity:core
     window_days: 60
     min_score: 1.4
     min_distinct_sources: 2
@@ -73,6 +75,7 @@ rules:
       within a quarter. Sell clusters alone are noisy (10b5-1 plans,
       tax planning); pairing with 13F exits filters most of the noise.
     direction: bearish
+    horizon: equity:core
     window_days: 90
     min_score: 1.5
     min_distinct_sources: 2
@@ -91,6 +94,7 @@ rules:
       sell-cluster within a month — the typical "the news is bad and
       insiders aren't waiting" pattern.
     direction: bearish
+    horizon: equity:core
     window_days: 30
     min_score: 1.4
     min_distinct_sources: 2

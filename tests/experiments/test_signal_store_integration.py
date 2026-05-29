@@ -38,6 +38,7 @@ def _event_row(
     return {
         "asset": asset,
         "asset_class": "equity",
+        "horizon": "equity:core",
         "ts": ts,
         "source": source,
         "signal_kind": signal_kind,
@@ -103,6 +104,7 @@ class SignalStoreIntegrationTests(unittest.TestCase):
         by_kind = {e.signal_kind: e for e in events}
         self.assertEqual(by_kind["buy_cluster"].strength, Decimal("0.6"))
         self.assertEqual(by_kind["crowding_add"].strength, Decimal("0.8"))
+        self.assertEqual(by_kind["buy_cluster"].horizon, "equity:core")
         # Payload round-trips as a dict.
         self.assertEqual(by_kind["buy_cluster"].payload, {"hello": "world"})
 
@@ -123,6 +125,23 @@ class SignalStoreIntegrationTests(unittest.TestCase):
         events = query_events(asset="AAPL")
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].strength, Decimal("0.9"))
+
+    def test_null_source_ref_is_still_idempotent(self) -> None:
+        run_id = self._new_ingest_run()
+        ts = datetime(2026, 5, 7, tzinfo=timezone.utc)
+
+        emit_signals_bulk(
+            [_event_row(ts=ts, strength=Decimal("0.4"), source_ref=None)],
+            ingest_run_id=run_id,
+        )
+        emit_signals_bulk(
+            [_event_row(ts=ts, strength=Decimal("0.9"), source_ref=None)],
+            ingest_run_id=run_id,
+        )
+        events = query_events(asset="AAPL")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].strength, Decimal("0.9"))
+        self.assertEqual(events[0].source_ref, "")
 
     def test_query_filters(self) -> None:
         run_id = self._new_ingest_run()

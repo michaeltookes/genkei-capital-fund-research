@@ -102,15 +102,14 @@ class BuildEventTests(unittest.TestCase):
         assert event is not None
         self.assertEqual(event["asset"], "AAPL")
         self.assertEqual(event["asset_class"], "equity")
+        self.assertEqual(event["horizon"], "equity:core:primary")
         self.assertEqual(event["source"], "insider_clusters")
         self.assertEqual(event["signal_kind"], "buy_cluster")
         self.assertEqual(event["direction"], "bullish")
         self.assertEqual(event["strength"], Decimal("0.4"))  # 2/5 reporters
         self.assertEqual(event["ts"], datetime(2026, 5, 7, tzinfo=timezone.utc))
-        # source_ref carries the natural cluster identifier
-        self.assertEqual(
-            event["source_ref"], "0000320193:2026-05-07:2"
-        )
+        # source_ref stays stable if reporter_count changes after late filings.
+        self.assertEqual(event["source_ref"], "0000320193:2026-05-07")
         # payload includes per-reporter detail with Decimal serialized as
         # string (matches the project convention from B-079)
         self.assertEqual(event["payload"]["ticker"], "AAPL")

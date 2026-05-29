@@ -38,6 +38,7 @@ def _event(
     return SignalEvent(
         asset=asset,
         asset_class=asset_class,
+        horizon="equity:core",
         ts=ts,
         source=source,
         signal_kind=signal_kind,
@@ -66,6 +67,7 @@ def _stack(
         rule_name=rule,
         asset=asset,
         asset_class="equity",
+        horizon="equity:core",
         direction="bullish",
         window_start=evs[0].ts,
         window_end=evs[-1].ts,
@@ -108,6 +110,7 @@ class StackToDictTests(unittest.TestCase):
         d = _stack_to_dict(s)
         self.assertEqual(d["rule"], "smart_money_buy")
         self.assertEqual(d["asset"], "AAPL")
+        self.assertEqual(d["horizon_tag"], "equity:core")
         self.assertEqual(d["direction"], "bullish")
         self.assertEqual(d["distinct_sources"], 2)
         self.assertEqual(d["event_count"], 2)
@@ -126,6 +129,7 @@ class FormatHumanTests(unittest.TestCase):
         text = _format_stacks_human([_stack()])
         self.assertIn("AAPL", text)
         self.assertIn("smart_money_buy", text)
+        self.assertIn("equity:core", text)
         self.assertIn("bullish", text)
         self.assertIn("insider_clusters/buy_cluster", text)
         self.assertIn("crowding/crowding_add", text)
@@ -147,6 +151,7 @@ class FormatHumanTests(unittest.TestCase):
         ]
         text = _format_events_human(evs)
         self.assertIn("AAPL", text)
+        self.assertIn("equity:core", text)
         self.assertIn("insider_clusters", text)
         # Null strength renders as n/a
         self.assertIn("n/a", text)
@@ -169,7 +174,9 @@ class ValidationTests(unittest.TestCase):
                 ]
             )
         self.assertEqual(code, 2)
-        self.assertIn("--since", buf.getvalue())
+        msg = buf.getvalue()
+        self.assertIn("Invalid value", msg)
+        self.assertIn("on or before --until", msg)
 
     def test_unknown_direction_rejected(self) -> None:
         rpath = _rules_path(self)
@@ -237,6 +244,7 @@ class EndToEndTests(unittest.TestCase):
         # widens to 1.00 each, so the sum lands as "2.00".
         self.assertEqual(data[0]["score"], "2.00")
         self.assertEqual(data[0]["asset"], "AAPL")
+        self.assertEqual(data[0]["horizon_tag"], "equity:core")
 
     def test_events_mode_bypasses_correlator(self) -> None:
         rpath = _rules_path(self)

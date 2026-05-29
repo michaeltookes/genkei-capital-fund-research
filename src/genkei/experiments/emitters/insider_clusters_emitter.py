@@ -18,10 +18,11 @@ becomes one ``meta.signal_events`` row:
                       cluster is full conviction; anything above stays
                       saturated. Tunable but baked into a constant here
                       so changes are obvious in git history.
-* ``source_ref``    = ``"<issuer_cik>:<window_end_iso>:<reporter_count>"``
+* ``horizon``       = watchlist-derived equity sleeve tag.
+* ``source_ref``    = ``"<issuer_cik>:<window_end_iso>"``
                       Carries the natural identifier of the cluster.
                       The UNIQUE constraint on
-                      ``(asset, ts, source, signal_kind, source_ref)``
+                      ``(asset, ts, source, signal_kind, source_ref, horizon)``
                       makes re-emission idempotent — a re-run of the
                       detector against the same data lands the same
                       source_ref and updates the payload in place.
@@ -97,6 +98,10 @@ def _window_end_to_ts(window_end: date) -> datetime:
     return datetime.combine(window_end, time(0, 0, tzinfo=timezone.utc))
 
 
+def _horizon_tag(equity: EquityEntry) -> str:
+    return f"equity:{equity.sleeve}:{equity.tier}"
+
+
 def _build_event(
     cluster: Cluster, ticker_by_cik: dict[str, EquityEntry]
 ) -> dict[str, Any] | None:
@@ -111,9 +116,7 @@ def _build_event(
     direction = "bullish" if cluster.direction == "buy" else "bearish"
     signal_kind = "buy_cluster" if cluster.direction == "buy" else "sell_cluster"
     ts = _window_end_to_ts(cluster.window_end)
-    source_ref = (
-        f"{cluster.issuer_cik}:{cluster.window_end.isoformat()}:{cluster.reporter_count}"
-    )
+    source_ref = f"{cluster.issuer_cik}:{cluster.window_end.isoformat()}"
     payload: dict[str, Any] = {
         "issuer_cik": cluster.issuer_cik,
         "ticker": equity.symbol,
@@ -144,6 +147,7 @@ def _build_event(
     return {
         "asset": equity.symbol,
         "asset_class": "equity",
+        "horizon": _horizon_tag(equity),
         "ts": ts,
         "source": EMITTER_SOURCE,
         "signal_kind": signal_kind,
