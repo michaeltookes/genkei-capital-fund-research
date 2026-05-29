@@ -104,3 +104,17 @@ jobs:
         # every form13f_* XML blob whose accession isn't already in
         # sec.form13f_normalized_filings.
         run: python3 -m genkei.normalize.sec_form13f
+
+      - name: Emit insider-cluster signal events (B-064)
+        # Walks the freshly-normalized sec.form4_transactions data over a
+        # rolling 60-day window and writes any qualifying clusters into
+        # meta.signal_events. Idempotent — the UNIQUE constraint on
+        # (asset, ts, source, signal_kind, source_ref, horizon) means re-runs
+        # update the latest payload rather than duplicating events.
+        # 60-day rolling window covers gaps from cron failures + the
+        # detector's window_days=7 default; cluster window_end dates
+        # older than the lookback never change so re-emitting them is
+        # a no-op.
+        run: |
+          python3 -m genkei.experiments.emitters.insider_clusters_emitter \
+            --since "$(date -u -d '60 days ago' '+%Y-%m-%d')"

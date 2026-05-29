@@ -29,6 +29,7 @@ Subcommand surface (B-037):
 - ``genkei insiders``  SEC Form 4 insider transactions        [B-079 ✓]
 - ``genkei holdings``  SEC 13F institutional holdings         [B-080 ✓]
 - ``genkei crowding``  13F crowding monitor                    [B-061 ✓]
+- ``genkei signals``   Cross-source signal correlation engine  [B-064 ✓]
 - ``genkei insider-clusters``
                         Detect insider buy/sell clusters       [B-060 ✓]
 - ``genkei revenue-divergence``
@@ -58,6 +59,7 @@ from genkei.cli import (
     query,
     relative_strength,
     revenue_divergence,
+    signals,
     tvl,
     tvl_drawdown,
     watchlist,
@@ -92,6 +94,10 @@ app.command(
     "crowding",
     help="13F crowding monitor — top crowded watchlist names per quarter + deltas.",
 )(crowding.crowding_cmd)
+app.command(
+    "signals",
+    help="Cross-source signal correlation engine (B-064) — multi-source agreement stacks.",
+)(signals.signals_cmd)
 app.command(
     "insider-clusters",
     help="Detect insider buy/sell clusters (≥N reporters within K days).",
