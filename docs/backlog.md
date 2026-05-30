@@ -315,6 +315,102 @@ First-class — the *point* of having the data lake.
 
 Once cross-source data is in, the system starts producing investable signals.
 
+### B-064 follow-ups — wire the remaining signal emitters
+
+The cross-source signal correlation engine (B-064, resolved 2026-05-28) shipped the store, the correlator, the starter rule pack, and one reference emitter (`insider_clusters`). The engine cannot fire a real stack until a **second** source is wired, because the correlator enforces `min_distinct_sources ≥ 2`. The four starter rules in `src/genkei/data/signal_rules.yml` are partial-fire until their component emitters land. Each emitter is ~150–200 lines following `src/genkei/experiments/emitters/insider_clusters_emitter.py`: adapt an existing Phase 5 experiment's output into `meta.signal_events`, resolve `asset` via the watchlist, wrap in `meta.ingest_runs` (`source='signal_emitter'`) so `genkei watchlist health` surfaces staleness, register the source in `cli/watchlist.py`, and chain the run into the relevant daily workflow. See the deferred-follow-ups paragraph in the B-064 entry of `docs/resolved.md` and `docs/experiments/cross-source-signals.md`.
+
+### B-093 — Wire the 13F crowding emitter into signal_events
+- **Status:** open
+- **Priority:** high
+- **Context:** The single highest-leverage emitter — it is the second source that makes the engine fire its first real multi-source stack (insider clusters + crowding both land on equity-core assets) and it unblocks 3 of the 4 starter rules (`activist_position_take`, `broad_exit`, and 2-of-3 of `smart_money_buy`). Source experiment is `src/genkei/experiments/crowding_monitor.py` (B-061); the 13F holdings data is already in the lake (~620k rows).
+- **Acceptance criteria:**
+  - New emitter `src/genkei/experiments/emitters/crowding_emitter.py` turns `CrowdingRow` quarter-over-quarter deltas into `crowding_add` / `crowding_exit` / `crowding_jump` events with a documented strength mapping.
+  - `asset` resolved via watchlist by CUSIP→ticker; non-watchlist issuers logged + skipped.
+  - Idempotent re-emission via a stable `source_ref` (e.g. `<cusip>:<period_end>`).
+  - Wrapped in `meta.ingest_runs` (`source='signal_emitter' endpoint='crowding'`); registered in `cli/watchlist.py` PRIMARY_TABLES/RECURRING_ENDPOINTS.
+  - Chained into `sec-daily.yml` (or the appropriate workflow) after 13F normalize.
+  - `genkei signals` produces at least one real two-source stack against the homelab lake; captured in the PR.
+  - Unit tests pin the strength mapping, direction classification, and watchlist resolution.
+
+### B-094 — Wire the 8-K impact emitter into signal_events
+- **Status:** open
+- **Priority:** medium
+- **Context:** Completes `smart_money_buy` (insider + crowding + 8-K item 1.01/2.02) and `deterioration_stack` (sell cluster + 8-K item 5.02/4.02). Source experiment is `src/genkei/experiments/eight_k_impact.py` (B-057); strength should use the item-code-conditional effect means from that study.
+- **Acceptance criteria:**
+  - New emitter `src/genkei/experiments/emitters/eight_k_emitter.py` emits one event per 8-K with item-code-conditional strength.
+  - Wildcard "any 8-K" baseline plus exact-item-code events so rules can weight specific items (matches the correlator's wildcard-vs-exact tie-break).
+  - Standard `asset` resolution, idempotent `source_ref`, `meta.ingest_runs` wrapping, `cli/watchlist.py` registration, workflow chaining.
+  - With B-093 + B-094 both live, all four starter rules can fully fire; demonstrate at least one four-component-eligible stack or document why none fired in the current window.
+  - Unit tests pin the item-code strength table and event shapes.
+
+### B-095 — Wire the TVL-drawdown emitter into signal_events
+- **Status:** open
+- **Priority:** medium
+- **Context:** Brings the crypto sleeve into the engine. Source experiment is `src/genkei/experiments/tvl_drawdown.py` (B-058); emits TVL-stress events keyed to the chain's mapped asset (ETH/SOL/SUI).
+- **Acceptance criteria:**
+  - New emitter `src/genkei/experiments/emitters/tvl_drawdown_emitter.py` emits a stress event when the classifier fires (or when its component features cross documented thresholds).
+  - `asset_class='crypto'`, asset resolved via the chain↔token mapping used in the experiment.
+  - Standard idempotency, `meta.ingest_runs` wrapping, watchlist registration, workflow chaining.
+  - At least one crypto-side correlation rule added to `signal_rules.yml` so the new events have a stack to participate in (pairs naturally with B-098 relative strength).
+  - Unit tests pin firing thresholds and event shape.
+
+### B-096 — Wire the macro-regime emitter into signal_events
+- **Status:** open
+- **Priority:** low
+- **Context:** Source experiment is `src/genkei/experiments/macro_regime.py` (B-059). The engine wants regime **transitions** (risk_on→risk_off, etc.), not continuous daily state, so the emitter de-dupes within a regime run and only fires on the boundary.
+- **Acceptance criteria:**
+  - New emitter `src/genkei/experiments/emitters/macro_regime_emitter.py` emits one event per regime transition with direction inferred from the transition (e.g. →risk_off = bearish overlay).
+  - `asset` is a market-wide sentinel (decide convention — e.g. `MACRO`/`SPY`) documented in the emitter and `cross-source-signals.md`.
+  - Standard idempotency, `meta.ingest_runs` wrapping, watchlist registration.
+  - Unit tests pin transition detection (no event on same-regime days) and direction mapping.
+
+### B-097 — Wire the watchlist-scoring emitter into signal_events
+- **Status:** open
+- **Priority:** low
+- **Context:** Source is the composite `meta.signals` scores (B-065). Emits when an asset's composite score crosses a threshold band (e.g. into the top/bottom band), not on every score change.
+- **Acceptance criteria:**
+  - New emitter `src/genkei/experiments/emitters/watchlist_scoring_emitter.py` emits a band-crossing event with direction from the band.
+  - Hysteresis / band definition documented so a score oscillating on a boundary doesn't emit repeatedly.
+  - Standard idempotency, `meta.ingest_runs` wrapping, watchlist registration.
+  - Unit tests pin band-crossing logic and no-emit-within-band behavior.
+
+### B-098 — Wire the relative-strength emitter into signal_events
+- **Status:** open
+- **Priority:** low
+- **Context:** Source is `analytics.crypto_relative_strength` / `src/genkei/experiments/relative_strength.py` (B-090). Emits when an asset's peer relative strength crosses into leadership/laggard territory — the crypto-side complement to insider/crowding on equities.
+- **Acceptance criteria:**
+  - New emitter `src/genkei/experiments/emitters/relative_strength_emitter.py` emits leadership/laggard events with direction.
+  - Standard idempotency, `meta.ingest_runs` wrapping, watchlist registration, workflow chaining.
+  - Pairs with B-095 in at least one crypto correlation rule.
+  - Unit tests pin the crossing logic and event shape.
+
+### B-099 — Correlator: decay weighting by event age
+- **Status:** open
+- **Priority:** low
+- **Context:** Today `detect_stacks` sums `weight × strength` equally for every event inside the window regardless of recency. A 7-day-old insider cluster and a same-day one contribute identically. Add an optional age-decay factor so fresher corroboration counts for more.
+- **Acceptance criteria:**
+  - Optional decay function (config-driven half-life) applied in `_score_window`; default off preserves current behavior.
+  - Unit tests pin decayed vs undecayed scores and the default-off contract.
+
+### B-100 — Correlator: SPY/BTC benchmark adjustment on stack scores
+- **Status:** open
+- **Priority:** low
+- **Context:** Stack scores are absolute today. Benchmark-relative context (SPY for equity, BTC for crypto) would let a stack's strength be read against the prevailing market move, consistent with the `/reflect-decisions` alpha convention.
+- **Acceptance criteria:**
+  - Decide whether adjustment lives in the correlator or as a presentation-layer column in `genkei signals`.
+  - Benchmark return joined over the stack window; documented in `cross-source-signals.md`.
+  - Unit tests pin the adjustment math.
+
+### B-101 — Phase 6.2 experiment: stack-outcome backtest
+- **Status:** open
+- **Priority:** medium
+- **Context:** The payoff question for the whole engine — do historical stacks actually precede favorable forward returns? Join historical `detect_stacks` output to forward returns (vs SPY/BTC benchmark) per rule, per direction, per horizon. Natural to run once B-093 + B-094 (and ideally the crypto emitters) have populated `meta.signal_events` with real multi-source history.
+- **Acceptance criteria:**
+  - Experiment module + CLI surface (or notebook once B-054 lands) computing forward-return distributions per rule with base-rate-relative lift, mirroring the B-058 evaluation pattern.
+  - Time-based, no-lookahead evaluation; results captured in a `docs/experiments/` writeup.
+  - Honest reporting of rules that don't beat base rate.
+  - **Depends on:** B-093, B-094 (real stacks must exist before backtesting is meaningful).
+
 ### B-066 — Macro regime classifier integrated into queries
 - **Status:** open
 - **Priority:** low
