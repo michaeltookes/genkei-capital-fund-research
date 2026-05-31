@@ -319,19 +319,6 @@ Once cross-source data is in, the system starts producing investable signals.
 
 The cross-source signal correlation engine (B-064, resolved 2026-05-28) shipped the store, the correlator, the starter rule pack, and one reference emitter (`insider_clusters`). The engine cannot fire a real stack until a **second** source is wired, because the correlator enforces `min_distinct_sources ≥ 2`. The four starter rules in `src/genkei/data/signal_rules.yml` are partial-fire until their component emitters land. Each emitter is ~150–200 lines following `src/genkei/experiments/emitters/insider_clusters_emitter.py`: adapt an existing Phase 5 experiment's output into `meta.signal_events`, resolve `asset` via the watchlist, wrap in `meta.ingest_runs` (`source='signal_emitter'`) so `genkei watchlist health` surfaces staleness, register the source in `cli/watchlist.py`, and chain the run into the relevant daily workflow. See the deferred-follow-ups paragraph in the B-064 entry of `docs/resolved.md` and `docs/experiments/cross-source-signals.md`.
 
-### B-093 — Wire the 13F crowding emitter into signal_events
-- **Status:** open
-- **Priority:** high
-- **Context:** The single highest-leverage emitter — it is the second source that makes the engine fire its first real multi-source stack (insider clusters + crowding both land on equity-core assets) and it unblocks 3 of the 4 starter rules (`activist_position_take`, `broad_exit`, and 2-of-3 of `smart_money_buy`). Source experiment is `src/genkei/experiments/crowding_monitor.py` (B-061); the 13F holdings data is already in the lake (~620k rows).
-- **Acceptance criteria:**
-  - New emitter `src/genkei/experiments/emitters/crowding_emitter.py` turns `CrowdingRow` quarter-over-quarter deltas into `crowding_add` / `crowding_exit` / `crowding_jump` events with a documented strength mapping.
-  - `asset` resolved via watchlist by CUSIP→ticker; non-watchlist issuers logged + skipped.
-  - Idempotent re-emission via a stable `source_ref` (e.g. `<cusip>:<period_end>`).
-  - Wrapped in `meta.ingest_runs` (`source='signal_emitter' endpoint='crowding'`); registered in `cli/watchlist.py` PRIMARY_TABLES/RECURRING_ENDPOINTS.
-  - Chained into `sec-daily.yml` (or the appropriate workflow) after 13F normalize.
-  - `genkei signals` produces at least one real two-source stack against the homelab lake; captured in the PR.
-  - Unit tests pin the strength mapping, direction classification, and watchlist resolution.
-
 ### B-094 — Wire the 8-K impact emitter into signal_events
 - **Status:** open
 - **Priority:** medium
