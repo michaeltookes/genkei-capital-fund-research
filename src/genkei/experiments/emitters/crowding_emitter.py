@@ -80,6 +80,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from genkei.cli._helpers import json_default as _json_default
+from genkei.cli._helpers import parse_date as _parse_date
 from genkei.common import db
 from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
@@ -322,11 +324,20 @@ def emit_recent_crowding(
 def parse_args(argv: list[str]) -> Any:
     import argparse
 
+    def parse_date_arg(label: str) -> Any:
+        def parse(raw: str) -> date | None:
+            try:
+                return _parse_date(raw, label=label)
+            except Exception as exc:
+                raise argparse.ArgumentTypeError(str(exc)) from exc
+
+        return parse
+
     parser = argparse.ArgumentParser(
         description="Emit 13F crowding signal events into meta.signal_events."
     )
-    parser.add_argument("--since", type=date.fromisoformat, default=None)
-    parser.add_argument("--until", type=date.fromisoformat, default=None)
+    parser.add_argument("--since", type=parse_date_arg("since"), default=None)
+    parser.add_argument("--until", type=parse_date_arg("until"), default=None)
     parser.add_argument(
         "--jump-threshold",
         type=int,
@@ -357,7 +368,8 @@ def main(argv: list[str] | None = None) -> int:
                     "rows_skipped_no_ticker": result.rows_skipped_no_ticker,
                     "rows_skipped_no_delta": result.rows_skipped_no_delta,
                     "source": EMITTER_SOURCE,
-                }
+                },
+                default=_json_default,
             )
         )
     else:

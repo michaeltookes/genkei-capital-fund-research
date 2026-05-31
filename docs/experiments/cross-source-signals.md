@@ -101,6 +101,9 @@ Two reasons:
 # Populate meta.signal_events from existing sec.form4_transactions data
 python -m genkei.experiments.emitters.insider_clusters_emitter --since 2024-01-01
 
+# Populate crowding events from existing sec.form13f_holdings data
+python -m genkei.experiments.emitters.crowding_emitter --since 2024-01-01
+
 # Now query
 genkei signals --top 10
 genkei signals --events --asset AAPL --top 50      # raw events for AAPL
@@ -127,6 +130,7 @@ genkei signals --events --asset AAPL --top 50      # raw events for AAPL
 * `src/genkei/experiments/signal_store.py` — persistence + pure correlator.
 * `src/genkei/experiments/signal_rules.py` — YAML loader.
 * `src/genkei/experiments/emitters/insider_clusters_emitter.py` — reference emitter.
+* `src/genkei/experiments/emitters/crowding_emitter.py` — 13F crowding emitter.
 * `src/genkei/cli/signals.py` — Typer command.
 * `src/genkei/data/signal_rules.yml` — rule definitions.
 * `migrations/versions/20260528_create_meta_signal_events.py` — schema.
