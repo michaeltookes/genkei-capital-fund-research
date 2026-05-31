@@ -462,7 +462,7 @@ def load_filing_events(
 
     sql = (
         "SELECT cik, filed_at::date AS d, accepted_at, accession_number, items "
-        "FROM sec.filings WHERE form_type = '8-K' AND cik = ANY(%s)"
+        "FROM sec.filings WHERE form_type IN ('8-K', '8-K/A') AND cik = ANY(%s)"
     )
     params: list[Any] = [list(ciks)]
     if since is not None:
