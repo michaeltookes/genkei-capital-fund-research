@@ -5,8 +5,6 @@ from __future__ import annotations
 import unittest
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
-from pathlib import Path
-from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from genkei.experiments.eight_k_impact import FilingEvent
@@ -20,23 +18,17 @@ from genkei.experiments.emitters.eight_k_emitter import (
     _sleeve_by_ticker,
     emit_recent_filings,
 )
-
-WATCHLIST_YAML = (
-    "equities:\n"
-    "  primary:\n"
-    "    - symbol: AAPL\n"
-    '      cik: "0000320193"\n'
-    "      name: Apple Inc.\n"
-    "    - symbol: NVDA\n"
-    '      cik: "0001045810"\n'
-    "      name: NVIDIA\n"
+from tests.helpers import (
+    DEFAULT_EQUITY_WATCHLIST_YAML,
+    FakeIngestRun,
+    temporary_watchlist_path,
 )
+
+WATCHLIST_YAML = DEFAULT_EQUITY_WATCHLIST_YAML
 
 
 def _sleeve_map() -> dict[str, str]:
-    with TemporaryDirectory() as tmp:
-        path = Path(tmp) / "watchlists.yml"
-        path.write_text(WATCHLIST_YAML, encoding="utf-8")
+    with temporary_watchlist_path(WATCHLIST_YAML) as path:
         return _sleeve_by_ticker(path)
 
 
@@ -247,92 +239,70 @@ class BuildEventsTests(unittest.TestCase):
 
 class EmitRecentFilingsTests(unittest.TestCase):
     def test_orchestrator_wraps_in_ingest_run_and_skips_no_item_filings(self) -> None:
-        class FakeRun:
-            id = 42
-
-            def __enter__(self) -> FakeRun:
-                return self
-
-            def __exit__(self, *_args: object) -> None:
-                return None
-
-            def add_rows(self, _rows: int) -> None:
-                return None
-
         good = _filing(item_codes=("2.02",))
         empty = _filing(
             accession_number="0000320193-26-000099",
             item_codes=(),
         )
 
-        with TemporaryDirectory() as tmp:
-            path = Path(tmp) / "watchlists.yml"
-            path.write_text(WATCHLIST_YAML, encoding="utf-8")
-            with (
-                patch(
-                    "genkei.experiments.emitters.eight_k_emitter.db.ingest_run",
-                    return_value=FakeRun(),
-                ),
-                patch(
-                    "genkei.experiments.emitters.eight_k_emitter.load_filing_events",
-                    return_value=[good, empty],
-                ),
-                patch(
-                    "genkei.experiments.emitters.eight_k_emitter.emit_signals_bulk",
-                    return_value=1,
-                ) as emit_mock,
-            ):
-                result = emit_recent_filings(
-                    since=date(2026, 5, 1),
-                    until=date(2026, 5, 31),
-                    config=path,
-                )
+        with (
+            temporary_watchlist_path(WATCHLIST_YAML) as path,
+            patch(
+                "genkei.experiments.emitters.eight_k_emitter.db.ingest_run",
+                return_value=FakeIngestRun(),
+            ),
+            patch(
+                "genkei.experiments.emitters.eight_k_emitter.load_filing_events",
+                return_value=[good, empty],
+            ) as load_mock,
+            patch(
+                "genkei.experiments.emitters.eight_k_emitter.emit_signals_bulk",
+                return_value=1,
+            ) as emit_mock,
+        ):
+            result = emit_recent_filings(
+                since=date(2026, 5, 1),
+                until=date(2026, 5, 31),
+                config=path,
+            )
 
         self.assertEqual(result.events_emitted, 1)
         self.assertEqual(result.filings_seen, 2)
         self.assertEqual(result.filings_skipped_no_items, 1)
+        load_mock.assert_called_once_with(
+            since=date(2026, 5, 1),
+            until=date(2026, 5, 31),
+            config=path,
+        )
         # Only the good filing's event was forwarded to emit_signals_bulk.
         emitted = emit_mock.call_args.args[0]
         self.assertEqual(len(emitted), 1)
         self.assertEqual(emitted[0]["source_ref"], "0000320193-26-000042")
 
     def test_multi_item_filing_emits_multiple_rows(self) -> None:
-        class FakeRun:
-            id = 7
-
-            def __enter__(self) -> FakeRun:
-                return self
-
-            def __exit__(self, *_args: object) -> None:
-                return None
-
-            def add_rows(self, _rows: int) -> None:
-                return None
-
         filing = _filing(item_codes=("2.02", "9.01"))
 
-        with TemporaryDirectory() as tmp:
-            path = Path(tmp) / "watchlists.yml"
-            path.write_text(WATCHLIST_YAML, encoding="utf-8")
-            with (
-                patch(
-                    "genkei.experiments.emitters.eight_k_emitter.db.ingest_run",
-                    return_value=FakeRun(),
-                ),
-                patch(
-                    "genkei.experiments.emitters.eight_k_emitter.load_filing_events",
-                    return_value=[filing],
-                ),
-                patch(
-                    "genkei.experiments.emitters.eight_k_emitter.emit_signals_bulk",
-                    return_value=2,
-                ) as emit_mock,
-            ):
-                result = emit_recent_filings(config=path)
+        with (
+            temporary_watchlist_path(WATCHLIST_YAML) as path,
+            patch(
+                "genkei.experiments.emitters.eight_k_emitter.db.ingest_run",
+                return_value=FakeIngestRun(7),
+            ),
+            patch(
+                "genkei.experiments.emitters.eight_k_emitter.load_filing_events",
+                return_value=[filing],
+            ) as load_mock,
+            patch(
+                "genkei.experiments.emitters.eight_k_emitter.emit_signals_bulk",
+                return_value=2,
+            ) as emit_mock,
+        ):
+            result = emit_recent_filings(config=path)
 
         self.assertEqual(result.events_emitted, 2)
         self.assertEqual(result.filings_seen, 1)
         self.assertEqual(result.filings_skipped_no_items, 0)
+        load_mock.assert_called_once_with(since=None, until=None, config=path)
         emitted = emit_mock.call_args.args[0]
         self.assertEqual([e["signal_kind"] for e in emitted], ["item_2_02", "item_9_01"])
 

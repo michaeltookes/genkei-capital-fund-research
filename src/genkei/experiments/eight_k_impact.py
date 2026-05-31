@@ -44,10 +44,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from genkei.common import db
+from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH
 
 # Default return windows. Tuples are (label, days_offset_low,
 # days_offset_high). For a filing on date T:
@@ -428,6 +430,7 @@ def load_filing_events(
     ticker: str | None = None,
     since: date | None = None,
     until: date | None = None,
+    config: Path = DEFAULT_WATCHLIST_PATH,
 ) -> list[FilingEvent]:
     """Load 8-K events from sec.filings joined to the watchlist via CIK.
 
@@ -437,9 +440,9 @@ def load_filing_events(
     SQL because the watchlist is the source of truth for which CIKs
     we care about.
     """
-    from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist
+    from genkei.common.watchlist import load_watchlist
 
-    watchlist = load_watchlist(DEFAULT_WATCHLIST_PATH)
+    watchlist = load_watchlist(config)
     # Build cik → tickers map. Skip equities without CIKs (ETFs / new
     # entries) — they have no 8-K filings to match anyway.
     cik_to_tickers: dict[str, list[str]] = {}

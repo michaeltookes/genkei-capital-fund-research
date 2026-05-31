@@ -10,7 +10,7 @@ Live emitters: ``insider_clusters_emitter`` (B-064), ``crowding_emitter``
 component of the ``smart_money_buy`` and ``deterioration_stack`` rules.
 Follow-ups for ``tvl_drawdown_emitter``, ``macro_regime_emitter``,
 ``watchlist_scoring_emitter``, ``relative_strength_emitter`` are
-tracked as separate backlog items (B-095–B-098).
+tracked as separate backlog items (B-095-B-098).
 """
 
 from genkei.experiments.emitters import (

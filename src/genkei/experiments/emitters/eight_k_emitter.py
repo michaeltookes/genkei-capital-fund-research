@@ -243,7 +243,7 @@ def emit_recent_filings(
             "watchlist_tickers": len(sleeve_by_ticker),
         },
     ) as run:
-        filings = load_filing_events(since=since, until=until)
+        filings = load_filing_events(since=since, until=until, config=config)
         events: list[dict[str, Any]] = []
         skipped_no_items = 0
         for filing in filings:
