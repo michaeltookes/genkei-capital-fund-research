@@ -197,6 +197,84 @@ class ScoreWindowTests(unittest.TestCase):
         score, _ = _score_window(events, rule)
         self.assertEqual(score, Decimal("1.0"))
 
+    def test_same_source_ref_counts_highest_component_once(self) -> None:
+        rule = CorrelationRule(
+            name="multi_item_8k",
+            description="",
+            direction="bullish",
+            components=[
+                RuleComponent(
+                    source="eight_k_impact",
+                    signal_kind="item_1_01",
+                    weight=Decimal("0.6"),
+                ),
+                RuleComponent(
+                    source="eight_k_impact",
+                    signal_kind="item_2_02",
+                    weight=Decimal("0.5"),
+                ),
+            ],
+            window_days=7,
+            min_score=Decimal("0.1"),
+            min_distinct_sources=1,
+        )
+        events = [
+            _ev(
+                ts=_dt(5),
+                source="eight_k_impact",
+                signal_kind="item_1_01",
+                source_ref="0000320193-26-000001",
+            ),
+            _ev(
+                ts=_dt(5),
+                source="eight_k_impact",
+                signal_kind="item_2_02",
+                source_ref="0000320193-26-000001",
+            ),
+        ]
+        score, sources = _score_window(events, rule)
+        self.assertEqual(score, Decimal("0.6"))
+        self.assertEqual(sources, 1)
+
+    def test_different_source_refs_still_sum(self) -> None:
+        rule = CorrelationRule(
+            name="multi_item_8k",
+            description="",
+            direction="bullish",
+            components=[
+                RuleComponent(
+                    source="eight_k_impact",
+                    signal_kind="item_1_01",
+                    weight=Decimal("0.6"),
+                ),
+                RuleComponent(
+                    source="eight_k_impact",
+                    signal_kind="item_2_02",
+                    weight=Decimal("0.5"),
+                ),
+            ],
+            window_days=7,
+            min_score=Decimal("0.1"),
+            min_distinct_sources=1,
+        )
+        events = [
+            _ev(
+                ts=_dt(5),
+                source="eight_k_impact",
+                signal_kind="item_1_01",
+                source_ref="0000320193-26-000001",
+            ),
+            _ev(
+                ts=_dt(5),
+                source="eight_k_impact",
+                signal_kind="item_2_02",
+                source_ref="0000320193-26-000002",
+            ),
+        ]
+        score, sources = _score_window(events, rule)
+        self.assertEqual(score, Decimal("1.1"))
+        self.assertEqual(sources, 1)
+
 
 class DetectStacksTests(unittest.TestCase):
     """End-to-end correlator behaviour on synthetic streams."""
