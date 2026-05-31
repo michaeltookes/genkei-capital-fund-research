@@ -319,17 +319,6 @@ Once cross-source data is in, the system starts producing investable signals.
 
 The cross-source signal correlation engine (B-064, resolved 2026-05-28) shipped the store, the correlator, the starter rule pack, and one reference emitter (`insider_clusters`). The engine cannot fire a real stack until a **second** source is wired, because the correlator enforces `min_distinct_sources ≥ 2`. The four starter rules in `src/genkei/data/signal_rules.yml` are partial-fire until their component emitters land. Each emitter is ~150–200 lines following `src/genkei/experiments/emitters/insider_clusters_emitter.py`: adapt an existing Phase 5 experiment's output into `meta.signal_events`, resolve `asset` via the watchlist, wrap in `meta.ingest_runs` (`source='signal_emitter'`) so `genkei watchlist health` surfaces staleness, register the source in `cli/watchlist.py`, and chain the run into the relevant daily workflow. See the deferred-follow-ups paragraph in the B-064 entry of `docs/resolved.md` and `docs/experiments/cross-source-signals.md`.
 
-### B-094 — Wire the 8-K impact emitter into signal_events
-- **Status:** open
-- **Priority:** medium
-- **Context:** Completes `smart_money_buy` (insider + crowding + 8-K item 1.01/2.02) and `deterioration_stack` (sell cluster + 8-K item 5.02/4.02). Source experiment is `src/genkei/experiments/eight_k_impact.py` (B-057); strength should use the item-code-conditional effect means from that study.
-- **Acceptance criteria:**
-  - New emitter `src/genkei/experiments/emitters/eight_k_emitter.py` emits one event per 8-K with item-code-conditional strength.
-  - Wildcard "any 8-K" baseline plus exact-item-code events so rules can weight specific items (matches the correlator's wildcard-vs-exact tie-break).
-  - Standard `asset` resolution, idempotent `source_ref`, `meta.ingest_runs` wrapping, `cli/watchlist.py` registration, workflow chaining.
-  - With B-093 + B-094 both live, all four starter rules can fully fire; demonstrate at least one four-component-eligible stack or document why none fired in the current window.
-  - Unit tests pin the item-code strength table and event shapes.
-
 ### B-095 — Wire the TVL-drawdown emitter into signal_events
 - **Status:** open
 - **Priority:** medium
