@@ -16,9 +16,9 @@ Two roles in this module, mirroring the insider-cluster shape:
   prior-period state to derive ``new_entrants`` / ``exits`` /
   ``net_change``. No DB access, no CLI. Easy to test on synthetic data.
 
-* ``load_positions`` — pulls the right rows from
-  ``sec.form13f_holdings`` joined to ``sec.filers``. Caller passes
-  the result to ``compute_crowding``.
+* ``load_positions`` — pulls stock-position rows from
+  ``sec.form13f_holdings`` joined to ``sec.filers``. Caller passes the result to
+  ``compute_crowding``.
 
 Why this is rendered as a CLI module rather than a notebook (the
 backlog's literal phrasing): per D-017 the project picked Claude Code
@@ -247,6 +247,9 @@ def load_positions(
       * ``since`` / ``until``  — bound the ``period_of_report``.
       * ``filer_ciks``         — limit to a subset of managers.
       * ``cusips``             — limit to specific securities.
+
+    Option rows are excluded because this monitor models stock-holder
+    crowding; PUT/CALL rows need separate option-direction semantics.
     """
     if since is not None and until is not None and since > until:
         raise ValueError(f"since must be on or before until: {since} > {until}")
@@ -257,7 +260,7 @@ def load_positions(
         "       h.accession_number "
         "FROM sec.form13f_holdings h "
         "JOIN sec.filers f ON f.filer_cik = h.filer_cik "
-        "WHERE 1 = 1 "
+        "WHERE (h.put_call IS NULL OR btrim(h.put_call) = '') "
     )
     params: list[Any] = []
     if since is not None:

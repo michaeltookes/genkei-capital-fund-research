@@ -118,3 +118,18 @@ jobs:
         run: |
           python3 -m genkei.experiments.emitters.insider_clusters_emitter \
             --since "$(date -u -d '60 days ago' '+%Y-%m-%d')"
+
+      - name: Emit 13F crowding signal events (B-093)
+        # Runs after the 13F normalize so it reads freshly-landed holdings.
+        # 13F is quarterly and filings lag the quarter-end by up to 45 days,
+        # so the rolling window is 120 days (vs the insider emitter's 60) to
+        # guarantee each quarter-end's period_of_report stays in the emit
+        # window for weeks after its holdings finish arriving. The emitter
+        # loads the full CUSIP history regardless of --since (so prior-quarter
+        # deltas are always computable) and only the emit window is bounded.
+        # Idempotent — the UNIQUE constraint on
+        # (asset, ts, source, signal_kind, source_ref, horizon) means a quarter
+        # already emitted is a no-op on subsequent daily runs.
+        run: |
+          python3 -m genkei.experiments.emitters.crowding_emitter \
+            --since "$(date -u -d '120 days ago' '+%Y-%m-%d')"

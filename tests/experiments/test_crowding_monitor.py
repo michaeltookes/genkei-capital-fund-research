@@ -5,12 +5,14 @@ from __future__ import annotations
 import unittest
 from datetime import date
 from decimal import Decimal
+from unittest.mock import patch
 
 from genkei.experiments.crowding_monitor import (
     CrowdingRow,
     Position,
     _prior_period,
     compute_crowding,
+    load_positions,
 )
 
 
@@ -281,6 +283,50 @@ class IssuerNameFallbackTests(unittest.TestCase):
         rows = compute_crowding(positions)
         for r in rows:
             self.assertEqual(r.issuer_name, "APPLE INC")
+
+
+class LoadPositionsTests(unittest.TestCase):
+    def test_excludes_option_rows_from_stock_crowding_query(self) -> None:
+        class FakeCursor:
+            def __init__(self) -> None:
+                self.sql = ""
+                self.params: list[object] = []
+
+            def __enter__(self) -> FakeCursor:
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def execute(self, sql: str, params: list[object]) -> None:
+                self.sql = sql
+                self.params = params
+
+            def fetchall(self) -> list[tuple[object, ...]]:
+                return []
+
+        class FakeConn:
+            def __init__(self, cursor: FakeCursor) -> None:
+                self._cursor = cursor
+
+            def __enter__(self) -> FakeConn:
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def cursor(self) -> FakeCursor:
+                return self._cursor
+
+        cursor = FakeCursor()
+        with patch(
+            "genkei.experiments.crowding_monitor.db.connection",
+            return_value=FakeConn(cursor),
+        ):
+            self.assertEqual(load_positions(cusips=["037833100"]), [])
+
+        self.assertIn("h.put_call IS NULL", cursor.sql)
+        self.assertIn("btrim(h.put_call) = ''", cursor.sql)
 
 
 if __name__ == "__main__":
