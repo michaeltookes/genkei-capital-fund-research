@@ -7,6 +7,7 @@ from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from genkei.common.watchlist import EquityEntry, load_watchlist
 from genkei.experiments.crowding_monitor import CrowdingRow
@@ -18,6 +19,7 @@ from genkei.experiments.emitters.crowding_emitter import (
     _equities_by_cusip,
     _period_to_ts,
     _strength_from_net_change,
+    emit_recent_crowding,
 )
 
 # AAPL's real CUSIP — handy as a stable, recognizable fixture.
@@ -250,6 +252,55 @@ class BuildEventTests(unittest.TestCase):
         self.assertEqual(event["payload"]["new_entrants"], ["0000222222"])
         self.assertEqual(event["payload"]["exits"], [])
         self.assertEqual(event["payload"]["holder_names"], ["Fund A", "Fund B"])
+
+
+class EmitRecentCrowdingTests(unittest.TestCase):
+    def test_skips_immature_periods_before_bulk_emit(self) -> None:
+        class FakeRun:
+            id = 42
+
+            def __enter__(self) -> FakeRun:
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+            def add_rows(self, _rows: int) -> None:
+                return None
+
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(WATCHLIST_YAML, encoding="utf-8")
+            mature = _row(period=date(2026, 3, 31), net_change=2)
+            immature = _row(period=date(2026, 6, 30), net_change=3)
+            with (
+                patch(
+                    "genkei.experiments.emitters.crowding_emitter.db.ingest_run",
+                    return_value=FakeRun(),
+                ),
+                patch(
+                    "genkei.experiments.emitters.crowding_emitter.load_positions",
+                    return_value=[],
+                ),
+                patch(
+                    "genkei.experiments.emitters.crowding_emitter.compute_crowding",
+                    return_value=[mature, immature],
+                ),
+                patch(
+                    "genkei.experiments.emitters.crowding_emitter.emit_signals_bulk",
+                    return_value=1,
+                ) as emit_mock,
+            ):
+                result = emit_recent_crowding(
+                    config=path,
+                    as_of=date(2026, 7, 15),
+                )
+
+        self.assertEqual(result.events_emitted, 1)
+        self.assertEqual(result.rows_skipped_immature, 1)
+        emitted_events = emit_mock.call_args.args[0]
+        self.assertEqual(len(emitted_events), 1)
+        self.assertEqual(emitted_events[0]["ts"].date(), date(2026, 3, 31))
 
 
 if __name__ == "__main__":

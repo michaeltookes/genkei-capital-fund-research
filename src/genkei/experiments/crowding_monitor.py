@@ -16,9 +16,9 @@ Two roles in this module, mirroring the insider-cluster shape:
   prior-period state to derive ``new_entrants`` / ``exits`` /
   ``net_change``. No DB access, no CLI. Easy to test on synthetic data.
 
-* ``load_positions`` — pulls the right rows from
-  stock rows from ``sec.form13f_holdings`` joined to ``sec.filers``. Caller passes
-  the result to ``compute_crowding``.
+* ``load_positions`` — pulls stock-position rows from
+  ``sec.form13f_holdings`` joined to ``sec.filers``. Caller passes the result to
+  ``compute_crowding``.
 
 Why this is rendered as a CLI module rather than a notebook (the
 backlog's literal phrasing): per D-017 the project picked Claude Code

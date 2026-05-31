@@ -68,6 +68,10 @@ present in the loaded positions, so the loader is deliberately *not* bounded on
 the emit window is applied afterward to ``period_of_report``. That guarantees
 the prior-quarter comparison is always available even when the cron runs with a
 tight rolling ``--since``.
+
+The emitter skips 13F periods until the filing lag has elapsed. Without that
+gate, a daily run could persist provisional add/exit events while managers are
+still filing for the quarter; later upserts do not delete stale event kinds.
 """
 
 from __future__ import annotations
@@ -75,7 +79,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -107,6 +111,7 @@ STRENGTH_SATURATION_NET_CHANGE = Decimal("4")
 # The `activist_position_take` rule consumes this kind; the YAML comment for
 # that component reads "≥3 net new entrants (defined per emitter)".
 DEFAULT_JUMP_THRESHOLD = 3
+FORM_13F_FILING_LAG_DAYS = 45
 LOGGER = logging.getLogger(__name__)
 
 
@@ -118,6 +123,7 @@ class EmitResult:
     events_emitted: int
     rows_skipped_no_ticker: int
     rows_skipped_no_delta: int
+    rows_skipped_immature: int = 0
 
 
 def _equities_by_cusip(watchlist: Watchlist) -> dict[str, list[EquityEntry]]:
@@ -248,6 +254,7 @@ def emit_recent_crowding(
     until: date | None = None,
     jump_threshold: int = DEFAULT_JUMP_THRESHOLD,
     config: Path = DEFAULT_WATCHLIST_PATH,
+    as_of: date | None = None,
 ) -> EmitResult:
     """Compute crowding deltas and emit signal events for the date range.
 
@@ -257,6 +264,8 @@ def emit_recent_crowding(
     ``meta.ingest_runs`` row so the emitter is queryable via
     ``genkei watchlist health`` like any other source.
     """
+    effective_as_of = as_of or datetime.now(timezone.utc).date()
+    mature_through = effective_as_of - timedelta(days=FORM_13F_FILING_LAG_DAYS)
     watchlist = load_watchlist(config)
     equities_by_cusip = _equities_by_cusip(watchlist)
     cusips = sorted(equities_by_cusip)
@@ -268,6 +277,8 @@ def emit_recent_crowding(
             "since": since.isoformat() if since else None,
             "until": until.isoformat() if until else None,
             "jump_threshold": jump_threshold,
+            "as_of": effective_as_of.isoformat(),
+            "mature_through": mature_through.isoformat(),
             "watchlist_cusips": len(cusips),
         },
     ) as run:
@@ -292,10 +303,14 @@ def emit_recent_crowding(
         events: list[dict[str, Any]] = []
         skipped_no_ticker = 0
         skipped_no_delta = 0
+        skipped_immature = 0
         for row in rows:
             if since is not None and row.period_of_report < since:
                 continue
             if until is not None and row.period_of_report > until:
+                continue
+            if row.period_of_report > mature_through:
+                skipped_immature += 1
                 continue
             if not _classify_kinds(row.net_change, jump_threshold=jump_threshold):
                 skipped_no_delta += 1
@@ -318,6 +333,7 @@ def emit_recent_crowding(
             events_emitted=rows_written,
             rows_skipped_no_ticker=skipped_no_ticker,
             rows_skipped_no_delta=skipped_no_delta,
+            rows_skipped_immature=skipped_immature,
         )
 
 
@@ -367,6 +383,7 @@ def main(argv: list[str] | None = None) -> int:
                     "events_emitted": result.events_emitted,
                     "rows_skipped_no_ticker": result.rows_skipped_no_ticker,
                     "rows_skipped_no_delta": result.rows_skipped_no_delta,
+                    "rows_skipped_immature": result.rows_skipped_immature,
                     "source": EMITTER_SOURCE,
                 },
                 default=_json_default,
@@ -377,7 +394,8 @@ def main(argv: list[str] | None = None) -> int:
             f"crowding emitter wrote ingest_run_id={result.ingest_run_id} "
             f"events={result.events_emitted} "
             f"skipped_no_ticker={result.rows_skipped_no_ticker} "
-            f"skipped_no_delta={result.rows_skipped_no_delta}"
+            f"skipped_no_delta={result.rows_skipped_no_delta} "
+            f"skipped_immature={result.rows_skipped_immature}"
         )
     return 0
 
