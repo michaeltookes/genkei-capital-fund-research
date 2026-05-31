@@ -56,14 +56,14 @@ Rules can use `signal_kind: null` as a wildcard to match any kind from a source 
 
 ## Emitter status
 
-Two of seven emitters are wired up as of 2026-05-31:
+Three of seven emitters are wired up as of 2026-05-31:
 
 * **`insider_clusters`** (B-064) — the reference adapter that proved the pattern end-to-end.
 * **`crowding`** (B-093) — the second source. Because the correlator enforces `min_distinct_sources ≥ 2`, this is the emitter that lets the engine fire its *first* real multi-source stack: insider clusters + crowding both land on `equity:core` assets, so `activist_position_take` and `broad_exit` are now fully fireable and `smart_money_buy` reaches two of its three sources. It turns each `CrowdingRow` quarter-over-quarter delta into `crowding_add` (net positive), `crowding_jump` (net ≥ `--jump-threshold`, default 3 — also emitted alongside `crowding_add` so a big add participates in both the add- and jump-keyed rules), and `crowding_exit` (net negative) events. Strength is `min(abs(net_change) / 4, 1.0)` — the 1 → 4 activist-add pattern saturates at full conviction.
+* **`eight_k_impact`** (B-094) — the third source. Completes the component coverage for `smart_money_buy` (insider + crowding + 8-K item 1.01/2.02) and `deterioration_stack` (sell cluster + 8-K item 5.02/4.02): both rules now have every component live. Each 8-K fans into one event per item code in its `items` field — a "2.02,9.01" earnings filing emits two events (`item_2_02` bullish + `item_9_01` neutral) under the same `accession_number` source_ref, distinguished by `signal_kind` in the UNIQUE key. Direction + strength are item-code-conditional via `ITEM_CODE_PROFILES` in the module: 4.02 (non-reliance) at 0.9 bearish, 5.02 (officer departures) at 0.7 bearish, 1.01 (material agreement) at 0.6 bullish, 2.02 (earnings) at 0.5 bullish, plus broader coverage of the SEC item code catalog and a neutral 0.3 default for uncurated codes. `ts` uses B-057's after-hours-adjusted `event_date` (next trading day at UTC midnight) rather than `filed_at`, so a Friday-5pm-ET filing lands at Monday's open. No separate "any-8-K baseline" event is emitted; rules that want any-8-K matching declare a `signal_kind: null` wildcard component, which the correlator already matches against per-item events without double-counting.
 
-Follow-up emitters (B-094 – B-098, each a separate branch):
+Follow-up emitters (B-095 – B-098, each a separate branch):
 
-* `eight_k_emitter` (B-094) — emits one event per 8-K filing with item-code-conditional strength (Item 1.01 → high strength, etc.). Unblocks the item-code-specific rules; completes all four starter rules once landed.
 * `tvl_drawdown_emitter` (B-095) — emits a single event per asset when the drawdown classifier crosses its threshold.
 * `macro_regime_emitter` (B-096) — emits regime-change events (the regime itself is a continuous state; only transitions are atomic enough to deserve an event row).
 * `watchlist_scoring_emitter` (B-097) — emits when the composite score crosses a configurable threshold band.
@@ -91,7 +91,7 @@ Two reasons:
 
 * `src/genkei/experiments/signal_store.py` — `SignalEvent` / `CorrelationRule` / `RuleComponent` / `Stack` dataclasses; `emit_signal` / `emit_signals_bulk` / `query_events` persistence; `detect_stacks` pure correlator.
 * `src/genkei/experiments/signal_rules.py` — YAML loader + validator (separate so tests can exercise the correlator on synthetic rules without pulling `yaml`).
-* `src/genkei/experiments/emitters/` — one module per Phase 5 source. Today: `insider_clusters_emitter.py` (B-064) + `crowding_emitter.py` (B-093).
+* `src/genkei/experiments/emitters/` — one module per Phase 5 source. Today: `insider_clusters_emitter.py` (B-064) + `crowding_emitter.py` (B-093) + `eight_k_emitter.py` (B-094).
 * `src/genkei/cli/signals.py` — Typer wrapper.
 * `src/genkei/data/signal_rules.yml` — the declarative rule set.
 
@@ -103,6 +103,9 @@ python -m genkei.experiments.emitters.insider_clusters_emitter --since 2024-01-0
 
 # Populate crowding events from existing sec.form13f_holdings data
 python -m genkei.experiments.emitters.crowding_emitter --since 2024-01-01
+
+# Populate 8-K events from existing sec.filings data
+python -m genkei.experiments.emitters.eight_k_emitter --since 2024-01-01
 
 # Now query
 genkei signals --top 10
@@ -119,7 +122,7 @@ genkei signals --events --asset AAPL --top 50      # raw events for AAPL
 
 ## What B-064 deliberately does NOT cover
 
-* **The five remaining emitters** (B-094 – B-098) — each is a separate follow-up branch. With `crowding` (B-093) now live alongside `insider_clusters`, the two crowding-only rules (`activist_position_take`, `broad_exit`) fire; `smart_money_buy` still needs `eight_k` for its third source.
+* **The four remaining emitters** (B-095 – B-098) — each is a separate follow-up branch. With `crowding` (B-093) and `eight_k_impact` (B-094) live alongside `insider_clusters`, all four starter rules have every component live. The remaining emitters extend the engine to the crypto sleeve and to macro/scoring overlays.
 * **Live homelab evidence** — the insider-cluster emitter hasn't been run against the homelab yet (one command, `python -m genkei.experiments.emitters.insider_clusters_emitter --since 2024-01-01`, when you want real data). Tests prove correctness against synthetic events.
 * **Decay / weighting by event age** — every event inside the window contributes equally regardless of how recent it is. A v2 could add a half-life so a 6-day-old event contributes less than a today event in a 7-day window.
 * **SPY / benchmark adjustment** — events fire on absolute thresholds, not abnormal-return-conditional thresholds. The macro-regime split partially captures this; full benchmark adjustment is a B-064.4 concern.
@@ -131,6 +134,7 @@ genkei signals --events --asset AAPL --top 50      # raw events for AAPL
 * `src/genkei/experiments/signal_rules.py` — YAML loader.
 * `src/genkei/experiments/emitters/insider_clusters_emitter.py` — reference emitter.
 * `src/genkei/experiments/emitters/crowding_emitter.py` — 13F crowding emitter.
+* `src/genkei/experiments/emitters/eight_k_emitter.py` — 8-K impact emitter.
 * `src/genkei/cli/signals.py` — Typer command.
 * `src/genkei/data/signal_rules.yml` — rule definitions.
 * `migrations/versions/20260528_create_meta_signal_events.py` — schema.

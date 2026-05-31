@@ -133,3 +133,16 @@ jobs:
         run: |
           python3 -m genkei.experiments.emitters.crowding_emitter \
             --since "$(date -u -d '120 days ago' '+%Y-%m-%d')"
+
+      - name: Emit 8-K impact signal events (B-094)
+        # Runs after the main SEC normalize (sec.filings.items is populated
+        # there). 8-Ks are atomic — filed within 4 business days per SEC rule,
+        # complete on arrival, no analogue to the 13F maturity gate — so a
+        # 30-day rolling window is plenty to absorb cron-failure gaps. Each
+        # filing fans into one event per item code (e.g. "2.02,9.01" → two
+        # events under the same accession_number source_ref, distinguished
+        # by signal_kind in the UNIQUE key). Re-emission is a no-op on
+        # subsequent daily runs.
+        run: |
+          python3 -m genkei.experiments.emitters.eight_k_emitter \
+            --since "$(date -u -d '30 days ago' '+%Y-%m-%d')"
