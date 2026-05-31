@@ -256,7 +256,7 @@ def _score_window(
 ) -> tuple[Decimal, int]:
     """Sum (weight × strength) across components that matched, and count
     the distinct sources that contributed at least one matching event."""
-    score = Decimal("0")
+    contributions: dict[tuple[str, str], Decimal] = {}
     distinct_sources: set[str] = set()
     # For each event, find the matching component and add its contribution.
     # Wildcard (signal_kind=None) loses ties to exact-kind matches so a
@@ -265,7 +265,7 @@ def _score_window(
     components_by_source: dict[str, list[RuleComponent]] = defaultdict(list)
     for c in rule.components:
         components_by_source[c.source].append(c)
-    for ev in window:
+    for idx, ev in enumerate(window):
         comps = components_by_source.get(ev.source, [])
         # Exact-kind component wins over wildcard if both are configured.
         exact = next((c for c in comps if c.signal_kind == ev.signal_kind), None)
@@ -273,9 +273,23 @@ def _score_window(
         if chosen is None:
             continue
         strength = ev.strength if ev.strength is not None else DEFAULT_STRENGTH_WHEN_NULL
-        score += chosen.weight * strength
+        contribution = chosen.weight * strength
+        source_ref = _score_source_ref(ev, idx)
+        key = (ev.source, source_ref)
+        previous = contributions.get(key)
+        if previous is None or contribution > previous:
+            contributions[key] = contribution
         distinct_sources.add(ev.source)
-    return score, len(distinct_sources)
+    return sum(contributions.values(), Decimal("0")), len(distinct_sources)
+
+
+def _score_source_ref(ev: SignalEvent, idx: int) -> str:
+    """Return the natural-event key used for within-rule scoring."""
+    if ev.source_ref:
+        return ev.source_ref
+    if ev.event_id is not None:
+        return f"event:{ev.event_id}"
+    return f"idx:{idx}"
 
 
 # ---------------------------------------------------------------------------

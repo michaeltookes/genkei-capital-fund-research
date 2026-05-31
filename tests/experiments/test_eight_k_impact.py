@@ -416,6 +416,10 @@ class LoadFilingEventsTests(unittest.TestCase):
             events = load_filing_events()
 
         self.assertEqual([event.ticker for event in events], ["GOOG", "GOOGL"])
+        self.assertIn(
+            "form_type IN ('8-K', '8-K/A')",
+            conn.cursor_obj.executed[0][0],
+        )
 
     def test_shared_cik_ticker_filter_keeps_requested_symbol(self) -> None:
         rows = [("0001652044", date(2024, 1, 2), None, "acc", "2.02,9.01")]

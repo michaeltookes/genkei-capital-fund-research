@@ -5,10 +5,8 @@ from __future__ import annotations
 import unittest
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
-from pathlib import Path
-from tempfile import TemporaryDirectory
 
-from genkei.common.watchlist import EquityEntry, load_watchlist
+from genkei.common.watchlist import EquityEntry
 from genkei.experiments.emitters.insider_clusters_emitter import (
     STRENGTH_SATURATION_REPORTERS,
     _build_events,
@@ -17,21 +15,13 @@ from genkei.experiments.emitters.insider_clusters_emitter import (
     _window_end_to_ts,
 )
 from genkei.experiments.insider_clusters import Cluster, ReporterSummary
+from tests.helpers import DEFAULT_EQUITY_WATCHLIST_YAML, make_watchlist
 
-WATCHLIST_YAML = (
-    "equities:\n"
-    "  primary:\n"
-    "    - symbol: AAPL\n"
-    "      cik: \"0000320193\"\n"
-    "      name: Apple Inc.\n"
-)
+WATCHLIST_YAML = DEFAULT_EQUITY_WATCHLIST_YAML
 
 
 def _watchlist_ticker_map() -> dict[str, list[EquityEntry]]:
-    with TemporaryDirectory() as tmp:
-        path = Path(tmp) / "watchlists.yml"
-        path.write_text(WATCHLIST_YAML, encoding="utf-8")
-        w = load_watchlist(path)
+    w = make_watchlist(WATCHLIST_YAML)
     out: dict[str, list[EquityEntry]] = {}
     for entry in w.equities:
         if entry.cik:
@@ -174,10 +164,7 @@ class TickerByCikTests(unittest.TestCase):
             "      cik: \"0001652044\"\n"
             "      name: Alphabet Inc.\n"
         )
-        with TemporaryDirectory() as tmp:
-            path = Path(tmp) / "watchlists.yml"
-            path.write_text(yaml_text, encoding="utf-8")
-            watchlist = load_watchlist(path)
+        watchlist = make_watchlist(yaml_text)
 
         mapping = _ticker_by_cik(watchlist)
 

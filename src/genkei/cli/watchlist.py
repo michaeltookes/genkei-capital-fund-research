@@ -204,9 +204,9 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
     # no raw_blobs hop), so only the 'collect' endpoint is recurring.
     "onchain_staking": ["collect"],
     # B-064 — one entry per signal emitter that runs on a daily cron.
-    # As more emitters land (eight_k, etc.), append to this list.
-    # B-093 added crowding.
-    "signal_emitter": ["insider_clusters", "crowding"],
+    # B-093 added crowding; B-094 added eight_k_impact. As more emitters
+    # land (tvl_drawdown, macro_regime, etc.), append to this list.
+    "signal_emitter": ["insider_clusters", "crowding", "eight_k_impact"],
 }
 
 

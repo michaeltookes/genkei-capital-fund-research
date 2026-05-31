@@ -5,11 +5,9 @@ from __future__ import annotations
 import unittest
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
-from pathlib import Path
-from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from genkei.common.watchlist import EquityEntry, load_watchlist
+from genkei.common.watchlist import EquityEntry
 from genkei.experiments.crowding_monitor import CrowdingRow
 from genkei.experiments.emitters.crowding_emitter import (
     DEFAULT_JUMP_THRESHOLD,
@@ -21,25 +19,20 @@ from genkei.experiments.emitters.crowding_emitter import (
     _strength_from_net_change,
     emit_recent_crowding,
 )
+from tests.helpers import (
+    DEFAULT_EQUITY_WATCHLIST_YAML,
+    FakeIngestRun,
+    make_watchlist,
+    temporary_watchlist_path,
+)
 
 # AAPL's real CUSIP — handy as a stable, recognizable fixture.
 AAPL_CUSIP = "037833100"
-WATCHLIST_YAML = (
-    "equities:\n"
-    "  primary:\n"
-    "    - symbol: AAPL\n"
-    "      cik: \"0000320193\"\n"
-    "      cusip: \"037833100\"\n"
-    "      name: Apple Inc.\n"
-)
+WATCHLIST_YAML = DEFAULT_EQUITY_WATCHLIST_YAML
 
 
 def _watchlist_cusip_map() -> dict[str, list[EquityEntry]]:
-    with TemporaryDirectory() as tmp:
-        path = Path(tmp) / "watchlists.yml"
-        path.write_text(WATCHLIST_YAML, encoding="utf-8")
-        watchlist = load_watchlist(path)
-    return _equities_by_cusip(watchlist)
+    return _equities_by_cusip(make_watchlist(WATCHLIST_YAML))
 
 
 def _row(
@@ -152,10 +145,7 @@ class EquitiesByCusipTests(unittest.TestCase):
             "      cik: \"0001045810\"\n"
             "      name: NVIDIA\n"  # no cusip
         )
-        with TemporaryDirectory() as tmp:
-            path = Path(tmp) / "watchlists.yml"
-            path.write_text(yaml_text, encoding="utf-8")
-            watchlist = load_watchlist(path)
+        watchlist = make_watchlist(yaml_text)
         self.assertEqual(_equities_by_cusip(watchlist), {})
 
 
@@ -256,27 +246,13 @@ class BuildEventTests(unittest.TestCase):
 
 class EmitRecentCrowdingTests(unittest.TestCase):
     def test_skips_immature_periods_before_bulk_emit(self) -> None:
-        class FakeRun:
-            id = 42
-
-            def __enter__(self) -> FakeRun:
-                return self
-
-            def __exit__(self, *_args: object) -> None:
-                return None
-
-            def add_rows(self, _rows: int) -> None:
-                return None
-
-        with TemporaryDirectory() as tmp:
-            path = Path(tmp) / "watchlists.yml"
-            path.write_text(WATCHLIST_YAML, encoding="utf-8")
+        with temporary_watchlist_path(WATCHLIST_YAML) as path:
             mature = _row(period=date(2026, 3, 31), net_change=2)
             immature = _row(period=date(2026, 6, 30), net_change=3)
             with (
                 patch(
                     "genkei.experiments.emitters.crowding_emitter.db.ingest_run",
-                    return_value=FakeRun(),
+                    return_value=FakeIngestRun(),
                 ),
                 patch(
                     "genkei.experiments.emitters.crowding_emitter.load_positions",
