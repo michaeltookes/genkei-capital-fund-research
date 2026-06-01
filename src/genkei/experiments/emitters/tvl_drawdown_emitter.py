@@ -1,84 +1,4 @@
-"""TVL drawdown → signal_events emitter (B-095).
-
-Fourth emitter wired into the cross-source correlator (B-064), after the
-three equity-side emitters (insider_clusters / crowding / eight_k_impact).
-**This is the engine's first crypto-side signal source.** It adapts B-058's
-rule-based TVL-stress classifier into atomic signal events keyed to each
-chain's native token (Ethereum → ETH, Solana → SOL, Sui → SUI). Pairs
-naturally with the follow-up ``relative_strength_emitter`` (B-098) — the
-two together will satisfy the correlator's ``min_distinct_sources ≥ 2``
-gate for crypto-side stacks, the same way insider+crowding satisfied it
-for equities.
-
-**Episode model, not per-day.** The B-058 classifier fires when *all
-three* TVL-stress conditions align (TVL 30d change below threshold, TVL
-drawdown from 90d peak above threshold, TVL z-score below threshold). In
-real markets a true stress episode persists for weeks — a naive per-day
-emit would produce dozens of events for one stress run and clutter
-``meta.signal_events``. We emit one event per **episode onset** — the
-first day the classifier flips from not-firing → firing — and skip
-continued-firing days. Matches the macro_regime_emitter precedent
-("emits regime transitions, not continuous state"; see B-096).
-
-**Strength.** Mean of the three normalized excesses (how far each
-condition is past its threshold), each saturating at "2× the threshold's
-bite":
-
-* TVL 30d change: threshold -10%; saturation at -40% → 30pp range.
-* TVL 90d drawdown: threshold 15%; saturation at 45% → 30pp range.
-* TVL 90d z-score: threshold -1.0; saturation at -3.0 → 2.0 range.
-
-This captures "how stressed the conditions are at episode onset" without
-requiring any single condition to be extreme. Strength 0 = exactly at all
-three thresholds; strength 1.0 = all three at saturation. The strength
-table is in the module so a re-tune shows up in git blame here (matching
-the precedent of ``STRENGTH_SATURATION_REPORTERS`` etc.).
-
-**Chain → asset resolution.** ``CHAIN_TO_CRYPTO_SYMBOL`` maps each
-DefiLlama chain name to the watchlist crypto symbol that asset-grounds
-the signal. BTC is intentionally absent (B-058 docstring: "Bitcoin TVL
-is mostly wrapped BTC + Lightning + Stacks; real BTC price drivers are
-macro-led, not on-chain DeFi"). The watchlist provides the sleeve tag
-(``crypto:core`` for ETH/SOL, ``crypto:tactical`` for SUI) — emitter
-events route into different rules per sleeve, same shape as the
-equity-side emitters.
-
-Field mapping per event:
-
-* ``asset``         = native token symbol (ETH / SOL / SUI), resolved via
-                      the chain→symbol map.
-* ``asset_class``   = ``"crypto"``.
-* ``ts``            = the episode-start date at UTC midnight (the first
-                      day the classifier flipped to firing).
-* ``source``        = ``"tvl_drawdown"`` (matches the source name
-                      referenced by any future signal_rules.yml entry).
-* ``signal_kind``   = ``"tvl_drawdown_stress"``.
-* ``direction``     = ``"bearish"`` (the classifier predicts forward
-                      price drawdowns; an "add" cousin is out of scope
-                      until / unless B-058's framing extends).
-* ``strength``      = mean of normalized excesses; see above.
-* ``horizon``       = ``"crypto:{sleeve}"`` from the watchlist
-                      (e.g. ``crypto:core`` for ETH / SOL,
-                      ``crypto:tactical`` for SUI).
-* ``source_ref``    = ``"<chain>:<episode_start_iso>"`` — natural
-                      identifier of the stress episode. The UNIQUE
-                      constraint on
-                      ``(asset, ts, source, signal_kind, source_ref, horizon)``
-                      makes re-running over the same data idempotent.
-
-Loading note: the emitter loads the *full* aligned series for each chain
-regardless of ``--since``. The feature engineer needs at least 90 days of
-prior history to compute the trailing-peak / z-score features, and the
-episode-onset detector needs the day-before-since to know whether the
-window starts mid-episode. ``--since`` is applied in-Python to the
-*emission* window after features are computed.
-
-Run as one ``meta.ingest_runs`` row tagged
-``source='signal_emitter' endpoint='tvl_drawdown'`` so the provenance
-trail is uniform with the rest of the lake and ``genkei watchlist
-health`` surfaces emitter staleness the same way it surfaces ingest
-staleness.
-"""
+"""TVL drawdown signal_events emitter (B-095)."""
 
 from __future__ import annotations
 
@@ -109,21 +29,14 @@ EMITTER_SOURCE = "tvl_drawdown"
 EMITTER_RUN_TAG = "signal_emitter"
 EMITTER_ENDPOINT = "tvl_drawdown"
 
-# Chain → crypto watchlist symbol. Mirrors B-058's
-# DEFAULT_CHAIN_PRODUCT_PAIRS but strips the Coinbase product suffix so
-# the asset matches the watchlist entry. BTC is intentionally absent
-# (B-058 documents why).
+# Chain-to-asset routing for watchlist-grounded crypto TVL signals.
 CHAIN_TO_CRYPTO_SYMBOL: dict[str, str] = {
     "Ethereum": "ETH",
     "Solana": "SOL",
     "Sui": "SUI",
 }
 
-# Saturation magnitudes for the per-condition normalized excesses.
-# Each is "the additional bite past the threshold at which strength
-# saturates to 1.0 for that condition." Picked from B-058's threshold
-# magnitudes (30pp range for the two pct features, 2.0 z-score range
-# for the z-score feature).
+# Per-condition excess ranges where strength saturates.
 TVL_CHANGE_30D_SATURATION_RANGE_PCT = Decimal("30")
 TVL_DRAWDOWN_SATURATION_RANGE_PCT = Decimal("30")
 TVL_ZSCORE_SATURATION_RANGE = Decimal("2")
@@ -147,13 +60,7 @@ def _feature_ts(feature_row: FeatureRow) -> datetime:
 
 
 def _horizon_for_symbol(symbol: str, watchlist: Watchlist) -> str | None:
-    """Look up the crypto sleeve for a symbol; return None if not watchlisted.
-
-    Returning None when a chain's native token isn't in the watchlist
-    matches the equity-side emitters' "non-watchlist issuer → skip"
-    behavior — the correlator's asset-grouping needs a stable identifier
-    and we don't want to leak unknown assets into the events table.
-    """
+    """Return the crypto sleeve horizon for a watchlisted symbol."""
     entry = watchlist.find_crypto(symbol)
     if entry is None:
         return None
@@ -168,14 +75,7 @@ def _normalized_excess(
     saturation_range: Decimal,
     sign: int,
 ) -> Decimal:
-    """Map a feature value's excess past its threshold to a [0,1] saturation.
-
-    ``sign`` is +1 when the threshold is an upper bound (value > threshold
-    is the bad side; drawdown_from_peak fits this) and -1 when the
-    threshold is a lower bound (value < threshold is the bad side; change
-    and z-score both fit this). Returns 0 when value is None or hasn't
-    crossed the threshold.
-    """
+    """Map threshold excess to a [0, 1] saturation score."""
     if value is None:
         return Decimal("0")
     excess = value - threshold if sign > 0 else threshold - value
@@ -186,13 +86,7 @@ def _normalized_excess(
 
 
 def _strength_from_features(row: FeatureRow) -> Decimal:
-    """Mean of the three TVL-stress conditions' normalized excesses.
-
-    Higher strength = deeper aggregate stress. Each condition contributes
-    equally; one condition at full saturation while the other two sit
-    near threshold yields strength ≈ 0.33. All three at saturation yields
-    strength 1.0.
-    """
+    """Average the three TVL-stress condition excess scores."""
     change_excess = _normalized_excess(
         value=row.tvl_change_30d_pct,
         threshold=DEFAULT_TVL_CHANGE_30D_THRESHOLD_PCT,
@@ -217,15 +111,7 @@ def _strength_from_features(row: FeatureRow) -> Decimal:
 def _detect_episode_starts(
     features: Sequence[FeatureRow],
 ) -> list[FeatureRow]:
-    """Walk features chronologically; return only the rows that begin a new
-    stress episode (classifier flipped from not-firing to firing).
-
-    The very first row in the input is treated as a fresh start — if it
-    fires, it's counted as an onset (we have no prior to compare to). The
-    caller is responsible for loading enough preceding history that the
-    "first row" of the input is genuinely far enough back that this
-    edge-case treatment is harmless.
-    """
+    """Return rows where the classifier flips into a stress episode."""
     onsets: list[FeatureRow] = []
     prev_fired = False
     for row in features:
@@ -292,17 +178,7 @@ def emit_recent_drawdown_stress(
     until: date | None = None,
     config: Path = DEFAULT_WATCHLIST_PATH,
 ) -> EmitResult:
-    """Detect TVL-stress episode onsets per chain and emit signal events.
-
-    Loads the full available aligned series for each chain (the feature
-    engineer needs ≥90 days of trailing history to compute features, and
-    the episode detector needs the prior day's state). ``--since`` /
-    ``--until`` are applied to the *emission* window after features +
-    onsets are computed in-Python.
-
-    Wrapped in a single ``meta.ingest_runs`` row so the emitter is
-    queryable via ``genkei watchlist health`` like any other source.
-    """
+    """Detect TVL-stress episode onsets per chain and emit signal events."""
     watchlist = load_watchlist(config)
 
     with db.ingest_run(
