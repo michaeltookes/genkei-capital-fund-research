@@ -668,4 +668,13 @@ def run_backtest(
         windows=windows,
         benchmark_prices=benchmark_prices,
     )
+    if benchmark_ticker is not None and not any(
+        value is not None
+        for stack_return in stack_returns
+        for value in stack_return.benchmark_windows.values()
+    ):
+        raise ValueError(
+            f"No benchmark-adjusted returns were evaluable for {benchmark_ticker!r} "
+            "in requested range."
+        )
     return stack_returns, baselines
