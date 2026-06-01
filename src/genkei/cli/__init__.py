@@ -30,6 +30,7 @@ Subcommand surface (B-037):
 - ``genkei holdings``  SEC 13F institutional holdings         [B-080 ✓]
 - ``genkei crowding``  13F crowding monitor                    [B-061 ✓]
 - ``genkei signals``   Cross-source signal correlation engine  [B-064 ✓]
+- ``genkei backtest``  Stack-outcome backtest                   [B-101 ✓]
 - ``genkei insider-clusters``
                         Detect insider buy/sell clusters       [B-060 ✓]
 - ``genkei revenue-divergence``
@@ -47,6 +48,7 @@ import sys
 import typer
 
 from genkei.cli import (
+    backtest,
     crowding,
     eight_k_impact,
     filings,
@@ -98,6 +100,10 @@ app.command(
     "signals",
     help="Cross-source signal correlation engine (B-064) — multi-source agreement stacks.",
 )(signals.signals_cmd)
+app.command(
+    "backtest",
+    help="Stack-outcome backtest (B-101) — do historical stacks predict forward returns?",
+)(backtest.backtest_cmd)
 app.command(
     "insider-clusters",
     help="Detect insider buy/sell clusters (≥N reporters within K days).",

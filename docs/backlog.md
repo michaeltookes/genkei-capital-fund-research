@@ -377,15 +377,18 @@ The cross-source signal correlation engine (B-064, resolved 2026-05-28) shipped 
   - Benchmark return joined over the stack window; documented in `cross-source-signals.md`.
   - Unit tests pin the adjustment math.
 
-### B-101 — Phase 6.2 experiment: stack-outcome backtest
+### B-102 — Add SPY (and BTC) benchmark price ingester
 - **Status:** open
 - **Priority:** medium
-- **Context:** The payoff question for the whole engine — do historical stacks actually precede favorable forward returns? Join historical `detect_stacks` output to forward returns (vs SPY/BTC benchmark) per rule, per direction, per horizon. Natural to run once B-093 + B-094 (and ideally the crypto emitters) have populated `meta.signal_events` with real multi-source history.
+- **Context:** B-101 (stack-outcome backtest) and B-100 (correlator: SPY/BTC benchmark adjustment) both want benchmark-relative returns and per-asset alpha vs the index, but `yahoo.candles` only carries the 28 watchlist tickers — SPY isn't ingested. B-101 v1 fell back to a per-asset random-day baseline; that captures most of what we need for first-cut interpretation but doesn't separate stack-driven alpha from broad-market drift in the same window. Same gap blocks B-100's benchmark-adjusted scoring. Companion to B-088 / B-089 if a future BTC-side question needs the crypto benchmark; today only SPY is the immediate need.
 - **Acceptance criteria:**
-  - Experiment module + CLI surface (or notebook once B-054 lands) computing forward-return distributions per rule with base-rate-relative lift, mirroring the B-058 evaluation pattern.
-  - Time-based, no-lookahead evaluation; results captured in a `docs/experiments/` writeup.
-  - Honest reporting of rules that don't beat base rate.
-  - **Depends on:** B-093, B-094 (real stacks must exist before backtesting is meaningful).
+  - Extend the equity-price ingester (B-092 Yahoo) or add a sibling so SPY (and ideally QQQ + IWM as common alt benchmarks) lands in `yahoo.candles` (or a new `yahoo.benchmarks` table) with the same backfill range as the watchlist names.
+  - Watchlist gains a `benchmarks:` section so the ingester knows what to fetch — analogous to the existing `equities:` section.
+  - `genkei prices --ticker SPY` works end-to-end.
+  - `stack_backtest.run_backtest` gains an optional `benchmark` arg (or a new `mean_abnormal_pct` field on `StackStratumStats`) that subtracts the per-window SPY return from each stack's forward return, in addition to the existing per-asset baseline.
+  - `genkei backtest` exposes the abnormal-return column when a benchmark is loaded.
+  - Tests pin the abnormal-return math; documented in `docs/experiments/stack-outcome-backtest.md` once it lands.
+  - Optionally, add BTC for the eventual crypto-side backtest (lower priority until B-095–B-098 give the engine crypto stacks).
 
 ### B-066 — Macro regime classifier integrated into queries
 - **Status:** open
