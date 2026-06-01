@@ -99,6 +99,8 @@ def _stratum(
     median: dict[str, Decimal],
     hit: dict[str, Decimal],
     excess: dict[str, Decimal],
+    abnormal: dict[str, Decimal] | None = None,
+    n_abnormal: dict[str, int] | None = None,
 ) -> StackStratumStats:
     return StackStratumStats(
         stratum_key=key,
@@ -109,6 +111,10 @@ def _stratum(
         median_pct=_window_dict(median),
         hit_rate_pct=_window_dict(hit),
         mean_excess_pct=_window_dict(excess),
+        mean_abnormal_pct=_window_dict(abnormal or {}),
+        n_abnormal_evaluable={
+            label: (n_abnormal or {}).get(label, 0) for label in WINDOW_LABELS
+        },
     )
 
 
@@ -248,6 +254,84 @@ class CliValidationTests(unittest.TestCase):
         self.assertIn("Invalid value", msg)
         self.assertIn("since", msg)
         self.assertIn("on or before", msg)
+
+
+class BenchmarkColumnTests(unittest.TestCase):
+    """B-102 — abnormal-vs-benchmark column appears when run_backtest's output
+    carries non-null mean_abnormal_pct values."""
+
+    def _stack_returns_with_benchmark(self) -> list[StackReturns]:
+        return [
+            StackReturns(
+                stack=_stack(rule="smart_money_buy", asset="AAPL"),
+                windows={"post_5d": Decimal("3.0"), "post_30d": Decimal("6.0")},
+                benchmark_windows={"post_5d": Decimal("1.0"), "post_30d": Decimal("2.0")},
+            ),
+            StackReturns(
+                stack=_stack(rule="smart_money_buy", asset="NVDA"),
+                windows={"post_5d": Decimal("5.0"), "post_30d": Decimal("10.0")},
+                benchmark_windows={"post_5d": Decimal("1.0"), "post_30d": Decimal("2.0")},
+            ),
+        ]
+
+    def test_default_no_abnormal_column_without_benchmark(self) -> None:
+        with patch(
+            "genkei.cli.backtest.run_backtest",
+            return_value=(_stack_returns_for_two_rules(), _baselines()),
+        ):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = main(["backtest"])
+        self.assertEqual(code, 0)
+        out = buf.getvalue()
+        # No abnormal column header should appear.
+        self.assertNotIn("abnormal", out)
+
+    def test_benchmark_flag_renders_abnormal_column(self) -> None:
+        with patch(
+            "genkei.cli.backtest.run_backtest",
+            return_value=(self._stack_returns_with_benchmark(), _baselines()),
+        ) as run_mock:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = main(["backtest", "--benchmark", "SPY"])
+        self.assertEqual(code, 0)
+        out = buf.getvalue()
+        # benchmark_ticker was passed through to run_backtest.
+        self.assertEqual(run_mock.call_args.kwargs["benchmark_ticker"], "SPY")
+        self.assertIn("abnormal", out)
+        self.assertIn("benchmark=SPY", out)
+        # Per-stack abnormal: post_5d = (3-1 + 5-1)/2 = 3.0; post_30d = (6-2 + 10-2)/2 = 6.0
+        self.assertIn("3.00", out)
+        self.assertIn("6.00", out)
+
+    def test_benchmark_lowercased_uppercased_via_cli(self) -> None:
+        # CLI uppercases the benchmark ticker before passing to run_backtest.
+        with patch(
+            "genkei.cli.backtest.run_backtest",
+            return_value=(self._stack_returns_with_benchmark(), _baselines()),
+        ) as run_mock:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = main(["backtest", "--benchmark", "spy"])
+        self.assertEqual(code, 0)
+        self.assertEqual(run_mock.call_args.kwargs["benchmark_ticker"], "SPY")
+
+    def test_json_includes_abnormal_fields(self) -> None:
+        with patch(
+            "genkei.cli.backtest.run_backtest",
+            return_value=(self._stack_returns_with_benchmark(), _baselines()),
+        ):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = main(["backtest", "--benchmark", "SPY", "--json"])
+        self.assertEqual(code, 0)
+        parsed = json_mod.loads(buf.getvalue())
+        smb = parsed[0]
+        self.assertIn("mean_abnormal_pct", smb["windows"]["post_5d"])
+        self.assertIn("n_abnormal_evaluable", smb["windows"]["post_5d"])
+        # Mean abnormal at post_5d = 3.0; serialized as a string by _json_default.
+        self.assertEqual(smb["windows"]["post_5d"]["mean_abnormal_pct"], "3.0")
 
 
 if __name__ == "__main__":

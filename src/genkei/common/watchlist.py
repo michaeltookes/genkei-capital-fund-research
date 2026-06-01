@@ -8,6 +8,7 @@ subcommands both read from here so a fix propagates to every reader.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -74,6 +75,29 @@ class ProtocolEntry:
 
 
 @dataclass(frozen=True)
+class BenchmarkEntry:
+    """A market-benchmark price target we want OHLCV for (B-102).
+
+    Distinct from ``EquityEntry`` because benchmarks (SPY, QQQ, IWM) are
+    *not* research targets — they're comparators for the stack-outcome
+    backtest (B-101) and the future correlator benchmark adjustment
+    (B-100). Listing them under ``equities:`` would route them into
+    every equity-targeted analysis (insider clusters, 8-K events,
+    crowding) by accident.
+
+    Stored in the same ``yahoo.candles`` table as the watchlist
+    equities — the schema is just ``(ticker, ts, …)`` and doesn't care
+    about asset-class semantics, so the only mechanical difference is
+    which watchlist section the ingester reads to know what to fetch.
+    """
+
+    symbol: str  # Yahoo ticker (SPY, QQQ, IWM)
+    name: str
+    role: str  # human-readable purpose ("S&P 500 ETF — equity-core baseline")
+    asset_class: str = "equity_index_etf"
+
+
+@dataclass(frozen=True)
 class FilerEntry:
     """A SEC 13F filer (institutional investment manager) we want to track (B-080)."""
 
@@ -90,6 +114,7 @@ class Watchlist:
     macro: list[MacroEntry]
     protocols: list[ProtocolEntry]
     filers: list[FilerEntry]
+    benchmarks: list[BenchmarkEntry] = dataclasses.field(default_factory=list)
 
     def find_crypto(self, symbol: str) -> CryptoEntry | None:
         upper = symbol.upper()
@@ -126,6 +151,14 @@ class Watchlist:
         lower = slug.lower()
         for entry in self.protocols:
             if entry.slug.lower() == lower:
+                return entry
+        return None
+
+    def find_benchmark(self, symbol: str) -> BenchmarkEntry | None:
+        """Lookup a benchmark by ticker (case-insensitive)."""
+        upper = symbol.upper()
+        for entry in self.benchmarks:
+            if entry.symbol.upper() == upper:
                 return entry
         return None
 
@@ -318,12 +351,37 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                     )
                 )
 
+    benchmarks: list[BenchmarkEntry] = []
+    benchmarks_root = data.get("benchmarks", [])
+    if isinstance(benchmarks_root, list):
+        seen_benchmark_symbols: set[str] = set()
+        for entry in benchmarks_root:
+            if not isinstance(entry, dict):
+                continue
+            symbol = entry.get("symbol")
+            if not isinstance(symbol, str) or not symbol:
+                continue
+            upper = symbol.upper()
+            if upper in seen_benchmark_symbols:
+                # Silently dedupe — same rule as filers.
+                continue
+            seen_benchmark_symbols.add(upper)
+            benchmarks.append(
+                BenchmarkEntry(
+                    symbol=symbol,
+                    name=str(entry.get("name") or ""),
+                    role=str(entry.get("role") or ""),
+                    asset_class=str(entry.get("asset_class") or "equity_index_etf"),
+                )
+            )
+
     return Watchlist(
         crypto=crypto,
         equities=equities,
         macro=macro,
         protocols=protocols,
         filers=filers,
+        benchmarks=benchmarks,
     )
 
 

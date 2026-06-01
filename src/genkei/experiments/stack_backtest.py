@@ -109,10 +109,17 @@ class StackReturns:
     window set was passed in). A ``None`` value means the price series
     didn't reach that window's end — typical for recent stacks where the
     post_365d horizon hasn't elapsed yet.
+
+    ``benchmark_windows`` carries the same-window benchmark return when a
+    benchmark series was supplied to ``compute_stack_returns`` (B-102 SPY
+    by default). Empty when no benchmark was passed; the aggregator's
+    ``mean_abnormal_pct`` only computes when at least one stack carries
+    both an asset return and a benchmark return for the window.
     """
 
     stack: Stack
     windows: dict[str, Decimal | None]
+    benchmark_windows: dict[str, Decimal | None] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -147,6 +154,14 @@ class StackStratumStats:
     # Positive = stacks beat the random-day mean upward; negative = beat
     # it downward. Interpret sign against the stack's direction.
     mean_excess_pct: dict[str, Decimal | None] = field(default_factory=dict)
+    # Abnormal return vs a market benchmark (B-102). Mean over the
+    # stacks of ``stack_return - benchmark_return`` for the *same*
+    # forward window. Captures whether the stack beat the broad market
+    # in the same window, not just the asset's own historical mean. Null
+    # when no benchmark was supplied or no stack in the stratum had both
+    # an asset return and a benchmark return for the window.
+    mean_abnormal_pct: dict[str, Decimal | None] = field(default_factory=dict)
+    n_abnormal_evaluable: dict[str, int] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -276,6 +291,7 @@ def compute_stack_returns(
     prices_by_asset: dict[str, list[PricePoint]],
     *,
     windows: Sequence[tuple[str, int, int]] = STACK_WINDOWS,
+    benchmark_prices: Sequence[PricePoint] | None = None,
 ) -> list[StackReturns]:
     """Compute per-window forward returns for each stack.
 
@@ -283,16 +299,35 @@ def compute_stack_returns(
     synthetic price series and the orchestrator can load each asset's
     history once and share it across the stack-returns pass and the
     baseline pass.
+
+    ``benchmark_prices`` is optional (B-102). When supplied, each stack's
+    same-window benchmark return (computed from the stack's anchor date
+    against the benchmark's own price series) is recorded in
+    ``StackReturns.benchmark_windows`` so the aggregator can produce a
+    ``mean_abnormal_pct = mean(stack_return - benchmark_return)`` column.
     """
     if not stacks:
         return []
     out: list[StackReturns] = []
     for stack in stacks:
         prices = prices_by_asset.get(stack.asset, [])
+        anchor = _stack_return_anchor_date(stack)
         windows_dict = compute_windowed_returns(
-            prices, event_date=_stack_return_anchor_date(stack), windows=windows
+            prices, event_date=anchor, windows=windows
         )
-        out.append(StackReturns(stack=stack, windows=windows_dict))
+        if benchmark_prices is not None:
+            benchmark_windows = compute_windowed_returns(
+                benchmark_prices, event_date=anchor, windows=windows
+            )
+        else:
+            benchmark_windows = {}
+        out.append(
+            StackReturns(
+                stack=stack,
+                windows=windows_dict,
+                benchmark_windows=benchmark_windows,
+            )
+        )
     return out
 
 
@@ -374,6 +409,8 @@ def aggregate_stack_returns(
     median_pct: dict[str, Decimal | None] = {}
     hit_rate_pct: dict[str, Decimal | None] = {}
     mean_excess_pct: dict[str, Decimal | None] = {}
+    mean_abnormal_pct: dict[str, Decimal | None] = {}
+    n_abnormal_evaluable: dict[str, int] = {}
 
     for label, _, _ in windows:
         non_null = [
@@ -385,6 +422,8 @@ def aggregate_stack_returns(
         if not non_null:
             mean_pct[label] = median_pct[label] = hit_rate_pct[label] = None
             mean_excess_pct[label] = None
+            mean_abnormal_pct[label] = None
+            n_abnormal_evaluable[label] = 0
             continue
         vals = [v for _, v in non_null]
         mean_pct[label] = _mean(vals)
@@ -409,6 +448,18 @@ def aggregate_stack_returns(
                 mean_excess_pct[label] = None
         else:
             mean_excess_pct[label] = None
+        # Abnormal vs benchmark: per-stack (stack_return − benchmark_return)
+        # in the SAME window, then averaged. Drops stacks whose benchmark
+        # window can't be computed (e.g. benchmark series didn't reach the
+        # window's end date). Pairing is per-stack so the result is robust
+        # to assets with different stack counts.
+        abnormal_diffs: list[Decimal] = []
+        for sr, stack_value in non_null:
+            bench_value = sr.benchmark_windows.get(label)
+            if bench_value is not None:
+                abnormal_diffs.append(stack_value - bench_value)
+        n_abnormal_evaluable[label] = len(abnormal_diffs)
+        mean_abnormal_pct[label] = _mean(abnormal_diffs) if abnormal_diffs else None
 
     return StackStratumStats(
         stratum_key=stratum_key,
@@ -419,6 +470,8 @@ def aggregate_stack_returns(
         median_pct=median_pct,
         hit_rate_pct=hit_rate_pct,
         mean_excess_pct=mean_excess_pct,
+        mean_abnormal_pct=mean_abnormal_pct,
+        n_abnormal_evaluable=n_abnormal_evaluable,
     )
 
 
@@ -516,6 +569,7 @@ def run_backtest(
     asset: str | None = None,
     since: date | None = None,
     until: date | None = None,
+    benchmark_ticker: str | None = None,
     windows: Sequence[tuple[str, int, int]] = STACK_WINDOWS,
     rules_path: Path = DEFAULT_RULES_PATH,
 ) -> tuple[list[StackReturns], dict[str, BaselineStats]]:
@@ -528,6 +582,10 @@ def run_backtest(
       * ``asset`` — single ticker.
       * ``since`` / ``until`` — bound the event ts range (stacks whose
         ``window_end`` falls in the range).
+      * ``benchmark_ticker`` — when set (e.g. ``"SPY"``), load the
+        benchmark's price series once and attach same-window benchmark
+        returns to each ``StackReturns``. The aggregator surfaces
+        ``mean_abnormal_pct`` in the resulting strata (B-102).
 
     Returns ``(stack_returns, baselines)`` so the CLI can aggregate
     multiple stratifications without re-running the underlying queries.
@@ -588,5 +646,22 @@ def run_backtest(
         prices_by_asset[asset_name] = prices
         baselines[asset_name] = compute_baseline(asset_name, prices, windows=windows)
 
-    stack_returns = compute_stack_returns(stacks, prices_by_asset, windows=windows)
+    benchmark_prices: list[PricePoint] | None = None
+    if benchmark_ticker is not None:
+        # Load the benchmark across the union of every stack's range so
+        # every (stack, window) pair has the benchmark return available.
+        all_first = min(_stack_return_anchor_date(s) for s in stacks)
+        all_last = max(_stack_return_anchor_date(s) for s in stacks)
+        benchmark_prices = load_price_series(
+            benchmark_ticker,
+            since=all_first - timedelta(days=PRICE_LOAD_LOOKBACK_DAYS),
+            until=all_last + timedelta(days=forward_days),
+        )
+
+    stack_returns = compute_stack_returns(
+        stacks,
+        prices_by_asset,
+        windows=windows,
+        benchmark_prices=benchmark_prices,
+    )
     return stack_returns, baselines

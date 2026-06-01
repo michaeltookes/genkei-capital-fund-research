@@ -530,3 +530,24 @@ filers:
       name: Bridgewater Associates LP
       rationale: Macro-regime-driven public book. Position rotation correlates with regime calls; useful next to `analytics.macro_regime`.
 
+# Benchmark price targets (B-102). Not research targets — these are
+# comparators for the stack-outcome backtest (B-101) and the future
+# correlator benchmark adjustment (B-100). Listed in their own section
+# so they don't get routed into equity-targeted analyses (insider
+# clusters, 8-K events, crowding) by accident. The Yahoo ingester
+# fetches them alongside `equities:` into the same `yahoo.candles`
+# table; downstream code distinguishes via watchlist lookup, not
+# table schema.
+benchmarks:
+  - symbol: SPY
+    name: SPDR S&P 500 ETF Trust
+    role: Broad US equity benchmark — equity-core sleeve baseline.
+    asset_class: equity_index_etf
+  - symbol: QQQ
+    name: Invesco QQQ Trust (Nasdaq-100 ETF)
+    role: Tech-tilted benchmark — useful alt for tech-heavy watchlist names (NVDA, AAPL, MSFT, GOOG).
+    asset_class: equity_index_etf
+  - symbol: IWM
+    name: iShares Russell 2000 ETF
+    role: Small-cap benchmark — watchlist is large-cap-heavy so SPY is the primary comparator.
+    asset_class: equity_index_etf
