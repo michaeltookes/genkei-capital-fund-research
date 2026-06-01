@@ -34,6 +34,7 @@ import typer
 
 from genkei.cli._helpers import json_default as _json_default
 from genkei.cli._helpers import parse_date as _parse_date
+from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist
 from genkei.experiments.signal_rules import DEFAULT_RULES_PATH
 from genkei.experiments.signal_store import DIRECTIONS
 from genkei.experiments.stack_backtest import (
@@ -172,6 +173,25 @@ def _format_stratum_table(
     return "\n".join(lines)
 
 
+def _resolve_benchmark_ticker(raw: Optional[str], config: Path) -> Optional[str]:
+    """Validate ``--benchmark`` against the benchmark watchlist."""
+    if raw is None:
+        return None
+    try:
+        watchlist = load_watchlist(config)
+    except FileNotFoundError as exc:
+        raise typer.BadParameter(f"Watchlist file not found: {config}") from exc
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+    entry = watchlist.find_benchmark(raw)
+    if entry is None:
+        raise typer.BadParameter(
+            f"Benchmark {raw!r} not found in watchlists.yml::benchmarks."
+        )
+    return entry.symbol.upper()
+
+
 def backtest_cmd(
     by: Annotated[
         str,
@@ -223,6 +243,10 @@ def backtest_cmd(
             show_default=True,
         ),
     ] = DEFAULT_RULES_PATH,
+    config: Annotated[
+        Path,
+        typer.Option("--config", help="Watchlist path.", show_default=True),
+    ] = DEFAULT_WATCHLIST_PATH,
 ) -> None:
     """Backtest historical signal stacks against forward returns (B-101)."""
     if by not in STRATIFICATIONS:
@@ -238,7 +262,7 @@ def backtest_cmd(
     if since_d is not None and until_d is not None and since_d > until_d:
         raise typer.BadParameter("--since must be on or before --until.")
 
-    benchmark_ticker = benchmark.upper() if benchmark else None
+    benchmark_ticker = _resolve_benchmark_ticker(benchmark, config)
     try:
         stack_returns, baselines = run_backtest(
             rule=rule,

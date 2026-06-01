@@ -317,6 +317,18 @@ class BenchmarkColumnTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(run_mock.call_args.kwargs["benchmark_ticker"], "SPY")
 
+    def test_non_benchmark_ticker_rejected_before_query(self) -> None:
+        with patch("genkei.cli.backtest.run_backtest") as run_mock:
+            buf = io.StringIO()
+            with redirect_stderr(buf):
+                code = main(["backtest", "--benchmark", "AAPL"])
+        self.assertEqual(code, 2)
+        run_mock.assert_not_called()
+        msg = re.sub(r"\x1b\[[0-9;]*m", "", buf.getvalue())
+        self.assertIn("Invalid value", msg)
+        self.assertIn("benchmarks", msg)
+        self.assertIn("AAPL", msg)
+
     def test_json_includes_abnormal_fields(self) -> None:
         with patch(
             "genkei.cli.backtest.run_backtest",
