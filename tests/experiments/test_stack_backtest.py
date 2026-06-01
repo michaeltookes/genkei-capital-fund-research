@@ -484,12 +484,12 @@ class RunBacktestTests(unittest.TestCase):
             )
 
         events = [
-            insider("AAPL", _utc(2024, 1, 1)),
-            crowding("AAPL", _utc(2024, 1, 2)),
-            insider("AAPL", _utc(2024, 6, 1)),
-            crowding("AAPL", _utc(2024, 6, 2)),
-            insider("NVDA", _utc(2024, 3, 1)),
-            crowding("NVDA", _utc(2024, 3, 2)),
+            crowding("AAPL", _utc(2024, 1, 1)),
+            insider("AAPL", _utc(2024, 2, 15)),
+            crowding("AAPL", _utc(2024, 6, 1)),
+            insider("AAPL", _utc(2024, 7, 16)),
+            crowding("NVDA", _utc(2024, 3, 1)),
+            insider("NVDA", _utc(2024, 4, 15)),
         ]
 
         def fake_load(ticker: str, *, since: date, until: date) -> list[PricePoint]:
@@ -557,7 +557,7 @@ class RunBacktestTests(unittest.TestCase):
             stack_returns, _ = run_backtest(direction="bullish")
         self.assertEqual(stack_returns, [])
 
-    def test_since_query_includes_rule_lookback_then_filters_stack_end(self) -> None:
+    def test_since_query_includes_availability_and_rule_lookback(self) -> None:
         def insider(asset: str, ts: datetime) -> SignalEvent:
             return _event(
                 asset=asset, ts=ts, source="insider_clusters", signal_kind="buy_cluster"
@@ -569,8 +569,8 @@ class RunBacktestTests(unittest.TestCase):
             )
 
         events = [
-            insider("AAPL", _utc(2023, 12, 29)),
-            crowding("AAPL", _utc(2024, 1, 2)),
+            crowding("AAPL", _utc(2023, 12, 20)),
+            insider("AAPL", _utc(2024, 2, 1)),
         ]
 
         def fake_load(ticker: str, *, since: date, until: date) -> list[PricePoint]:
@@ -588,18 +588,47 @@ class RunBacktestTests(unittest.TestCase):
         ):
             stack_returns, _ = run_backtest(
                 rule="smart_money_buy",
-                since=date(2024, 1, 1),
+                since=date(2024, 2, 1),
             )
 
-        self.assertEqual(query_mock.call_args.kwargs["since"], _utc(2023, 12, 25))
+        self.assertEqual(query_mock.call_args.kwargs["since"], _utc(2023, 12, 11))
         self.assertEqual(len(stack_returns), 1)
-        self.assertEqual(stack_returns[0].stack.window_end, _utc(2024, 1, 2))
+        self.assertEqual(stack_returns[0].stack.window_end, _utc(2024, 2, 5))
+
+    def test_delayed_sources_must_overlap_on_availability_dates(self) -> None:
+        events = [
+            _event(
+                asset="AAPL",
+                ts=_utc(2024, 3, 31),
+                source="crowding",
+                signal_kind="crowding_add",
+            ),
+            _event(
+                asset="AAPL",
+                ts=_utc(2024, 4, 5),
+                source="insider_clusters",
+                signal_kind="buy_cluster",
+            ),
+        ]
+
+        with (
+            patch(
+                "genkei.experiments.stack_backtest.query_events",
+                return_value=events,
+            ),
+            patch("genkei.experiments.stack_backtest.load_price_series") as load_mock,
+        ):
+            stack_returns, baselines = run_backtest(rule="smart_money_buy")
+
+        self.assertEqual(stack_returns, [])
+        self.assertEqual(baselines, {})
+        load_mock.assert_not_called()
 
     def test_price_load_starts_before_return_anchor_date(self) -> None:
         events = [
             _event(
                 asset="AAPL",
-                ts=_utc(2024, 1, 5),
+                ts=_utc(2024, 2, 16),
                 source="insider_clusters",
                 signal_kind="buy_cluster",
             ),

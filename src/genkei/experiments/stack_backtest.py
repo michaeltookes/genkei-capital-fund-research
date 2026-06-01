@@ -30,9 +30,9 @@ positive excess is the win; bearish: negative excess is the win).
 **No-lookahead guarantee.** Every forward return is computed from the
 stack's knowable date forward — never backward. Most emitters are knowable
 at their event timestamp, but delayed sources like 13F crowding and Form 4
-insider clusters are shifted by their filing lag before the return window
-starts. We do not filter or weight stacks based on what happens after that
-anchor date.
+insider clusters are shifted by their filing lag before the correlator
+detects stacks and before the return window starts. We do not filter or
+weight stacks based on what happens after that anchor date.
 
 **v1 scope.** Raw returns only. SPY-adjusted abnormal returns require
 the SPY ingester (filed as B-102 alongside this work) and the
@@ -98,6 +98,7 @@ PRICE_LOAD_LOOKBACK_DAYS = 7
 # not knowable until the 13F filing lag has elapsed.
 SOURCE_AVAILABILITY_LAG_DAYS = {"crowding": 45}
 FORM4_AVAILABILITY_LAG_WEEKDAYS = 2
+FORM4_AVAILABILITY_QUERY_LOOKBACK_DAYS = 4
 
 
 @dataclass(frozen=True)
@@ -175,6 +176,57 @@ def _event_available_date(event: SignalEvent) -> date:
         return _add_weekdays(base_date, FORM4_AVAILABILITY_LAG_WEEKDAYS)
     lag_days = SOURCE_AVAILABILITY_LAG_DAYS.get(event.source, 0)
     return base_date + timedelta(days=lag_days)
+
+
+def _event_available_ts(event: SignalEvent) -> datetime:
+    return datetime.combine(_event_available_date(event), time(0, 0, tzinfo=timezone.utc))
+
+
+def _event_at_available_ts(event: SignalEvent) -> SignalEvent:
+    return SignalEvent(
+        event_id=event.event_id,
+        asset=event.asset,
+        asset_class=event.asset_class,
+        horizon=event.horizon,
+        ts=_event_available_ts(event),
+        source=event.source,
+        signal_kind=event.signal_kind,
+        direction=event.direction,
+        strength=event.strength,
+        payload=event.payload,
+        source_ref=event.source_ref,
+    )
+
+
+def _detect_available_stacks(
+    events: Sequence[SignalEvent], rules: Sequence[CorrelationRule]
+) -> list[Stack]:
+    adjusted_to_original: dict[int, SignalEvent] = {}
+    adjusted_events: list[SignalEvent] = []
+    for event in events:
+        adjusted = _event_at_available_ts(event)
+        adjusted_events.append(adjusted)
+        adjusted_to_original[id(adjusted)] = event
+
+    stacks = detect_stacks(adjusted_events, list(rules))
+    out: list[Stack] = []
+    for stack in stacks:
+        out.append(
+            Stack(
+                rule_name=stack.rule_name,
+                asset=stack.asset,
+                asset_class=stack.asset_class,
+                direction=stack.direction,
+                window_start=stack.window_start,
+                window_end=stack.window_end,
+                score=stack.score,
+                distinct_sources=stack.distinct_sources,
+                event_count=stack.event_count,
+                horizon=stack.horizon,
+                events=[adjusted_to_original[id(event)] for event in stack.events],
+            )
+        )
+    return out
 
 
 def _stack_return_anchor_date(stack: Stack) -> date:
@@ -440,6 +492,13 @@ def _required_rule_lookback_days(rules: Sequence[CorrelationRule]) -> int:
     return max((rule.window_days for rule in rules), default=0)
 
 
+def _required_availability_lookback_days() -> int:
+    return max(
+        [*SOURCE_AVAILABILITY_LAG_DAYS.values(), FORM4_AVAILABILITY_QUERY_LOOKBACK_DAYS],
+        default=0,
+    )
+
+
 def run_backtest(
     *,
     rule: str | None = None,
@@ -467,7 +526,11 @@ def run_backtest(
     if rule:
         rules = [r for r in rules if r.name == rule]
     query_since = (
-        since - timedelta(days=_required_rule_lookback_days(rules))
+        since
+        - timedelta(
+            days=_required_rule_lookback_days(rules)
+            + _required_availability_lookback_days()
+        )
         if since is not None
         else None
     )
@@ -476,7 +539,7 @@ def run_backtest(
         since=_date_to_dt(query_since),
         until=_date_to_dt(until, end_of_day=True),
     )
-    stacks = detect_stacks(events, rules)
+    stacks = _detect_available_stacks(events, rules)
     if since:
         since_dt = _date_to_dt(since)
         stacks = [s for s in stacks if since_dt is not None and s.window_end >= since_dt]
