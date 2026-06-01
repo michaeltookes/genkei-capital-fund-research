@@ -222,6 +222,11 @@ class ComputeBaselineTests(unittest.TestCase):
         self.assertGreaterEqual(b.n_baseline_samples, 142)
         self.assertLessEqual(b.n_baseline_samples, 144)
 
+    def test_non_positive_sample_step_rejected(self) -> None:
+        prices = _flat_price_series(start=date(2020, 1, 1), days=10)
+        with self.assertRaisesRegex(ValueError, "sample_step_days"):
+            compute_baseline("AAPL", prices, sample_step_days=0)
+
 
 class AggregateStackReturnsTests(unittest.TestCase):
     def test_empty_input_yields_zero_stack_stratum(self) -> None:
@@ -253,6 +258,7 @@ class AggregateStackReturnsTests(unittest.TestCase):
             windows=(("post_5d", 0, 5), ("post_30d", 0, 30)),
         )
         self.assertEqual(stats.n_stacks, 3)
+        self.assertEqual(stats.horizons, frozenset({EQUITY_CORE}))
         self.assertEqual(stats.n_evaluable["post_5d"], 3)
         self.assertEqual(stats.mean_pct["post_5d"], Decimal("3"))
         self.assertEqual(stats.median_pct["post_5d"], Decimal("3"))
@@ -426,21 +432,7 @@ class RunBacktestTests(unittest.TestCase):
         def fake_load(ticker: str, *, since: date, until: date) -> list[PricePoint]:
             return _linear_price_series(start=since, days=(until - since).days + 1)
 
-        with (
-            patch(
-                "genkei.experiments.stack_backtest.query_events",
-                return_value=events,
-            ),
-            patch(
-                "genkei.experiments.stack_backtest.load_price_series",
-                side_effect=fake_load,
-            ) as load_mock,
-        ):
-            stack_returns, baselines = run_backtest(rule="activist_position_take")
-
-        # The activist_position_take rule requires buy_cluster + crowding_jump;
-        # our synthetic events have crowding_add, not crowding_jump, so 0 stacks.
-        # Re-run with the rule that DOES match our events: smart_money_buy.
+        # Use the rule that matches our synthetic events (buy_cluster + crowding_add).
         with (
             patch(
                 "genkei.experiments.stack_backtest.query_events",
@@ -501,6 +493,77 @@ class RunBacktestTests(unittest.TestCase):
         ):
             stack_returns, _ = run_backtest(direction="bullish")
         self.assertEqual(stack_returns, [])
+
+    def test_since_query_includes_rule_lookback_then_filters_stack_end(self) -> None:
+        def insider(asset: str, ts: datetime) -> SignalEvent:
+            return _event(
+                asset=asset, ts=ts, source="insider_clusters", signal_kind="buy_cluster"
+            )
+
+        def crowding(asset: str, ts: datetime) -> SignalEvent:
+            return _event(
+                asset=asset, ts=ts, source="crowding", signal_kind="crowding_add"
+            )
+
+        events = [
+            insider("AAPL", _utc(2023, 12, 29)),
+            crowding("AAPL", _utc(2024, 1, 2)),
+        ]
+
+        def fake_load(ticker: str, *, since: date, until: date) -> list[PricePoint]:
+            return _linear_price_series(start=since, days=(until - since).days + 1)
+
+        with (
+            patch(
+                "genkei.experiments.stack_backtest.query_events",
+                return_value=events,
+            ) as query_mock,
+            patch(
+                "genkei.experiments.stack_backtest.load_price_series",
+                side_effect=fake_load,
+            ),
+        ):
+            stack_returns, _ = run_backtest(
+                rule="smart_money_buy",
+                since=date(2024, 1, 1),
+            )
+
+        self.assertEqual(query_mock.call_args.kwargs["since"], _utc(2023, 12, 25))
+        self.assertEqual(len(stack_returns), 1)
+        self.assertEqual(stack_returns[0].stack.window_end, _utc(2024, 1, 2))
+
+    def test_price_load_starts_before_first_stack_date(self) -> None:
+        events = [
+            _event(
+                asset="AAPL",
+                ts=_utc(2024, 1, 5),
+                source="insider_clusters",
+                signal_kind="buy_cluster",
+            ),
+            _event(
+                asset="AAPL",
+                ts=_utc(2024, 1, 6),
+                source="crowding",
+                signal_kind="crowding_add",
+            ),
+        ]
+
+        def fake_load(ticker: str, *, since: date, until: date) -> list[PricePoint]:
+            return _linear_price_series(start=since, days=(until - since).days + 1)
+
+        with (
+            patch(
+                "genkei.experiments.stack_backtest.query_events",
+                return_value=events,
+            ),
+            patch(
+                "genkei.experiments.stack_backtest.load_price_series",
+                side_effect=fake_load,
+            ) as load_mock,
+        ):
+            run_backtest(rule="smart_money_buy")
+
+        self.assertEqual(load_mock.call_args.kwargs["since"], date(2023, 12, 30))
 
 
 if __name__ == "__main__":

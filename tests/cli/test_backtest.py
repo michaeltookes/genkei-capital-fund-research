@@ -103,6 +103,7 @@ def _stratum(
     return StackStratumStats(
         stratum_key=key,
         n_stacks=n_stacks,
+        horizons=frozenset({EQUITY_CORE}),
         n_evaluable={label: n_eval.get(label, 0) for label in WINDOW_LABELS},
         mean_pct=_window_dict(mean),
         median_pct=_window_dict(median),
@@ -124,6 +125,7 @@ class StratumToDictTests(unittest.TestCase):
         )
         out = _stratum_to_dict(stats)
         self.assertEqual(out["stratum"], "smart_money_buy")
+        self.assertEqual(out["horizons"], [EQUITY_CORE])
         self.assertEqual(out["n_stacks"], 2)
         self.assertEqual(out["windows"]["post_5d"]["mean_pct"], Decimal("3.0"))
         self.assertEqual(out["windows"]["post_5d"]["mean_excess_pct"], Decimal("2.25"))
@@ -149,6 +151,7 @@ class FormatStratumTableTests(unittest.TestCase):
         out = _format_stratum_table([stats], "rule")
         self.assertIn("Backtest by rule", out)
         self.assertIn("broad_exit", out)
+        self.assertIn(EQUITY_CORE, out)
         self.assertIn("post_5d", out)
         self.assertIn("excess", out)
 

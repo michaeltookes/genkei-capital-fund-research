@@ -61,6 +61,7 @@ def _format_pct(value: Optional[Decimal], *, width: int = 7) -> str:
 def _stratum_to_dict(stats: StackStratumStats) -> dict[str, Any]:
     return {
         "stratum": stats.stratum_key,
+        "horizons": sorted(stats.horizons),
         "n_stacks": stats.n_stacks,
         "windows": {
             label: {
@@ -89,10 +90,14 @@ def _format_stratum_table(stats_list: list[StackStratumStats], stratum_label: st
     window_labels = [label for label, _, _ in STACK_WINDOWS]
     # One block per stratum, with one row per window. The flat row format
     # keeps things scannable when there are many strata.
-    col = "  {stratum:<22} {window:<10} {n_eval:>6} {mean:>7} {median:>7} {hit:>6} {excess:>7}"
+    col = (
+        "  {stratum:<22} {horizon:<14} {window:<10} {n_eval:>6} "
+        "{mean:>7} {median:>7} {hit:>6} {excess:>7}"
+    )
     lines.append(
         col.format(
             stratum="stratum",
+            horizon="horizon",
             window="window",
             n_eval="n_eval",
             mean="mean%",
@@ -102,10 +107,12 @@ def _format_stratum_table(stats_list: list[StackStratumStats], stratum_label: st
         )
     )
     for stats in stats_list:
+        horizon = ",".join(sorted(stats.horizons)) or "n/a"
         for label in window_labels:
             lines.append(
                 col.format(
                     stratum=f"{stats.stratum_key} (n={stats.n_stacks})",
+                    horizon=horizon,
                     window=label,
                     n_eval=stats.n_evaluable.get(label, 0),
                     mean=_format_pct(stats.mean_pct.get(label)),

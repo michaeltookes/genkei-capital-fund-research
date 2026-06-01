@@ -58,6 +58,7 @@ from genkei.experiments.eight_k_impact import (
 )
 from genkei.experiments.signal_rules import DEFAULT_RULES_PATH, load_rules
 from genkei.experiments.signal_store import (
+    CorrelationRule,
     Stack,
     detect_stacks,
     query_events,
@@ -88,6 +89,9 @@ BASELINE_SAMPLE_STEP_DAYS = 7
 # window's offset always resolves to a real trading day rather than
 # falling off the end of the loaded series.
 PRICE_LOAD_CUSHION_DAYS = 14
+# Pull a small lookback before the first stack date so weekend/holiday
+# stack endpoints can still resolve to the prior trading close.
+PRICE_LOAD_LOOKBACK_DAYS = 7
 
 
 @dataclass(frozen=True)
@@ -126,6 +130,7 @@ class StackStratumStats:
 
     stratum_key: str
     n_stacks: int
+    horizons: frozenset[str] = field(default_factory=frozenset)
     # Per-window stats — keys match the windows passed to ``aggregate_stack_returns``.
     n_evaluable: dict[str, int] = field(default_factory=dict)
     mean_pct: dict[str, Decimal | None] = field(default_factory=dict)
@@ -217,6 +222,8 @@ def compute_baseline(
     series — ``compute_windowed_returns`` returns ``None`` for those
     and the per-window mean drops them.
     """
+    if sample_step_days <= 0:
+        raise ValueError("sample_step_days must be > 0")
     if not prices:
         return BaselineStats(
             asset=asset,
@@ -315,6 +322,7 @@ def aggregate_stack_returns(
     return StackStratumStats(
         stratum_key=stratum_key,
         n_stacks=n,
+        horizons=frozenset(sorted(sr.stack.horizon for sr in stack_returns)),
         n_evaluable=n_evaluable,
         mean_pct=mean_pct,
         median_pct=median_pct,
@@ -396,6 +404,10 @@ def _required_forward_days(
     return max((max(hi, 0) for _, _, hi in windows), default=0) + PRICE_LOAD_CUSHION_DAYS
 
 
+def _required_rule_lookback_days(rules: Sequence[CorrelationRule]) -> int:
+    return max((rule.window_days for rule in rules), default=0)
+
+
 def run_backtest(
     *,
     rule: str | None = None,
@@ -419,15 +431,26 @@ def run_backtest(
     Returns ``(stack_returns, baselines)`` so the CLI can aggregate
     multiple stratifications without re-running the underlying queries.
     """
-    events = query_events(
-        asset=asset,
-        since=_date_to_dt(since),
-        until=_date_to_dt(until, end_of_day=True),
-    )
     rules = load_rules(rules_path)
     if rule:
         rules = [r for r in rules if r.name == rule]
+    query_since = (
+        since - timedelta(days=_required_rule_lookback_days(rules))
+        if since is not None
+        else None
+    )
+    events = query_events(
+        asset=asset,
+        since=_date_to_dt(query_since),
+        until=_date_to_dt(until, end_of_day=True),
+    )
     stacks = detect_stacks(events, rules)
+    if since:
+        since_dt = _date_to_dt(since)
+        stacks = [s for s in stacks if since_dt is not None and s.window_end >= since_dt]
+    if until:
+        until_dt = _date_to_dt(until, end_of_day=True)
+        stacks = [s for s in stacks if until_dt is not None and s.window_end <= until_dt]
     if direction:
         stacks = [s for s in stacks if s.direction == direction]
 
@@ -450,7 +473,7 @@ def run_backtest(
         last = max(_stack_event_date(s) for s in asset_stacks)
         prices = load_price_series(
             asset_name,
-            since=first,
+            since=first - timedelta(days=PRICE_LOAD_LOOKBACK_DAYS),
             until=last + timedelta(days=forward_days),
         )
         prices_by_asset[asset_name] = prices
