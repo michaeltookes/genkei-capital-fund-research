@@ -10,8 +10,9 @@ becomes one ``meta.signal_events`` row:
                       the correlator's asset-grouping needs a stable
                       identifier and we don't want to leak raw CIKs into
                       the events table)
-* ``ts``            = ``cluster.window_end`` (the cluster becomes
-                      actionable when the *last* reporter has filed)
+* ``ts``            = ``cluster.window_end`` (the last transaction date
+                      in the cluster; consumers that need a tradeable
+                      anchor should apply Form 4 filing availability)
 * ``source``        = ``"insider_clusters"``
 * ``signal_kind``   = ``"buy_cluster"`` or ``"sell_cluster"``
 * ``direction``     = ``"bullish"`` (buys) or ``"bearish"`` (sells)

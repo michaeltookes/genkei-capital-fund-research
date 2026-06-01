@@ -29,9 +29,10 @@ positive excess is the win; bearish: negative excess is the win).
 
 **No-lookahead guarantee.** Every forward return is computed from the
 stack's knowable date forward — never backward. Most emitters are knowable
-at their event timestamp, but delayed sources like 13F crowding are shifted
-by their filing lag before the return window starts. We do not filter or
-weight stacks based on what happens after that anchor date.
+at their event timestamp, but delayed sources like 13F crowding and Form 4
+insider clusters are shifted by their filing lag before the return window
+starts. We do not filter or weight stacks based on what happens after that
+anchor date.
 
 **v1 scope.** Raw returns only. SPY-adjusted abnormal returns require
 the SPY ingester (filed as B-102 alongside this work) and the
@@ -96,6 +97,7 @@ PRICE_LOAD_LOOKBACK_DAYS = 7
 # `crowding` events are timestamped at 13F period_of_report. The signal is
 # not knowable until the 13F filing lag has elapsed.
 SOURCE_AVAILABILITY_LAG_DAYS = {"crowding": 45}
+FORM4_AVAILABILITY_LAG_WEEKDAYS = 2
 
 
 @dataclass(frozen=True)
@@ -157,9 +159,22 @@ def _dt_to_utc_date(value: datetime) -> date:
     return value.astimezone(timezone.utc).date()
 
 
+def _add_weekdays(value: date, weekdays: int) -> date:
+    cursor = value
+    remaining = weekdays
+    while remaining > 0:
+        cursor += timedelta(days=1)
+        if cursor.weekday() < 5:
+            remaining -= 1
+    return cursor
+
+
 def _event_available_date(event: SignalEvent) -> date:
+    base_date = _dt_to_utc_date(event.ts)
+    if event.source == "insider_clusters":
+        return _add_weekdays(base_date, FORM4_AVAILABILITY_LAG_WEEKDAYS)
     lag_days = SOURCE_AVAILABILITY_LAG_DAYS.get(event.source, 0)
-    return _dt_to_utc_date(event.ts) + timedelta(days=lag_days)
+    return base_date + timedelta(days=lag_days)
 
 
 def _stack_return_anchor_date(stack: Stack) -> date:

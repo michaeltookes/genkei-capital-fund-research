@@ -55,7 +55,7 @@ Sampling: every 7 calendar days through the asset's loaded price history, comput
 
 ## No-lookahead guarantee
 
-Every forward return is computed from the stack's knowable date forward — never backward. Most emitters are knowable at their event timestamp; delayed sources are shifted to availability first (13F `crowding` uses `period_of_report + 45 days`, matching the emitter's maturity gate). The backtest does not filter or weight stacks based on what happens *after* that anchor date. The unit tests pin this explicitly: `compute_stack_returns` takes `prices_by_asset` and a stack and never starts the return window before a delayed component could have been known.
+Every forward return is computed from the stack's knowable date forward — never backward. Most emitters are knowable at their event timestamp; delayed sources are shifted to availability first (13F `crowding` uses `period_of_report + 45 days`, matching the emitter's maturity gate; `insider_clusters` uses the Form 4 two-weekday filing lag because emitted cluster events are timestamped at the transaction window end). The backtest does not filter or weight stacks based on what happens *after* that anchor date. The unit tests pin this explicitly: `compute_stack_returns` takes `prices_by_asset` and a stack and never starts the return window before a delayed component could have been known.
 
 ## Findings on the live 2003–2026 dataset
 

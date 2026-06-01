@@ -221,6 +221,34 @@ class ComputeStackReturnsTests(unittest.TestCase):
 
         self.assertEqual(out[0].windows["post_5d"], Decimal("10"))
 
+    def test_insider_cluster_stack_return_starts_after_form4_lag(self) -> None:
+        prices = [
+            PricePoint(ts=date(2024, 1, 5), adj_close=Decimal("100")),
+            PricePoint(ts=date(2024, 1, 9), adj_close=Decimal("100")),
+            PricePoint(ts=date(2024, 1, 10), adj_close=Decimal("200")),
+            PricePoint(ts=date(2024, 1, 14), adj_close=Decimal("110")),
+        ]
+        stack = _stack(
+            window_start=_utc(2024, 1, 5),
+            window_end=_utc(2024, 1, 5),
+            events=[
+                _event(
+                    asset="AAPL",
+                    ts=_utc(2024, 1, 5),
+                    source="insider_clusters",
+                    signal_kind="buy_cluster",
+                ),
+            ],
+        )
+
+        out = compute_stack_returns(
+            [stack],
+            {"AAPL": prices},
+            windows=(("post_5d", 0, 5),),
+        )
+
+        self.assertEqual(out[0].windows["post_5d"], Decimal("10"))
+
 
 class ComputeBaselineTests(unittest.TestCase):
     def test_empty_prices_yields_null_baseline(self) -> None:
