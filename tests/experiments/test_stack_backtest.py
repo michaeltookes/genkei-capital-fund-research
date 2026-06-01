@@ -667,5 +667,273 @@ class RunBacktestTests(unittest.TestCase):
         self.assertEqual(load_mock.call_args.kwargs["since"], date(2024, 2, 13))
 
 
+class BenchmarkAbnormalReturnTests(unittest.TestCase):
+    """B-102 — abnormal-return column when a benchmark is supplied."""
+
+    def test_compute_stack_returns_records_benchmark_windows(self) -> None:
+        # Asset rises faster than benchmark: per-stack `benchmark_windows`
+        # records the same-window benchmark return.
+        asset_prices = _linear_price_series(
+            start=date(2024, 1, 1), days=400, daily_step=Decimal("1")
+        )
+        # Benchmark: half the daily slope of the asset.
+        bench_prices = _linear_price_series(
+            start=date(2024, 1, 1), days=400, daily_step=Decimal("0.5")
+        )
+        stack = _stack(window_end=_utc(2024, 1, 15))
+        out = compute_stack_returns(
+            [stack],
+            {"AAPL": asset_prices},
+            benchmark_prices=bench_prices,
+        )
+        self.assertEqual(len(out), 1)
+        sr = out[0]
+        # Asset return is positive; benchmark return is positive but smaller.
+        for label in ("post_5d", "post_30d"):
+            asset_ret = sr.windows[label]
+            bench_ret = sr.benchmark_windows[label]
+            self.assertIsNotNone(asset_ret)
+            self.assertIsNotNone(bench_ret)
+            self.assertGreater(asset_ret, bench_ret)  # type: ignore[arg-type]
+
+    def test_no_benchmark_leaves_benchmark_windows_empty(self) -> None:
+        prices = _linear_price_series(start=date(2024, 1, 1), days=200)
+        stack = _stack(window_end=_utc(2024, 3, 1))
+        out = compute_stack_returns([stack], {"AAPL": prices})
+        self.assertEqual(out[0].benchmark_windows, {})
+
+    def test_aggregate_computes_abnormal_when_benchmark_present(self) -> None:
+        # Three stacks with stack_return = 5.0 and benchmark_return = 2.0.
+        # Per-stack abnormal = 3.0; mean = 3.0.
+        srs = [
+            StackReturns(
+                stack=_stack(asset="AAPL"),
+                windows={"post_5d": Decimal("5")},
+                benchmark_windows={"post_5d": Decimal("2")},
+            ),
+            StackReturns(
+                stack=_stack(asset="AAPL"),
+                windows={"post_5d": Decimal("5")},
+                benchmark_windows={"post_5d": Decimal("2")},
+            ),
+            StackReturns(
+                stack=_stack(asset="NVDA"),
+                windows={"post_5d": Decimal("5")},
+                benchmark_windows={"post_5d": Decimal("2")},
+            ),
+        ]
+        stats = aggregate_stack_returns(srs, {}, windows=(("post_5d", 0, 5),))
+        self.assertEqual(stats.mean_abnormal_pct["post_5d"], Decimal("3"))
+        self.assertEqual(stats.n_abnormal_evaluable["post_5d"], 3)
+
+    def test_aggregate_skips_stacks_missing_benchmark_window(self) -> None:
+        # Two stacks have benchmark window; one doesn't.
+        # Per-stack abnormal: (4-1)=3 and (6-3)=3. Third skipped.
+        # Mean = 3.
+        srs = [
+            StackReturns(
+                stack=_stack(asset="AAPL"),
+                windows={"post_5d": Decimal("4")},
+                benchmark_windows={"post_5d": Decimal("1")},
+            ),
+            StackReturns(
+                stack=_stack(asset="NVDA"),
+                windows={"post_5d": Decimal("6")},
+                benchmark_windows={"post_5d": Decimal("3")},
+            ),
+            StackReturns(
+                stack=_stack(asset="META"),
+                windows={"post_5d": Decimal("10")},
+                benchmark_windows={"post_5d": None},
+            ),
+        ]
+        stats = aggregate_stack_returns(srs, {}, windows=(("post_5d", 0, 5),))
+        self.assertEqual(stats.mean_abnormal_pct["post_5d"], Decimal("3"))
+        self.assertEqual(stats.n_abnormal_evaluable["post_5d"], 2)
+        # n_evaluable still reflects all three (asset returns all present).
+        self.assertEqual(stats.n_evaluable["post_5d"], 3)
+
+    def test_aggregate_yields_none_when_no_benchmark_supplied(self) -> None:
+        srs = [
+            StackReturns(
+                stack=_stack(asset="AAPL"),
+                windows={"post_5d": Decimal("5")},
+                # No benchmark_windows.
+            ),
+        ]
+        stats = aggregate_stack_returns(srs, {}, windows=(("post_5d", 0, 5),))
+        self.assertIsNone(stats.mean_abnormal_pct["post_5d"])
+        self.assertEqual(stats.n_abnormal_evaluable["post_5d"], 0)
+
+    def test_aggregate_records_abnormal_independently_per_window(self) -> None:
+        # post_5d has bench data; post_30d doesn't.
+        srs = [
+            StackReturns(
+                stack=_stack(asset="AAPL"),
+                windows={"post_5d": Decimal("4"), "post_30d": Decimal("8")},
+                benchmark_windows={"post_5d": Decimal("1"), "post_30d": None},
+            ),
+        ]
+        stats = aggregate_stack_returns(
+            srs, {}, windows=(("post_5d", 0, 5), ("post_30d", 0, 30))
+        )
+        self.assertEqual(stats.mean_abnormal_pct["post_5d"], Decimal("3"))
+        self.assertIsNone(stats.mean_abnormal_pct["post_30d"])
+        self.assertEqual(stats.n_abnormal_evaluable["post_5d"], 1)
+        self.assertEqual(stats.n_abnormal_evaluable["post_30d"], 0)
+
+    def test_run_backtest_loads_benchmark_when_ticker_given(self) -> None:
+        # Crowding fires ~45 days before insider so after the availability
+        # shift (+45d for crowding, +2 weekdays for insider) the two events
+        # land within the smart_money_buy rule's 7d window.
+        events = [
+            _event(
+                asset="AAPL",
+                ts=_utc(2024, 1, 1),
+                source="crowding",
+                signal_kind="crowding_add",
+            ),
+            _event(
+                asset="AAPL",
+                ts=_utc(2024, 2, 15),
+                source="insider_clusters",
+                signal_kind="buy_cluster",
+            ),
+        ]
+
+        def fake_load(ticker: str, *, since: date, until: date) -> list[PricePoint]:
+            return _linear_price_series(start=since, days=(until - since).days + 1)
+
+        with (
+            patch(
+                "genkei.experiments.stack_backtest.query_events",
+                return_value=events,
+            ),
+            patch(
+                "genkei.experiments.stack_backtest.load_price_series",
+                side_effect=fake_load,
+            ) as load_mock,
+        ):
+            stack_returns, _ = run_backtest(
+                rule="smart_money_buy", benchmark_ticker="SPY"
+            )
+
+        loaded = sorted({call.args[0] for call in load_mock.call_args_list})
+        # Loaded AAPL (the stack's asset) and SPY (the benchmark).
+        self.assertEqual(loaded, ["AAPL", "SPY"])
+        # Every stack has benchmark windows populated.
+        for sr in stack_returns:
+            self.assertTrue(sr.benchmark_windows)
+
+    def test_run_backtest_rejects_empty_benchmark_prices(self) -> None:
+        events = [
+            _event(
+                asset="AAPL",
+                ts=_utc(2024, 1, 1),
+                source="crowding",
+                signal_kind="crowding_add",
+            ),
+            _event(
+                asset="AAPL",
+                ts=_utc(2024, 2, 15),
+                source="insider_clusters",
+                signal_kind="buy_cluster",
+            ),
+        ]
+
+        def fake_load(ticker: str, *, since: date, until: date) -> list[PricePoint]:
+            if ticker == "SPY":
+                return []
+            return _linear_price_series(start=since, days=(until - since).days + 1)
+
+        with (
+            patch(
+                "genkei.experiments.stack_backtest.query_events",
+                return_value=events,
+            ),
+            patch(
+                "genkei.experiments.stack_backtest.load_price_series",
+                side_effect=fake_load,
+            ),
+            self.assertRaisesRegex(ValueError, "No benchmark prices"),
+        ):
+            run_backtest(rule="smart_money_buy", benchmark_ticker="SPY")
+
+    def test_run_backtest_rejects_unevaluable_benchmark_windows(self) -> None:
+        events = [
+            _event(
+                asset="AAPL",
+                ts=_utc(2024, 1, 1),
+                source="crowding",
+                signal_kind="crowding_add",
+            ),
+            _event(
+                asset="AAPL",
+                ts=_utc(2024, 2, 15),
+                source="insider_clusters",
+                signal_kind="buy_cluster",
+            ),
+        ]
+
+        def fake_load(ticker: str, *, since: date, until: date) -> list[PricePoint]:
+            if ticker == "SPY":
+                return [PricePoint(ts=since, adj_close=Decimal("100"))]
+            return _linear_price_series(start=since, days=(until - since).days + 1)
+
+        with (
+            patch(
+                "genkei.experiments.stack_backtest.query_events",
+                return_value=events,
+            ),
+            patch(
+                "genkei.experiments.stack_backtest.load_price_series",
+                side_effect=fake_load,
+            ),
+            self.assertRaisesRegex(ValueError, "No benchmark-adjusted returns"),
+        ):
+            run_backtest(rule="smart_money_buy", benchmark_ticker="SPY")
+
+    def test_run_backtest_skips_benchmark_load_when_no_ticker(self) -> None:
+        # Crowding fires ~45 days before insider so after the availability
+        # shift (+45d for crowding, +2 weekdays for insider) the two events
+        # land within the smart_money_buy rule's 7d window.
+        events = [
+            _event(
+                asset="AAPL",
+                ts=_utc(2024, 1, 1),
+                source="crowding",
+                signal_kind="crowding_add",
+            ),
+            _event(
+                asset="AAPL",
+                ts=_utc(2024, 2, 15),
+                source="insider_clusters",
+                signal_kind="buy_cluster",
+            ),
+        ]
+
+        def fake_load(ticker: str, *, since: date, until: date) -> list[PricePoint]:
+            return _linear_price_series(start=since, days=(until - since).days + 1)
+
+        with (
+            patch(
+                "genkei.experiments.stack_backtest.query_events",
+                return_value=events,
+            ),
+            patch(
+                "genkei.experiments.stack_backtest.load_price_series",
+                side_effect=fake_load,
+            ) as load_mock,
+        ):
+            stack_returns, _ = run_backtest(rule="smart_money_buy")
+
+        loaded = sorted({call.args[0] for call in load_mock.call_args_list})
+        # AAPL only — no SPY load.
+        self.assertEqual(loaded, ["AAPL"])
+        # benchmark_windows empty when no benchmark passed.
+        for sr in stack_returns:
+            self.assertEqual(sr.benchmark_windows, {})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -89,12 +89,22 @@ class EquityTarget:
 
 
 def load_equities(path: Path) -> list[EquityTarget]:
-    """Read ``equities:`` from watchlists.yml.
+    """Read ``equities:`` + ``benchmarks:`` from watchlists.yml.
+
+    Both sections are equity-shaped from Yahoo's perspective (same chart
+    endpoint, same blob shape, same ``yahoo.candles`` storage). Listing
+    them in separate watchlist sections keeps the *semantic* distinction
+    (research target vs benchmark) without complicating the ingester:
+    benchmarks won't show up in `find_equity` so equity-targeted
+    analyses (insider clusters, 8-K events, crowding) ignore them, but
+    `genkei prices --ticker SPY` and the B-101 stack-outcome backtest's
+    abnormal-return column both work as soon as the bars land.
 
     Yahoo accepts the watchlist's bare ticker as-is for every US-listed
-    equity we care about today. If a future ticker needs a Yahoo-
-    specific suffix (BRK-B, BHP.AX, etc.) the watchlist can grow a
-    ``yahoo_ticker`` field — out of scope for v1.
+    equity we care about today (including the benchmark ETFs SPY / QQQ /
+    IWM). If a future ticker needs a Yahoo-specific suffix (BRK-B,
+    BHP.AX, etc.) the watchlist can grow a ``yahoo_ticker`` field —
+    out of scope for v1.
     """
     try:
         watchlist = load_watchlist(path)
@@ -105,16 +115,26 @@ def load_equities(path: Path) -> list[EquityTarget]:
     out: list[EquityTarget] = []
     seen: set[str] = set()
     for entry in watchlist.equities:
-        if entry.symbol in seen:
+        symbol_key = entry.symbol.upper()
+        if symbol_key in seen:
             # GOOG / GOOGL are both Alphabet (one share class each) —
             # different Yahoo tickers, so this only catches truly
             # duplicated entries (which would be a watchlist bug).
             raise SystemExit(f"Duplicate equity symbol in watchlist: {entry.symbol}")
-        seen.add(entry.symbol)
+        seen.add(symbol_key)
         out.append(EquityTarget(ticker=entry.symbol))
+    for benchmark in watchlist.benchmarks:
+        symbol_key = benchmark.symbol.upper()
+        if symbol_key in seen:
+            raise SystemExit(
+                f"Benchmark symbol {benchmark.symbol!r} collides with an equity in the watchlist."
+            )
+        seen.add(symbol_key)
+        out.append(EquityTarget(ticker=benchmark.symbol))
     if not out:
         raise SystemExit(
-            "No equity entries in the watchlist; the Yahoo collector has nothing to do."
+            "No equity or benchmark entries in the watchlist; "
+            "the Yahoo collector has nothing to do."
         )
     return out
 

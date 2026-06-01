@@ -34,6 +34,7 @@ import typer
 
 from genkei.cli._helpers import json_default as _json_default
 from genkei.cli._helpers import parse_date as _parse_date
+from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist
 from genkei.experiments.signal_rules import DEFAULT_RULES_PATH
 from genkei.experiments.signal_store import DIRECTIONS
 from genkei.experiments.stack_backtest import (
@@ -70,57 +71,85 @@ def _stratum_to_dict(stats: StackStratumStats) -> dict[str, Any]:
                 "median_pct": stats.median_pct.get(label),
                 "hit_rate_pct": stats.hit_rate_pct.get(label),
                 "mean_excess_pct": stats.mean_excess_pct.get(label),
+                "mean_abnormal_pct": stats.mean_abnormal_pct.get(label),
+                "n_abnormal_evaluable": stats.n_abnormal_evaluable.get(label, 0),
             }
             for label, _, _ in STACK_WINDOWS
         },
     }
 
 
-def _format_stratum_table(stats_list: list[StackStratumStats], stratum_label: str) -> str:
+def _has_abnormal(stats_list: list[StackStratumStats]) -> bool:
+    """True when any stratum recorded benchmark-adjusted abnormal returns."""
+    return any(
+        any(value is not None for value in stats.mean_abnormal_pct.values())
+        for stats in stats_list
+    )
+
+
+def _format_stratum_table(
+    stats_list: list[StackStratumStats],
+    stratum_label: str,
+    *,
+    benchmark_ticker: Optional[str] = None,
+) -> str:
     if not stats_list:
         return (
             "No stacks matched the filters. Try widening --since, removing --rule, "
             "or running `genkei signals --top 50` to confirm stacks exist at all."
         )
+    show_abnormal = _has_abnormal(stats_list)
     header = (
         f"Backtest by {stratum_label} "
         f"({sum(s.n_stacks for s in stats_list)} stacks across {len(stats_list)} strata)"
     )
+    if show_abnormal and benchmark_ticker:
+        header += f" — benchmark={benchmark_ticker}"
     lines = [header, "-" * len(header)]
     window_labels = [label for label, _, _ in STACK_WINDOWS]
     # One block per stratum, with one row per window. The flat row format
     # keeps things scannable when there are many strata.
-    col = (
-        "  {stratum:<22} {horizon:<14} {window:<10} {n_eval:>6} "
-        "{mean:>7} {median:>7} {hit:>6} {excess:>7}"
-    )
-    lines.append(
-        col.format(
-            stratum="stratum",
-            horizon="horizon",
-            window="window",
-            n_eval="n_eval",
-            mean="mean%",
-            median="med%",
-            hit="hit%",
-            excess="excess",
+    if show_abnormal:
+        col = (
+            "  {stratum:<22} {horizon:<14} {window:<10} {n_eval:>6} "
+            "{mean:>7} {median:>7} {hit:>6} {excess:>7} {abnormal:>9}"
         )
-    )
+    else:
+        col = (
+            "  {stratum:<22} {horizon:<14} {window:<10} {n_eval:>6} "
+            "{mean:>7} {median:>7} {hit:>6} {excess:>7}"
+        )
+    header_fields = {
+        "stratum": "stratum",
+        "horizon": "horizon",
+        "window": "window",
+        "n_eval": "n_eval",
+        "mean": "mean%",
+        "median": "med%",
+        "hit": "hit%",
+        "excess": "excess",
+    }
+    if show_abnormal:
+        header_fields["abnormal"] = "abnormal"
+    lines.append(col.format(**header_fields))
     for stats in stats_list:
         horizon = ",".join(sorted(stats.horizons)) or "n/a"
         for label in window_labels:
-            lines.append(
-                col.format(
-                    stratum=f"{stats.stratum_key} (n={stats.n_stacks})",
-                    horizon=horizon,
-                    window=label,
-                    n_eval=stats.n_evaluable.get(label, 0),
-                    mean=_format_pct(stats.mean_pct.get(label)),
-                    median=_format_pct(stats.median_pct.get(label)),
-                    hit=_format_pct(stats.hit_rate_pct.get(label), width=6),
-                    excess=_format_pct(stats.mean_excess_pct.get(label)),
+            row_fields = {
+                "stratum": f"{stats.stratum_key} (n={stats.n_stacks})",
+                "horizon": horizon,
+                "window": label,
+                "n_eval": stats.n_evaluable.get(label, 0),
+                "mean": _format_pct(stats.mean_pct.get(label)),
+                "median": _format_pct(stats.median_pct.get(label)),
+                "hit": _format_pct(stats.hit_rate_pct.get(label), width=6),
+                "excess": _format_pct(stats.mean_excess_pct.get(label)),
+            }
+            if show_abnormal:
+                row_fields["abnormal"] = _format_pct(
+                    stats.mean_abnormal_pct.get(label), width=9
                 )
-            )
+            lines.append(col.format(**row_fields))
         lines.append("")
     lines.append(
         "  mean%/med%/hit%   = stack-only forward-return distribution per window"
@@ -132,7 +161,35 @@ def _format_stratum_table(stats_list: list[StackStratumStats], stratum_label: st
         "                     positive = stacks beat baseline upward "
         "(bullish rule: good; bearish rule: bad)"
     )
+    if show_abnormal:
+        bench_label = benchmark_ticker or "benchmark"
+        lines.append(
+            f"  abnormal         = mean(stack_return - {bench_label}_return) over same window (pp)"
+        )
+        lines.append(
+            "                     positive = stack beat the benchmark in-window "
+            "(bullish: good; bearish: bad)"
+        )
     return "\n".join(lines)
+
+
+def _resolve_benchmark_ticker(raw: Optional[str], config: Path) -> Optional[str]:
+    """Validate ``--benchmark`` against the benchmark watchlist."""
+    if raw is None:
+        return None
+    try:
+        watchlist = load_watchlist(config)
+    except FileNotFoundError as exc:
+        raise typer.BadParameter(f"Watchlist file not found: {config}") from exc
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+    entry = watchlist.find_benchmark(raw)
+    if entry is None:
+        raise typer.BadParameter(
+            f"Benchmark {raw!r} not found in watchlists.yml::benchmarks."
+        )
+    return entry.symbol.upper()
 
 
 def backtest_cmd(
@@ -163,6 +220,17 @@ def backtest_cmd(
         Optional[str],
         typer.Option("--until", help="Latest stack window_end date (YYYY-MM-DD)."),
     ] = None,
+    benchmark: Annotated[
+        Optional[str],
+        typer.Option(
+            "--benchmark",
+            help=(
+                "Benchmark ticker for abnormal-return column "
+                "(e.g. SPY). Must be in watchlists.yml::benchmarks "
+                "and have rows in yahoo.candles."
+            ),
+        ),
+    ] = None,
     json_out: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable JSON."),
@@ -175,6 +243,10 @@ def backtest_cmd(
             show_default=True,
         ),
     ] = DEFAULT_RULES_PATH,
+    config: Annotated[
+        Path,
+        typer.Option("--config", help="Watchlist path.", show_default=True),
+    ] = DEFAULT_WATCHLIST_PATH,
 ) -> None:
     """Backtest historical signal stacks against forward returns (B-101)."""
     if by not in STRATIFICATIONS:
@@ -190,6 +262,7 @@ def backtest_cmd(
     if since_d is not None and until_d is not None and since_d > until_d:
         raise typer.BadParameter("--since must be on or before --until.")
 
+    benchmark_ticker = _resolve_benchmark_ticker(benchmark, config)
     try:
         stack_returns, baselines = run_backtest(
             rule=rule,
@@ -197,6 +270,7 @@ def backtest_cmd(
             asset=asset,
             since=since_d,
             until=until_d,
+            benchmark_ticker=benchmark_ticker,
             rules_path=rules_path,
         )
     except ValueError as exc:
@@ -213,7 +287,13 @@ def backtest_cmd(
             )
         )
     else:
-        typer.echo(_format_stratum_table(stats_list, stratum_label=by))
+        typer.echo(
+            _format_stratum_table(
+                stats_list,
+                stratum_label=by,
+                benchmark_ticker=benchmark_ticker,
+            )
+        )
 
 
 __all__ = ["backtest_cmd"]

@@ -244,37 +244,44 @@ def prices_cmd(
 
     crypto = watchlist.find_crypto(ticker)
     equity = watchlist.find_equity(ticker)
-    if crypto is None and equity is None:
+    benchmark = watchlist.find_benchmark(ticker)
+    # Benchmarks share Yahoo storage with equities — treat them as
+    # equity-shaped for routing purposes (B-102).
+    yahoo_target = equity is not None or benchmark is not None
+    if crypto is None and not yahoo_target:
         typer.echo(
-            f"Ticker {ticker!r} not found in {config}. Add it under crypto or equities first.",
+            f"Ticker {ticker!r} not found in {config}. "
+            "Add it under crypto, equities, or benchmarks first.",
             err=True,
         )
         raise typer.Exit(code=2)
 
-    # Default-source-by-asset-class: crypto → coingecko, equity → yahoo.
+    # Default-source-by-asset-class: crypto → coingecko, equity/benchmark → yahoo.
     if not source:
-        if crypto is not None and equity is not None:
+        if crypto is not None and yahoo_target:
             typer.echo(
-                f"Ticker {ticker!r} appears under both crypto and equities in {config}. "
-                "Pass --source coingecko, --source coinbase, or --source yahoo.",
+                f"Ticker {ticker!r} appears under both crypto and equities/benchmarks "
+                f"in {config}. Pass --source coingecko, --source coinbase, "
+                "or --source yahoo.",
                 err=True,
             )
             raise typer.Exit(code=2)
-        source = "yahoo" if equity is not None else "coingecko"
+        source = "yahoo" if yahoo_target else "coingecko"
 
     # Reject source/asset-class mismatches loudly. The previous "equity
     # has no prices yet" message rotted with B-092; replace with
     # actionable routing errors.
     if crypto is None and source != "yahoo":
+        kind = "benchmark" if benchmark is not None else "equity"
         typer.echo(
-            f"{ticker} is an equity; equity prices live in `yahoo.candles` "
+            f"{ticker} is a {kind}; {kind} prices live in `yahoo.candles` "
             "(B-092). Use --source yahoo (or omit --source).",
             err=True,
         )
         raise typer.Exit(code=2)
-    if equity is None and source == "yahoo":
+    if not yahoo_target and source == "yahoo":
         typer.echo(
-            f"{ticker} is crypto; Yahoo carries equity prices only. "
+            f"{ticker} is crypto; Yahoo carries equity and benchmark prices only. "
             "Use --source coingecko (default) or --source coinbase.",
             err=True,
         )
@@ -298,9 +305,10 @@ def prices_cmd(
             crypto.coinbase_product, since=since_d, until=until_d, limit=limit
         )
     else:  # source == "yahoo"
-        assert equity is not None
+        # Yahoo serves both watchlist equities and benchmarks (B-102).
+        yahoo_symbol = equity.symbol if equity is not None else benchmark.symbol  # type: ignore[union-attr]
         rows = _query_yahoo_candles(
-            equity.symbol, since=since_d, until=until_d, limit=limit
+            yahoo_symbol, since=since_d, until=until_d, limit=limit
         )
 
     if json_out:

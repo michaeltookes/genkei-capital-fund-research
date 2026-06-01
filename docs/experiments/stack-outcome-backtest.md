@@ -119,25 +119,84 @@ The single bullish stack the engine has ever fired completely failed. MSTR fell 
 
 The rules captured the *direction* of the eventual move incorrectly on the bullish side but extraordinarily well on the bearish side. **The engine is sensitive to whatever was driving MSTR — both rule directions detected something real; only the bearish direction had it right.** That's an unusual quality to surface mechanically.
 
+## v2: SPY-adjusted abnormal returns (B-102)
+
+The v1 above used a **per-asset random-day baseline**: each stack is compared to its own ticker's long-run mean. That captures "did this name underperform itself?" but doesn't separate stack-driven alpha from broad-market drift in the same window — if 2024–2025's equity rally lifted everything, a "−7pp excess" on a watchlist name could still mean that name beat SPY in absolute terms.
+
+B-102 added a SPY ingester (also QQQ and IWM) into `yahoo.candles` and a new `--benchmark` flag that loads the benchmark's price series once at orchestrator time and produces a per-stack same-window benchmark return. The aggregator then surfaces `mean_abnormal_pct = mean(stack_return − benchmark_return)` alongside the existing `mean_excess_pct`. Both columns are honest framings of *different questions*; B-102 emits both rather than picking one.
+
+### The two columns answer different questions
+
+| Column | What it asks | "Win" sign for bullish rule | "Win" sign for bearish rule |
+|---|---|---|---|
+| `excess`   | Did the stack-firing asset under/over-perform *its own* random-day mean? | positive | negative |
+| `abnormal` | Did the stack-firing asset under/over-perform *the broad market* (SPY) in the same window? | positive | negative |
+
+### Live findings with the abnormal column
+
+Re-running the backtest with `genkei backtest --benchmark SPY` against the same 426 stacks **reverses the bearish-rule narrative** on `excess`:
+
+```text
+broad_exit (n=115)               excess   abnormal
+  post_180d                       -3.95     +6.63
+  post_365d                       -7.60    +15.59
+deterioration_stack (n=310)      excess   abnormal
+  post_180d                       -2.06     +7.44
+  post_365d                       -4.67    +18.52
+```
+
+The bearish rules **did** identify names that underperformed their own history at 6–12 months (the −3 to −8pp `excess` numbers). But during those same windows, **the broad equity market was on a tear** — driven by the 2024–2025 AI rally, post-election runup, and large-cap mega-cycle. The bearish-stack assets still finished those years substantially *ahead of SPY* (+6 to +18pp `abnormal`). They underperformed their own typical-year returns, but they outperformed the market.
+
+**This completely reframes the operational read of the bearish rules:**
+
+- The signal is **NOT** "go short" or "exit." Forward returns are net positive vs the market.
+- The signal **IS** "expect a softer year for this name than its history would suggest." For an equity-core sleeve that's a *rebalancing* signal — trim toward index, not exit.
+- For a tactical sleeve, it's a "don't add aggressively here" signal — not an outright sell.
+
+### MSTR is the one asset where both columns agree
+
+```text
+MSTR (n=7)              window     excess    abnormal
+                        post_180d  -55.98    -38.85
+                        post_365d  -69.24    -26.71
+```
+
+Every other asset shows `abnormal` and `excess` diverging in direction or magnitude. MSTR is the only watchlist name where the bearish stacks identified absolute, market-relative underperformance — both vs its own history AND vs SPY. The 2025 Bitcoin-treasury crisis was severe enough that no equity-rally drift could mask it. That's the rare case where the engine produced an *actionable short / exit* signal rather than a *rebalance* signal.
+
+### CRM stays confirmed as anti-signal
+
+```text
+CRM (n=92)              window     excess    abnormal
+                        post_365d   -0.20    +12.68
+```
+
+The per-asset baseline already showed CRM's 93 bearish stacks were near-zero excess at 12mo. The SPY-adjusted column shows CRM stacks were *positively* abnormal (+12.68 pp vs SPY) — these "deterioration" signals on CRM were actually firing during periods when CRM was outperforming the market. The CRM bearish rule isn't just noise; it's *contra*-predictive there. Per-asset rule weighting (or a CRM-specific blocklist) is the natural follow-up.
+
+### The reframing also rescues the `smart_money_buy` single point
+
+The MSTR `smart_money_buy` from B-101's v1 stays catastrophic on both columns (−69pp at 6mo abnormal, −77pp excess) but the gap between them — about 8pp — quantifies how much of that loss was MSTR-specific vs market-wide. Still useless from N=1, but the framing tells future analysis "when this rule fires next, ask both questions."
+
 ## CLI
 
 ```bash
-genkei backtest                                # by rule (default)
+genkei backtest                                # by rule (default), no benchmark column
 genkei backtest --by direction                 # bullish vs bearish aggregate
 genkei backtest --by asset                     # per-ticker breakdown
 genkei backtest --rule broad_exit              # one rule
 genkei backtest --asset MSTR                   # one asset
 genkei backtest --since 2020-01-01 --json      # machine output
+genkei backtest --benchmark SPY                # add abnormal column (B-102)
+genkei backtest --benchmark QQQ --by asset     # tech-tilted benchmark
 ```
 
-The default cut is `--by rule`. Add `--asset X` to drill into a single ticker. JSON output preserves Decimal precision via `_json_default`.
+The default cut is `--by rule`. Add `--benchmark SPY` for the abnormal column (only renders when the benchmark series covers at least one stack window). JSON output preserves Decimal precision via `_json_default` and includes both `mean_abnormal_pct` and `n_abnormal_evaluable`.
 
-## What B-101 deliberately does NOT cover
+## What this experiment deliberately does NOT cover
 
-- **SPY-adjusted abnormal returns.** v1 reports raw returns. Benchmark adjustment requires ingesting SPY first (filed as a follow-up backlog item) and the adjustment logic from B-100. v1's per-asset random-day baseline captures most of what benchmark adjustment would, just per-asset instead of per-market.
-- **Crypto-side stacks.** No crypto-side correlation rules exist today (B-095–B-098 will add the crypto emitters). When they land, the backtest will need to use `coinbase.candles` / `coingecko.market_data` for crypto assets; the orchestrator is structured to make that drop-in.
+- **Crypto-side stacks.** No crypto-side correlation rules exist today (B-095–B-098 will add the crypto emitters). When they land, the backtest will need to use `coinbase.candles` / `coingecko.market_data` for crypto assets and a crypto-side benchmark (BTC); the orchestrator is structured to make that drop-in. B-102 explicitly defers the BTC benchmark for that reason.
 - **Per-rule horizon tuning.** All rules use the same `STACK_WINDOWS` set. Future v2: each rule has its own "natural" forward-return horizon — `broad_exit` clearly lives at 6–12mo, `smart_money_buy`'s realized horizon is unknown for n=1.
-- **Statistical significance tests.** Mean / hit-rate / excess are reported as point estimates without confidence intervals. With 113+ stacks for the bearish rules the asymptotic numbers are informative enough; revisit when a rule needs a "is this real or noise?" verdict.
+- **Statistical significance tests.** Mean / hit-rate / excess / abnormal are reported as point estimates without confidence intervals. With 115+ stacks for the bearish rules the asymptotic numbers are informative enough; revisit when a rule needs a "is this real or noise?" verdict.
+- **Sector-relative benchmark.** SPY is the broad-market comparator. A "tech-only" portfolio comparator (e.g. AAPL stacks vs QQQ) would be more informative for the watchlist's tech-heavy core. `--benchmark QQQ` already works mechanically for that; per-rule auto-selection is a future tweak.
 
 ## References
 
@@ -147,3 +206,5 @@ The default cut is `--by rule`. Add `--asset X` to drill into a single ticker. J
 - `tests/cli/test_backtest.py` — CLI rendering + validation tests.
 - `src/genkei/experiments/eight_k_impact.py` — source of the reusable `compute_windowed_returns` / `load_price_series` / `PricePoint`.
 - `docs/experiments/cross-source-signals.md` — the engine being measured.
+- `src/genkei/ingest/yahoo.py` — Yahoo OHLCV collector; B-102 extended it to also fetch the benchmark tickers declared under `watchlists.yml::benchmarks`.
+- `src/genkei/common/watchlist.py` — `BenchmarkEntry` + `find_benchmark`; B-102 added the benchmarks parser block.

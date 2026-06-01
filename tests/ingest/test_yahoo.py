@@ -75,6 +75,24 @@ class LoadEquitiesTests(unittest.TestCase):
                 load_equities(path)
             self.assertIn("Duplicate equity symbol", str(cm.exception))
 
+    def test_rejects_case_insensitive_equity_benchmark_collision(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(
+                "equities:\n"
+                "  primary:\n"
+                "    - symbol: SPY\n"
+                "      name: SPY Equity Placeholder\n"
+                '      cik: "0000000000"\n'
+                "benchmarks:\n"
+                "  - symbol: spy\n"
+                "    name: SPDR S&P 500 ETF Trust\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(SystemExit) as cm:
+                load_equities(path)
+            self.assertIn("collides with an equity", str(cm.exception))
+
 
 class BuildChartUrlTests(unittest.TestCase):
     def test_url_shape(self) -> None:
