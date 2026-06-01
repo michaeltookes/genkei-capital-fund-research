@@ -27,11 +27,11 @@ means the stack outperformed the asset's random-day average. The
 reader interprets the *sign* against the rule's direction (bullish:
 positive excess is the win; bearish: negative excess is the win).
 
-**No-lookahead guarantee.** Every forward return is computed from
-``stack.window_end`` forward — never backward. The stack's own events
-all have ``ts <= stack.window_end`` by construction (the correlator
-greedily scans chronologically). We do not filter or weight stacks
-based on what happens after their window_end.
+**No-lookahead guarantee.** Every forward return is computed from the
+stack's knowable date forward — never backward. Most emitters are knowable
+at their event timestamp, but delayed sources like 13F crowding are shifted
+by their filing lag before the return window starts. We do not filter or
+weight stacks based on what happens after that anchor date.
 
 **v1 scope.** Raw returns only. SPY-adjusted abnormal returns require
 the SPY ingester (filed as B-102 alongside this work) and the
@@ -59,6 +59,7 @@ from genkei.experiments.eight_k_impact import (
 from genkei.experiments.signal_rules import DEFAULT_RULES_PATH, load_rules
 from genkei.experiments.signal_store import (
     CorrelationRule,
+    SignalEvent,
     Stack,
     detect_stacks,
     query_events,
@@ -92,6 +93,9 @@ PRICE_LOAD_CUSHION_DAYS = 14
 # Pull a small lookback before the first stack date so weekend/holiday
 # stack endpoints can still resolve to the prior trading close.
 PRICE_LOAD_LOOKBACK_DAYS = 7
+# `crowding` events are timestamped at 13F period_of_report. The signal is
+# not knowable until the 13F filing lag has elapsed.
+SOURCE_AVAILABILITY_LAG_DAYS = {"crowding": 45}
 
 
 @dataclass(frozen=True)
@@ -147,9 +151,22 @@ class StackStratumStats:
 # ---------------------------------------------------------------------------
 
 
-def _stack_event_date(stack: Stack) -> date:
-    """Convert a stack's window_end (UTC datetime) to a date for price lookup."""
-    return stack.window_end.date()
+def _dt_to_utc_date(value: datetime) -> date:
+    if value.tzinfo is None:
+        return value.date()
+    return value.astimezone(timezone.utc).date()
+
+
+def _event_available_date(event: SignalEvent) -> date:
+    lag_days = SOURCE_AVAILABILITY_LAG_DAYS.get(event.source, 0)
+    return _dt_to_utc_date(event.ts) + timedelta(days=lag_days)
+
+
+def _stack_return_anchor_date(stack: Stack) -> date:
+    """Date from which a stack's forward return could be known and traded."""
+    if not stack.events:
+        return _dt_to_utc_date(stack.window_end)
+    return max(_event_available_date(event) for event in stack.events)
 
 
 def _mean(values: Sequence[Decimal]) -> Decimal | None:
@@ -199,7 +216,7 @@ def compute_stack_returns(
     for stack in stacks:
         prices = prices_by_asset.get(stack.asset, [])
         windows_dict = compute_windowed_returns(
-            prices, event_date=_stack_event_date(stack), windows=windows
+            prices, event_date=_stack_return_anchor_date(stack), windows=windows
         )
         out.append(StackReturns(stack=stack, windows=windows_dict))
     return out
@@ -459,7 +476,7 @@ def run_backtest(
 
     # Load each asset's price series once and share it between the
     # stack-returns pass and the baseline pass — the two passes use
-    # different event dates (stack window_ends vs sampled dates) but
+    # different event dates (stack return anchors vs sampled dates) but
     # the same underlying ticker data.
     forward_days = _required_forward_days(windows)
     by_asset: dict[str, list[Stack]] = defaultdict(list)
@@ -469,8 +486,8 @@ def run_backtest(
     prices_by_asset: dict[str, list[PricePoint]] = {}
     baselines: dict[str, BaselineStats] = {}
     for asset_name, asset_stacks in by_asset.items():
-        first = min(_stack_event_date(s) for s in asset_stacks)
-        last = max(_stack_event_date(s) for s in asset_stacks)
+        first = min(_stack_return_anchor_date(s) for s in asset_stacks)
+        last = max(_stack_return_anchor_date(s) for s in asset_stacks)
         prices = load_price_series(
             asset_name,
             since=first - timedelta(days=PRICE_LOAD_LOOKBACK_DAYS),

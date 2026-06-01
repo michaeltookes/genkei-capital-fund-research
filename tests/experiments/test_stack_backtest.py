@@ -74,6 +74,7 @@ def _stack(
     score: Decimal = Decimal("1.5"),
     distinct_sources: int = 2,
     event_count: int = 2,
+    events: list[SignalEvent] | None = None,
 ) -> Stack:
     return Stack(
         rule_name=rule_name,
@@ -86,7 +87,7 @@ def _stack(
         distinct_sources=distinct_sources,
         event_count=event_count,
         horizon=EQUITY_CORE,
-        events=[],
+        events=events or [],
     )
 
 
@@ -185,6 +186,40 @@ class ComputeStackReturnsTests(unittest.TestCase):
 
     def test_empty_stack_list_yields_empty_result(self) -> None:
         self.assertEqual(compute_stack_returns([], {}), [])
+
+    def test_crowding_stack_return_starts_after_13f_lag(self) -> None:
+        prices = [
+            PricePoint(ts=date(2024, 3, 31), adj_close=Decimal("100")),
+            PricePoint(ts=date(2024, 4, 5), adj_close=Decimal("200")),
+            PricePoint(ts=date(2024, 5, 15), adj_close=Decimal("100")),
+            PricePoint(ts=date(2024, 5, 20), adj_close=Decimal("110")),
+        ]
+        stack = _stack(
+            window_start=_utc(2024, 3, 30),
+            window_end=_utc(2024, 3, 31),
+            events=[
+                _event(
+                    asset="AAPL",
+                    ts=_utc(2024, 3, 30),
+                    source="insider_clusters",
+                    signal_kind="buy_cluster",
+                ),
+                _event(
+                    asset="AAPL",
+                    ts=_utc(2024, 3, 31),
+                    source="crowding",
+                    signal_kind="crowding_add",
+                ),
+            ],
+        )
+
+        out = compute_stack_returns(
+            [stack],
+            {"AAPL": prices},
+            windows=(("post_5d", 0, 5),),
+        )
+
+        self.assertEqual(out[0].windows["post_5d"], Decimal("10"))
 
 
 class ComputeBaselineTests(unittest.TestCase):
@@ -532,7 +567,7 @@ class RunBacktestTests(unittest.TestCase):
         self.assertEqual(len(stack_returns), 1)
         self.assertEqual(stack_returns[0].stack.window_end, _utc(2024, 1, 2))
 
-    def test_price_load_starts_before_first_stack_date(self) -> None:
+    def test_price_load_starts_before_return_anchor_date(self) -> None:
         events = [
             _event(
                 asset="AAPL",
@@ -563,7 +598,7 @@ class RunBacktestTests(unittest.TestCase):
         ):
             run_backtest(rule="smart_money_buy")
 
-        self.assertEqual(load_mock.call_args.kwargs["since"], date(2023, 12, 30))
+        self.assertEqual(load_mock.call_args.kwargs["since"], date(2024, 2, 13))
 
 
 if __name__ == "__main__":
