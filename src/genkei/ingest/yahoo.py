@@ -115,19 +115,21 @@ def load_equities(path: Path) -> list[EquityTarget]:
     out: list[EquityTarget] = []
     seen: set[str] = set()
     for entry in watchlist.equities:
-        if entry.symbol in seen:
+        symbol_key = entry.symbol.upper()
+        if symbol_key in seen:
             # GOOG / GOOGL are both Alphabet (one share class each) —
             # different Yahoo tickers, so this only catches truly
             # duplicated entries (which would be a watchlist bug).
             raise SystemExit(f"Duplicate equity symbol in watchlist: {entry.symbol}")
-        seen.add(entry.symbol)
+        seen.add(symbol_key)
         out.append(EquityTarget(ticker=entry.symbol))
     for benchmark in watchlist.benchmarks:
-        if benchmark.symbol in seen:
+        symbol_key = benchmark.symbol.upper()
+        if symbol_key in seen:
             raise SystemExit(
                 f"Benchmark symbol {benchmark.symbol!r} collides with an equity in the watchlist."
             )
-        seen.add(benchmark.symbol)
+        seen.add(symbol_key)
         out.append(EquityTarget(ticker=benchmark.symbol))
     if not out:
         raise SystemExit(

@@ -448,7 +448,7 @@ def aggregate_stack_returns(
                 mean_excess_pct[label] = None
         else:
             mean_excess_pct[label] = None
-        # Abnormal vs benchmark: per-stack (stack_return − benchmark_return)
+        # Abnormal vs benchmark: per-stack (stack_return - benchmark_return)
         # in the SAME window, then averaged. Drops stacks whose benchmark
         # window can't be computed (e.g. benchmark series didn't reach the
         # window's end date). Pairing is per-stack so the result is robust
@@ -657,6 +657,10 @@ def run_backtest(
             since=all_first - timedelta(days=PRICE_LOAD_LOOKBACK_DAYS),
             until=all_last + timedelta(days=forward_days),
         )
+        if not benchmark_prices:
+            raise ValueError(
+                f"No benchmark prices found for {benchmark_ticker!r} in requested range."
+            )
 
     stack_returns = compute_stack_returns(
         stacks,

@@ -825,6 +825,40 @@ class BenchmarkAbnormalReturnTests(unittest.TestCase):
         for sr in stack_returns:
             self.assertTrue(sr.benchmark_windows)
 
+    def test_run_backtest_rejects_empty_benchmark_prices(self) -> None:
+        events = [
+            _event(
+                asset="AAPL",
+                ts=_utc(2024, 1, 1),
+                source="crowding",
+                signal_kind="crowding_add",
+            ),
+            _event(
+                asset="AAPL",
+                ts=_utc(2024, 2, 15),
+                source="insider_clusters",
+                signal_kind="buy_cluster",
+            ),
+        ]
+
+        def fake_load(ticker: str, *, since: date, until: date) -> list[PricePoint]:
+            if ticker == "SPY":
+                return []
+            return _linear_price_series(start=since, days=(until - since).days + 1)
+
+        with (
+            patch(
+                "genkei.experiments.stack_backtest.query_events",
+                return_value=events,
+            ),
+            patch(
+                "genkei.experiments.stack_backtest.load_price_series",
+                side_effect=fake_load,
+            ),
+            self.assertRaisesRegex(ValueError, "No benchmark prices"),
+        ):
+            run_backtest(rule="smart_money_buy", benchmark_ticker="SPY")
+
     def test_run_backtest_skips_benchmark_load_when_no_ticker(self) -> None:
         # Crowding fires ~45 days before insider so after the availability
         # shift (+45d for crowding, +2 weekdays for insider) the two events
