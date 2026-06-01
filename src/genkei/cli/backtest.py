@@ -190,14 +190,17 @@ def backtest_cmd(
     if since_d is not None and until_d is not None and since_d > until_d:
         raise typer.BadParameter("--since must be on or before --until.")
 
-    stack_returns, baselines = run_backtest(
-        rule=rule,
-        direction=direction,
-        asset=asset,
-        since=since_d,
-        until=until_d,
-        rules_path=rules_path,
-    )
+    try:
+        stack_returns, baselines = run_backtest(
+            rule=rule,
+            direction=direction,
+            asset=asset,
+            since=since_d,
+            until=until_d,
+            rules_path=rules_path,
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     stratifier = STRATIFICATIONS[by]
     stats_list = stratifier(stack_returns, baselines)
 

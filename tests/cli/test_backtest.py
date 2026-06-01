@@ -228,6 +228,17 @@ class CliValidationTests(unittest.TestCase):
         self.assertIn("Invalid value", msg)
         self.assertIn("--direction", msg)
 
+    def test_unknown_rule_rejected_before_query(self) -> None:
+        with patch("genkei.experiments.stack_backtest.query_events") as query_mock:
+            buf = io.StringIO()
+            with redirect_stderr(buf):
+                code = main(["backtest", "--rule", "not_a_real_rule"])
+        self.assertEqual(code, 2)
+        query_mock.assert_not_called()
+        msg = re.sub(r"\x1b\[[0-9;]*m", "", buf.getvalue())
+        self.assertIn("Invalid value", msg)
+        self.assertIn("not_a_real_rule", msg)
+
     def test_since_after_until_rejected(self) -> None:
         buf = io.StringIO()
         with redirect_stderr(buf):

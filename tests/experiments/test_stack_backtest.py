@@ -20,6 +20,7 @@ from genkei.experiments.stack_backtest import (
     STACK_WINDOWS,
     BaselineStats,
     StackReturns,
+    _event_available_date,
     _hit_rate,
     _mean,
     _median,
@@ -142,6 +143,14 @@ class PureHelpersTests(unittest.TestCase):
         vals = [Decimal("1"), Decimal("0"), Decimal("-1"), Decimal("2")]
         # 2 of 4 strictly positive → 50.0%.
         self.assertEqual(_hit_rate(vals), Decimal("50"))
+
+    def test_delayed_availability_rolls_forward_from_weekend(self) -> None:
+        event = _event(
+            ts=_utc(2024, 4, 3),
+            source="crowding",
+            signal_kind="crowding_add",
+        )
+        self.assertEqual(_event_available_date(event), date(2024, 5, 20))
 
 
 class ComputeStackReturnsTests(unittest.TestCase):
@@ -591,7 +600,7 @@ class RunBacktestTests(unittest.TestCase):
                 since=date(2024, 2, 1),
             )
 
-        self.assertEqual(query_mock.call_args.kwargs["since"], _utc(2023, 12, 11))
+        self.assertEqual(query_mock.call_args.kwargs["since"], _utc(2023, 12, 9))
         self.assertEqual(len(stack_returns), 1)
         self.assertEqual(stack_returns[0].stack.window_end, _utc(2024, 2, 5))
 

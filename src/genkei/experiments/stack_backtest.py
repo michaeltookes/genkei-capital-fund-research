@@ -170,12 +170,19 @@ def _add_weekdays(value: date, weekdays: int) -> date:
     return cursor
 
 
+def _roll_to_weekday(value: date) -> date:
+    cursor = value
+    while cursor.weekday() >= 5:
+        cursor += timedelta(days=1)
+    return cursor
+
+
 def _event_available_date(event: SignalEvent) -> date:
     base_date = _dt_to_utc_date(event.ts)
     if event.source == "insider_clusters":
-        return _add_weekdays(base_date, FORM4_AVAILABILITY_LAG_WEEKDAYS)
+        return _roll_to_weekday(_add_weekdays(base_date, FORM4_AVAILABILITY_LAG_WEEKDAYS))
     lag_days = SOURCE_AVAILABILITY_LAG_DAYS.get(event.source, 0)
-    return base_date + timedelta(days=lag_days)
+    return _roll_to_weekday(base_date + timedelta(days=lag_days))
 
 
 def _event_available_ts(event: SignalEvent) -> datetime:
@@ -494,7 +501,10 @@ def _required_rule_lookback_days(rules: Sequence[CorrelationRule]) -> int:
 
 def _required_availability_lookback_days() -> int:
     return max(
-        [*SOURCE_AVAILABILITY_LAG_DAYS.values(), FORM4_AVAILABILITY_QUERY_LOOKBACK_DAYS],
+        [
+            *(lag + 2 for lag in SOURCE_AVAILABILITY_LAG_DAYS.values()),
+            FORM4_AVAILABILITY_QUERY_LOOKBACK_DAYS,
+        ],
         default=0,
     )
 
@@ -522,9 +532,13 @@ def run_backtest(
     Returns ``(stack_returns, baselines)`` so the CLI can aggregate
     multiple stratifications without re-running the underlying queries.
     """
-    rules = load_rules(rules_path)
+    all_rules = load_rules(rules_path)
     if rule:
-        rules = [r for r in rules if r.name == rule]
+        rules = [r for r in all_rules if r.name == rule]
+        if not rules:
+            raise ValueError(f"No rule named {rule!r} in {rules_path}.")
+    else:
+        rules = all_rules
     query_since = (
         since
         - timedelta(
