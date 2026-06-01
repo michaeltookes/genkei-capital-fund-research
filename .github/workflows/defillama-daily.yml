@@ -44,6 +44,23 @@ jobs:
       - name: Normalize raw payloads into defillama.* tables
         run: python3 -m genkei.normalize.defillama
 
+      - name: Emit TVL-drawdown signal events (B-095)
+        # Reads the freshly-normalized defillama.chain_tvl joined to
+        # coinbase.candles to detect TVL-stress episode onsets per
+        # crypto chain (ETH / SOL / SUI). Emits ONE event per episode
+        # onset, not per day of continued firing, so a multi-week stress
+        # run doesn't clutter meta.signal_events. The emitter loads the
+        # full available aligned series regardless of --since (the
+        # feature engineer needs >=90d of trailing history); the
+        # rolling --since here bounds only the *emission* window. 120d
+        # matches crowding's window — generous enough to absorb cron-
+        # failure gaps without re-emitting old onsets (idempotent via
+        # the (asset, ts, source, signal_kind, source_ref, horizon)
+        # UNIQUE constraint).
+        run: |
+          python3 -m genkei.experiments.emitters.tvl_drawdown_emitter \
+            --since "$(date -u -d '120 days ago' '+%Y-%m-%d')"
+
       # Daily-brief render step intentionally omitted: B-025 will decide
       # whether the markdown brief gets rewritten against Postgres or
       # retired entirely.

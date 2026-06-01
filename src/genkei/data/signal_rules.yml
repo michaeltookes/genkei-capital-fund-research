@@ -108,3 +108,29 @@ rules:
       - source: eight_k_impact
         signal_kind: item_4_02  # Non-reliance on prior financials
         weight: 0.8
+
+  # Crypto-side stacks — first introduced with B-095 (TVL drawdown).
+  # Pre-staged for the full picture; until B-098 (relative-strength
+  # emitter) lands, the second source isn't live so the rule won't fire
+  # an actual stack — same partial-fire pattern the equity-core rules
+  # had before B-093 / B-094.
+
+  - name: crypto_tvl_stress_combo
+    description: >-
+      TVL drawdown stress (B-058 classifier) + relative-strength laggard
+      crossing on the same chain's native token within 30d. The crypto-
+      sleeve analog of `broad_exit`: on-chain demand contracting AND
+      price losing relative leadership at the same time. Pre-staged for
+      B-098 (relative_strength_emitter); fires once that emitter lands.
+    direction: bearish
+    horizon: crypto:core
+    window_days: 30
+    min_score: 1.5
+    min_distinct_sources: 2
+    components:
+      - source: tvl_drawdown
+        signal_kind: tvl_drawdown_stress
+        weight: 1.0
+      - source: relative_strength
+        signal_kind: laggard_crossing
+        weight: 1.0

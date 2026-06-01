@@ -56,15 +56,15 @@ Rules can use `signal_kind: null` as a wildcard to match any kind from a source 
 
 ## Emitter status
 
-Three of seven emitters are wired up as of 2026-05-31:
+Four of seven emitters are wired up as of 2026-06-01:
 
 * **`insider_clusters`** (B-064) — the reference adapter that proved the pattern end-to-end.
 * **`crowding`** (B-093) — the second source. Because the correlator enforces `min_distinct_sources ≥ 2`, this is the emitter that lets the engine fire its *first* real multi-source stack: insider clusters + crowding both land on `equity:core` assets, so `activist_position_take` and `broad_exit` are now fully fireable and `smart_money_buy` reaches two of its three sources. It turns each `CrowdingRow` quarter-over-quarter delta into `crowding_add` (net positive), `crowding_jump` (net ≥ `--jump-threshold`, default 3 — also emitted alongside `crowding_add` so a big add participates in both the add- and jump-keyed rules), and `crowding_exit` (net negative) events. Strength is `min(abs(net_change) / 4, 1.0)` — the 1 → 4 activist-add pattern saturates at full conviction.
 * **`eight_k_impact`** (B-094) — the third source. Completes the component coverage for `smart_money_buy` (insider + crowding + 8-K item 1.01/2.02) and `deterioration_stack` (sell cluster + 8-K item 5.02/4.02): both rules now have every component live. Each 8-K fans into one event per item code in its `items` field — a "2.02,9.01" earnings filing emits two events (`item_2_02` bullish + `item_9_01` neutral) under the same `accession_number` source_ref, distinguished by `signal_kind` in the UNIQUE key. Direction + strength are item-code-conditional via `ITEM_CODE_PROFILES` in the module: 4.02 (non-reliance) at 0.9 bearish, 5.02 (officer departures) at 0.7 bearish, 1.01 (material agreement) at 0.6 bullish, 2.02 (earnings) at 0.5 bullish, plus broader coverage of the SEC item code catalog and a neutral 0.3 default for uncurated codes. `ts` uses B-057's after-hours-adjusted `event_date` (next trading day at UTC midnight) rather than `filed_at`, so a Friday-5pm-ET filing lands at Monday's open. No separate "any-8-K baseline" event is emitted; rules that want any-8-K matching declare a `signal_kind: null` wildcard component, which the correlator already matches against per-item events without double-counting.
+* **`tvl_drawdown`** (B-095) — **the engine's first crypto-side emitter**. Adapts B-058's three-condition TVL-stress classifier (TVL 30d change < -10%, TVL drawdown from 90d peak > 15%, TVL z-score < -1.0) into atomic events keyed to each chain's native token: Ethereum→ETH, Solana→SOL, Sui→SUI (BTC excluded per B-058 — its price drivers aren't on-chain DeFi). Emits ONE event per stress *episode onset* — the first day the classifier flips from not-firing to firing — and skips continued-firing days, following the macro_regime emitter's "transition not state" precedent. A multi-week stress run produces one event, not 14+. Direction is always `bearish`; strength is the mean of the three normalized excesses (each saturating at 2× the threshold's bite), so deeper aggregate stress weighs more without requiring any single dimension to be extreme. `source_ref = "<chain>:<episode_start_iso>"`. Horizons follow the asset's watchlist sleeve: ETH/SOL emit at `crypto:core`, SUI at `crypto:tactical`. The pre-staged `crypto_tvl_stress_combo` rule pairs `tvl_drawdown` with `relative_strength` (B-098) on the crypto:core horizon; until B-098 lands, the rule won't fire a stack but TVL events still land in `meta.signal_events` for inspection — same partial-fire pattern the equity-core rules had before B-093 / B-094. **Live homelab backfill** (2017-present): three historical episodes, all on ETH, all clustered in the 2018 ICO-bubble crash (2018-08-05, 2018-12-13, 2018-12-29) with strength 0.69 – 0.78 — exactly the "TVL collapsing while price is in a 90d drawdown and z-score is unusually low" pattern the classifier was designed for. SOL (data from 2021-03) and SUI (data from 2023-05) have not fired the classifier — both chains' TVL has mostly grown over their available history. The three-condition AND is selective enough that years can pass without a fire, which is correct for a "real stress episode" signal.
 
-Follow-up emitters (B-095 – B-098, each a separate branch):
+Follow-up emitters (B-096 – B-098, each a separate branch):
 
-* `tvl_drawdown_emitter` (B-095) — emits a single event per asset when the drawdown classifier crosses its threshold.
 * `macro_regime_emitter` (B-096) — emits regime-change events (the regime itself is a continuous state; only transitions are atomic enough to deserve an event row).
 * `watchlist_scoring_emitter` (B-097) — emits when the composite score crosses a configurable threshold band.
 * `relative_strength_emitter` (B-098) — emits leadership/laggard crossings on the crypto sleeve.
@@ -91,7 +91,7 @@ Two reasons:
 
 * `src/genkei/experiments/signal_store.py` — `SignalEvent` / `CorrelationRule` / `RuleComponent` / `Stack` dataclasses; `emit_signal` / `emit_signals_bulk` / `query_events` persistence; `detect_stacks` pure correlator.
 * `src/genkei/experiments/signal_rules.py` — YAML loader + validator (separate so tests can exercise the correlator on synthetic rules without pulling `yaml`).
-* `src/genkei/experiments/emitters/` — one module per Phase 5 source. Today: `insider_clusters_emitter.py` (B-064) + `crowding_emitter.py` (B-093) + `eight_k_emitter.py` (B-094).
+* `src/genkei/experiments/emitters/` — one module per Phase 5 source. Today: `insider_clusters_emitter.py` (B-064) + `crowding_emitter.py` (B-093) + `eight_k_emitter.py` (B-094) + `tvl_drawdown_emitter.py` (B-095).
 * `src/genkei/cli/signals.py` — Typer wrapper.
 * `src/genkei/data/signal_rules.yml` — the declarative rule set.
 
@@ -107,9 +107,13 @@ python -m genkei.experiments.emitters.crowding_emitter --since 2024-01-01
 # Populate 8-K events from existing sec.filings data
 python -m genkei.experiments.emitters.eight_k_emitter --since 2024-01-01
 
+# Populate TVL drawdown stress episodes (crypto-side, B-095)
+python -m genkei.experiments.emitters.tvl_drawdown_emitter --since 2024-01-01
+
 # Now query
 genkei signals --top 10
 genkei signals --events --asset AAPL --top 50      # raw events for AAPL
+genkei signals --events --asset ETH --top 20       # TVL stress events for ETH
 ```
 
 ## Edge cases pinned by tests
@@ -122,7 +126,7 @@ genkei signals --events --asset AAPL --top 50      # raw events for AAPL
 
 ## What B-064 deliberately does NOT cover
 
-* **The four remaining emitters** (B-095 – B-098) — each is a separate follow-up branch. With `crowding` (B-093) and `eight_k_impact` (B-094) live alongside `insider_clusters`, all four starter rules have every component live. The remaining emitters extend the engine to the crypto sleeve and to macro/scoring overlays.
+* **The three remaining emitters** (B-096 – B-098) — each is a separate follow-up branch. The equity-side starter rules are fully wired (B-064 / B-093 / B-094); B-095 added the first crypto-side emitter (TVL drawdown). The remaining emitters complete the crypto sleeve (B-098 relative-strength pairs with B-095 to fire the pre-staged `crypto_tvl_stress_combo` rule) and add macro / scoring overlays (B-096 / B-097).
 * **Live homelab evidence** — the insider-cluster emitter hasn't been run against the homelab yet (one command, `python -m genkei.experiments.emitters.insider_clusters_emitter --since 2024-01-01`, when you want real data). Tests prove correctness against synthetic events.
 * **Decay / weighting by event age** — every event inside the window contributes equally regardless of how recent it is. A v2 could add a half-life so a 6-day-old event contributes less than a today event in a 7-day window.
 * **SPY / benchmark adjustment** — events fire on absolute thresholds, not abnormal-return-conditional thresholds. The macro-regime split partially captures this; full benchmark adjustment is a B-064.4 concern.
@@ -135,6 +139,7 @@ genkei signals --events --asset AAPL --top 50      # raw events for AAPL
 * `src/genkei/experiments/emitters/insider_clusters_emitter.py` — reference emitter.
 * `src/genkei/experiments/emitters/crowding_emitter.py` — 13F crowding emitter.
 * `src/genkei/experiments/emitters/eight_k_emitter.py` — 8-K impact emitter.
+* `src/genkei/experiments/emitters/tvl_drawdown_emitter.py` — TVL drawdown emitter (B-095, first crypto-side source).
 * `src/genkei/cli/signals.py` — Typer command.
 * `src/genkei/data/signal_rules.yml` — rule definitions.
 * `migrations/versions/20260528_create_meta_signal_events.py` — schema.
