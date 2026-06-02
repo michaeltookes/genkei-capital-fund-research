@@ -205,13 +205,16 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
     "onchain_staking": ["collect"],
     # B-064 — one entry per signal emitter that runs on a daily cron.
     # B-093 added crowding; B-094 added eight_k_impact; B-095 added
-    # tvl_drawdown (first crypto-side emitter). As more emitters land
-    # (macro_regime, watchlist_scoring, relative_strength), append.
+    # tvl_drawdown (first crypto-side emitter); B-098 added
+    # relative_strength (second crypto-side source that closes the
+    # crypto-stack min_distinct_sources gate). As more emitters land
+    # (macro_regime, watchlist_scoring), append.
     "signal_emitter": [
         "insider_clusters",
         "crowding",
         "eight_k_impact",
         "tvl_drawdown",
+        "relative_strength",
     ],
 }
 

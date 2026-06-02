@@ -11,20 +11,21 @@ Live emitters:
   ``insider_clusters_emitter`` (B-064),
   ``crowding_emitter`` (B-093),
   ``eight_k_emitter`` (B-094).
-* Crypto side: ``tvl_drawdown_emitter`` (B-095) — first crypto-side
-  source. Pairs with the follow-up ``relative_strength_emitter``
-  (B-098) to satisfy the correlator's ``min_distinct_sources ≥ 2``
-  gate for crypto-side stacks.
+* Crypto side: ``tvl_drawdown_emitter`` (B-095) + ``relative_strength_emitter``
+  (B-098) — the pair that completes the engine's crypto-side
+  ``min_distinct_sources ≥ 2`` gate, making the pre-staged
+  ``crypto_tvl_stress_combo`` rule fireable.
 
 Follow-ups: ``macro_regime_emitter`` (B-096),
-``watchlist_scoring_emitter`` (B-097), ``relative_strength_emitter``
-(B-098) are tracked as separate backlog items.
+``watchlist_scoring_emitter`` (B-097) are tracked as separate backlog
+items.
 """
 
 from genkei.experiments.emitters import (
     crowding_emitter,
     eight_k_emitter,
     insider_clusters_emitter,
+    relative_strength_emitter,
     tvl_drawdown_emitter,
 )
 
@@ -32,5 +33,6 @@ __all__ = [
     "crowding_emitter",
     "eight_k_emitter",
     "insider_clusters_emitter",
+    "relative_strength_emitter",
     "tvl_drawdown_emitter",
 ]
