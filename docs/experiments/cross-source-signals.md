@@ -6,8 +6,8 @@
 $ genkei signals --top 5
 Cross-source signal stacks (5 found)
 --------------------------------------------------
-  window_end   asset    dir      rule                    score  sources  events
-  2026-05-26   CRM      bullish  smart_money_buy           2.10        3  insider_clusters/buy_cluster, crowding/crowding_add, eight_k_impact/item_2_02
+  window_end   asset    dir      rule                    horizon             score  sources  vs_bench  events
+  2026-05-26   CRM      bullish  smart_money_buy         equity:core          2.10        3    +4.25%  insider_clusters/buy_cluster, crowding/crowding_add, eight_k_impact/item_2_02
   ...
 ```
 
@@ -141,7 +141,7 @@ genkei signals --events --asset ethereum --top 20  # TVL stress events for ETH
 * **The two remaining emitters** (B-096 / B-097) — each is a separate follow-up branch. The equity-side starter rules and the crypto-side `crypto_tvl_stress_combo` rule are all fully wired now (B-064 / B-093 / B-094 / B-095 / B-098). The remaining emitters add macro overlay context (B-096 regime transitions) and watchlist-scoring band crossings (B-097).
 * **Live homelab evidence** — the insider-cluster emitter hasn't been run against the homelab yet (one command, `python -m genkei.experiments.emitters.insider_clusters_emitter --since 2024-01-01`, when you want real data). Tests prove correctness against synthetic events.
 * **Decay / weighting by event age** — every event inside the window contributes equally regardless of how recent it is. A v2 could add a half-life so a 6-day-old event contributes less than a today event in a 7-day window.
-* **SPY / benchmark adjustment** — events fire on absolute thresholds, not abnormal-return-conditional thresholds. The macro-regime split partially captures this; full benchmark adjustment is a B-064.4 concern.
+* **Benchmark-adjusted display, not benchmark-gated events** — events fire on absolute thresholds, while B-100 adds the `vs_bench` presentation column so the operator can compare each fired stack against SPY/BTC at decision time.
 * **Stack outcome backtesting** — the correlator surfaces what's firing *now*. Joining each historical stack to its realized forward return (`yahoo.candles` / `coinbase.candles` / `coingecko.market_data`) and asking "do stacks predict drift?" is the natural next experiment after the emitters all land.
 
 ## References

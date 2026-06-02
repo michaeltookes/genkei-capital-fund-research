@@ -13,7 +13,10 @@ from genkei.experiments.signal_benchmark import (
     DEFAULT_EQUITY_BENCHMARK,
     StackBenchmarkContext,
     _benchmark_for,
+    _coinbase_product_for,
     _dt_to_date,
+    _load_coinbase_series,
+    _load_yahoo_series,
     compute_stack_benchmark_contexts,
     compute_window_return_pct,
 )
@@ -147,6 +150,17 @@ class BenchmarkForTests(unittest.TestCase):
         self.assertEqual(ASSET_CLASS_BENCHMARK_SOURCES["crypto"], "coinbase")
 
 
+class CoinbaseProductForTests(unittest.TestCase):
+    def test_resolves_coingecko_id_to_watchlist_product(self) -> None:
+        self.assertEqual(_coinbase_product_for("ethereum"), "ETH-USD")
+        self.assertEqual(_coinbase_product_for("pyth-network"), "PYTH-USD")
+        self.assertEqual(_coinbase_product_for("bitcoin"), "BTC-USD")
+
+    def test_resolves_symbol_to_watchlist_product(self) -> None:
+        self.assertEqual(_coinbase_product_for("ETH"), "ETH-USD")
+        self.assertEqual(_coinbase_product_for("BTC"), "BTC-USD")
+
+
 class DtToDateTests(unittest.TestCase):
     def test_aware_datetime_converts_to_utc_date(self) -> None:
         self.assertEqual(_dt_to_date(_utc(2024, 6, 1)), date(2024, 6, 1))
@@ -213,7 +227,7 @@ class ComputeStackBenchmarkContextsTests(unittest.TestCase):
         ]
 
         def fake_coinbase(product: str, *, since: date, until: date) -> list:
-            if product == "ETHEREUM-USD":
+            if product == "ETH-USD":
                 return eth_prices
             if product == "BTC-USD":
                 return btc_prices
@@ -307,8 +321,47 @@ class ComputeStackBenchmarkContextsTests(unittest.TestCase):
             compute_stack_benchmark_contexts(stacks)
         # Yahoo loaded for AAPL + SPY benchmark.
         self.assertEqual(sorted(yahoo_calls), ["AAPL", "SPY"])
-        # Coinbase loaded for ETHEREUM-USD asset + BTC-USD benchmark.
-        self.assertEqual(sorted(coinbase_calls), ["BTC-USD", "ETHEREUM-USD"])
+        # Coinbase loaded for ETH-USD asset + BTC-USD benchmark.
+        self.assertEqual(sorted(coinbase_calls), ["BTC-USD", "ETH-USD"])
+
+    def test_non_trading_window_start_uses_prior_close(self) -> None:
+        stack = _stack(
+            asset="NVDA",
+            asset_class="equity",
+            window_start=_utc(2024, 3, 2),
+            window_end=_utc(2024, 3, 4),
+        )
+        calls: list[tuple[str, date, date]] = []
+
+        def fake_yahoo(ticker: str, *, since: date, until: date) -> list:
+            calls.append((ticker, since, until))
+            if ticker == "NVDA":
+                return [
+                    (date(2024, 3, 1), Decimal("100")),
+                    (date(2024, 3, 4), Decimal("110")),
+                ]
+            if ticker == "SPY":
+                return [
+                    (date(2024, 3, 1), Decimal("200")),
+                    (date(2024, 3, 4), Decimal("210")),
+                ]
+            return []
+
+        with patch(
+            "genkei.experiments.signal_benchmark._load_yahoo_series",
+            side_effect=fake_yahoo,
+        ):
+            out = compute_stack_benchmark_contexts([stack])
+        self.assertEqual(
+            sorted(calls),
+            [
+                ("NVDA", date(2024, 3, 2), date(2024, 3, 4)),
+                ("SPY", date(2024, 3, 2), date(2024, 3, 4)),
+            ],
+        )
+        self.assertEqual(out[0].asset_return_pct, Decimal("10"))
+        self.assertEqual(out[0].benchmark_return_pct, Decimal("5.00"))
+        self.assertEqual(out[0].abnormal_pct, Decimal("5.00"))
 
     def test_overrides_propagate(self) -> None:
         stack = _stack(asset="NVDA")
@@ -341,6 +394,86 @@ class StackBenchmarkContextDataclassTests(unittest.TestCase):
         )
         self.assertEqual(ctx.stack_index, 0)
         self.assertIsNone(ctx.benchmark_ticker)
+
+
+class LoaderSqlTests(unittest.TestCase):
+    def test_yahoo_loader_includes_latest_prior_close(self) -> None:
+        cursor = _FakeCursor(rows=[(date(2024, 3, 1), Decimal("100"))])
+        with patch(
+            "genkei.experiments.signal_benchmark.db.connection",
+            return_value=_FakeConn(cursor),
+        ):
+            rows = _load_yahoo_series(
+                "NVDA", since=date(2024, 3, 2), until=date(2024, 3, 4)
+            )
+        self.assertEqual(rows, [(date(2024, 3, 1), Decimal("100"))])
+        self.assertIn("SELECT MAX(ts::date) FROM yahoo.candles", cursor.sql)
+        self.assertEqual(
+            cursor.params,
+            [
+                "NVDA",
+                date(2024, 3, 2),
+                "NVDA",
+                date(2024, 3, 2),
+                date(2024, 3, 4),
+            ],
+        )
+
+    def test_coinbase_loader_includes_latest_prior_close(self) -> None:
+        cursor = _FakeCursor(rows=[(date(2024, 3, 1), Decimal("100"))])
+        with patch(
+            "genkei.experiments.signal_benchmark.db.connection",
+            return_value=_FakeConn(cursor),
+        ):
+            rows = _load_coinbase_series(
+                "ETH-USD", since=date(2024, 3, 2), until=date(2024, 3, 4)
+            )
+        self.assertEqual(rows, [(date(2024, 3, 1), Decimal("100"))])
+        self.assertIn("SELECT MAX(ts::date) FROM coinbase.candles", cursor.sql)
+        self.assertEqual(
+            cursor.params,
+            [
+                "ETH-USD",
+                date(2024, 3, 2),
+                "ETH-USD",
+                date(2024, 3, 2),
+                date(2024, 3, 4),
+            ],
+        )
+
+
+class _FakeCursor:
+    def __init__(self, *, rows: list[tuple[date, Decimal]]) -> None:
+        self.rows = rows
+        self.sql = ""
+        self.params: list[object] = []
+
+    def __enter__(self) -> _FakeCursor:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        return None
+
+    def execute(self, sql: str, params: list[object]) -> None:
+        self.sql = sql
+        self.params = params
+
+    def fetchall(self) -> list[tuple[date, Decimal]]:
+        return self.rows
+
+
+class _FakeConn:
+    def __init__(self, cursor: _FakeCursor) -> None:
+        self._cursor = cursor
+
+    def __enter__(self) -> _FakeConn:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        return None
+
+    def cursor(self) -> _FakeCursor:
+        return self._cursor
 
 
 if __name__ == "__main__":

@@ -52,9 +52,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from functools import lru_cache
 from typing import Any
 
 from genkei.common import db
+from genkei.common.watchlist import load_watchlist
 from genkei.experiments.signal_store import Stack
 
 # Default benchmark choices per asset class. Both live in already-
@@ -153,8 +155,15 @@ def _load_yahoo_series(
     )
     params: list[Any] = [ticker]
     if since is not None:
-        sql += " AND ts::date >= %s"
-        params.append(since)
+        sql += (
+            " AND (ts::date >= %s OR ts::date = ("
+            "SELECT MAX(ts::date) FROM yahoo.candles "
+            "WHERE ticker = %s "
+            "AND COALESCE(adj_close, close) IS NOT NULL "
+            "AND ts::date < %s"
+            "))"
+        )
+        params.extend([since, ticker, since])
     if until is not None:
         sql += " AND ts::date <= %s"
         params.append(until)
@@ -178,8 +187,15 @@ def _load_coinbase_series(
     )
     params: list[Any] = [product]
     if since is not None:
-        sql += " AND ts::date >= %s"
-        params.append(since)
+        sql += (
+            " AND (ts::date >= %s OR ts::date = ("
+            "SELECT MAX(ts::date) FROM coinbase.candles "
+            "WHERE product = %s "
+            "AND close IS NOT NULL "
+            "AND ts::date < %s"
+            "))"
+        )
+        params.extend([since, product, since])
     if until is not None:
         sql += " AND ts::date <= %s"
         params.append(until)
@@ -200,15 +216,15 @@ def _load_asset_series(
 
     Equity assets live in ``yahoo.candles`` keyed by ticker. Crypto
     assets live in ``coinbase.candles`` keyed by the coinbase product
-    code, which is ``<UPPER>-USD`` for the assets the watchlist
-    tracks. The crypto-side emitters (B-095, B-098) write events with
-    the coingecko_id as ``asset`` (lowercase: "ethereum", "solana"),
-    so we uppercase + suffix to derive the coinbase product.
+    code from the watchlist. The crypto-side emitters (B-095, B-098)
+    write events with the coingecko_id as ``asset`` (lowercase:
+    "ethereum", "solana"), so this resolves that ID back to the
+    configured Coinbase product.
     """
     if asset_class == "equity":
         return _load_yahoo_series(asset, since=since, until=until)
     if asset_class == "crypto":
-        product = f"{asset.upper()}-USD"
+        product = _coinbase_product_for(asset)
         return _load_coinbase_series(product, since=since, until=until)
     return []
 
@@ -226,14 +242,36 @@ def _load_benchmark_series(
     landed via B-102). Crypto-side benchmarks live in
     ``coinbase.candles`` (BTC-USD has been there since B-035). The
     benchmark ticker on the crypto side is the watchlist symbol
-    ("BTC"), which we suffix into the coinbase product code.
+    ("BTC"), which resolves through the same watchlist product mapping.
     """
     if asset_class == "equity":
         return _load_yahoo_series(benchmark, since=since, until=until)
     if asset_class == "crypto":
-        product = f"{benchmark.upper()}-USD"
+        product = _coinbase_product_for(benchmark)
         return _load_coinbase_series(product, since=since, until=until)
     return []
+
+
+@lru_cache(maxsize=1)
+def _coinbase_product_lookup() -> dict[str, str]:
+    lookup: dict[str, str] = {}
+    for entry in load_watchlist().crypto:
+        if not entry.coinbase_product:
+            continue
+        lookup[entry.coingecko_id.strip().lower()] = entry.coinbase_product
+        lookup[entry.symbol.strip().lower()] = entry.coinbase_product
+    return lookup
+
+
+def _coinbase_product_for(identifier: str) -> str:
+    cleaned = identifier.strip()
+    product = _coinbase_product_lookup().get(cleaned.lower())
+    if product:
+        return product
+    upper = cleaned.upper()
+    if upper.endswith("-USD"):
+        return upper
+    return f"{upper}-USD"
 
 
 # ---------------------------------------------------------------------------
