@@ -44,6 +44,12 @@ jobs:
       - name: Normalize raw payloads into defillama.* tables
         run: python3 -m genkei.normalize.defillama
 
+      - name: Emit TVL-drawdown signal events (B-095)
+        # Emits episode-onset TVL stress signals over a 120d retry window.
+        run: |
+          python3 -m genkei.experiments.emitters.tvl_drawdown_emitter \
+            --since "$(date -u -d '120 days ago' '+%Y-%m-%d')"
+
       # Daily-brief render step intentionally omitted: B-025 will decide
       # whether the markdown brief gets rewritten against Postgres or
       # retired entirely.

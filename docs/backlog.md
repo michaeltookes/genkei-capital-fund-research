@@ -319,17 +319,6 @@ Once cross-source data is in, the system starts producing investable signals.
 
 The cross-source signal correlation engine (B-064, resolved 2026-05-28) shipped the store, the correlator, the starter rule pack, and one reference emitter (`insider_clusters`). The engine cannot fire a real stack until a **second** source is wired, because the correlator enforces `min_distinct_sources ≥ 2`. The four starter rules in `src/genkei/data/signal_rules.yml` are partial-fire until their component emitters land. Each emitter is ~150–200 lines following `src/genkei/experiments/emitters/insider_clusters_emitter.py`: adapt an existing Phase 5 experiment's output into `meta.signal_events`, resolve `asset` via the watchlist, wrap in `meta.ingest_runs` (`source='signal_emitter'`) so `genkei watchlist health` surfaces staleness, register the source in `cli/watchlist.py`, and chain the run into the relevant daily workflow. See the deferred-follow-ups paragraph in the B-064 entry of `docs/resolved.md` and `docs/experiments/cross-source-signals.md`.
 
-### B-095 — Wire the TVL-drawdown emitter into signal_events
-- **Status:** open
-- **Priority:** medium
-- **Context:** Brings the crypto sleeve into the engine. Source experiment is `src/genkei/experiments/tvl_drawdown.py` (B-058); emits TVL-stress events keyed to the chain's mapped asset (ETH/SOL/SUI).
-- **Acceptance criteria:**
-  - New emitter `src/genkei/experiments/emitters/tvl_drawdown_emitter.py` emits a stress event when the classifier fires (or when its component features cross documented thresholds).
-  - `asset_class='crypto'`, asset resolved via the chain↔token mapping used in the experiment.
-  - Standard idempotency, `meta.ingest_runs` wrapping, watchlist registration, workflow chaining.
-  - At least one crypto-side correlation rule added to `signal_rules.yml` so the new events have a stack to participate in (pairs naturally with B-098 relative strength).
-  - Unit tests pin firing thresholds and event shape.
-
 ### B-096 — Wire the macro-regime emitter into signal_events
 - **Status:** open
 - **Priority:** low
