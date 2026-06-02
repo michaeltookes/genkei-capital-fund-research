@@ -339,15 +339,6 @@ The cross-source signal correlation engine (B-064, resolved 2026-05-28) shipped 
   - Standard idempotency, `meta.ingest_runs` wrapping, watchlist registration.
   - Unit tests pin band-crossing logic and no-emit-within-band behavior.
 
-### B-098 — Wire the relative-strength emitter into signal_events
-- **Status:** open
-- **Priority:** low
-- **Context:** Source is `analytics.crypto_relative_strength` / `src/genkei/experiments/relative_strength.py` (B-090). Emits when an asset's peer relative strength crosses into leadership/laggard territory — the crypto-side complement to insider/crowding on equities.
-- **Acceptance criteria:**
-  - New emitter `src/genkei/experiments/emitters/relative_strength_emitter.py` emits leadership/laggard events with direction.
-  - Standard idempotency, `meta.ingest_runs` wrapping, watchlist registration, workflow chaining.
-  - Pairs with B-095 in at least one crypto correlation rule.
-  - Unit tests pin the crossing logic and event shape.
 
 ### B-099 — Correlator: decay weighting by event age
 - **Status:** open

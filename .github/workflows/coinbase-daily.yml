@@ -60,3 +60,17 @@ jobs:
 
       - name: Normalize raw payloads into coinbase.candles
         run: python3 -m genkei.normalize.coinbase --source-run-id "${{ steps.collect.outputs.source_run_id }}"
+
+      - name: Emit relative-strength signal events (B-098)
+        # Reads the freshly-normalized coinbase.candles for each watchlist
+        # crypto asset, computes the trailing-30d return vs BTC, and
+        # emits ONE event per crossing onset into laggard / leader state
+        # (not per day in-state, same episode-onset model as
+        # tvl_drawdown_emitter). Pairs with B-095 to fire the
+        # crypto_tvl_stress_combo rule. 90-day rolling --since absorbs
+        # cron-failure gaps; old onsets are no-ops via the UNIQUE
+        # constraint on (asset, ts, source, signal_kind, source_ref,
+        # horizon).
+        run: |
+          python3 -m genkei.experiments.emitters.relative_strength_emitter \
+            --since "$(date -u -d '90 days ago' '+%Y-%m-%d')"
