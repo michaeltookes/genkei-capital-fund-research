@@ -127,6 +127,7 @@ def _build_event(
     *,
     chain: str,
     asset: str,
+    symbol: str,
     horizon: str,
 ) -> dict[str, Any]:
     """Build one signal event row from a stress-episode onset."""
@@ -135,6 +136,7 @@ def _build_event(
     payload: dict[str, Any] = {
         "chain": chain,
         "asset": asset,
+        "asset_symbol": symbol,
         "horizon": horizon,
         "episode_start": onset.ts.isoformat(),
         "tvl_usd_at_onset": str(onset.tvl_usd),
@@ -194,16 +196,19 @@ def emit_recent_drawdown_stress(
         chains_skipped_no_data = 0
         chains_skipped_no_watchlist = 0
         for chain, symbol in sorted(CHAIN_TO_CRYPTO_SYMBOL.items()):
-            horizon = _horizon_for_symbol(symbol, watchlist)
-            if horizon is None:
+            entry = watchlist.find_crypto(symbol)
+            if entry is None or not entry.coingecko_id.strip():
                 LOGGER.warning(
                     "TVL-drawdown chain %s maps to %s, which is not in the crypto "
-                    "watchlist; skipping signal emission for this chain",
+                    "watchlist with a coingecko_id; skipping signal emission for this chain",
                     chain,
                     symbol,
                 )
                 chains_skipped_no_watchlist += 1
                 continue
+            sleeve = entry.sleeve or "core"
+            horizon = f"crypto:{sleeve}"
+            asset_id = entry.coingecko_id.strip()
             product = f"{symbol}-USD"
             aligned = load_aligned_series(chain, product, until=until)
             if not aligned:
@@ -223,7 +228,11 @@ def emit_recent_drawdown_stress(
                     continue
                 events.append(
                     _build_event(
-                        onset, chain=chain, asset=symbol, horizon=horizon
+                        onset,
+                        chain=chain,
+                        asset=asset_id,
+                        symbol=symbol,
+                        horizon=horizon,
                     )
                 )
 

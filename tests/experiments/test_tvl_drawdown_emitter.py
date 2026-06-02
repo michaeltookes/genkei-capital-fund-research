@@ -300,9 +300,13 @@ class BuildEventTests(unittest.TestCase):
     def test_canonical_bearish_event_shape(self) -> None:
         onset = _stress_row(ts=date(2024, 6, 1))
         event = _build_event(
-            onset, chain="Ethereum", asset="ETH", horizon="crypto:core"
+            onset,
+            chain="Ethereum",
+            asset="ethereum",
+            symbol="ETH",
+            horizon="crypto:core",
         )
-        self.assertEqual(event["asset"], "ETH")
+        self.assertEqual(event["asset"], "ethereum")
         self.assertEqual(event["asset_class"], "crypto")
         self.assertEqual(event["horizon"], "crypto:core")
         self.assertEqual(event["source"], "tvl_drawdown")
@@ -313,6 +317,8 @@ class BuildEventTests(unittest.TestCase):
         # Payload preserves the feature values + the thresholds (so a
         # consumer can see how the strength was derived).
         self.assertEqual(event["payload"]["chain"], "Ethereum")
+        self.assertEqual(event["payload"]["asset"], "ethereum")
+        self.assertEqual(event["payload"]["asset_symbol"], "ETH")
         self.assertEqual(event["payload"]["episode_start"], "2024-06-01")
         self.assertEqual(event["payload"]["tvl_change_30d_pct"], "-15")
         self.assertEqual(
@@ -325,8 +331,20 @@ class BuildEventTests(unittest.TestCase):
         # future entry maps two L1s to one watchlist token). Using the
         # chain in source_ref keeps episodes distinguishable.
         onset = _stress_row(ts=date(2024, 6, 1))
-        eth_event = _build_event(onset, chain="Ethereum", asset="ETH", horizon="crypto:core")
-        sol_event = _build_event(onset, chain="Solana", asset="SOL", horizon="crypto:core")
+        eth_event = _build_event(
+            onset,
+            chain="Ethereum",
+            asset="ethereum",
+            symbol="ETH",
+            horizon="crypto:core",
+        )
+        sol_event = _build_event(
+            onset,
+            chain="Solana",
+            asset="solana",
+            symbol="SOL",
+            horizon="crypto:core",
+        )
         self.assertNotEqual(eth_event["source_ref"], sol_event["source_ref"])
 
     def test_chain_to_crypto_symbol_excludes_btc(self) -> None:
@@ -437,7 +455,8 @@ class EmitOrchestratorTests(unittest.TestCase):
         # branch returns [] for it → counted under chains_skipped_no_data.
         emitted = emit_mock.call_args.args[0]
         self.assertEqual(len(emitted), 1)
-        self.assertEqual(emitted[0]["asset"], "ETH")
+        self.assertEqual(emitted[0]["asset"], "ethereum")
+        self.assertEqual(emitted[0]["payload"]["asset_symbol"], "ETH")
         self.assertEqual(emitted[0]["source_ref"], "Ethereum:2024-05-31")
         self.assertEqual(result.episodes_emitted, 1)
         self.assertEqual(result.chains_skipped_no_watchlist, 0)
