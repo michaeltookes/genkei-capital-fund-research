@@ -348,15 +348,6 @@ The cross-source signal correlation engine (B-064, resolved 2026-05-28) shipped 
   - Optional decay function (config-driven half-life) applied in `_score_window`; default off preserves current behavior.
   - Unit tests pin decayed vs undecayed scores and the default-off contract.
 
-### B-100 — Correlator: SPY/BTC benchmark adjustment on stack scores
-- **Status:** open
-- **Priority:** low
-- **Context:** Stack scores are absolute today. Benchmark-relative context (SPY for equity, BTC for crypto) would let a stack's strength be read against the prevailing market move, consistent with the `/reflect-decisions` alpha convention.
-- **Acceptance criteria:**
-  - Decide whether adjustment lives in the correlator or as a presentation-layer column in `genkei signals`.
-  - Benchmark return joined over the stack window; documented in `cross-source-signals.md`.
-  - Unit tests pin the adjustment math.
-
 ### B-066 — Macro regime classifier integrated into queries
 - **Status:** open
 - **Priority:** low
