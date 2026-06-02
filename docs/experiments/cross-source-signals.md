@@ -6,8 +6,8 @@
 $ genkei signals --top 5
 Cross-source signal stacks (5 found)
 --------------------------------------------------
-  window_end   asset    dir      rule                    score  sources  events
-  2026-05-26   CRM      bullish  smart_money_buy           2.10        3  insider_clusters/buy_cluster, crowding/crowding_add, eight_k_impact/item_2_02
+  window_end   asset    dir      rule                    horizon             score  sources  vs_bench  events
+  2026-05-26   CRM      bullish  smart_money_buy         equity:core          2.10        3    +4.25%  insider_clusters/buy_cluster, crowding/crowding_add, eight_k_impact/item_2_02
   ...
 ```
 
@@ -88,6 +88,14 @@ Two reasons:
 
 `--rules-path` overrides the YAML location so tests can use a minimal rule set without touching the packaged file.
 
+### Live benchmark-adjusted column (B-100)
+
+`genkei signals` shows a `vs_bench` column by default that reports the asset's return minus its market benchmark's return over the stack's own window (`window_start → window_end`), in percentage points. Equity stacks compare vs SPY (from `yahoo.candles`); crypto stacks compare vs BTC (from `coinbase.candles`). Routing is automatic by `asset_class`; per-class overrides via `--equity-benchmark` / `--crypto-benchmark`. `--no-benchmark` suppresses the column entirely.
+
+The column is the presentation-layer counterpart to the B-101/B-102 backtest's `mean_abnormal_pct`: same "stack-window abnormal return" framing, computed live for each fired stack rather than aggregated retrospectively. The correlator's `score` is left untouched — `vs_bench` is an *additional* column, not a replacement. Two reasons: (1) the B-102 backtest already proved the honest read is "show both; let the reader weigh raw and benchmark-adjusted against the rule's direction"; (2) different stacks route to different benchmarks, so collapsing into one score would lose the per-class comparator. Read sign against rule direction: bullish rule + positive `vs_bench` → market-relative confirmation; bearish rule + positive `vs_bench` → "trim toward index" rather than "go short" (the case the B-102 backtest highlighted at scale).
+
+Live example against the homelab on 2026-06-01: of the top 10 stacks, only one (AMD `deterioration_stack`, `vs_bench` −20.02pp) shows meaningful market-relative weakness; AMZN at +29.81pp, HOOD at +14.33pp, AVGO at +14.31pp are all "asset still beat the market in the stack window" cases. The column makes that distinction visible at decision time rather than requiring a post-hoc backtest run.
+
 ## Module shape
 
 * `src/genkei/experiments/signal_store.py` — `SignalEvent` / `CorrelationRule` / `RuleComponent` / `Stack` dataclasses; `emit_signal` / `emit_signals_bulk` / `query_events` persistence; `detect_stacks` pure correlator.
@@ -133,7 +141,7 @@ genkei signals --events --asset ethereum --top 20  # TVL stress events for ETH
 * **The two remaining emitters** (B-096 / B-097) — each is a separate follow-up branch. The equity-side starter rules and the crypto-side `crypto_tvl_stress_combo` rule are all fully wired now (B-064 / B-093 / B-094 / B-095 / B-098). The remaining emitters add macro overlay context (B-096 regime transitions) and watchlist-scoring band crossings (B-097).
 * **Live homelab evidence** — the insider-cluster emitter hasn't been run against the homelab yet (one command, `python -m genkei.experiments.emitters.insider_clusters_emitter --since 2024-01-01`, when you want real data). Tests prove correctness against synthetic events.
 * **Decay / weighting by event age** — every event inside the window contributes equally regardless of how recent it is. A v2 could add a half-life so a 6-day-old event contributes less than a today event in a 7-day window.
-* **SPY / benchmark adjustment** — events fire on absolute thresholds, not abnormal-return-conditional thresholds. The macro-regime split partially captures this; full benchmark adjustment is a B-064.4 concern.
+* **Benchmark-adjusted display, not benchmark-gated events** — events fire on absolute thresholds, while B-100 adds the `vs_bench` presentation column so the operator can compare each fired stack against SPY/BTC at decision time.
 * **Stack outcome backtesting** — the correlator surfaces what's firing *now*. Joining each historical stack to its realized forward return (`yahoo.candles` / `coinbase.candles` / `coingecko.market_data`) and asking "do stacks predict drift?" is the natural next experiment after the emitters all land.
 
 ## References
@@ -145,6 +153,7 @@ genkei signals --events --asset ethereum --top 20  # TVL stress events for ETH
 * `src/genkei/experiments/emitters/eight_k_emitter.py` — 8-K impact emitter.
 * `src/genkei/experiments/emitters/tvl_drawdown_emitter.py` — TVL drawdown emitter (B-095, first crypto-side source).
 * `src/genkei/experiments/emitters/relative_strength_emitter.py` — relative-strength crossings emitter (B-098, second crypto-side source).
+* `src/genkei/experiments/signal_benchmark.py` — live benchmark-adjustment column (B-100) for `genkei signals`.
 * `src/genkei/cli/signals.py` — Typer command.
 * `src/genkei/data/signal_rules.yml` — rule definitions.
 * `migrations/versions/20260528_create_meta_signal_events.py` — schema.
