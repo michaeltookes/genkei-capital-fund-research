@@ -233,7 +233,7 @@ class BuildEventTests(unittest.TestCase):
     def _crossing(
         self,
         *,
-        asset: str = "ETH",
+        asset: str = "ethereum",
         kind: str = "laggard_crossing",
         rel: Decimal = Decimal("-20"),
         ts: date = date(2024, 6, 1),
@@ -250,14 +250,14 @@ class BuildEventTests(unittest.TestCase):
 
     def test_bearish_laggard_event_shape(self) -> None:
         event = _build_event(self._crossing(), horizon="crypto:core")
-        self.assertEqual(event["asset"], "ETH")
+        self.assertEqual(event["asset"], "ethereum")
         self.assertEqual(event["asset_class"], "crypto")
         self.assertEqual(event["horizon"], "crypto:core")
         self.assertEqual(event["source"], "relative_strength")
         self.assertEqual(event["signal_kind"], "laggard_crossing")
         self.assertEqual(event["direction"], "bearish")
         self.assertEqual(event["ts"], datetime(2024, 6, 1, tzinfo=timezone.utc))
-        self.assertEqual(event["source_ref"], "ETH:BTC:30d:2024-06-01")
+        self.assertEqual(event["source_ref"], "ethereum:BTC:30d:2024-06-01")
         # ±20pp / 20pp saturation = 1.0 (full saturation at threshold + 5pp).
         self.assertEqual(event["strength"], Decimal("1"))
         # Payload carries the underlying numbers + thresholds.
@@ -277,22 +277,42 @@ class BuildEventTests(unittest.TestCase):
     def test_source_ref_includes_peer_and_window(self) -> None:
         # Lets a future emitter run with a different peer / window without
         # colliding on source_ref.
-        event = _build_event(self._crossing(asset="SOL"), horizon="crypto:core")
-        self.assertEqual(event["source_ref"], "SOL:BTC:30d:2024-06-01")
+        event = _build_event(self._crossing(asset="solana"), horizon="crypto:core")
+        self.assertEqual(event["source_ref"], "solana:BTC:30d:2024-06-01")
 
 
 class CryptoAssetsTests(unittest.TestCase):
     def test_excludes_btc_and_keeps_others(self) -> None:
         w = _load_watchlist()
         out = _crypto_assets(w)
-        symbols = sorted(s for s, _ in out)
-        self.assertEqual(symbols, ["ETH", "SUI"])
+        assets = sorted((asset, symbol, product) for asset, symbol, product, _ in out)
+        self.assertEqual(
+            assets,
+            [("ethereum", "ETH", "ETH-USD"), ("sui", "SUI", "SUI-USD")],
+        )
 
     def test_sleeve_passthrough(self) -> None:
         w = _load_watchlist()
-        out = dict(_crypto_assets(w))
-        self.assertEqual(out.get("ETH"), "core")
-        self.assertEqual(out.get("SUI"), "tactical")
+        out = {asset: sleeve for asset, _symbol, _product, sleeve in _crypto_assets(w)}
+        self.assertEqual(out.get("ethereum"), "core")
+        self.assertEqual(out.get("sui"), "tactical")
+
+    def test_uses_configured_coinbase_product(self) -> None:
+        yaml = WATCHLIST_YAML + (
+            "    - symbol: ALIAS\n"
+            "      name: Alias Token\n"
+            "      coingecko_id: alias-token\n"
+            "      coinbase_product: ALIAS-V2-USD\n"
+            "      sleeve: tactical\n"
+        )
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(yaml, encoding="utf-8")
+            products = {
+                asset: product
+                for asset, _symbol, product, _sleeve in _crypto_assets(load_watchlist(path))
+            }
+        self.assertEqual(products["alias-token"], "ALIAS-V2-USD")
 
 
 class EmitOrchestratorTests(unittest.TestCase):
@@ -349,7 +369,7 @@ class EmitOrchestratorTests(unittest.TestCase):
                 patch(
                     "genkei.experiments.emitters.relative_strength_emitter._load_price_series",
                     side_effect=fake_load,
-                ),
+                ) as load_mock,
                 patch(
                     "genkei.experiments.emitters.relative_strength_emitter.compute_daily_relative_strength",
                     side_effect=fake_compute,
@@ -366,7 +386,9 @@ class EmitOrchestratorTests(unittest.TestCase):
         kinds = sorted(e["signal_kind"] for e in emitted)
         self.assertEqual(kinds, ["laggard_crossing", "leader_crossing"])
         assets = sorted(e["asset"] for e in emitted)
-        self.assertEqual(assets, ["ETH", "SUI"])
+        self.assertEqual(assets, ["ethereum", "sui"])
+        products = [call.args[0] for call in load_mock.call_args_list]
+        self.assertEqual(products, ["BTC-USD", "ETH-USD", "SUI-USD"])
         self.assertEqual(result.crossings_emitted, 2)
 
     def test_orchestrator_skips_assets_with_no_data(self) -> None:

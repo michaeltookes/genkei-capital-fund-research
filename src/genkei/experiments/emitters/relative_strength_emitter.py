@@ -35,16 +35,14 @@ crossings while still being narrow enough that real episodes register.
 Tunable; constants live in this module so a re-tune shows up in git
 blame here (matching the precedent of the prior emitters).
 
-**Strength.** ``min(abs(rel_strength_pct) / 30, 1.0)``. ±15pp at
-threshold edge → 0.5. ±30pp at saturation → 1.0. Beyond 30pp the
-asset moved far enough that more magnitude isn't meaningfully more
-"laggard-y". Same saturating-ramp shape the equity-side emitters use.
+**Strength.** ``min(abs(rel_strength_pct) / STRENGTH_SATURATION_PP, 1.0)``.
+With the current 20pp saturation point, ±15pp at threshold edge → 0.75 and
+±20pp at saturation → 1.0.
 
 Field mapping per event:
 
-* ``asset``         = watchlist crypto symbol (ETH / SOL / LINK / SUI).
-                      BTC excluded (it's the peer; rel-strength vs self
-                      is zero).
+* ``asset``         = watchlist CoinGecko ID (ethereum / solana / chainlink / ...),
+                      matching the crypto identifiers used by tvl_drawdown.
 * ``asset_class``   = ``"crypto"``.
 * ``ts``            = the crossing onset date at UTC midnight.
 * ``source``        = ``"relative_strength"`` (matches the source name
@@ -165,9 +163,7 @@ def _state_for(rel_strength_pct: Decimal | None) -> str | None:
 def _strength_from_rel_strength(rel_strength_pct: Decimal) -> Decimal:
     """Saturating-ramp on ``abs(rel_strength_pct)``.
 
-    ±15pp at threshold edge → 0.5; ±30pp at saturation → 1.0. Beyond
-    30pp the asset moved far enough that more magnitude isn't
-    meaningfully more "laggard-y" — the engine clamps to 1.0.
+    Uses STRENGTH_SATURATION_PP: ±15pp → 0.75, ±20pp → 1.0.
     """
     magnitude = abs(rel_strength_pct)
     scaled = magnitude / STRENGTH_SATURATION_PP
@@ -320,8 +316,8 @@ def _build_event(
     }
 
 
-def _crypto_assets(watchlist: Watchlist) -> list[tuple[str, str]]:
-    """Return ``[(symbol, sleeve)]`` for watchlist crypto entries with a
+def _crypto_assets(watchlist: Watchlist) -> list[tuple[str, str, str, str]]:
+    """Return ``[(coingecko_id, symbol, product, sleeve)]`` for entries with a
     coinbase product available, excluding the peer (BTC) itself.
 
     Restricted to entries that have ``coinbase_product`` set — the
@@ -330,13 +326,15 @@ def _crypto_assets(watchlist: Watchlist) -> list[tuple[str, str]]:
     coins added to the watchlist with a coinbase_product will be
     picked up automatically.
     """
-    out: list[tuple[str, str]] = []
+    out: list[tuple[str, str, str, str]] = []
     for entry in watchlist.crypto:
-        if not entry.coinbase_product:
+        product = entry.coinbase_product
+        asset_id = entry.coingecko_id.strip()
+        if not product or not asset_id:
             continue
-        if entry.coinbase_product == PEER_PRODUCT:
+        if product == PEER_PRODUCT:
             continue
-        out.append((entry.symbol, entry.sleeve or "core"))
+        out.append((asset_id, entry.symbol, product, entry.sleeve or "core"))
     return out
 
 
@@ -400,8 +398,7 @@ def emit_recent_crossings(
 
         events: list[dict[str, Any]] = []
         assets_skipped_no_data = 0
-        for symbol, sleeve in assets:
-            product = f"{symbol}-USD"
+        for asset_id, _symbol, product, sleeve in assets:
             asset_series = _load_price_series(product, until=until)
             if not asset_series:
                 LOGGER.warning(
@@ -415,7 +412,7 @@ def emit_recent_crossings(
             daily = compute_daily_relative_strength(
                 asset_series, peer_series, window_days=WINDOW_DAYS
             )
-            crossings = _detect_crossings(daily, asset=symbol)
+            crossings = _detect_crossings(daily, asset=asset_id)
             for crossing in crossings:
                 if since is not None and crossing.ts < since:
                     continue
