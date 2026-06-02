@@ -222,7 +222,7 @@ class EndToEndTests(unittest.TestCase):
             patch("genkei.cli.signals.query_events", return_value=sample),
             redirect_stdout(out),
         ):
-            code = main(["signals", "--rules-path", str(rpath)])
+            code = main(["signals", "--no-benchmark", "--rules-path", str(rpath)])
         self.assertEqual(code, 0)
         self.assertIn("AAPL", out.getvalue())
         self.assertIn("smart_money_buy", out.getvalue())
@@ -238,7 +238,9 @@ class EndToEndTests(unittest.TestCase):
             patch("genkei.cli.signals.query_events", return_value=sample),
             redirect_stdout(out),
         ):
-            code = main(["signals", "--json", "--rules-path", str(rpath)])
+            code = main(
+                ["signals", "--no-benchmark", "--json", "--rules-path", str(rpath)]
+            )
         self.assertEqual(code, 0)
         data = json_mod.loads(out.getvalue())
         self.assertEqual(len(data), 1)
@@ -279,6 +281,7 @@ class EndToEndTests(unittest.TestCase):
             code = main(
                 [
                     "signals",
+                    "--no-benchmark",
                     "--rule",
                     "smart_money_buy",
                     "--rules-path",
@@ -287,6 +290,129 @@ class EndToEndTests(unittest.TestCase):
             )
         self.assertEqual(code, 0)
         self.assertIn("smart_money_buy", out.getvalue())
+
+
+class BenchmarkColumnTests(unittest.TestCase):
+    """B-100 — benchmark-adjusted column appears with --benchmark (default)."""
+
+    def test_benchmark_default_renders_vs_bench_column(self) -> None:
+        rpath = _rules_path(self)
+        sample = [
+            _event(ts=_dt(5), source="insider_clusters", signal_kind="buy_cluster"),
+            _event(ts=_dt(6), source="crowding", signal_kind="crowding_add"),
+        ]
+        from decimal import Decimal as Dec
+
+        from genkei.experiments.signal_benchmark import StackBenchmarkContext
+
+        fake_ctx = [
+            StackBenchmarkContext(
+                stack_index=0,
+                benchmark_ticker="SPY",
+                asset_return_pct=Dec("3.5"),
+                benchmark_return_pct=Dec("1.0"),
+                abnormal_pct=Dec("2.5"),
+            )
+        ]
+        out = io.StringIO()
+        with (
+            patch("genkei.cli.signals.query_events", return_value=sample),
+            patch(
+                "genkei.cli.signals.compute_stack_benchmark_contexts",
+                return_value=fake_ctx,
+            ),
+            redirect_stdout(out),
+        ):
+            # Default flag is --benchmark, so this should add the column.
+            code = main(["signals", "--rules-path", str(rpath)])
+        self.assertEqual(code, 0)
+        rendered = out.getvalue()
+        self.assertIn("vs_bench", rendered)
+        self.assertIn("2.50", rendered)
+        self.assertIn("asset_return_pct", rendered)  # footer mentions the column
+
+    def test_no_benchmark_flag_suppresses_column(self) -> None:
+        rpath = _rules_path(self)
+        sample = [
+            _event(ts=_dt(5), source="insider_clusters", signal_kind="buy_cluster"),
+            _event(ts=_dt(6), source="crowding", signal_kind="crowding_add"),
+        ]
+        out = io.StringIO()
+        with (
+            patch("genkei.cli.signals.query_events", return_value=sample),
+            patch(
+                "genkei.cli.signals.compute_stack_benchmark_contexts",
+                side_effect=AssertionError("should not be called with --no-benchmark"),
+            ),
+            redirect_stdout(out),
+        ):
+            code = main(["signals", "--no-benchmark", "--rules-path", str(rpath)])
+        self.assertEqual(code, 0)
+        self.assertNotIn("vs_bench", out.getvalue())
+
+    def test_overrides_propagate_to_compute(self) -> None:
+        rpath = _rules_path(self)
+        sample = [
+            _event(ts=_dt(5), source="insider_clusters", signal_kind="buy_cluster"),
+            _event(ts=_dt(6), source="crowding", signal_kind="crowding_add"),
+        ]
+        out = io.StringIO()
+        with (
+            patch("genkei.cli.signals.query_events", return_value=sample),
+            patch(
+                "genkei.cli.signals.compute_stack_benchmark_contexts",
+                return_value=[],
+            ) as ctx_mock,
+            redirect_stdout(out),
+        ):
+            main(
+                [
+                    "signals",
+                    "--equity-benchmark",
+                    "QQQ",
+                    "--crypto-benchmark",
+                    "ETH",
+                    "--rules-path",
+                    str(rpath),
+                ]
+            )
+        kwargs = ctx_mock.call_args.kwargs
+        self.assertEqual(kwargs["equity_benchmark"], "QQQ")
+        self.assertEqual(kwargs["crypto_benchmark"], "ETH")
+
+    def test_json_includes_benchmark_section(self) -> None:
+        rpath = _rules_path(self)
+        sample = [
+            _event(ts=_dt(5), source="insider_clusters", signal_kind="buy_cluster"),
+            _event(ts=_dt(6), source="crowding", signal_kind="crowding_add"),
+        ]
+        from decimal import Decimal as Dec
+
+        from genkei.experiments.signal_benchmark import StackBenchmarkContext
+
+        fake_ctx = [
+            StackBenchmarkContext(
+                stack_index=0,
+                benchmark_ticker="SPY",
+                asset_return_pct=Dec("3.5"),
+                benchmark_return_pct=Dec("1.0"),
+                abnormal_pct=Dec("2.5"),
+            )
+        ]
+        out = io.StringIO()
+        with (
+            patch("genkei.cli.signals.query_events", return_value=sample),
+            patch(
+                "genkei.cli.signals.compute_stack_benchmark_contexts",
+                return_value=fake_ctx,
+            ),
+            redirect_stdout(out),
+        ):
+            code = main(["signals", "--json", "--rules-path", str(rpath)])
+        self.assertEqual(code, 0)
+        data = json_mod.loads(out.getvalue())
+        self.assertEqual(data[0]["benchmark"]["ticker"], "SPY")
+        self.assertEqual(data[0]["benchmark"]["abnormal_pct"], "2.5")
 
 
 if __name__ == "__main__":

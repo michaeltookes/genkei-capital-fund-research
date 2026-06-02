@@ -27,6 +27,12 @@ import typer
 
 from genkei.cli._helpers import json_default as _json_default
 from genkei.cli._helpers import parse_date as _parse_date
+from genkei.experiments.signal_benchmark import (
+    DEFAULT_CRYPTO_BENCHMARK,
+    DEFAULT_EQUITY_BENCHMARK,
+    StackBenchmarkContext,
+    compute_stack_benchmark_contexts,
+)
 from genkei.experiments.signal_rules import DEFAULT_RULES_PATH, load_rules
 from genkei.experiments.signal_store import (
     Stack,
@@ -46,8 +52,12 @@ def _date_to_dt(d: Optional[date], *, end_of_day: bool = False) -> Optional[date
     return datetime.combine(d, day_time)
 
 
-def _stack_to_dict(stack: Stack) -> dict[str, Any]:
-    return {
+def _stack_to_dict(
+    stack: Stack,
+    *,
+    benchmark: Optional[StackBenchmarkContext] = None,
+) -> dict[str, Any]:
+    out: dict[str, Any] = {
         "rule": stack.rule_name,
         "asset": stack.asset,
         "asset_class": stack.asset_class,
@@ -71,9 +81,27 @@ def _stack_to_dict(stack: Stack) -> dict[str, Any]:
             for ev in stack.events
         ],
     }
+    if benchmark is not None:
+        out["benchmark"] = {
+            "ticker": benchmark.benchmark_ticker,
+            "asset_return_pct": benchmark.asset_return_pct,
+            "benchmark_return_pct": benchmark.benchmark_return_pct,
+            "abnormal_pct": benchmark.abnormal_pct,
+        }
+    return out
 
 
-def _format_stacks_human(stacks: list[Stack]) -> str:
+def _format_pct(value: Optional[Any], width: int) -> str:
+    if value is None:
+        return f"{'n/a':>{width}}"
+    return f"{float(value):>{width}.2f}"
+
+
+def _format_stacks_human(
+    stacks: list[Stack],
+    *,
+    benchmarks: Optional[list[StackBenchmarkContext]] = None,
+) -> str:
     if not stacks:
         return (
             "No stacks found. Either no rules qualified (try widening --since), "
@@ -81,13 +109,21 @@ def _format_stacks_human(stacks: list[Stack]) -> str:
             "`python -m genkei.experiments.emitters.insider_clusters_emitter --since X`), "
             "or --rule scoped out every match."
         )
+    show_benchmark = benchmarks is not None
     header = f"Cross-source signal stacks ({len(stacks)} found)"
     lines = [header, "-" * len(header)]
-    lines.append(
-        f"  {'window_end':<12} {'asset':<8} {'dir':<8} {'rule':<24} "
-        f"{'horizon':<18} {'score':>6} {'sources':>7}  events"
-    )
-    for s in stacks:
+    if show_benchmark:
+        lines.append(
+            f"  {'window_end':<12} {'asset':<8} {'dir':<8} {'rule':<24} "
+            f"{'horizon':<18} {'score':>6} {'sources':>7} "
+            f"{'vs_bench':>9}  events"
+        )
+    else:
+        lines.append(
+            f"  {'window_end':<12} {'asset':<8} {'dir':<8} {'rule':<24} "
+            f"{'horizon':<18} {'score':>6} {'sources':>7}  events"
+        )
+    for idx, s in enumerate(stacks):
         date_str = s.window_end.date().isoformat()
         score = f"{float(s.score):>6.2f}"
         events = ", ".join(
@@ -95,9 +131,29 @@ def _format_stacks_human(stacks: list[Stack]) -> str:
         )
         if len(s.events) > 4:
             events += f", +{len(s.events) - 4} more"
+        if show_benchmark:
+            ctx = benchmarks[idx] if benchmarks else None
+            vs_bench = _format_pct(ctx.abnormal_pct if ctx else None, width=9)
+            lines.append(
+                f"  {date_str:<12} {s.asset:<8} {s.direction:<8} {s.rule_name:<24} "
+                f"{s.horizon:<18} {score} {s.distinct_sources:>7} "
+                f"{vs_bench}  {events}"
+            )
+        else:
+            lines.append(
+                f"  {date_str:<12} {s.asset:<8} {s.direction:<8} {s.rule_name:<24} "
+                f"{s.horizon:<18} {score} {s.distinct_sources:>7}  {events}"
+            )
+    if show_benchmark:
+        lines.append("")
         lines.append(
-            f"  {date_str:<12} {s.asset:<8} {s.direction:<8} {s.rule_name:<24} "
-            f"{s.horizon:<18} {score} {s.distinct_sources:>7}  {events}"
+            "  vs_bench  = asset_return_pct - benchmark_return_pct over the stack window (pp)"
+        )
+        lines.append(
+            "              positive = asset out-performed its benchmark IN window"
+        )
+        lines.append(
+            "              (bullish rule: confirms the call; bearish: market-relative miss)"
         )
     return "\n".join(lines)
 
@@ -182,6 +238,31 @@ def signals_cmd(
             show_default=True,
         ),
     ] = DEFAULT_RULES_PATH,
+    benchmark: Annotated[
+        bool,
+        typer.Option(
+            "--benchmark/--no-benchmark",
+            help=(
+                "Show benchmark-adjusted column (B-100). Equity stacks compare "
+                "vs SPY from yahoo.candles, crypto stacks vs BTC from "
+                "coinbase.candles. Default on; --no-benchmark disables."
+            ),
+        ),
+    ] = True,
+    equity_benchmark: Annotated[
+        str,
+        typer.Option(
+            "--equity-benchmark",
+            help="Equity-side benchmark ticker (from yahoo.candles).",
+        ),
+    ] = DEFAULT_EQUITY_BENCHMARK,
+    crypto_benchmark: Annotated[
+        str,
+        typer.Option(
+            "--crypto-benchmark",
+            help="Crypto-side benchmark symbol (from coinbase.candles as <SYMBOL>-USD).",
+        ),
+    ] = DEFAULT_CRYPTO_BENCHMARK,
 ) -> None:
     """Show cross-source signal stacks from the correlation engine."""
     since_d = _parse_date(since, label="since")
@@ -248,13 +329,28 @@ def signals_cmd(
     stacks = detect_stacks(event_rows, rules)
     stacks = stacks[:top]
 
+    benchmark_contexts: Optional[list[StackBenchmarkContext]] = None
+    if benchmark:
+        benchmark_contexts = compute_stack_benchmark_contexts(
+            stacks,
+            equity_benchmark=equity_benchmark,
+            crypto_benchmark=crypto_benchmark,
+        )
+
     if json_out:
+        if benchmark_contexts is not None:
+            payload = [
+                _stack_to_dict(s, benchmark=benchmark_contexts[i])
+                for i, s in enumerate(stacks)
+            ]
+        else:
+            payload = [_stack_to_dict(s) for s in stacks]
         typer.echo(
             json.dumps(
-                [_stack_to_dict(s) for s in stacks],
+                payload,
                 indent=2,
                 default=_json_default,
             )
         )
     else:
-        typer.echo(_format_stacks_human(stacks))
+        typer.echo(_format_stacks_human(stacks, benchmarks=benchmark_contexts))
