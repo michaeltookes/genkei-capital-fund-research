@@ -139,9 +139,10 @@ DISAGGREGATED_CATEGORIES: tuple[_CategoryFields, ...] = (
     ),
     _CategoryFields(
         long_field="swap_positions_long_all",
-        short_field="swap_positions_short_all",
-        # Double underscore in the upstream column name is intentional —
-        # the CFTC Socrata schema actually publishes "swap__positions_spread_all".
+        # Double underscore in these upstream column names is intentional:
+        # the CFTC Socrata schema publishes "swap__positions_short_all" and
+        # "swap__positions_spread_all".
+        short_field="swap__positions_short_all",
         spread_field="swap__positions_spread_all",
         trader_category="swap_dealer",
     ),

@@ -45,7 +45,10 @@ NOW = datetime(2026, 6, 2, tzinfo=timezone.utc)
 
 
 class BuildMarketUrlTests(unittest.TestCase):
+    """Pin Socrata URL construction for configured COT markets."""
+
     def test_tff_dataset_chosen_for_financial_market(self) -> None:
+        """Use the TFF dataset for financial futures markets."""
         url = build_market_url(BTC_MARKET, since=None)
         parsed = urlparse(url)
         self.assertIn(TFF_DATASET_ID, parsed.path)
@@ -59,11 +62,13 @@ class BuildMarketUrlTests(unittest.TestCase):
         self.assertIn("ASC", params["$order"][0])
 
     def test_disaggregated_dataset_chosen_for_commodity_market(self) -> None:
+        """Use the disaggregated dataset for commodity futures markets."""
         url = build_market_url(WTI_MARKET, since=None)
         parsed = urlparse(url)
         self.assertIn(DISAGGREGATED_DATASET_ID, parsed.path)
 
     def test_since_clause_appended_when_provided(self) -> None:
+        """Include the lower-bound report-date filter when since is set."""
         url = build_market_url(BTC_MARKET, since=date(2024, 1, 1))
         params = parse_qs(urlparse(url).query)
         where = params["$where"][0]
@@ -77,28 +82,36 @@ class BuildMarketUrlTests(unittest.TestCase):
 
 
 class CoerceIntTests(unittest.TestCase):
+    """Exercise Socrata numeric coercion edge cases."""
+
     def test_string_digits_parse(self) -> None:
+        """Parse plain integer strings."""
         self.assertEqual(_coerce_int("12345"), 12345)
         self.assertEqual(_coerce_int("  100  "), 100)
 
     def test_float_strings_truncate(self) -> None:
+        """Accept Socrata numeric strings that include a decimal point."""
         # Socrata occasionally returns "0.0" for a zero-position cell
         self.assertEqual(_coerce_int("0.0"), 0)
         self.assertEqual(_coerce_int("12.7"), 12)
 
     def test_none_and_blank_pass_through(self) -> None:
+        """Treat missing and blank values as NULL positions."""
         self.assertIsNone(_coerce_int(None))
         self.assertIsNone(_coerce_int(""))
         self.assertIsNone(_coerce_int("  "))
 
     def test_garbage_returns_none(self) -> None:
+        """Do not coerce non-numeric strings."""
         self.assertIsNone(_coerce_int("n/a"))
         self.assertIsNone(_coerce_int("not-a-number"))
 
     def test_native_int_passes_through(self) -> None:
+        """Preserve native integer values."""
         self.assertEqual(_coerce_int(42), 42)
 
     def test_bool_rejected(self) -> None:
+        """Reject bools so they do not masquerade as 1 or 0."""
         # True/False would silently coerce to 1/0 via int(); reject so a
         # truthy-but-non-numeric cell doesn't land as a 1 in the table.
         self.assertIsNone(_coerce_int(True))
@@ -106,16 +119,21 @@ class CoerceIntTests(unittest.TestCase):
 
 
 class ParseReportDateTests(unittest.TestCase):
+    """Exercise report-date parsing from Socrata payload cells."""
+
     def test_socrata_floating_timestamp(self) -> None:
+        """Parse the floating timestamp format used by CFTC."""
         self.assertEqual(
             _parse_report_date("2024-01-09T00:00:00.000"),
             date(2024, 1, 9),
         )
 
     def test_bare_date_falls_back(self) -> None:
+        """Accept bare YYYY-MM-DD dates as a fallback."""
         self.assertEqual(_parse_report_date("2024-01-09"), date(2024, 1, 9))
 
     def test_garbage_returns_none(self) -> None:
+        """Treat invalid report-date cells as unusable."""
         self.assertIsNone(_parse_report_date(""))
         self.assertIsNone(_parse_report_date("not-a-date"))
         self.assertIsNone(_parse_report_date(None))
@@ -127,7 +145,10 @@ class ParseReportDateTests(unittest.TestCase):
 
 
 class CategoryRoutingTests(unittest.TestCase):
+    """Pin category mappings for supported report types."""
+
     def test_tff_includes_asset_manager_and_leveraged_funds(self) -> None:
+        """Expose the expected TFF trader categories."""
         cats = {c.trader_category for c in _categories_for("tff")}
         self.assertIn("asset_manager", cats)
         self.assertIn("leveraged_funds", cats)
@@ -135,12 +156,14 @@ class CategoryRoutingTests(unittest.TestCase):
         self.assertIn("non_reportable", cats)
 
     def test_disaggregated_includes_managed_money_and_producer_merchant(self) -> None:
+        """Expose the expected disaggregated trader categories."""
         cats = {c.trader_category for c in _categories_for("disaggregated")}
         self.assertIn("managed_money", cats)
         self.assertIn("producer_merchant", cats)
         self.assertIn("swap_dealer", cats)
 
     def test_unsupported_report_type_raises(self) -> None:
+        """Reject unknown report-type mappings loudly."""
         with self.assertRaises(ValueError):
             _categories_for("legacy")
 
@@ -177,7 +200,7 @@ DISAGG_FIXTURE_ROW = {
     "prod_merc_positions_long": "100000",
     "prod_merc_positions_short": "150000",
     "swap_positions_long_all": "200000",
-    "swap_positions_short_all": "180000",
+    "swap__positions_short_all": "180000",  # double underscore intentional
     "swap__positions_spread_all": "30000",  # double underscore intentional
     "m_money_positions_long_all": "300000",
     "m_money_positions_short_all": "250000",
@@ -191,7 +214,10 @@ DISAGG_FIXTURE_ROW = {
 
 
 class ParseMarketRowsTests(unittest.TestCase):
+    """Exercise CFTC payload fan-out into cot_reports rows."""
+
     def _parse(self, payload: list[dict], market: CotMarketEntry) -> list[dict]:
+        """Parse fixture payloads with stable ingest metadata."""
         return parse_market_rows(
             payload,
             market=market,
@@ -201,6 +227,7 @@ class ParseMarketRowsTests(unittest.TestCase):
         )
 
     def test_tff_row_fans_out_to_five_categories(self) -> None:
+        """Fan out one TFF report into five trader-category rows."""
         rows = self._parse([TFF_FIXTURE_ROW], BTC_MARKET)
         self.assertEqual(len(rows), 5)
         categories = {r["trader_category"] for r in rows}
@@ -228,6 +255,7 @@ class ParseMarketRowsTests(unittest.TestCase):
         self.assertEqual(lev["long_positions"] - lev["short_positions"], -3000)
 
     def test_asset_manager_decoded_from_correct_columns(self) -> None:
+        """Decode asset-manager TFF positions from the expected columns."""
         rows = self._parse([TFF_FIXTURE_ROW], BTC_MARKET)
         am = next(r for r in rows if r["trader_category"] == "asset_manager")
         self.assertEqual(am["long_positions"], 1500)
@@ -236,6 +264,7 @@ class ParseMarketRowsTests(unittest.TestCase):
         self.assertEqual(am["long_positions"] - am["short_positions"], 1400)
 
     def test_dealer_intermediary_uses_tff_spread_all_column(self) -> None:
+        """Read TFF dealer spreads from the published spread-all field."""
         rows = self._parse([TFF_FIXTURE_ROW], BTC_MARKET)
         dealer = next(r for r in rows if r["trader_category"] == "dealer_intermediary")
         self.assertEqual(dealer["long_positions"], 100)
@@ -243,6 +272,7 @@ class ParseMarketRowsTests(unittest.TestCase):
         self.assertEqual(dealer["spreading_positions"], 50)
 
     def test_non_reportable_has_null_spread(self) -> None:
+        """Keep non-reportable spread positions NULL."""
         # CFTC convention: non-reportable traders by definition don't spread.
         rows = self._parse([TFF_FIXTURE_ROW], BTC_MARKET)
         nr = next(r for r in rows if r["trader_category"] == "non_reportable")
@@ -251,11 +281,13 @@ class ParseMarketRowsTests(unittest.TestCase):
         self.assertIsNone(nr["spreading_positions"])
 
     def test_report_date_decoded(self) -> None:
+        """Stamp the parsed report date on every output row."""
         rows = self._parse([TFF_FIXTURE_ROW], BTC_MARKET)
         for r in rows:
             self.assertEqual(r["report_date"], date(2024, 1, 9))
 
     def test_stamps_market_metadata_on_every_row(self) -> None:
+        """Copy market metadata and ingest metadata onto every row."""
         rows = self._parse([TFF_FIXTURE_ROW], BTC_MARKET)
         for r in rows:
             self.assertEqual(r["market_code"], "133741")
@@ -266,6 +298,7 @@ class ParseMarketRowsTests(unittest.TestCase):
             self.assertEqual(r["source_endpoint"], "https://test.example/cftc")
 
     def test_disaggregated_fans_out_with_managed_money(self) -> None:
+        """Fan out one disaggregated report and decode managed money."""
         rows = self._parse([DISAGG_FIXTURE_ROW], WTI_MARKET)
         # Disaggregated also fans out to 5 categories
         self.assertEqual(len(rows), 5)
@@ -275,10 +308,11 @@ class ParseMarketRowsTests(unittest.TestCase):
         self.assertEqual(mm["spreading_positions"], 40000)
 
     def test_disaggregated_swap_dealer_uses_double_underscore_column(self) -> None:
+        """Read swap-dealer shorts and spreads from double-underscore fields."""
         # The upstream CFTC schema actually publishes
-        # "swap__positions_spread_all" (double underscore). If a future
-        # CFTC rename collapses to a single underscore, this test will
-        # surface the drift loudly.
+        # "swap__positions_short_all" / "swap__positions_spread_all"
+        # (double underscore). If a future CFTC rename collapses to a
+        # single underscore, this test will surface the drift loudly.
         rows = self._parse([DISAGG_FIXTURE_ROW], WTI_MARKET)
         sd = next(r for r in rows if r["trader_category"] == "swap_dealer")
         self.assertEqual(sd["long_positions"], 200000)
@@ -286,6 +320,7 @@ class ParseMarketRowsTests(unittest.TestCase):
         self.assertEqual(sd["spreading_positions"], 30000)
 
     def test_skips_rows_missing_long_and_short(self) -> None:
+        """Drop category rows that have neither long nor short positions."""
         # A row where both long and short are missing for a given category
         # would land as net=NULL — meaningless. The parser should drop
         # those rather than write zero-valued junk.
@@ -299,12 +334,14 @@ class ParseMarketRowsTests(unittest.TestCase):
         self.assertNotIn("leveraged_funds", cats)
 
     def test_skips_rows_with_missing_report_date(self) -> None:
+        """Drop source rows without a parseable report date."""
         bad = dict(TFF_FIXTURE_ROW)
         bad["report_date_as_yyyy_mm_dd"] = ""
         rows = self._parse([bad], BTC_MARKET)
         self.assertEqual(rows, [])
 
     def test_multiple_weeks_each_fan_out(self) -> None:
+        """Fan out every upstream week independently."""
         week1 = dict(TFF_FIXTURE_ROW)
         week2 = dict(TFF_FIXTURE_ROW)
         week2["report_date_as_yyyy_mm_dd"] = "2024-01-16T00:00:00.000"
@@ -315,6 +352,7 @@ class ParseMarketRowsTests(unittest.TestCase):
         self.assertEqual(dates, {date(2024, 1, 9), date(2024, 1, 16)})
 
     def test_non_array_payload_raises(self) -> None:
+        """Raise when Socrata returns a non-array payload."""
         # Socrata always returns an array; an object means the upstream
         # contract changed. Raise loudly rather than silently writing 0 rows.
         with self.assertRaises(ValueError):
@@ -327,6 +365,7 @@ class ParseMarketRowsTests(unittest.TestCase):
             )
 
     def test_falls_back_to_watchlist_name_when_upstream_missing(self) -> None:
+        """Use the watchlist market name when CFTC omits its label."""
         without_name = dict(TFF_FIXTURE_ROW)
         without_name.pop("market_and_exchange_names")
         rows = self._parse([without_name], BTC_MARKET)
