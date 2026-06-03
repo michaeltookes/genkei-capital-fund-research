@@ -108,6 +108,31 @@ class FilerEntry:
 
 
 @dataclass(frozen=True)
+class EtfTickerEntry:
+    """A US spot crypto ETF we track via Yahoo OHLCV (B-105).
+
+    Pivoted from B-105's original Farside-scrape spec on 2026-06-03
+    after Farside + SoSoValue both Cloudflare-walled scripted access.
+    The Yahoo chart endpoint serves each ETF cleanly and the existing
+    ``genkei.ingest.yahoo`` collector lands rows in ``yahoo.candles``.
+
+    ``asset`` is the underlying (``BTC`` or ``ETH``) used to route
+    per-asset aggregations in ``genkei etf-flows --asset BTC``.
+    ``launch_date`` is informational — Yahoo serves history from the
+    actual first-trade date and the chart endpoint clamps to it
+    automatically.
+    """
+
+    ticker: str
+    name: str
+    asset: str  # 'BTC' | 'ETH'
+    issuer: str
+    sleeve: str = "tactical"
+    launch_date: str | None = None
+    rationale: str | None = None
+
+
+@dataclass(frozen=True)
 class CotMarketEntry:
     """A CFTC-regulated futures market we ingest position data for (B-031).
 
@@ -140,6 +165,7 @@ class Watchlist:
     filers: list[FilerEntry]
     benchmarks: list[BenchmarkEntry] = dataclasses.field(default_factory=list)
     cot_markets: list[CotMarketEntry] = dataclasses.field(default_factory=list)
+    etf_tickers: list[EtfTickerEntry] = dataclasses.field(default_factory=list)
 
     def find_crypto(self, symbol: str) -> CryptoEntry | None:
         upper = symbol.upper()
@@ -197,6 +223,23 @@ class Watchlist:
             if entry.symbol.upper() == upper or entry.code.upper() == upper:
                 return entry
         return None
+
+    def find_etf_ticker(self, ticker: str) -> EtfTickerEntry | None:
+        """Lookup a spot ETF entry by ticker (case-insensitive)."""
+        if not ticker:
+            return None
+        upper = ticker.strip().upper()
+        for entry in self.etf_tickers:
+            if entry.ticker.upper() == upper:
+                return entry
+        return None
+
+    def etfs_for_asset(self, asset: str) -> list[EtfTickerEntry]:
+        """Return all configured ETFs that track the given underlying (BTC / ETH)."""
+        if not asset:
+            return []
+        upper = asset.strip().upper()
+        return [e for e in self.etf_tickers if e.asset.upper() == upper]
 
     def find_filer(self, identifier: str) -> FilerEntry | None:
         """Lookup a filer by CIK (with or without zero-padding) or by exact name.
@@ -450,6 +493,46 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                 )
             )
 
+    etf_tickers: list[EtfTickerEntry] = []
+    etf_root = data.get("etf_tickers", [])
+    if isinstance(etf_root, list):
+        seen_etf_tickers: set[str] = set()
+        for entry in etf_root:
+            if not isinstance(entry, dict):
+                continue
+            ticker = entry.get("ticker")
+            if not isinstance(ticker, str) or not ticker:
+                continue
+            asset = entry.get("asset")
+            if not isinstance(asset, str) or asset.upper() not in ("BTC", "ETH"):
+                # v1 only supports BTC + ETH spot ETFs; other assets get dropped.
+                continue
+            upper_ticker = ticker.strip().upper()
+            if upper_ticker in seen_etf_tickers:
+                continue
+            seen_etf_tickers.add(upper_ticker)
+            # launch_date is YAML-parsed as a datetime.date when unquoted.
+            # Keep it as ISO string so downstream code doesn't have to
+            # special-case typing.
+            raw_launch = entry.get("launch_date")
+            if hasattr(raw_launch, "isoformat"):
+                launch_str: str | None = raw_launch.isoformat()
+            elif isinstance(raw_launch, str) and raw_launch:
+                launch_str = raw_launch
+            else:
+                launch_str = None
+            etf_tickers.append(
+                EtfTickerEntry(
+                    ticker=upper_ticker,
+                    name=str(entry.get("name") or ""),
+                    asset=asset.upper(),
+                    issuer=str(entry.get("issuer") or ""),
+                    sleeve=str(entry.get("sleeve") or "tactical"),
+                    launch_date=launch_str,
+                    rationale=_optional_string(entry.get("rationale")),
+                )
+            )
+
     return Watchlist(
         crypto=crypto,
         equities=equities,
@@ -458,6 +541,7 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
         filers=filers,
         benchmarks=benchmarks,
         cot_markets=cot_markets,
+        etf_tickers=etf_tickers,
     )
 
 
