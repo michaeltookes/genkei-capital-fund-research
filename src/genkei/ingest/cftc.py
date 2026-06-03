@@ -101,7 +101,7 @@ TFF_CATEGORIES: tuple[_CategoryFields, ...] = (
     _CategoryFields(
         long_field="dealer_positions_long_all",
         short_field="dealer_positions_short_all",
-        spread_field="dealer_positions_spread",
+        spread_field="dealer_positions_spread_all",
         trader_category="dealer_intermediary",
     ),
     _CategoryFields(
@@ -167,6 +167,7 @@ DISAGGREGATED_CATEGORIES: tuple[_CategoryFields, ...] = (
 
 
 def _dataset_id_for(report_type: str) -> str:
+    """Return the Socrata dataset id for a supported CFTC report type."""
     if report_type == "tff":
         return TFF_DATASET_ID
     if report_type == "disaggregated":
@@ -175,6 +176,7 @@ def _dataset_id_for(report_type: str) -> str:
 
 
 def _categories_for(report_type: str) -> tuple[_CategoryFields, ...]:
+    """Return the category column mapping for a supported CFTC report type."""
     if report_type == "tff":
         return TFF_CATEGORIES
     if report_type == "disaggregated":
@@ -427,6 +429,7 @@ def collect(
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
+    """Parse CLI flags for the collector entry point."""
     parser = argparse.ArgumentParser(
         description="Collect CFTC Commitments of Traders positions into cftc.cot_reports."
     )
@@ -452,6 +455,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the collector from ``python -m genkei.ingest.cftc``."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     args = parse_args(argv if argv is not None else sys.argv[1:])
     run_id = collect(args.config, backfill=args.backfill, since=args.since)

@@ -14,6 +14,16 @@ on:
   schedule:
     - cron: "0 22 * * *"
   workflow_dispatch:
+    inputs:
+      backfill:
+        description: "Run a full CFTC history backfill"
+        required: false
+        default: false
+        type: boolean
+      since:
+        description: "Optional YYYY-MM-DD lower bound for incremental replay"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -28,10 +38,12 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.12"
 
@@ -44,4 +56,14 @@ jobs:
         run: alembic upgrade head
 
       - name: Collect CFTC COT positions into cftc.cot_reports
-        run: python3 -m genkei.ingest.cftc
+        env:
+          BACKFILL: ${{ inputs.backfill || 'false' }}
+          SINCE: ${{ inputs.since || '' }}
+        run: |
+          args=()
+          if [ "$BACKFILL" = "true" ]; then
+            args+=(--backfill)
+          elif [ -n "$SINCE" ]; then
+            args+=(--since "$SINCE")
+          fi
+          python3 -m genkei.ingest.cftc "${args[@]}"

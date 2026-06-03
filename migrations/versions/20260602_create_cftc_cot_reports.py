@@ -61,6 +61,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    """Create the CFTC schema, report table, and lookup indexes."""
     op.execute("CREATE SCHEMA IF NOT EXISTS cftc")
 
     op.execute(
@@ -93,5 +94,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drop the CFTC report table and schema."""
     op.execute("DROP TABLE IF EXISTS cftc.cot_reports")
     op.execute("DROP SCHEMA IF EXISTS cftc")

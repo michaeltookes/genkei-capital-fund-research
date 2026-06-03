@@ -156,7 +156,7 @@ TFF_FIXTURE_ROW = {
     "market_and_exchange_names": "BITCOIN - CHICAGO MERCANTILE EXCHANGE",
     "dealer_positions_long_all": "100",
     "dealer_positions_short_all": "200",
-    "dealer_positions_spread": "50",
+    "dealer_positions_spread_all": "50",
     "asset_mgr_positions_long": "1500",
     "asset_mgr_positions_short": "100",
     "asset_mgr_positions_spread": "200",
@@ -234,6 +234,13 @@ class ParseMarketRowsTests(unittest.TestCase):
         self.assertEqual(am["short_positions"], 100)
         self.assertEqual(am["spreading_positions"], 200)
         self.assertEqual(am["long_positions"] - am["short_positions"], 1400)
+
+    def test_dealer_intermediary_uses_tff_spread_all_column(self) -> None:
+        rows = self._parse([TFF_FIXTURE_ROW], BTC_MARKET)
+        dealer = next(r for r in rows if r["trader_category"] == "dealer_intermediary")
+        self.assertEqual(dealer["long_positions"], 100)
+        self.assertEqual(dealer["short_positions"], 200)
+        self.assertEqual(dealer["spreading_positions"], 50)
 
     def test_non_reportable_has_null_spread(self) -> None:
         # CFTC convention: non-reportable traders by definition don't spread.

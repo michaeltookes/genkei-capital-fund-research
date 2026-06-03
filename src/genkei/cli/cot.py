@@ -4,7 +4,7 @@ Returns weekly position rows from ``cftc.cot_reports``. The schema is
 keyed on ``(report_date, market_code, trader_category)`` — one upstream
 weekly report fans out into 5 trader-category rows. The CLI lets the
 caller slice by market, trader category, and date window, with
-``net_position`` (long − short) computed in the output so the headline
+``net_position`` (long - short) computed in the output so the headline
 "are leveraged funds net-long or net-short" question is one command
 rather than a follow-up join.
 
@@ -33,7 +33,8 @@ from typing import Annotated, Any, Optional
 
 import typer
 
-from genkei.cli._helpers import json_default, parse_date
+from genkei.cli._helpers import json_default as _json_default
+from genkei.cli._helpers import parse_date as _parse_date
 from genkei.common import db
 from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
@@ -41,8 +42,6 @@ from genkei.common.watchlist import (
     Watchlist,
     load_watchlist,
 )
-
-_parse_date = parse_date
 
 # Caller-friendly aliases → canonical trader_category. The canonical names
 # match the values stored in cftc.cot_reports.trader_category exactly.
@@ -71,6 +70,7 @@ _CATEGORY_ALIASES: dict[str, str] = {
 
 
 def _resolve_category(raw: str) -> str:
+    """Normalize a user-facing trader-category alias to the stored value."""
     key = raw.strip().lower()
     if key in _CATEGORY_ALIASES:
         return _CATEGORY_ALIASES[key]
@@ -81,6 +81,7 @@ def _resolve_category(raw: str) -> str:
 
 
 def _resolve_market(symbol_or_code: str, watchlist: Watchlist) -> CotMarketEntry:
+    """Resolve ``--market`` as either a Genkei symbol or CFTC market code."""
     entry = watchlist.find_cot_market(symbol_or_code)
     if entry is None:
         valid = ", ".join(m.symbol for m in watchlist.cot_markets)
@@ -147,6 +148,7 @@ def _query_cot(
 
 
 def _fmt(value: Optional[int], width: int, *, sign: bool = False) -> str:
+    """Format an integer cell for aligned human output."""
     if value is None:
         return f"{'-':>{width}}"
     return f"{value:>+{width},}" if sign else f"{value:>{width},}"
@@ -159,8 +161,9 @@ def _format_human(
     trader_category: Optional[str],
     horizon_tag: str,
 ) -> str:
+    """Render queried COT rows as a compact terminal table."""
     if not rows:
-        hint = "Widen --since, drop --trader-category, or check `genkei cot --markets`."
+        hint = "Widen --since, drop --trader-category, or check `genkei cot --list-markets`."
         return f"No COT rows for {market.symbol} ({market.code}). {hint}"
     header_bits = [f"{market.symbol} ({market.code})", market.report_type]
     if trader_category is not None:
@@ -185,6 +188,7 @@ def _format_human(
 
 
 def _format_markets_human(watchlist: Watchlist) -> str:
+    """Render configured COT markets for ``--list-markets``."""
     if not watchlist.cot_markets:
         return "No cot_markets configured. Edit watchlists.yml."
     lines = ["Configured COT markets:", "-" * 24]
@@ -198,10 +202,12 @@ def _format_markets_human(watchlist: Watchlist) -> str:
 
 
 def _horizon_tag(market: CotMarketEntry) -> str:
+    """Build the signal horizon tag attached to JSON output rows."""
     return f"cot:{market.sleeve}"
 
 
 def _tag_rows(rows: list[dict[str, Any]], horizon_tag: str) -> list[dict[str, Any]]:
+    """Attach a horizon tag without mutating database result rows in place."""
     return [{**row, "horizon_tag": horizon_tag} for row in rows]
 
 
@@ -273,7 +279,7 @@ def cot_cmd(
                         for m in watchlist.cot_markets
                     ],
                     indent=2,
-                    default=json_default,
+                    default=_json_default,
                 )
             )
         else:
@@ -287,8 +293,8 @@ def cot_cmd(
 
     market_entry = _resolve_market(market, watchlist)
     canonical_category = _resolve_category(trader_category) if trader_category else None
-    since_d = parse_date(since, label="since")
-    until_d = parse_date(until, label="until")
+    since_d = _parse_date(since, label="since")
+    until_d = _parse_date(until, label="until")
     if since_d is not None and until_d is not None and since_d > until_d:
         raise typer.BadParameter("--since must be on or before --until.")
 
@@ -302,7 +308,7 @@ def cot_cmd(
     horizon_tag = _horizon_tag(market_entry)
     rows = _tag_rows(rows, horizon_tag)
     if json_out:
-        typer.echo(json.dumps(rows, indent=2, default=json_default))
+        typer.echo(json.dumps(rows, indent=2, default=_json_default))
     else:
         typer.echo(
             _format_human(
