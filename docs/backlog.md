@@ -135,19 +135,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Backfill where exposed.
   - Daily refresh schedule.
 
-### B-031 — CFTC Commitments of Traders ingester
-- **Status:** open
-- **Priority:** high
-- **Context:** Positioning data across CFTC-regulated futures markets — rates, metals, energy, equity index, FX, AND **crypto (CME BTC + ETH futures are CFTC-regulated)**. Weekly Tuesday-snapshot / Friday-release cadence. Breaks down positions by trader category: Asset Manager (long-only institutional), Leveraged Funds (hedge funds), Dealer/Intermediary (banks), Other Reportables, Non-reportable (retail). **Priority bumped from medium to high on 2026-06-02**: today's ETH / SOL / SUI research sessions repeatedly flagged "institutional positioning is the missing input" as the single most valuable gap when reading crypto-core stacks. COT directly answers "are institutions long or short BTC / ETH futures?" — the exact question the research decisions had to acknowledge as a data gap. Paired with B-104 (CME OI) and B-105 (spot ETF flow), forms the "institutional flow" cohort that closes the position-sizing gap on crypto-core calls.
-- **Acceptance criteria:**
-  - Public CFTC API (`https://publicreporting.cftc.gov/resource/`) — no key required.
-  - Weekly Friday-release schedule in a new `cftc-weekly.yml` workflow.
-  - Multi-year backfill (CFTC publishes COT history back to 1995 for major contracts; crypto futures started ~2017).
-  - New schema `cftc.cot_reports` with `(report_date, market_code, market_name, trader_category, long_positions, short_positions, spreading_positions)` keyed on `(report_date, market_code, trader_category)`. Both Disaggregated and Legacy report formats — Disaggregated has the Asset Manager / Leveraged Funds breakdown that matters for crypto.
-  - `genkei watchlist health` surfaces the new source.
-  - `genkei cot --market BTC --trader-category leveraged_funds --since 2024-01-01` answers "what's hedge-fund BTC futures positioning over time" without needing custom code.
-  - Watchlist gains a `cot_markets:` section listing the CFTC market codes we want to track (BTC, ETH, ES, GC, CL, etc.).
-  - Unit tests pin the COT report parser + the long/short net-position math.
 
 ### B-104 — CME BTC + ETH futures daily OI + volume ingester
 - **Status:** open
