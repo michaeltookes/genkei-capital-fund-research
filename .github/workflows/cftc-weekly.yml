@@ -1,0 +1,69 @@
+name: CFTC Weekly COT
+
+# B-031 — pulls CFTC Commitments of Traders weekly position breakdowns
+# from the public Socrata API and writes per-trader-category rows into
+# cftc.cot_reports. Runs on the self-hosted Beelink runner so it can
+# reach the homelab Postgres on mission_control_net.
+#
+# CFTC publishes COT every Friday at 3:30pm ET (~20:30 UTC) reflecting
+# the prior Tuesday's snapshot. A daily cron at 22:00 UTC catches the
+# Friday publication reliably and is harmlessly idempotent on Mon-Thu
+# (no new report → 0 new rows written, the upsert is a no-op).
+
+on:
+  schedule:
+    - cron: "0 22 * * *"
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: "Run a full CFTC history backfill"
+        required: false
+        default: false
+        type: boolean
+      since:
+        description: "Optional YYYY-MM-DD lower bound for incremental replay"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    name: CFTC COT collect (Postgres-backed)
+    runs-on: [self-hosted, beelink]
+    timeout-minutes: 15
+    env:
+      GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+
+      - name: Apply database migrations
+        run: alembic upgrade head
+
+      - name: Collect CFTC COT positions into cftc.cot_reports
+        env:
+          BACKFILL: ${{ inputs.backfill || 'false' }}
+          SINCE: ${{ inputs.since || '' }}
+        run: |
+          args=()
+          if [ "$BACKFILL" = "true" ]; then
+            args+=(--backfill)
+          elif [ -n "$SINCE" ]; then
+            args+=(--since "$SINCE")
+          fi
+          python3 -m genkei.ingest.cftc "${args[@]}"

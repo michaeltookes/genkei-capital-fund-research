@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from genkei.common.watchlist import BenchmarkEntry, load_watchlist
+from genkei.common.watchlist import BenchmarkEntry, CotMarketEntry, load_watchlist
 
 BENCHMARKS_YAML = """\
 version: 1
@@ -98,6 +98,109 @@ class BenchmarksParserTests(unittest.TestCase):
         w = _load(body)
         self.assertEqual(len(w.benchmarks), 1)
         self.assertEqual(w.benchmarks[0].name, "First")
+
+
+COT_MARKETS_YAML = """\
+version: 1
+cot_markets:
+  - code: "133741"
+    symbol: BTC
+    name: BITCOIN - CHICAGO MERCANTILE EXCHANGE
+    report_type: tff
+    sleeve: "crypto:core"
+    rationale: BTC futures TFF.
+  - code: "088691"
+    symbol: GC
+    name: GOLD - COMMODITY EXCHANGE INC.
+    report_type: disaggregated
+    sleeve: macro
+"""
+
+
+class CotMarketsParserTests(unittest.TestCase):
+    """Pin the cot_markets parsing path so YAML drift surfaces loudly (B-031)."""
+
+    def test_parses_typed_entries(self) -> None:
+        w = _load(COT_MARKETS_YAML)
+        self.assertEqual(len(w.cot_markets), 2)
+        btc, gold = w.cot_markets
+        self.assertEqual(
+            btc,
+            CotMarketEntry(
+                code="133741",
+                symbol="BTC",
+                name="BITCOIN - CHICAGO MERCANTILE EXCHANGE",
+                report_type="tff",
+                sleeve="crypto:core",
+                rationale="BTC futures TFF.",
+            ),
+        )
+        # Optional rationale defaults to None when absent
+        self.assertIsNone(gold.rationale)
+        # sleeve defaults to "macro" when omitted? (here it's explicit)
+        self.assertEqual(gold.sleeve, "macro")
+
+    def test_integer_code_coerces_to_string(self) -> None:
+        # YAML parses unquoted numerics as ints; codes like 67651 would
+        # silently drop the leading zero ("067651") if we didn't keep
+        # them as strings. The loader stringifies but does NOT zero-pad.
+        body = (
+            "version: 1\n"
+            "cot_markets:\n"
+            "  - code: 133741\n"
+            "    symbol: BTC\n"
+            "    name: BTC\n"
+            "    report_type: tff\n"
+        )
+        w = _load(body)
+        self.assertEqual(len(w.cot_markets), 1)
+        self.assertEqual(w.cot_markets[0].code, "133741")
+
+    def test_unknown_report_type_drops_row(self) -> None:
+        body = (
+            "version: 1\n"
+            "cot_markets:\n"
+            "  - code: '999'\n"
+            "    symbol: XX\n"
+            "    name: BAD\n"
+            "    report_type: legacy\n"  # not yet supported
+            "  - code: '133741'\n"
+            "    symbol: BTC\n"
+            "    name: BTC\n"
+            "    report_type: tff\n"
+        )
+        w = _load(body)
+        symbols = {m.symbol for m in w.cot_markets}
+        self.assertEqual(symbols, {"BTC"})
+
+    def test_duplicate_codes_dedupe_first_wins(self) -> None:
+        body = (
+            "version: 1\n"
+            "cot_markets:\n"
+            "  - code: '133741'\n"
+            "    symbol: BTC\n"
+            "    name: First\n"
+            "    report_type: tff\n"
+            "  - code: '133741'\n"
+            "    symbol: BTCX\n"
+            "    name: Duplicate\n"
+            "    report_type: tff\n"
+        )
+        w = _load(body)
+        self.assertEqual(len(w.cot_markets), 1)
+        self.assertEqual(w.cot_markets[0].symbol, "BTC")
+        self.assertEqual(w.cot_markets[0].name, "First")
+
+    def test_find_cot_market_by_symbol_or_code(self) -> None:
+        w = _load(COT_MARKETS_YAML)
+        self.assertEqual(w.find_cot_market("btc").code, "133741")
+        self.assertEqual(w.find_cot_market("BTC").code, "133741")
+        self.assertEqual(w.find_cot_market("133741").symbol, "BTC")
+        self.assertIsNone(w.find_cot_market("nope"))
+
+    def test_absent_section_yields_empty_list(self) -> None:
+        w = _load("version: 1\n")
+        self.assertEqual(w.cot_markets, [])
 
 
 if __name__ == "__main__":
