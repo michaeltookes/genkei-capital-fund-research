@@ -39,6 +39,7 @@ Subcommand surface (B-037):
                         Crypto peer relative-strength          [B-090 ✓]
 - ``genkei macro-regime``
                         Macro regime label per date            [B-059 ✓]
+- ``genkei cot``       CFTC Commitments of Traders             [B-031 ✓]
 """
 
 from __future__ import annotations
@@ -49,6 +50,7 @@ import typer
 
 from genkei.cli import (
     backtest,
+    cot,
     crowding,
     eight_k_impact,
     filings,
@@ -128,6 +130,10 @@ app.command(
     "eight-k-impact",
     help="8-K filing impact event study (B-057) — does an 8-K predict short-run drift?",
 )(eight_k_impact.eight_k_impact_cmd)
+app.command(
+    "cot",
+    help="CFTC Commitments of Traders — weekly position breakdowns per market/trader category.",
+)(cot.cot_cmd)
 app.command(
     "query",
     help="Ad-hoc SQL escape hatch (read-only, timeout + row cap enforced).",
