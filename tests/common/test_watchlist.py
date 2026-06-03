@@ -141,8 +141,8 @@ class CotMarketsParserTests(unittest.TestCase):
         self.assertEqual(gold.sleeve, "macro")
 
     def test_integer_code_coerces_to_string(self) -> None:
-        # YAML parses unquoted numerics as ints; codes like 67411 would
-        # silently drop the leading zero ("067411") if we didn't keep
+        # YAML parses unquoted numerics as ints; codes like 67651 would
+        # silently drop the leading zero ("067651") if we didn't keep
         # them as strings. The loader stringifies but does NOT zero-pad.
         body = (
             "version: 1\n"

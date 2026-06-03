@@ -28,7 +28,7 @@ BTC_MARKET = CotMarketEntry(
 )
 
 WTI_MARKET = CotMarketEntry(
-    code="067411",
+    code="067651",
     symbol="CL",
     name="WTI-PHYSICAL - NEW YORK MERCANTILE EXCHANGE",
     report_type="disaggregated",
@@ -195,7 +195,7 @@ TFF_FIXTURE_ROW = {
 
 DISAGG_FIXTURE_ROW = {
     "report_date_as_yyyy_mm_dd": "2024-01-09T00:00:00.000",
-    "cftc_contract_market_code": "067411",
+    "cftc_contract_market_code": "067651",
     "market_and_exchange_names": "WTI-PHYSICAL - NEW YORK MERCANTILE EXCHANGE",
     "prod_merc_positions_long": "100000",
     "prod_merc_positions_short": "150000",

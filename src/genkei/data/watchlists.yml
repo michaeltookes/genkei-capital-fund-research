@@ -600,7 +600,7 @@ cot_markets:
     report_type: disaggregated
     sleeve: macro
     rationale: Gold Managed-Money positioning — risk-off / inflation-hedge cross-check.
-  - code: "067411"
+  - code: "067651"
     symbol: CL
     name: WTI-PHYSICAL - NEW YORK MERCANTILE EXCHANGE
     report_type: disaggregated
