@@ -158,20 +158,21 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - `genkei futures --product BTC --since 2024-01-01` answers "what's BTC futures OI over time" out of the box.
   - Unit tests pin the parser (per-product field quirks).
 
-### B-105 — Spot ETF flow ingester (Farside)
-- **Status:** open
+### B-105 — Spot ETF activity tracker (Yahoo-pivoted from Farside)
+- **Status:** open (v1 scope reduced from original)
 - **Priority:** high
-- **Context:** Daily net flows for the US spot BTC and ETH ETFs — the single most-cited "is institutional money flowing in or out?" data point in crypto research today. Farside Investors publishes this in scrape-friendly HTML tables at `farside.co.uk/btc/` and `farside.co.uk/eth/`, free, no API key. Each row is per-day per-ETF (IBIT, FBTC, BITB, ARKB, BTCO, EZBC, BRRR, HODL, BTCW, GBTC for BTC; the 9 ETH ETFs for ETH) net flow in USD millions, with rolling totals. **Surfaced 2026-06-02** during the ETH research session: "institutional attention" was the user's framing for SOL specifically and "OG sellers" was the framing for ETH; spot ETF flow data answers the institutional half of both narratives directly. BTC ETFs launched January 2024, ETH ETFs launched July 2024 — both have ~18-24 months of history that's directly relevant to today's crypto-core decisions.
-- **Acceptance criteria:**
-  - New ingester `genkei.ingest.etf_flows` that scrapes the Farside BTC + ETH tables. Polite scraping: respect `robots.txt`, single request per asset per day, browser-flavored User-Agent (Farside is small and we should not hammer them).
-  - Lands raw blobs (one HTML snapshot per asset per day) in `meta.raw_blobs`.
-  - Normalizes to `etf.spot_flows` with `(asset, ticker, flow_date, net_flow_usd_mm)` keyed on `(asset, ticker, flow_date)`. Aggregate `etf.spot_flows_daily` view sums across all tickers per asset per day for the headline "net BTC/ETH ETF flow today" query.
-  - Backfill mode pulls the full Farside history (Jan 2024 for BTC, Jul 2024 for ETH).
-  - Daily cron in a new `etf-flows-daily.yml` workflow. Farside updates ~22:00 ET on trading days; cron at 04:00 UTC the next day catches the snapshot reliably.
-  - `genkei watchlist health` surfaces the new source.
-  - `genkei etf-flows --asset BTC --since 2025-01-01` answers "what's the cumulative BTC ETF net flow YTD" out of the box.
-  - **TOS / future-proofing**: Farside doesn't publish an official API, so scraping is the only path today. SoSoValue (sosovalue.com) has a similar public table and may offer a cleaner alt in v2. Filed as a known fragility — if Farside changes their HTML structure or asks us to stop, we pivot to SoSoValue.
-  - Unit tests pin the Farside HTML parser against a fixture of the current table shape.
+- **Context:** Daily institutional-activity context for US spot BTC and ETH ETFs — one of the single most-cited "is institutional money rotating in or out?" data points in crypto research today. **Surfaced 2026-06-02** during the ETH research session: "institutional attention" was the user's framing for SOL specifically and "OG sellers" was the framing for ETH; spot ETF data answers the institutional half of both narratives. BTC ETFs launched January 2024, ETH ETFs launched July 2024 — both have ~18-24 months of history that's directly relevant to today's crypto-core decisions.
+- **2026-06-03 PIVOT (Farside + SoSoValue Cloudflare-walled):** Original spec was built around scraping Farside (with SoSoValue as the named fallback). Kickoff attempt on branch `spot-etf-flow` confirmed both publishers serve a Cloudflare interactive JS challenge (`"Just a moment..."`) to any non-browser request: HTTP 403 from Cloudflare regardless of User-Agent / headers. Bypassing requires either a headless browser (heavy: 1GB binary, perpetual cat-and-mouse with Cloudflare updates) or a paid third-party API (out of scope per CLAUDE.md's free/open-sources stance). Both options were considered and rejected. **Pivot:** the existing `genkei.ingest.yahoo` infrastructure (B-092) serves daily OHLCV for every spot BTC/ETH ETF ticker (verified live against IBIT — HTTP 200, full history). Yahoo's chart endpoint gives daily price + volume reliably; Yahoo's `quoteSummary` (which has shares-outstanding) requires a cookie/crumb auth dance and was not adopted. **Scope reduction:** we land daily OHLCV per ETF (price + volume), and the CLI delivers `volume × close = daily-dollar-volume per asset` as a magnitude proxy for institutional ETF activity. We do NOT land signed net flow (creations − redemptions) — that's a strictly weaker question than the original spec, but it answers "how much ETF activity is happening today" honestly. True net flow tracking is filed as B-107 (SEC EDGAR daily filings path).
+- **Acceptance criteria (v1 — Yahoo pivot):**
+  - New `etf_tickers:` section in `config/watchlists.yml` listing the spot BTC and ETH ETF tickers. v1 BTC list: IBIT, FBTC, BITB, ARKB, BTCO, EZBC, BRRR, HODL, BTCW, GBTC. v1 ETH list: ETHA, FETH, ETHW, CETH, ETHV, QETH, EZET, ETHE, ETH. Each entry tagged with `asset: BTC|ETH`, `issuer`, `launch_date`, `sleeve`.
+  - Typed `EtfTickerEntry` dataclass + loader in `genkei.common.watchlist`. Per-asset bucketing via `Watchlist.find_etf_ticker` / `Watchlist.etfs_for_asset(asset)`.
+  - Extend `genkei.ingest.yahoo` to read `etf_tickers:` alongside `equities:` + `benchmarks:` (same loop, same chart endpoint, same normalize path, lands in existing `yahoo.candles`).
+  - New `genkei etf-flows` CLI: `genkei etf-flows --asset BTC --since 2025-01-01` returns per-day aggregates of `Σ(volume × close)` across the asset's ETFs from `yahoo.candles`, in USD millions. `--by-ticker` splits per-ticker. `--json` mode for the agent. Output explicitly labels the column `dollar_volume_usd_mm` not `net_flow_usd_mm` (no signed-flow lie).
+  - No new GH workflow required: the existing `yahoo-daily.yml` cron picks up the new tickers automatically once they're in the watchlist.
+  - `genkei watchlist health` surfaces the ETFs via the existing `yahoo.candles` PRIMARY_TABLES entry; no new health wiring needed.
+  - Unit tests pin the `etf_tickers` loader (per-asset routing, dedupe-by-ticker, unknown-asset rejection) and the CLI aggregation math.
+- **Out of scope for v1 (filed as B-107 if pursued):**
+  - Signed creations-minus-redemptions per ETF per day. Requires shares-outstanding deltas — Yahoo's auth-gated, scraping issuer pages is fragile, SEC EDGAR is the right primary-source path but the filing types and cadence need investigation (N-CEN annual, N-PORT quarterly, daily creation/redemption baskets are likely in 13F or a similar form). Out of scope here; v2 backlog item.
 
 ### B-106 — Etherscan whale-flow tracker (top-N ETH wallet net flow)
 - **Status:** open
