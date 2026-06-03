@@ -316,6 +316,7 @@ class ExpectationsRegistryTests(unittest.TestCase):
                 "onchain_staking",
                 "analytics",
                 "signal_emitter",
+                "cftc",
             },
         )
 
