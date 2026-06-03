@@ -137,19 +137,26 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
 
 
 ### B-104 — CME BTC + ETH futures daily OI + volume ingester
-- **Status:** open
-- **Priority:** high
-- **Context:** Daily institutional-positioning context for BTC + ETH futures markets, complementary to B-031's weekly CFTC view. CME Group publishes daily settlement data (volume, open interest, settle price) per contract month via a public XML feed — free, no auth, deterministic. CME launched BTC futures Dec 2017 and ETH futures Feb 2021; both have substantial daily volume and OI today. **Surfaced 2026-06-02** during the ETH / SOL research sessions: the "is institutional money rotating into / out of crypto?" question that drove the user's "OG sellers" framing on ETH is best answered (on the institutional side) by daily futures OI trajectory. COT (B-031) gives the weekly *who's-long-short* breakdown; CME OI gives the daily *total-institutional-exposure* trajectory. Both matter; CME OI is the higher-frequency / lower-detail companion.
-- **Acceptance criteria:**
-  - New ingester `genkei.ingest.cme` reading the CME daily settlement XML feed (`https://www.cmegroup.com/CmeWS/mvc/Settlements/...`). No API key required.
+- **Status:** blocked
+- **Priority:** deferred (was high)
+- **Context:** Daily institutional-positioning context for BTC + ETH futures markets, complementary to B-031's weekly CFTC view. CME Group publishes daily settlement data (volume, open interest, settle price) per contract month. **Surfaced 2026-06-02** during the ETH / SOL research sessions: the "is institutional money rotating into / out of crypto?" question that drove the user's "OG sellers" framing on ETH is best answered (on the institutional side) by daily futures OI trajectory. COT (B-031) gives the weekly *who's-long-short* breakdown; CME OI gives the daily *total-institutional-exposure* trajectory. Both matter; CME OI is the higher-frequency / lower-detail companion.
+- **2026-06-03 BLOCKER:** Kickoff attempt on branch `cme-daily-oi` confirmed the public CmeWS endpoint (`https://www.cmegroup.com/CmeWS/mvc/Settlements/Futures/Settlements/{productId}/FUT`) now returns a hard TOS block to any non-browser request: *"This IP address is blocked due to suspected web scraping activity... Use of scripts, software, spiders, robots, avatars, agents, tools or other scraping mechanisms is strictly prohibited by CME Group's website Data Terms of Use."* The original spec assumed this endpoint was a "free, no auth, deterministic" feed; that's no longer true. Even with a browser User-Agent the request is rejected. This is a TOS-level block, not a rate-limit — pursuing it would be both technically blocked and ToS-violating. Path forward requires a different data source.
+- **Candidate alternatives (none verified yet):**
+  - **Yahoo Finance futures** (`BTC=F`, `ETH=F`) via the existing `genkei.ingest.yahoo` infrastructure. Pro: zero new TOS risk, reuses live infrastructure. Con: Yahoo publishes OHLCV only — no open interest. Closes the volume question but NOT the OI question, which is the load-bearing institutional-positioning signal. Would reframe this from "OI tracker" to "yet another price source."
+  - **CME static daily files** (`https://www.cmegroup.com/market-data/files/`) — different URL pattern from CmeWS. Unverified whether subject to the same block; worth a 15-min spike if reopened.
+  - **Paid market-data provider** (Polygon.io, Coin Metrics, Kaiko) — out of scope per CLAUDE.md's "free/open sources only" stance until a private-data story exists.
+  - **CFTC COT (B-031, already shipped)** partially substitutes — gives weekly position breakdowns by Asset Manager / Leveraged Funds. Lower frequency, but it answers the "*who* is positioned and how" question, which is arguably more decision-useful than daily OI alone.
+- **Recommended path:** stay deferred. The institutional-flow trio (B-031 / B-105 / B-106) closes most of the gap. Reopen B-104 only if a free CME data path surfaces (e.g. CFTC publishes CME OI in a sibling Socrata dataset, or a free derived feed appears).
+- **Acceptance criteria (preserved for if/when reopened):**
+  - New ingester `genkei.ingest.cme` reading a free CME daily settlement source. Original `CmeWS` URL above is TOS-blocked; alternative must be identified before reopening.
   - Lands raw blobs in `meta.raw_blobs` (one blob per (product, settlement-date) pair).
   - Normalizes to `cme.futures_settlements` with `(product, contract_month, settlement_date, volume, open_interest, settle_price)` keyed on `(product, contract_month, settlement_date)`.
-  - Products covered v1: `BTC` (BTC futures, $50k face), `MBT` (Micro BTC, $5 face), `ETH` (ETH futures, 50-ETH face), `MET` (Micro ETH, 0.1-ETH face). v2 can add other CFTC-regulated futures (ES, NQ, GC, CL) — same ingester surface.
-  - Daily cron in a new `cme-daily.yml` workflow at ~22:00 UTC (after CME settlement at 4pm CT / 21:00 UTC).
-  - Multi-year backfill via CME's historical archive (`--backfill` mode pulls settlement history).
+  - Products covered v1: `BTC` (BTC futures, $50k face), `MBT` (Micro BTC, $5 face), `ETH` (ETH futures, 50-ETH face), `MET` (Micro ETH, 0.1-ETH face).
+  - Daily cron in a new `cme-daily.yml` workflow at ~22:00 UTC.
+  - Multi-year backfill mode (`--backfill`).
   - `genkei watchlist health` surfaces the new source.
   - `genkei futures --product BTC --since 2024-01-01` answers "what's BTC futures OI over time" out of the box.
-  - Unit tests pin the CME XML parser (the XML schema is stable but has some per-product quirks).
+  - Unit tests pin the parser (per-product field quirks).
 
 ### B-105 — Spot ETF flow ingester (Farside)
 - **Status:** open
