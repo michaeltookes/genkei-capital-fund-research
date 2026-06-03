@@ -233,6 +233,22 @@ SCHEMA_SPECS: tuple[EndpointSchema, ...] = (
             "chart.result",
         ),
     ),
+    # CFTC (B-031) — Commitments of Traders weekly position breakdowns.
+    # Each per-market blob is an array of row-dicts. The load-bearing
+    # keys live on each row; the collector reads
+    # `report_date_as_yyyy_mm_dd` to build the natural PK and
+    # `cftc_contract_market_code` to verify the row belongs to the
+    # market it was filtered for. Per-trader-category long/short fields
+    # vary by report type (TFF vs Disaggregated) so they're not in the
+    # canary — a normalizer regression there would surface as zero rows
+    # for that category, not as drift.
+    EndpointSchema(
+        source="cftc",
+        endpoint_kind="cot_<report_type>_<market_code>",
+        endpoint_pattern="cot\\_%",
+        payload_type="array",
+        required_keys=("report_date_as_yyyy_mm_dd", "cftc_contract_market_code"),
+    ),
 )
 
 

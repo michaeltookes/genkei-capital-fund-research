@@ -176,6 +176,7 @@ PRIMARY_TABLES: dict[str, list[str]] = {
     ],
     "coingecko": ["coingecko.market_data"],
     "onchain_staking": ["onchain.staking_events"],
+    "cftc": ["cftc.cot_reports"],
     # B-090 — derived view, no ingest_runs row (computed live from
     # coingecko.market_data). Intentionally absent from RECURRING_ENDPOINTS
     # so it doesn't surface as MISSING on the recurring-cron half of the
@@ -203,6 +204,10 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
     # (parses logs inline + writes rows directly to onchain.staking_events,
     # no raw_blobs hop), so only the 'collect' endpoint is recurring.
     "onchain_staking": ["collect"],
+    # B-031 CFTC ingester also collapses collect+normalize (parses the
+    # Socrata JSON inline and writes directly to cftc.cot_reports).
+    # Weekly Friday-release cadence; health treats it as recurring.
+    "cftc": ["collect"],
     # B-064 — one entry per signal emitter that runs on a daily cron.
     # B-093 added crowding; B-094 added eight_k_impact; B-095 added
     # tvl_drawdown (first crypto-side emitter); B-098 added
