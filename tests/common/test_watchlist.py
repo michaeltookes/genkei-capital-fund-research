@@ -12,7 +12,12 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from genkei.common.watchlist import BenchmarkEntry, CotMarketEntry, load_watchlist
+from genkei.common.watchlist import (
+    BenchmarkEntry,
+    CotMarketEntry,
+    EtfTickerEntry,
+    load_watchlist,
+)
 
 BENCHMARKS_YAML = """\
 version: 1
@@ -201,6 +206,117 @@ class CotMarketsParserTests(unittest.TestCase):
     def test_absent_section_yields_empty_list(self) -> None:
         w = _load("version: 1\n")
         self.assertEqual(w.cot_markets, [])
+
+
+ETF_TICKERS_YAML = """\
+version: 1
+etf_tickers:
+  - ticker: IBIT
+    name: iShares Bitcoin Trust ETF
+    asset: BTC
+    issuer: BlackRock
+    launch_date: 2024-01-11
+    sleeve: tactical
+    rationale: Largest spot BTC ETF.
+  - ticker: ETHA
+    name: iShares Ethereum Trust ETF
+    asset: ETH
+    issuer: BlackRock
+"""
+
+
+class EtfTickersParserTests(unittest.TestCase):
+    """Pin the etf_tickers loader path (B-105)."""
+
+    def test_parses_typed_entries(self) -> None:
+        w = _load(ETF_TICKERS_YAML)
+        self.assertEqual(len(w.etf_tickers), 2)
+        ibit, etha = w.etf_tickers
+        self.assertEqual(
+            ibit,
+            EtfTickerEntry(
+                ticker="IBIT",
+                name="iShares Bitcoin Trust ETF",
+                asset="BTC",
+                issuer="BlackRock",
+                sleeve="tactical",
+                launch_date="2024-01-11",
+                rationale="Largest spot BTC ETF.",
+            ),
+        )
+        # Optional fields default cleanly
+        self.assertEqual(etha.sleeve, "tactical")
+        self.assertIsNone(etha.launch_date)
+        self.assertIsNone(etha.rationale)
+
+    def test_ticker_uppercased_on_load(self) -> None:
+        body = (
+            "version: 1\n"
+            "etf_tickers:\n"
+            "  - ticker: ibit\n"
+            "    name: iShares\n"
+            "    asset: BTC\n"
+            "    issuer: BlackRock\n"
+        )
+        w = _load(body)
+        self.assertEqual(w.etf_tickers[0].ticker, "IBIT")
+
+    def test_unknown_asset_drops_row(self) -> None:
+        body = (
+            "version: 1\n"
+            "etf_tickers:\n"
+            "  - ticker: SOLX\n"
+            "    name: bad asset class\n"
+            "    asset: SOL\n"  # v1 only supports BTC + ETH
+            "    issuer: hypothetical\n"
+            "  - ticker: IBIT\n"
+            "    name: ok\n"
+            "    asset: BTC\n"
+            "    issuer: BlackRock\n"
+        )
+        w = _load(body)
+        tickers = {e.ticker for e in w.etf_tickers}
+        self.assertEqual(tickers, {"IBIT"})
+
+    def test_duplicate_ticker_dedupes_first_wins(self) -> None:
+        body = (
+            "version: 1\n"
+            "etf_tickers:\n"
+            "  - ticker: IBIT\n"
+            "    name: First\n"
+            "    asset: BTC\n"
+            "    issuer: BlackRock\n"
+            "  - ticker: ibit\n"  # case-insensitive collision
+            "    name: Duplicate\n"
+            "    asset: BTC\n"
+            "    issuer: hypothetical\n"
+        )
+        w = _load(body)
+        self.assertEqual(len(w.etf_tickers), 1)
+        self.assertEqual(w.etf_tickers[0].name, "First")
+
+    def test_find_etf_ticker_case_insensitive(self) -> None:
+        w = _load(ETF_TICKERS_YAML)
+        self.assertEqual(w.find_etf_ticker("ibit").asset, "BTC")
+        self.assertEqual(w.find_etf_ticker("IBIT").issuer, "BlackRock")
+        self.assertIsNone(w.find_etf_ticker("UNKNOWN"))
+
+    def test_etfs_for_asset_routes_correctly(self) -> None:
+        w = _load(ETF_TICKERS_YAML)
+        btc_etfs = w.etfs_for_asset("BTC")
+        eth_etfs = w.etfs_for_asset("ETH")
+        self.assertEqual({e.ticker for e in btc_etfs}, {"IBIT"})
+        self.assertEqual({e.ticker for e in eth_etfs}, {"ETHA"})
+        # case-insensitive
+        self.assertEqual(
+            {e.ticker for e in w.etfs_for_asset("eth")}, {"ETHA"}
+        )
+        # unknown asset returns empty rather than raising
+        self.assertEqual(w.etfs_for_asset("DOGE"), [])
+
+    def test_absent_section_yields_empty_list(self) -> None:
+        w = _load("version: 1\n")
+        self.assertEqual(w.etf_tickers, [])
 
 
 if __name__ == "__main__":
