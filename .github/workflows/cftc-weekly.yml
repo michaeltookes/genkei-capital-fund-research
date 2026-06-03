@@ -1,0 +1,47 @@
+name: CFTC Weekly COT
+
+# B-031 — pulls CFTC Commitments of Traders weekly position breakdowns
+# from the public Socrata API and writes per-trader-category rows into
+# cftc.cot_reports. Runs on the self-hosted Beelink runner so it can
+# reach the homelab Postgres on mission_control_net.
+#
+# CFTC publishes COT every Friday at 3:30pm ET (~20:30 UTC) reflecting
+# the prior Tuesday's snapshot. A daily cron at 22:00 UTC catches the
+# Friday publication reliably and is harmlessly idempotent on Mon-Thu
+# (no new report → 0 new rows written, the upsert is a no-op).
+
+on:
+  schedule:
+    - cron: "0 22 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    name: CFTC COT collect (Postgres-backed)
+    runs-on: [self-hosted, beelink]
+    timeout-minutes: 15
+    env:
+      GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+
+      - name: Apply database migrations
+        run: alembic upgrade head
+
+      - name: Collect CFTC COT positions into cftc.cot_reports
+        run: python3 -m genkei.ingest.cftc
