@@ -108,6 +108,30 @@ class FilerEntry:
 
 
 @dataclass(frozen=True)
+class CotMarketEntry:
+    """A CFTC-regulated futures market we ingest position data for (B-031).
+
+    ``code`` is the CFTC contract market code — the natural join key
+    in the upstream Socrata API and the primary identifier in
+    ``cftc.cot_reports.market_code``. ``symbol`` is the Genkei alias
+    used in the ``genkei cot --market`` CLI flag and in horizon tags.
+
+    ``report_type`` selects which CFTC publication to read for this
+    market: ``tff`` (financial futures — BTC, ETH, ES, NQ, FX, rates;
+    has Asset Manager / Leveraged Funds breakdown) or
+    ``disaggregated`` (commodities — gold, oil, ag, livestock; has
+    Managed Money / Swap Dealer / Producer Merchant breakdown).
+    """
+
+    code: str
+    symbol: str
+    name: str
+    report_type: str  # 'tff' | 'disaggregated'
+    sleeve: str  # e.g. 'crypto:core', 'macro'
+    rationale: str | None = None
+
+
+@dataclass(frozen=True)
 class Watchlist:
     crypto: list[CryptoEntry]
     equities: list[EquityEntry]
@@ -115,6 +139,7 @@ class Watchlist:
     protocols: list[ProtocolEntry]
     filers: list[FilerEntry]
     benchmarks: list[BenchmarkEntry] = dataclasses.field(default_factory=list)
+    cot_markets: list[CotMarketEntry] = dataclasses.field(default_factory=list)
 
     def find_crypto(self, symbol: str) -> CryptoEntry | None:
         upper = symbol.upper()
@@ -159,6 +184,17 @@ class Watchlist:
         upper = symbol.upper()
         for entry in self.benchmarks:
             if entry.symbol.upper() == upper:
+                return entry
+        return None
+
+    def find_cot_market(self, identifier: str) -> CotMarketEntry | None:
+        """Lookup a COT market by symbol (BTC) or by CFTC market code (133741)."""
+        if not identifier:
+            return None
+        stripped = identifier.strip()
+        upper = stripped.upper()
+        for entry in self.cot_markets:
+            if entry.symbol.upper() == upper or entry.code.upper() == upper:
                 return entry
         return None
 
@@ -375,6 +411,45 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                 )
             )
 
+    cot_markets: list[CotMarketEntry] = []
+    cot_root = data.get("cot_markets", [])
+    if isinstance(cot_root, list):
+        seen_cot_codes: set[str] = set()
+        for entry in cot_root:
+            if not isinstance(entry, dict):
+                continue
+            raw_code = entry.get("code")
+            if isinstance(raw_code, int):
+                code = str(raw_code)
+            elif isinstance(raw_code, str):
+                code = raw_code.strip()
+            else:
+                continue
+            if not code:
+                continue
+            symbol = entry.get("symbol")
+            if not isinstance(symbol, str) or not symbol:
+                continue
+            report_type = entry.get("report_type")
+            if not isinstance(report_type, str) or report_type not in (
+                "tff",
+                "disaggregated",
+            ):
+                continue
+            if code in seen_cot_codes:
+                continue
+            seen_cot_codes.add(code)
+            cot_markets.append(
+                CotMarketEntry(
+                    code=code,
+                    symbol=symbol,
+                    name=str(entry.get("name") or ""),
+                    report_type=report_type,
+                    sleeve=str(entry.get("sleeve") or "macro"),
+                    rationale=_optional_string(entry.get("rationale")),
+                )
+            )
+
     return Watchlist(
         crypto=crypto,
         equities=equities,
@@ -382,6 +457,7 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
         protocols=protocols,
         filers=filers,
         benchmarks=benchmarks,
+        cot_markets=cot_markets,
     )
 
 

@@ -551,3 +551,58 @@ benchmarks:
     name: iShares Russell 2000 ETF
     role: Small-cap benchmark — watchlist is large-cap-heavy so SPY is the primary comparator.
     asset_class: equity_index_etf
+
+# CFTC Commitments of Traders markets (B-031). The CFTC publishes
+# weekly Tuesday-snapshot position breakdowns by trader category
+# for every CFTC-regulated futures market; we track a curated subset.
+#
+# `code`        CFTC contract market code — the natural join key in
+#               the upstream CFTC Socrata API.
+# `symbol`      Genkei alias (lookup target for `genkei cot --market BTC`).
+# `name`        CFTC-published contract market name (kept verbatim for
+#               audit). The collector also stores this in
+#               cftc.cot_reports.market_name.
+# `report_type` Which CFTC report format to read for this market:
+#                 - `tff`           Traders in Financial Futures
+#                                   (BTC, ETH, ES, NQ, FX, rates).
+#                                   Has the Asset Manager / Leveraged
+#                                   Funds breakdown that matters for
+#                                   crypto-core position-sizing decisions.
+#                 - `disaggregated` Disaggregated futures-only
+#                                   (gold, oil, ag, livestock).
+#                                   Has Managed Money / Producer-Merchant
+#                                   / Swap Dealer breakdown.
+# `sleeve`      Routes the watchlist-health tag and downstream signal
+#               horizon. `crypto:core` for BTC/ETH; `macro` for ES, GC, CL.
+# `rationale`   One-liner on why we track this market.
+cot_markets:
+  - code: "133741"
+    symbol: BTC
+    name: BITCOIN - CHICAGO MERCANTILE EXCHANGE
+    report_type: tff
+    sleeve: "crypto:core"
+    rationale: BTC futures TFF — Asset-Manager / Leveraged-Funds net positioning, the institutional half of the OG-sellers framing on ETH and the parallel narrative on BTC.
+  - code: "146021"
+    symbol: ETH
+    name: ETHER CASH SETTLED - CHICAGO MERCANTILE EXCHANGE
+    report_type: tff
+    sleeve: "crypto:core"
+    rationale: ETH futures TFF — institutional positioning, paired with BTC on every crypto-core stack score.
+  - code: "13874A"
+    symbol: ES
+    name: E-MINI S&P 500 - CHICAGO MERCANTILE EXCHANGE
+    report_type: tff
+    sleeve: macro
+    rationale: Hedge-fund / asset-manager S&P 500 futures positioning. The macro-spine equity comparator.
+  - code: "088691"
+    symbol: GC
+    name: GOLD - COMMODITY EXCHANGE INC.
+    report_type: disaggregated
+    sleeve: macro
+    rationale: Gold Managed-Money positioning — risk-off / inflation-hedge cross-check.
+  - code: "067411"
+    symbol: CL
+    name: WTI-PHYSICAL - NEW YORK MERCANTILE EXCHANGE
+    report_type: disaggregated
+    sleeve: macro
+    rationale: WTI crude Managed-Money positioning — energy/inflation context for the macro regime label.
