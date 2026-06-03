@@ -125,11 +125,9 @@ def _query_cot(
     for report_date, category, long_pos, short_pos, spread_pos, market_name, report_type in rows:
         long_val = int(long_pos) if long_pos is not None else None
         short_val = int(short_pos) if short_pos is not None else None
-        net: Optional[int]
-        if long_val is None or short_val is None:
-            net = None
-        else:
-            net = long_val - short_val
+        net: Optional[int] = (
+            None if long_val is None or short_val is None else long_val - short_val
+        )
         out.append(
             {
                 "report_date": report_date.isoformat()
@@ -146,6 +144,12 @@ def _query_cot(
             }
         )
     return out
+
+
+def _fmt(value: Optional[int], width: int, *, sign: bool = False) -> str:
+    if value is None:
+        return f"{'-':>{width}}"
+    return f"{value:>+{width},}" if sign else f"{value:>{width},}"
 
 
 def _format_human(
@@ -172,14 +176,10 @@ def _format_human(
     for row in rows:
         rd = row["report_date"] or "-"
         cat = row["trader_category"]
-        long_val = f"{row['long_positions']:>10,}" if row["long_positions"] is not None else f"{'-':>10}"
-        short_val = f"{row['short_positions']:>10,}" if row["short_positions"] is not None else f"{'-':>10}"
-        spread_val = (
-            f"{row['spreading_positions']:>10,}"
-            if row["spreading_positions"] is not None
-            else f"{'-':>10}"
-        )
-        net_val = f"{row['net_position']:>+12,}" if row["net_position"] is not None else f"{'-':>12}"
+        long_val = _fmt(row["long_positions"], 10)
+        short_val = _fmt(row["short_positions"], 10)
+        spread_val = _fmt(row["spreading_positions"], 10)
+        net_val = _fmt(row["net_position"], 12, sign=True)
         lines.append(f"  {rd:<12} {cat:<22} {long_val} {short_val} {spread_val} {net_val}")
     return "\n".join(lines)
 

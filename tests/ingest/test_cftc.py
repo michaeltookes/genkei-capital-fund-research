@@ -18,7 +18,6 @@ from genkei.ingest.cftc import (
     parse_market_rows,
 )
 
-
 BTC_MARKET = CotMarketEntry(
     code="133741",
     symbol="BTC",
