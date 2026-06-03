@@ -137,12 +137,65 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
 
 ### B-031 — CFTC Commitments of Traders ingester
 - **Status:** open
-- **Priority:** medium
-- **Context:** Positioning data — rates, metals, energy, equity index, FX. Weekly cadence.
+- **Priority:** high
+- **Context:** Positioning data across CFTC-regulated futures markets — rates, metals, energy, equity index, FX, AND **crypto (CME BTC + ETH futures are CFTC-regulated)**. Weekly Tuesday-snapshot / Friday-release cadence. Breaks down positions by trader category: Asset Manager (long-only institutional), Leveraged Funds (hedge funds), Dealer/Intermediary (banks), Other Reportables, Non-reportable (retail). **Priority bumped from medium to high on 2026-06-02**: today's ETH / SOL / SUI research sessions repeatedly flagged "institutional positioning is the missing input" as the single most valuable gap when reading crypto-core stacks. COT directly answers "are institutions long or short BTC / ETH futures?" — the exact question the research decisions had to acknowledge as a data gap. Paired with B-104 (CME OI) and B-105 (spot ETF flow), forms the "institutional flow" cohort that closes the position-sizing gap on crypto-core calls.
 - **Acceptance criteria:**
-  - Weekly schedule.
-  - Multi-year backfill.
-  - Tables aligned with reportable position classes.
+  - Public CFTC API (`https://publicreporting.cftc.gov/resource/`) — no key required.
+  - Weekly Friday-release schedule in a new `cftc-weekly.yml` workflow.
+  - Multi-year backfill (CFTC publishes COT history back to 1995 for major contracts; crypto futures started ~2017).
+  - New schema `cftc.cot_reports` with `(report_date, market_code, market_name, trader_category, long_positions, short_positions, spreading_positions)` keyed on `(report_date, market_code, trader_category)`. Both Disaggregated and Legacy report formats — Disaggregated has the Asset Manager / Leveraged Funds breakdown that matters for crypto.
+  - `genkei watchlist health` surfaces the new source.
+  - `genkei cot --market BTC --trader-category leveraged_funds --since 2024-01-01` answers "what's hedge-fund BTC futures positioning over time" without needing custom code.
+  - Watchlist gains a `cot_markets:` section listing the CFTC market codes we want to track (BTC, ETH, ES, GC, CL, etc.).
+  - Unit tests pin the COT report parser + the long/short net-position math.
+
+### B-104 — CME BTC + ETH futures daily OI + volume ingester
+- **Status:** open
+- **Priority:** high
+- **Context:** Daily institutional-positioning context for BTC + ETH futures markets, complementary to B-031's weekly CFTC view. CME Group publishes daily settlement data (volume, open interest, settle price) per contract month via a public XML feed — free, no auth, deterministic. CME launched BTC futures Dec 2017 and ETH futures Feb 2021; both have substantial daily volume and OI today. **Surfaced 2026-06-02** during the ETH / SOL research sessions: the "is institutional money rotating into / out of crypto?" question that drove the user's "OG sellers" framing on ETH is best answered (on the institutional side) by daily futures OI trajectory. COT (B-031) gives the weekly *who's-long-short* breakdown; CME OI gives the daily *total-institutional-exposure* trajectory. Both matter; CME OI is the higher-frequency / lower-detail companion.
+- **Acceptance criteria:**
+  - New ingester `genkei.ingest.cme` reading the CME daily settlement XML feed (`https://www.cmegroup.com/CmeWS/mvc/Settlements/...`). No API key required.
+  - Lands raw blobs in `meta.raw_blobs` (one blob per (product, settlement-date) pair).
+  - Normalizes to `cme.futures_settlements` with `(product, contract_month, settlement_date, volume, open_interest, settle_price)` keyed on `(product, contract_month, settlement_date)`.
+  - Products covered v1: `BTC` (BTC futures, $50k face), `MBT` (Micro BTC, $5 face), `ETH` (ETH futures, 50-ETH face), `MET` (Micro ETH, 0.1-ETH face). v2 can add other CFTC-regulated futures (ES, NQ, GC, CL) — same ingester surface.
+  - Daily cron in a new `cme-daily.yml` workflow at ~22:00 UTC (after CME settlement at 4pm CT / 21:00 UTC).
+  - Multi-year backfill via CME's historical archive (`--backfill` mode pulls settlement history).
+  - `genkei watchlist health` surfaces the new source.
+  - `genkei futures --product BTC --since 2024-01-01` answers "what's BTC futures OI over time" out of the box.
+  - Unit tests pin the CME XML parser (the XML schema is stable but has some per-product quirks).
+
+### B-105 — Spot ETF flow ingester (Farside)
+- **Status:** open
+- **Priority:** high
+- **Context:** Daily net flows for the US spot BTC and ETH ETFs — the single most-cited "is institutional money flowing in or out?" data point in crypto research today. Farside Investors publishes this in scrape-friendly HTML tables at `farside.co.uk/btc/` and `farside.co.uk/eth/`, free, no API key. Each row is per-day per-ETF (IBIT, FBTC, BITB, ARKB, BTCO, EZBC, BRRR, HODL, BTCW, GBTC for BTC; the 9 ETH ETFs for ETH) net flow in USD millions, with rolling totals. **Surfaced 2026-06-02** during the ETH research session: "institutional attention" was the user's framing for SOL specifically and "OG sellers" was the framing for ETH; spot ETF flow data answers the institutional half of both narratives directly. BTC ETFs launched January 2024, ETH ETFs launched July 2024 — both have ~18-24 months of history that's directly relevant to today's crypto-core decisions.
+- **Acceptance criteria:**
+  - New ingester `genkei.ingest.etf_flows` that scrapes the Farside BTC + ETH tables. Polite scraping: respect `robots.txt`, single request per asset per day, browser-flavored User-Agent (Farside is small and we should not hammer them).
+  - Lands raw blobs (one HTML snapshot per asset per day) in `meta.raw_blobs`.
+  - Normalizes to `etf.spot_flows` with `(asset, ticker, flow_date, net_flow_usd_mm)` keyed on `(asset, ticker, flow_date)`. Aggregate `etf.spot_flows_daily` view sums across all tickers per asset per day for the headline "net BTC/ETH ETF flow today" query.
+  - Backfill mode pulls the full Farside history (Jan 2024 for BTC, Jul 2024 for ETH).
+  - Daily cron in a new `etf-flows-daily.yml` workflow. Farside updates ~22:00 ET on trading days; cron at 04:00 UTC the next day catches the snapshot reliably.
+  - `genkei watchlist health` surfaces the new source.
+  - `genkei etf-flows --asset BTC --since 2025-01-01` answers "what's the cumulative BTC ETF net flow YTD" out of the box.
+  - **TOS / future-proofing**: Farside doesn't publish an official API, so scraping is the only path today. SoSoValue (sosovalue.com) has a similar public table and may offer a cleaner alt in v2. Filed as a known fragility — if Farside changes their HTML structure or asks us to stop, we pivot to SoSoValue.
+  - Unit tests pin the Farside HTML parser against a fixture of the current table shape.
+
+### B-106 — Etherscan whale-flow tracker (top-N ETH wallet net flow)
+- **Status:** open
+- **Priority:** medium
+- **Context:** The user's "OG sellers" framing on ETH directly maps to "are large long-term ETH wallets net-selling?" — a question the lake explicitly couldn't answer in the 2026-06-02 ETH session. Etherscan v2 API (free tier 100k calls/day, already used by B-082 for LINK staking) exposes per-address balance history + transaction history, which is enough to track per-day net flow for a maintained list of known whale addresses. The list of addresses is the hard part: it has to be curated (exchanges, custodians, foundation wallets, known whales identified by community analyses). Once curated, the ingest is mechanical. Lower priority than B-031 / B-104 / B-105 because (a) the address-list curation is ongoing rather than one-shot, (b) the data is per-wallet rather than aggregate so the "institutional vs retail" cut is harder to make, and (c) the COT / CME / ETF flow data closes most of the institutional-flow gap at a higher signal-to-noise ratio.
+- **Acceptance criteria:**
+  - Watchlist gains an `eth_whale_addresses:` section listing addresses with `address`, `label` (e.g. "Binance cold wallet 1", "Ethereum Foundation"), `category` (exchange / custodian / foundation / whale), `notes`. v1 seed list: ~25-50 known addresses from publicly-documented sources (Etherscan's own labeled-addresses dataset, known foundation wallets, Lookonchain-style published whale identifications). Document curation methodology in `docs/sources/eth-whale-addresses.md`.
+  - New ingester `genkei.ingest.etherscan_whale_flow` reading Etherscan v2 API. Uses the same `ETHERSCAN_API_KEY` env var as B-082; gracefully skips with a loud warning when no key is set (per D-020).
+  - Daily per-address snapshot: `(address, ts, balance_eth, balance_usd_at_snapshot, net_flow_eth_24h, net_flow_usd_24h, tx_count_24h)` keyed on `(address, ts)`.
+  - Lands raw blobs (one blob per address per day) for audit trail.
+  - Normalizes to `onchain.eth_whale_flows`. View `onchain.eth_whale_flows_aggregate` sums per category (exchange / custodian / foundation / whale) per day for the "are whales net-selling?" headline query.
+  - Daily cron in a new `etherscan-whales-daily.yml` workflow, or extended into `sec-daily.yml`'s self-hosted runner block to share the Etherscan rate-limit budget with B-082.
+  - Backfill mode walks Etherscan's transaction history for each address back to a configurable `--since` date (default: 1 year).
+  - `genkei whales --category whale --since 2025-01-01` answers "are tracked whales net-selling ETH over time" without custom code.
+  - Unit tests pin the Etherscan v2 response parser + the 24h-net-flow computation (sum of incoming txns minus sum of outgoing txns, with ETH-only filter; ERC-20 transfers ignored for v1).
+  - **Known limitations**: (a) the address-list is necessarily incomplete — true whales obfuscate via fresh wallets; (b) exchange cold wallets aggregate many users so "exchange net inflow" doesn't equal "users buying" — exchange flows often reverse the intuitive sign; (c) Etherscan rate limits will cap address-list size at ~500 addresses per daily run. Document these limits in the writeup so users don't over-read the data.
+
+
 
 ### B-032 — EIA energy data ingester
 - **Status:** open
