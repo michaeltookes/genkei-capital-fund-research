@@ -40,6 +40,7 @@ Subcommand surface (B-037):
 - ``genkei macro-regime``
                         Macro regime label per date            [B-059 ✓]
 - ``genkei cot``       CFTC Commitments of Traders             [B-031 ✓]
+- ``genkei etf-flows`` Spot crypto ETF daily activity           [B-105 ✓]
 """
 
 from __future__ import annotations
@@ -53,6 +54,7 @@ from genkei.cli import (
     cot,
     crowding,
     eight_k_impact,
+    etf_flows,
     filings,
     holdings,
     insider_clusters,
@@ -134,6 +136,10 @@ app.command(
     "cot",
     help="CFTC Commitments of Traders — weekly position breakdowns per market/trader category.",
 )(cot.cot_cmd)
+app.command(
+    "etf-flows",
+    help="Spot crypto ETF daily activity — Σ(volume × close) per asset across configured ETFs.",
+)(etf_flows.etf_flows_cmd)
 app.command(
     "query",
     help="Ad-hoc SQL escape hatch (read-only, timeout + row cap enforced).",
