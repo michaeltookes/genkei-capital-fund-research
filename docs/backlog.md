@@ -190,6 +190,25 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Unit tests pin the Etherscan v2 response parser + the 24h-net-flow computation (sum of incoming txns minus sum of outgoing txns, with ETH-only filter; ERC-20 transfers ignored for v1).
   - **Known limitations**: (a) the address-list is necessarily incomplete — true whales obfuscate via fresh wallets; (b) exchange cold wallets aggregate many users so "exchange net inflow" doesn't equal "users buying" — exchange flows often reverse the intuitive sign; (c) Etherscan rate limits will cap address-list size at ~500 addresses per daily run. Document these limits in the writeup so users don't over-read the data.
 
+### B-107 — Spot ETF true net flow via SEC EDGAR (v2 of B-105)
+- **Status:** open
+- **Priority:** medium
+- **Context:** B-105 v1 shipped 2026-06-03 as "daily-dollar-volume per asset" via Yahoo OHLCV — a magnitude proxy for institutional ETF activity, NOT signed net flow. The pivot from the original Farside spec was forced by Cloudflare-walled scrape sources (Farside + SoSoValue) and Yahoo's auth-gated `quoteSummary` (which has shares-outstanding). The institutional-flow gap that drove the 2026-06-02 ETH/SOL/SUI research sessions is partially closed by B-105 v1 (we now see *if* ETF trading volume is heavy) but NOT fully closed (we don't see *if* creations exceed redemptions on a given day — the canonical "is money flowing in or out?" question). This item pursues the missing piece via the primary-source path: SEC EDGAR daily filings.
+- **Investigation required before kickoff:**
+  - Which SEC form(s) carry daily creation/redemption baskets or daily NAV+shares-outstanding for spot ETFs? Candidates: N-CEN (annual), N-PORT (quarterly, too slow), Form 8937 (corporate actions), Form NT-NCEN, Form NPX (annual). May require reading actual IBIT / FBTC filings to map.
+  - Each ETF issuer also publishes daily NAV + shares-outstanding on their own product page (e.g. ishares.com/us/products/333011/IBIT). Whether those pages are Cloudflare-walled like Farside or directly scrape-able needs probing — IBIT alone may be ~250 trading days × 1.5y = ~400 calls for a backfill, manageable if it works.
+  - Does Coinbase's institutional product feed have a free tier for ETF creation/redemption data? (Likely no, but worth a quick check.)
+- **Acceptance criteria (v2, draft — refine after investigation):**
+  - Per-ETF per-day shares-outstanding from a primary or near-primary source (SEC or issuer page).
+  - Derived net flow = (shares_outstanding_today − shares_outstanding_yesterday) × close.
+  - Lands in a new schema, e.g. `etf.net_flows`, keyed on `(ticker, flow_date)`. The B-105 v1 `dollar_volume_usd_mm` column remains the activity-magnitude proxy; this new column is the signed direction.
+  - Daily cron alongside `yahoo-daily.yml`; backfill per ticker from the ETF launch date forward.
+  - `genkei etf-flows --asset BTC --net-flow` shows the signed column; default behavior stays on `dollar_volume_usd_mm` so v1 callers don't break.
+  - Unit tests pin the shares-outstanding extractor for whichever source is chosen.
+- **References:**
+  - Original B-105 spec (resolved 2026-06-03) for the Farside + SoSoValue Cloudflare findings.
+  - Yahoo `quoteSummary` is auth-gated; B-092's existing chart-only path is what unblocked v1.
+
 
 
 ### B-032 — EIA energy data ingester
