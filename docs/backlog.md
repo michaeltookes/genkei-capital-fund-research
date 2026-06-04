@@ -194,7 +194,22 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Original B-105 spec (resolved 2026-06-03) for the Farside + SoSoValue Cloudflare findings.
   - Yahoo `quoteSummary` is auth-gated; B-092's existing chart-only path is what unblocked v1.
 
-
+### B-109 — Fix defillama.stablecoins double-ingest bug
+- **Status:** open
+- **Priority:** high
+- **Context:** Discovered during the B-108 (`genkei stablecoin-flow`) kickoff on 2026-06-04: from 2026-05-10 onwards, `defillama.stablecoins` carries **2 distinct `ingest_run_id` values per (chain, asset, day)** — verified via `SELECT date_trunc('day', ts)::date, COUNT(*), COUNT(DISTINCT ingest_run_id) FROM defillama.stablecoins WHERE chain = 'Ethereum' AND ts::date IN ('2026-05-09','2026-05-10') GROUP BY 1`. The day before (2026-05-09) shows 150 rows / 1 run; 2026-05-10 onwards shows 305+ rows / 2 runs. The two runs land near-identical supply values, so a naive `SUM(supply_usd) GROUP BY day` double-counts. Earlier days are unaffected.
+- **Downstream blast radius:**
+  - `genkei stablecoin-flow` (B-108): worked around at query time with `DISTINCT ON (chain, asset_id) ORDER BY ingest_run_id DESC` in every query path. The workaround correctly de-duplicates but is duplicated SQL and would silently re-introduce the bug if a new query path forgets it.
+  - The 2026-06-02 ETH research decision (`docs/research/decisions/2026-06-02-ethereum-position-assessment.md`): queried via `genkei query` without dedupe. Reported figures like "$161.2B Ethereum stables today" — these match the de-duplicated value (within rounding), suggesting that day's query happened to pick the un-bugged path OR the same SUM coincidentally landed cleanly. **Worth re-verifying against deduplicated data before treating the absolute thresholds (ETH $158B / $162B; SOL $14B / $17B) as canonical.**
+  - The 2026-06-03 BTC/ETH/SOL comparison decision: same `genkei query` SQL escape hatch; same caveat applies to the absolute trigger levels in its frontmatter.
+- **Investigation required:**
+  - Identify the second ingest-run path. Likely a daily cron + a separate backfill / replay path both writing into `defillama.stablecoins` without the natural-key upsert collision the schema *should* enforce. Read `src/genkei/ingest/defillama.py` and the `meta.ingest_runs` rows for `source='defillama' endpoint='collect'` around 2026-05-10 to find what started running twice.
+  - Check whether the table PK / unique constraint is missing `(chain, asset_id, ts)` — if the schema allows duplicate rows, the upsert can't dedupe at write time. The fix may be a `CREATE UNIQUE INDEX` migration + `ON CONFLICT … DO UPDATE` on the ingester.
+- **Acceptance criteria:**
+  - Root cause identified and the upstream ingester / schema fixed so new daily runs land 1 row per `(chain, asset_id, ts)`.
+  - One-time backfill cleanup: delete the duplicate rows from 2026-05-10 onwards (or the equivalent migration: keep the latest `ingest_run_id` per `(chain, asset_id, ts)` and delete the rest).
+  - `genkei stablecoin-flow` CLI's `DISTINCT ON` workarounds can be removed (or kept as defense-in-depth — judge at fix time).
+  - Cross-source canary: extend `genkei.common.schema_drift` (or watchlist health) to assert per-day uniqueness on `(chain, asset_id)` so a future regression surfaces in CI / drift alerts rather than in the next research session.
 
 ### B-032 — EIA energy data ingester
 - **Status:** open

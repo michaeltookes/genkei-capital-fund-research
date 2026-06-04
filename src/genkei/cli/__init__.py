@@ -41,6 +41,8 @@ Subcommand surface (B-037):
                         Macro regime label per date            [B-059 ✓]
 - ``genkei cot``       CFTC Commitments of Traders             [B-031 ✓]
 - ``genkei etf-flows`` Spot crypto ETF daily activity           [B-105 ✓]
+- ``genkei stablecoin-flow``
+                        Cross-chain stablecoin supply trajectory [B-108 ✓]
 """
 
 from __future__ import annotations
@@ -66,6 +68,7 @@ from genkei.cli import (
     relative_strength,
     revenue_divergence,
     signals,
+    stablecoin_flow,
     tvl,
     tvl_drawdown,
     watchlist,
@@ -140,6 +143,10 @@ app.command(
     "etf-flows",
     help="Spot crypto ETF daily activity - sum(volume x close) per asset across configured ETFs.",
 )(etf_flows.etf_flows_cmd)
+app.command(
+    "stablecoin-flow",
+    help="Cross-chain stablecoin supply trajectory + rotation signal (per-chain or --all-chains).",
+)(stablecoin_flow.stablecoin_flow_cmd)
 app.command(
     "query",
     help="Ad-hoc SQL escape hatch (read-only, timeout + row cap enforced).",
