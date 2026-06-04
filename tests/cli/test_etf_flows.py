@@ -19,9 +19,11 @@ from genkei.cli.etf_flows import (
     _horizon_tag,
     _query_asset_aggregate,
     _query_per_ticker,
+    _query_targets,
     _resolve_asset,
     _tag_rows,
 )
+from genkei.common.watchlist import EtfTickerEntry
 
 
 class ResolveAssetTests(unittest.TestCase):
@@ -91,10 +93,10 @@ class TagRowsTests(unittest.TestCase):
 
 
 class QueryDateBoundsTests(unittest.TestCase):
-    """Validate SQL date bounds use UTC-aware timestamps."""
+    """Validate ETF activity SQL uses UTC timestamps and launch clamps."""
 
-    def _capture_params(self, query_func) -> list[object]:
-        captured: dict[str, list[object]] = {}
+    def _capture_query(self, query_func) -> tuple[str, list[object]]:
+        captured: dict[str, object] = {}
 
         class FakeCursor:
             def __enter__(self):
@@ -104,6 +106,7 @@ class QueryDateBoundsTests(unittest.TestCase):
                 return False
 
             def execute(self, _sql, params):
+                captured["sql"] = _sql
                 captured["params"] = list(params)
 
             def fetchall(self):
@@ -122,30 +125,62 @@ class QueryDateBoundsTests(unittest.TestCase):
         with patch("genkei.cli.etf_flows.db.connection", return_value=FakeConn()):
             query_func(
                 "BTC",
-                ["IBIT"],
+                [("IBIT", date(2024, 1, 11))],
                 since=date(2025, 1, 2),
                 until=date(2025, 1, 3),
                 limit=10,
             )
-        return captured["params"]
+        return str(captured["sql"]), list(captured["params"])
+
+    def test_query_targets_parse_launch_dates(self) -> None:
+        """Watchlist ETF entries carry launch dates into query targets."""
+        targets = _query_targets(
+            [
+                EtfTickerEntry(
+                    ticker="ETHE",
+                    name="Grayscale Ethereum Trust ETF",
+                    asset="ETH",
+                    issuer="Grayscale",
+                    launch_date="2024-07-23",
+                ),
+                EtfTickerEntry(
+                    ticker="ETHB",
+                    name="iShares Ethereum Trust ETF",
+                    asset="ETH",
+                    issuer="BlackRock",
+                    launch_date=None,
+                ),
+            ]
+        )
+        self.assertEqual(targets, [("ETHE", date(2024, 7, 23)), ("ETHB", None)])
 
     def test_aggregate_query_uses_utc_aware_date_bounds(self) -> None:
-        """Aggregate date filters bind UTC timestamps for TIMESTAMPTZ comparisons."""
-        params = self._capture_params(_query_asset_aggregate)
-        self.assertEqual(params[1], datetime(2025, 1, 2, tzinfo=timezone.utc))
+        """Aggregate query binds UTC bounds and clamps to spot ETF launch dates."""
+        sql, params = self._capture_query(_query_asset_aggregate)
+        self.assertIn("(c.ts AT TIME ZONE 'UTC')::date", sql)
+        self.assertIn("target.launch_ts", sql)
+        self.assertEqual(params[0], ["IBIT"])
+        self.assertEqual(params[1], [datetime(2024, 1, 11, tzinfo=timezone.utc)])
+        self.assertEqual(params[2], datetime(2025, 1, 2, tzinfo=timezone.utc))
         self.assertEqual(
-            params[2],
+            params[3],
             datetime(2025, 1, 3, 23, 59, 59, 999999, tzinfo=timezone.utc),
         )
+        self.assertEqual(params[4], 10)
 
     def test_per_ticker_query_uses_utc_aware_date_bounds(self) -> None:
-        """Per-ticker date filters bind UTC timestamps for TIMESTAMPTZ comparisons."""
-        params = self._capture_params(_query_per_ticker)
-        self.assertEqual(params[1], datetime(2025, 1, 2, tzinfo=timezone.utc))
+        """Per-ticker query binds UTC bounds and clamps to spot ETF launch dates."""
+        sql, params = self._capture_query(_query_per_ticker)
+        self.assertIn("(c.ts AT TIME ZONE 'UTC')::date", sql)
+        self.assertIn("target.launch_ts", sql)
+        self.assertEqual(params[0], ["IBIT"])
+        self.assertEqual(params[1], [datetime(2024, 1, 11, tzinfo=timezone.utc)])
+        self.assertEqual(params[2], datetime(2025, 1, 2, tzinfo=timezone.utc))
         self.assertEqual(
-            params[2],
+            params[3],
             datetime(2025, 1, 3, 23, 59, 59, 999999, tzinfo=timezone.utc),
         )
+        self.assertEqual(params[4], 10)
 
 
 class FormatAggregateHumanTests(unittest.TestCase):

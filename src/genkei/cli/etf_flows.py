@@ -56,6 +56,7 @@ _ASSET_ALIASES: dict[str, str] = {
     "ethereum": "ETH",
     "ether": "ETH",
 }
+TickerLaunch = tuple[str, Optional[date]]
 
 
 def _resolve_asset(raw: str) -> str:
@@ -84,32 +85,63 @@ def _format_etf_list_human(watchlist: Watchlist) -> str:
     return "\n".join(lines)
 
 
+def _start_of_day_utc(day: date) -> datetime:
+    """Return a UTC-aware midnight timestamp for TIMESTAMPTZ comparisons."""
+    return datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)
+
+
+def _end_of_day_utc(day: date) -> datetime:
+    """Return a UTC-aware end-of-day timestamp for TIMESTAMPTZ comparisons."""
+    return datetime.combine(day, datetime.max.time(), tzinfo=timezone.utc)
+
+
+def _query_targets(etfs: list[EtfTickerEntry]) -> list[TickerLaunch]:
+    """Carry watchlist ETF launch dates through to the query layer."""
+    return [
+        (entry.ticker, _parse_date(entry.launch_date, label=f"{entry.ticker} launch_date"))
+        for entry in etfs
+    ]
+
+
+def _target_sql_params(targets: list[TickerLaunch]) -> tuple[list[str], list[Optional[datetime]]]:
+    """Split ticker/date targets into arrays suitable for Postgres unnest."""
+    tickers: list[str] = []
+    launch_starts: list[Optional[datetime]] = []
+    for ticker, launch_date in targets:
+        tickers.append(ticker)
+        launch_starts.append(_start_of_day_utc(launch_date) if launch_date is not None else None)
+    return tickers, launch_starts
+
+
 def _query_asset_aggregate(
     asset: str,
-    tickers: list[str],
+    targets: list[TickerLaunch],
     *,
     since: Optional[date],
     until: Optional[date],
     limit: int,
 ) -> list[dict[str, Any]]:
     """Sum volume x close per day across all configured tickers for one asset."""
-    if not tickers:
+    if not targets:
         return []
+    tickers, launch_starts = _target_sql_params(targets)
     sql = (
-        "SELECT date_trunc('day', ts) AS flow_date, "
-        "SUM(volume * close) / 1e6 AS dollar_volume_usd_mm, "
-        "SUM(volume) AS total_share_volume, "
-        "COUNT(DISTINCT ticker) AS reporting_etfs "
-        "FROM yahoo.candles "
-        "WHERE ticker = ANY(%s)"
+        "SELECT (c.ts AT TIME ZONE 'UTC')::date AS flow_date, "
+        "SUM(c.volume * c.close) / 1e6 AS dollar_volume_usd_mm, "
+        "SUM(c.volume) AS total_share_volume, "
+        "COUNT(DISTINCT c.ticker) AS reporting_etfs "
+        "FROM yahoo.candles c "
+        "JOIN unnest(%s::text[], %s::timestamptz[]) AS target(ticker, launch_ts) "
+        "ON c.ticker = target.ticker "
+        "WHERE (target.launch_ts IS NULL OR c.ts >= target.launch_ts)"
     )
-    params: list[Any] = [tickers]
+    params: list[Any] = [tickers, launch_starts]
     if since is not None:
-        sql += " AND ts >= %s"
-        params.append(datetime.combine(since, datetime.min.time(), tzinfo=timezone.utc))
+        sql += " AND c.ts >= %s"
+        params.append(_start_of_day_utc(since))
     if until is not None:
-        sql += " AND ts <= %s"
-        params.append(datetime.combine(until, datetime.max.time(), tzinfo=timezone.utc))
+        sql += " AND c.ts <= %s"
+        params.append(_end_of_day_utc(until))
     sql += " GROUP BY flow_date ORDER BY flow_date DESC LIMIT %s"
     params.append(limit)
     with db.connection() as conn, conn.cursor() as cur:
@@ -133,29 +165,32 @@ def _query_asset_aggregate(
 
 def _query_per_ticker(
     asset: str,
-    tickers: list[str],
+    targets: list[TickerLaunch],
     *,
     since: Optional[date],
     until: Optional[date],
     limit: int,
 ) -> list[dict[str, Any]]:
     """Return per-ticker per-day activity rows for --by-ticker mode."""
-    if not tickers:
+    if not targets:
         return []
+    tickers, launch_starts = _target_sql_params(targets)
     sql = (
-        "SELECT ticker, date_trunc('day', ts) AS flow_date, "
-        "volume * close / 1e6 AS dollar_volume_usd_mm, "
-        "volume, close "
-        "FROM yahoo.candles "
-        "WHERE ticker = ANY(%s)"
+        "SELECT c.ticker, (c.ts AT TIME ZONE 'UTC')::date AS flow_date, "
+        "c.volume * c.close / 1e6 AS dollar_volume_usd_mm, "
+        "c.volume, c.close "
+        "FROM yahoo.candles c "
+        "JOIN unnest(%s::text[], %s::timestamptz[]) AS target(ticker, launch_ts) "
+        "ON c.ticker = target.ticker "
+        "WHERE (target.launch_ts IS NULL OR c.ts >= target.launch_ts)"
     )
-    params: list[Any] = [tickers]
+    params: list[Any] = [tickers, launch_starts]
     if since is not None:
-        sql += " AND ts >= %s"
-        params.append(datetime.combine(since, datetime.min.time(), tzinfo=timezone.utc))
+        sql += " AND c.ts >= %s"
+        params.append(_start_of_day_utc(since))
     if until is not None:
-        sql += " AND ts <= %s"
-        params.append(datetime.combine(until, datetime.max.time(), tzinfo=timezone.utc))
+        sql += " AND c.ts <= %s"
+        params.append(_end_of_day_utc(until))
     sql += " ORDER BY flow_date DESC, ticker LIMIT %s"
     params.append(limit)
     with db.connection() as conn, conn.cursor() as cur:
@@ -334,8 +369,8 @@ def etf_flows_cmd(
         )
 
     canonical_asset = _resolve_asset(asset)
-    tickers = [e.ticker for e in watchlist.etfs_for_asset(canonical_asset)]
-    if not tickers:
+    targets = _query_targets(watchlist.etfs_for_asset(canonical_asset))
+    if not targets:
         raise typer.BadParameter(
             f"No ETFs configured for asset {canonical_asset}. "
             "Add entries under `etf_tickers:` in watchlists.yml."
@@ -349,11 +384,11 @@ def etf_flows_cmd(
     horizon_tag = _horizon_tag(canonical_asset)
     if by_ticker:
         rows = _query_per_ticker(
-            canonical_asset, tickers, since=since_d, until=until_d, limit=limit
+            canonical_asset, targets, since=since_d, until=until_d, limit=limit
         )
     else:
         rows = _query_asset_aggregate(
-            canonical_asset, tickers, since=since_d, until=until_d, limit=limit
+            canonical_asset, targets, since=since_d, until=until_d, limit=limit
         )
     rows = _tag_rows(rows, horizon_tag)
     if json_out:

@@ -124,9 +124,9 @@ class EtfTickerEntry:
 
     ``asset`` is the underlying (``BTC`` or ``ETH``) used to route
     per-asset aggregations in ``genkei etf-flows --asset BTC``.
-    ``launch_date`` is informational — Yahoo serves history from the
-    actual first-trade date and the chart endpoint clamps to it
-    automatically.
+    ``launch_date`` is the spot-ETF launch date used by the CLI query
+    layer to ignore pre-conversion Yahoo history for tickers that existed
+    before their spot ETF wrapper.
     """
 
     ticker: str
