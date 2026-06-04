@@ -13,6 +13,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from genkei.common.watchlist import (
+    DEFAULT_WATCHLIST_PATH,
     BenchmarkEntry,
     CotMarketEntry,
     EtfTickerEntry,
@@ -343,6 +344,22 @@ class EtfTickersParserTests(unittest.TestCase):
         """Missing etf_tickers config produces an empty ETF list."""
         w = _load("version: 1\n")
         self.assertEqual(w.etf_tickers, [])
+
+    def test_packaged_spot_etf_basket_includes_late_additions(self) -> None:
+        """Packaged ETF basket includes later BTC and ETH product launches."""
+        w = load_watchlist(DEFAULT_WATCHLIST_PATH)
+        btc_tickers = {entry.ticker for entry in w.etfs_for_asset("BTC")}
+        eth_tickers = {entry.ticker for entry in w.etfs_for_asset("ETH")}
+
+        self.assertEqual(len(btc_tickers), 12)
+        self.assertIn("DEFI", btc_tickers)
+        self.assertIn("BTC", btc_tickers)
+        self.assertEqual(len(eth_tickers), 10)
+        self.assertIn("ETHB", eth_tickers)
+        ethb = w.find_etf_ticker("ethb")
+        self.assertIsNotNone(ethb)
+        self.assertEqual(ethb.issuer, "BlackRock")
+        self.assertEqual(ethb.launch_date, "2026-03-12")
 
 
 if __name__ == "__main__":

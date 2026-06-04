@@ -716,6 +716,13 @@ etf_tickers:
     launch_date: 2024-07-23
     sleeve: tactical
     rationale: BlackRock spot ETH ETF; parallel to IBIT.
+  - ticker: ETHB
+    name: iShares Staked Ethereum Trust ETF
+    asset: ETH
+    issuer: BlackRock
+    launch_date: 2026-03-12
+    sleeve: tactical
+    rationale: BlackRock staked ETH ETF introduced on Nasdaq in March 2026.
   - ticker: FETH
     name: Fidelity Ethereum Fund
     asset: ETH
