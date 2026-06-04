@@ -114,8 +114,8 @@ class FormatAggregateHumanTests(unittest.TestCase):
         # Must not raise on None values; format should fall back to dashes.
         out = _format_aggregate_human("BTC", rows, "etf:crypto:btc")
         self.assertIn("2025-01-02", out)
-        # Three dashes for the three null columns; allow surrounding whitespace
-        self.assertEqual(out.count("-"), out.count("-"))  # smoke
+        # Three null columns should render as placeholder dashes on the row.
+        self.assertRegex(out, r"2025-01-02\s+-\s+-\s+-")
 
 
 class FormatPerTickerHumanTests(unittest.TestCase):

@@ -500,34 +500,46 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
         for entry in etf_root:
             if not isinstance(entry, dict):
                 continue
-            ticker = entry.get("ticker")
-            if not isinstance(ticker, str) or not ticker:
+            raw_ticker = entry.get("ticker")
+            if not isinstance(raw_ticker, str):
                 continue
-            asset = entry.get("asset")
-            if not isinstance(asset, str) or asset.upper() not in ("BTC", "ETH"):
+            ticker = raw_ticker.strip().upper()
+            if not ticker:
+                continue
+            raw_asset = entry.get("asset")
+            if not isinstance(raw_asset, str):
+                continue
+            asset = raw_asset.strip().upper()
+            if asset not in ("BTC", "ETH"):
                 # v1 only supports BTC + ETH spot ETFs; other assets get dropped.
                 continue
-            upper_ticker = ticker.strip().upper()
-            if upper_ticker in seen_etf_tickers:
+            if ticker in seen_etf_tickers:
                 continue
-            seen_etf_tickers.add(upper_ticker)
+            seen_etf_tickers.add(ticker)
             # launch_date is YAML-parsed as a datetime.date when unquoted.
             # Keep it as ISO string so downstream code doesn't have to
             # special-case typing.
             raw_launch = entry.get("launch_date")
             if hasattr(raw_launch, "isoformat"):
                 launch_str: str | None = raw_launch.isoformat()
-            elif isinstance(raw_launch, str) and raw_launch:
-                launch_str = raw_launch
+            elif isinstance(raw_launch, str) and raw_launch.strip():
+                launch_str = raw_launch.strip()
             else:
                 launch_str = None
+            raw_issuer = entry.get("issuer")
+            if not isinstance(raw_issuer, str):
+                continue
+            issuer = raw_issuer.strip()
+            if not issuer:
+                continue
+            sleeve = str(entry.get("sleeve") or "tactical").strip() or "tactical"
             etf_tickers.append(
                 EtfTickerEntry(
-                    ticker=upper_ticker,
-                    name=str(entry.get("name") or ""),
-                    asset=asset.upper(),
-                    issuer=str(entry.get("issuer") or ""),
-                    sleeve=str(entry.get("sleeve") or "tactical"),
+                    ticker=ticker,
+                    name=str(entry.get("name") or "").strip(),
+                    asset=asset,
+                    issuer=issuer,
+                    sleeve=sleeve,
                     launch_date=launch_str,
                     rationale=_optional_string(entry.get("rationale")),
                 )

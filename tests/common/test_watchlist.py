@@ -253,13 +253,31 @@ class EtfTickersParserTests(unittest.TestCase):
         body = (
             "version: 1\n"
             "etf_tickers:\n"
-            "  - ticker: ibit\n"
+            "  - ticker: ' ibit '\n"
             "    name: iShares\n"
+            "    asset: ' btc '\n"
+            "    issuer: ' BlackRock '\n"
+        )
+        w = _load(body)
+        self.assertEqual(w.etf_tickers[0].ticker, "IBIT")
+        self.assertEqual(w.etf_tickers[0].asset, "BTC")
+        self.assertEqual(w.etf_tickers[0].issuer, "BlackRock")
+
+    def test_whitespace_ticker_drops_row(self) -> None:
+        body = (
+            "version: 1\n"
+            "etf_tickers:\n"
+            "  - ticker: '   '\n"
+            "    name: malformed\n"
+            "    asset: BTC\n"
+            "    issuer: hypothetical\n"
+            "  - ticker: IBIT\n"
+            "    name: ok\n"
             "    asset: BTC\n"
             "    issuer: BlackRock\n"
         )
         w = _load(body)
-        self.assertEqual(w.etf_tickers[0].ticker, "IBIT")
+        self.assertEqual([entry.ticker for entry in w.etf_tickers], ["IBIT"])
 
     def test_unknown_asset_drops_row(self) -> None:
         body = (

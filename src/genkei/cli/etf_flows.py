@@ -4,7 +4,7 @@ Returns per-day aggregated daily-dollar-volume for the spot BTC and
 ETH ETFs configured under ``etf_tickers:`` in watchlists.yml. The
 underlying OHLCV lives in ``yahoo.candles`` (B-092 / B-102's existing
 schema); this subcommand joins the watchlist's per-ticker asset tag
-to filter the right set, then sums ``volume × close`` per day per
+to filter the right set, then sums ``volume x close`` per day per
 asset.
 
 **Honest labeling note.** The original B-105 spec was built around
@@ -12,7 +12,7 @@ Farside's published daily *net flow* numbers (creations minus
 redemptions). Farside + SoSoValue both Cloudflare-walled scripted
 access on 2026-06-03; the pivot to Yahoo gives us volume + close
 but NOT shares-outstanding deltas. So the output column is
-``dollar_volume_usd_mm`` (= volume × close, in USD millions) — a
+``dollar_volume_usd_mm`` (= volume x close, in USD millions) — a
 *magnitude proxy* for institutional ETF activity, NOT signed net
 flow. Reading the column as "net flow" would be a lie. True signed
 net flow needs SEC EDGAR primary-source filings; that's filed
@@ -35,7 +35,12 @@ from typing import Annotated, Any, Optional
 
 import typer
 
-from genkei.cli._helpers import json_default, parse_date
+from genkei.cli._helpers import (
+    json_default as _json_default,
+)
+from genkei.cli._helpers import (
+    parse_date as _parse_date,
+)
 from genkei.common import db
 from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
@@ -43,8 +48,6 @@ from genkei.common.watchlist import (
     Watchlist,
     load_watchlist,
 )
-
-_parse_date = parse_date
 
 _ASSET_ALIASES: dict[str, str] = {
     "btc": "BTC",
@@ -56,6 +59,7 @@ _ASSET_ALIASES: dict[str, str] = {
 
 
 def _resolve_asset(raw: str) -> str:
+    """Return the canonical BTC/ETH asset code for a user-provided alias."""
     key = raw.strip().lower()
     if key in _ASSET_ALIASES:
         return _ASSET_ALIASES[key]
@@ -65,6 +69,7 @@ def _resolve_asset(raw: str) -> str:
 
 
 def _format_etf_list_human(watchlist: Watchlist) -> str:
+    """Render configured spot ETF tickers grouped by underlying asset."""
     if not watchlist.etf_tickers:
         return "No etf_tickers configured. Edit watchlists.yml."
     lines = ["Configured spot crypto ETFs:", "-" * 28]
@@ -87,7 +92,7 @@ def _query_asset_aggregate(
     until: Optional[date],
     limit: int,
 ) -> list[dict[str, Any]]:
-    """Sum (volume × close) per day across all tickers for one asset."""
+    """Sum volume x close per day across all configured tickers for one asset."""
     if not tickers:
         return []
     sql = (
@@ -134,7 +139,7 @@ def _query_per_ticker(
     until: Optional[date],
     limit: int,
 ) -> list[dict[str, Any]]:
-    """Per-ticker per-day rows for --by-ticker mode."""
+    """Return per-ticker per-day activity rows for --by-ticker mode."""
     if not tickers:
         return []
     sql = (
@@ -174,6 +179,7 @@ def _query_per_ticker(
 
 
 def _format_aggregate_human(asset: str, rows: list[dict[str, Any]], horizon_tag: str) -> str:
+    """Render aggregate asset-level ETF activity as a human-readable table."""
     if not rows:
         return (
             f"No yahoo.candles rows for the {asset} ETF basket. "
@@ -208,13 +214,14 @@ def _format_aggregate_human(asset: str, rows: list[dict[str, Any]], horizon_tag:
         lines.append(f"  {date_str:<12} {dv} {sv} {rc}")
     lines.append("")
     lines.append(
-        "  $_volume_mm = sum across configured ETFs of (volume × close) / 1e6. "
+        "  $_volume_mm = sum across configured ETFs of (volume x close) / 1e6. "
         "Magnitude proxy for institutional activity, NOT signed net flow."
     )
     return "\n".join(lines)
 
 
 def _format_per_ticker_human(asset: str, rows: list[dict[str, Any]], horizon_tag: str) -> str:
+    """Render per-ETF activity rows as a human-readable table."""
     if not rows:
         return f"No yahoo.candles rows for the {asset} ETF basket."
     header = (
@@ -244,10 +251,12 @@ def _format_per_ticker_human(asset: str, rows: list[dict[str, Any]], horizon_tag
 
 
 def _horizon_tag(asset: str) -> str:
+    """Return the canonical horizon tag for an ETF activity asset bucket."""
     return f"etf:crypto:{asset.lower()}"
 
 
 def _tag_rows(rows: list[dict[str, Any]], horizon_tag: str) -> list[dict[str, Any]]:
+    """Copy rows while attaching the ETF activity horizon tag."""
     return [{**row, "horizon_tag": horizon_tag} for row in rows]
 
 
@@ -289,7 +298,7 @@ def etf_flows_cmd(
         typer.Option("--config", help="Watchlist path.", show_default=True),
     ] = DEFAULT_WATCHLIST_PATH,
 ) -> None:
-    """Spot crypto ETF daily activity (volume × close per asset)."""
+    """Show spot crypto ETF daily activity as volume x close per asset."""
     try:
         watchlist = load_watchlist(config)
     except (FileNotFoundError, ValueError) as exc:
@@ -312,7 +321,7 @@ def etf_flows_cmd(
                         for e in watchlist.etf_tickers
                     ],
                     indent=2,
-                    default=json_default,
+                    default=_json_default,
                 )
             )
         else:
@@ -332,8 +341,8 @@ def etf_flows_cmd(
             "Add entries under `etf_tickers:` in watchlists.yml."
         )
 
-    since_d = parse_date(since, label="since")
-    until_d = parse_date(until, label="until")
+    since_d = _parse_date(since, label="since")
+    until_d = _parse_date(until, label="until")
     if since_d is not None and until_d is not None and since_d > until_d:
         raise typer.BadParameter("--since must be on or before --until.")
 
@@ -348,7 +357,7 @@ def etf_flows_cmd(
         )
     rows = _tag_rows(rows, horizon_tag)
     if json_out:
-        typer.echo(json.dumps(rows, indent=2, default=json_default))
+        typer.echo(json.dumps(rows, indent=2, default=_json_default))
     elif by_ticker:
         typer.echo(_format_per_ticker_human(canonical_asset, rows, horizon_tag))
     else:

@@ -612,7 +612,7 @@ cot_markets:
 # Originally scoped against farside.co.uk's published daily-flow tables;
 # pivoted on 2026-06-03 after Farside + SoSoValue both Cloudflare-walled
 # scripted access. v1 reads OHLCV via the existing Yahoo ingester (B-092):
-# volume × close = daily-dollar-volume as a magnitude proxy for ETF
+# volume x close = daily-dollar-volume as a magnitude proxy for ETF
 # activity. True signed net flow (creations minus redemptions) requires
 # shares-outstanding deltas Yahoo doesn't expose unauthenticated; filed
 # separately as v2 (see backlog B-107 — SEC EDGAR true-flow path).
@@ -716,13 +716,13 @@ etf_tickers:
     launch_date: 2024-07-23
     sleeve: tactical
     rationale: Bitwise spot ETH ETF; parallel to BITB.
-  - ticker: CETH
-    name: 21Shares Core Ethereum ETF
+  - ticker: TETH
+    name: 21Shares Ethereum ETF
     asset: ETH
     issuer: 21Shares
     launch_date: 2024-07-23
     sleeve: tactical
-    rationale: 21Shares spot ETH ETF.
+    rationale: 21Shares spot ETH ETF; current ticker after the 2025 rename.
   - ticker: ETHV
     name: VanEck Ethereum ETF
     asset: ETH

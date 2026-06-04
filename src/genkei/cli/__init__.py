@@ -138,7 +138,7 @@ app.command(
 )(cot.cot_cmd)
 app.command(
     "etf-flows",
-    help="Spot crypto ETF daily activity — Σ(volume × close) per asset across configured ETFs.",
+    help="Spot crypto ETF daily activity - sum(volume x close) per asset across configured ETFs.",
 )(etf_flows.etf_flows_cmd)
 app.command(
     "query",
