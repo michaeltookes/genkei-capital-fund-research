@@ -16,6 +16,7 @@ from genkei.normalize.defillama import (
     normalize_chain_tvl_history,
     normalize_prices,
     normalize_protocol_fee_series,
+    day_align_utc,
     normalize_protocol_history,
     normalize_protocols,
     normalize_stablecoin_history,
@@ -58,6 +59,46 @@ class HelperTests(unittest.TestCase):
     def test_rows_for_requires_blob(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "Missing required raw blob.*protocols"):
             _rows_for({}, "protocols", normalize_protocols, 1, 99)
+
+
+class DayAlignUtcTests(unittest.TestCase):
+    """Pin the load-bearing day-align helper that prevents the B-109 bug."""
+
+    def test_truncates_intra_day_utc_to_midnight(self) -> None:
+        ts = datetime(2026, 6, 4, 12, 34, 56, 789, tzinfo=timezone.utc)
+        self.assertEqual(
+            day_align_utc(ts),
+            datetime(2026, 6, 4, 0, 0, 0, 0, tzinfo=timezone.utc),
+        )
+
+    def test_already_aligned_passes_through(self) -> None:
+        ts = datetime(2026, 6, 4, 0, 0, tzinfo=timezone.utc)
+        self.assertEqual(day_align_utc(ts), ts)
+
+    def test_non_utc_input_converts_to_utc_first(self) -> None:
+        # 2026-06-04 19:00:00-05:00 == 2026-06-05 00:00:00 UTC,
+        # which day-aligns to 2026-06-05 00:00 UTC (NOT 2026-06-04).
+        # This is exactly the case that caused the bug: defillama's
+        # backfill rows arrived as "2026-05-10 19:00:00-05:00" and were
+        # being rendered as 2026-05-10 in session-local time but
+        # represented 2026-05-11 00:00 UTC.
+        from datetime import timedelta
+
+        est = timezone(timedelta(hours=-5))
+        ts = datetime(2026, 6, 4, 19, 0, tzinfo=est)
+        self.assertEqual(
+            day_align_utc(ts),
+            datetime(2026, 6, 5, 0, 0, tzinfo=timezone.utc),
+        )
+
+    def test_naive_input_assumed_utc(self) -> None:
+        # parse_history_timestamp always returns tz-aware, but defensive
+        # pin: naive input is interpreted as UTC.
+        ts = datetime(2026, 6, 4, 14, 30)  # naive
+        self.assertEqual(
+            day_align_utc(ts),
+            datetime(2026, 6, 4, 0, 0, tzinfo=timezone.utc),
+        )
 
 
 class NormalizeProtocolsTests(unittest.TestCase):
