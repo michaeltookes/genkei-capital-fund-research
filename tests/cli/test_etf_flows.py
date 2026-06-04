@@ -21,25 +21,31 @@ from genkei.cli.etf_flows import (
 
 
 class ResolveAssetTests(unittest.TestCase):
+    """Validate asset alias handling for the ETF flows command."""
+
     def test_btc_aliases(self) -> None:
+        """BTC spellings and whitespace normalize to the BTC asset code."""
         self.assertEqual(_resolve_asset("BTC"), "BTC")
         self.assertEqual(_resolve_asset("btc"), "BTC")
         self.assertEqual(_resolve_asset("Bitcoin"), "BTC")
         self.assertEqual(_resolve_asset("  bitcoin  "), "BTC")
 
     def test_eth_aliases(self) -> None:
+        """ETH spellings normalize to the ETH asset code."""
         self.assertEqual(_resolve_asset("ETH"), "ETH")
         self.assertEqual(_resolve_asset("eth"), "ETH")
         self.assertEqual(_resolve_asset("Ethereum"), "ETH")
         self.assertEqual(_resolve_asset("ether"), "ETH")
 
     def test_unknown_asset_raises_bad_param(self) -> None:
+        """Unsupported and blank assets raise the CLI-friendly Typer error."""
         with self.assertRaises(typer.BadParameter):
             _resolve_asset("DOGE")
         with self.assertRaises(typer.BadParameter):
             _resolve_asset("")
 
     def test_alias_set_is_finite_and_lowercase(self) -> None:
+        """Alias table keys stay lowercase and mapped only to BTC/ETH."""
         # Defensive pin: aliases must be lowercase so _resolve_asset's
         # `.strip().lower()` lookup works. A future contributor adding
         # `"Bitcoin": "BTC"` (mixed case) would silently break.
@@ -50,15 +56,22 @@ class ResolveAssetTests(unittest.TestCase):
 
 
 class HorizonTagTests(unittest.TestCase):
+    """Validate ETF horizon tag generation."""
+
     def test_btc_tag(self) -> None:
+        """BTC maps to the ETF crypto BTC horizon tag."""
         self.assertEqual(_horizon_tag("BTC"), "etf:crypto:btc")
 
     def test_eth_tag(self) -> None:
+        """ETH maps to the ETF crypto ETH horizon tag."""
         self.assertEqual(_horizon_tag("ETH"), "etf:crypto:eth")
 
 
 class TagRowsTests(unittest.TestCase):
+    """Validate horizon tag attachment for output rows."""
+
     def test_appends_horizon_tag_to_every_row(self) -> None:
+        """Tagged rows include the horizon tag and preserve original fields."""
         rows = [{"flow_date": "2025-01-02", "dollar_volume_usd_mm": 100.0}]
         tagged = _tag_rows(rows, "etf:crypto:btc")
         self.assertEqual(tagged[0]["horizon_tag"], "etf:crypto:btc")
@@ -67,18 +80,23 @@ class TagRowsTests(unittest.TestCase):
         self.assertEqual(tagged[0]["dollar_volume_usd_mm"], 100.0)
 
     def test_does_not_mutate_input_rows(self) -> None:
+        """Tagging returns copied rows rather than mutating the caller input."""
         rows = [{"flow_date": "2025-01-02", "dollar_volume_usd_mm": 100.0}]
         _tag_rows(rows, "etf:crypto:btc")
         self.assertNotIn("horizon_tag", rows[0])
 
 
 class FormatAggregateHumanTests(unittest.TestCase):
+    """Validate human-readable aggregate ETF activity output."""
+
     def test_empty_rows_renders_helpful_hint(self) -> None:
+        """Empty aggregate output points users toward the Yahoo collector."""
         out = _format_aggregate_human("BTC", [], "etf:crypto:btc")
         self.assertIn("No yahoo.candles rows", out)
         self.assertIn("yahoo collector", out)
 
     def test_populated_rows_render_header_and_disclaimer(self) -> None:
+        """Aggregate output includes labels, horizon, numbers, and disclaimer."""
         rows = [
             {
                 "asset": "BTC",
@@ -101,6 +119,7 @@ class FormatAggregateHumanTests(unittest.TestCase):
         self.assertIn("50,000,000", out)
 
     def test_handles_null_columns(self) -> None:
+        """Null aggregate columns render placeholder dashes instead of errors."""
         rows = [
             {
                 "asset": "BTC",
@@ -119,11 +138,15 @@ class FormatAggregateHumanTests(unittest.TestCase):
 
 
 class FormatPerTickerHumanTests(unittest.TestCase):
+    """Validate human-readable per-ticker ETF activity output."""
+
     def test_empty_rows_renders_short_message(self) -> None:
+        """Empty per-ticker output renders a concise no-data message."""
         out = _format_per_ticker_human("BTC", [], "etf:crypto:btc")
         self.assertIn("No yahoo.candles rows", out)
 
     def test_populated_rows_carry_ticker_column(self) -> None:
+        """Per-ticker output preserves ticker labels and close formatting."""
         rows = [
             {
                 "asset": "BTC",

@@ -229,6 +229,7 @@ class EtfTickersParserTests(unittest.TestCase):
     """Pin the etf_tickers loader path (B-105)."""
 
     def test_parses_typed_entries(self) -> None:
+        """ETF ticker rows load into typed watchlist entries."""
         w = _load(ETF_TICKERS_YAML)
         self.assertEqual(len(w.etf_tickers), 2)
         ibit, etha = w.etf_tickers
@@ -250,6 +251,7 @@ class EtfTickersParserTests(unittest.TestCase):
         self.assertIsNone(etha.rationale)
 
     def test_ticker_uppercased_on_load(self) -> None:
+        """Ticker, asset, and issuer strings are normalized on load."""
         body = (
             "version: 1\n"
             "etf_tickers:\n"
@@ -264,6 +266,7 @@ class EtfTickersParserTests(unittest.TestCase):
         self.assertEqual(w.etf_tickers[0].issuer, "BlackRock")
 
     def test_whitespace_ticker_drops_row(self) -> None:
+        """Whitespace-only ETF tickers are rejected before Yahoo ingestion."""
         body = (
             "version: 1\n"
             "etf_tickers:\n"
@@ -280,6 +283,7 @@ class EtfTickersParserTests(unittest.TestCase):
         self.assertEqual([entry.ticker for entry in w.etf_tickers], ["IBIT"])
 
     def test_unknown_asset_drops_row(self) -> None:
+        """Unsupported ETF asset buckets are skipped by the v1 parser."""
         body = (
             "version: 1\n"
             "etf_tickers:\n"
@@ -297,6 +301,7 @@ class EtfTickersParserTests(unittest.TestCase):
         self.assertEqual(tickers, {"IBIT"})
 
     def test_duplicate_ticker_dedupes_first_wins(self) -> None:
+        """Duplicate ETF tickers dedupe case-insensitively with first row kept."""
         body = (
             "version: 1\n"
             "etf_tickers:\n"
@@ -314,12 +319,14 @@ class EtfTickersParserTests(unittest.TestCase):
         self.assertEqual(w.etf_tickers[0].name, "First")
 
     def test_find_etf_ticker_case_insensitive(self) -> None:
+        """ETF ticker lookup ignores ticker case."""
         w = _load(ETF_TICKERS_YAML)
         self.assertEqual(w.find_etf_ticker("ibit").asset, "BTC")
         self.assertEqual(w.find_etf_ticker("IBIT").issuer, "BlackRock")
         self.assertIsNone(w.find_etf_ticker("UNKNOWN"))
 
     def test_etfs_for_asset_routes_correctly(self) -> None:
+        """ETF asset lookup returns only entries for the requested bucket."""
         w = _load(ETF_TICKERS_YAML)
         btc_etfs = w.etfs_for_asset("BTC")
         eth_etfs = w.etfs_for_asset("ETH")
@@ -333,6 +340,7 @@ class EtfTickersParserTests(unittest.TestCase):
         self.assertEqual(w.etfs_for_asset("DOGE"), [])
 
     def test_absent_section_yields_empty_list(self) -> None:
+        """Missing etf_tickers config produces an empty ETF list."""
         w = _load("version: 1\n")
         self.assertEqual(w.etf_tickers, [])
 

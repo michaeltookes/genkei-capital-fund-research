@@ -21,6 +21,8 @@ SleeveKind = Literal["crypto", "equity", "macro", "protocol", "filer"]
 
 @dataclass(frozen=True)
 class CryptoEntry:
+    """A crypto asset configured for market-data collection and research routing."""
+
     symbol: str
     name: str
     coingecko_id: str
@@ -34,6 +36,8 @@ class CryptoEntry:
 
 @dataclass(frozen=True)
 class EquityEntry:
+    """A public equity target configured for SEC and Yahoo-driven workflows."""
+
     symbol: str
     name: str
     cik: str | None
@@ -48,6 +52,8 @@ class EquityEntry:
 
 @dataclass(frozen=True)
 class MacroEntry:
+    """A macroeconomic time series configured for cross-sleeve context."""
+
     series_id: str
     name: str
     tier: str = "primary"
@@ -158,6 +164,8 @@ class CotMarketEntry:
 
 @dataclass(frozen=True)
 class Watchlist:
+    """Typed watchlist data with convenience lookups by source identifier."""
+
     crypto: list[CryptoEntry]
     equities: list[EquityEntry]
     macro: list[MacroEntry]
@@ -168,6 +176,7 @@ class Watchlist:
     etf_tickers: list[EtfTickerEntry] = dataclasses.field(default_factory=list)
 
     def find_crypto(self, symbol: str) -> CryptoEntry | None:
+        """Lookup a crypto entry by symbol (case-insensitive)."""
         upper = symbol.upper()
         for entry in self.crypto:
             if entry.symbol.upper() == upper:
@@ -175,6 +184,7 @@ class Watchlist:
         return None
 
     def find_equity(self, symbol: str) -> EquityEntry | None:
+        """Lookup an equity entry by ticker symbol (case-insensitive)."""
         upper = symbol.upper()
         for entry in self.equities:
             if entry.symbol.upper() == upper:
@@ -192,6 +202,7 @@ class Watchlist:
         return None
 
     def find_macro(self, series_id: str) -> MacroEntry | None:
+        """Lookup a macro series by FRED series id (case-insensitive)."""
         lower = series_id.lower()
         for entry in self.macro:
             if entry.series_id.lower() == lower:
@@ -199,6 +210,7 @@ class Watchlist:
         return None
 
     def find_protocol(self, slug: str) -> ProtocolEntry | None:
+        """Lookup a protocol entry by DefiLlama slug (case-insensitive)."""
         lower = slug.lower()
         for entry in self.protocols:
             if entry.slug.lower() == lower:
@@ -573,4 +585,5 @@ def _normalize_filer_cik(raw: object) -> str | None:
 
 
 def _optional_string(value: object) -> str | None:
+    """Return a non-empty string value or None for absent optional fields."""
     return value if isinstance(value, str) and value else None
