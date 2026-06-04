@@ -89,22 +89,29 @@ class EquityTarget:
 
 
 def load_equities(path: Path) -> list[EquityTarget]:
-    """Read ``equities:`` + ``benchmarks:`` from watchlists.yml.
+    """Read ``equities:`` + ``benchmarks:`` + ``etf_tickers:`` from watchlists.yml.
 
-    Both sections are equity-shaped from Yahoo's perspective (same chart
-    endpoint, same blob shape, same ``yahoo.candles`` storage). Listing
-    them in separate watchlist sections keeps the *semantic* distinction
-    (research target vs benchmark) without complicating the ingester:
-    benchmarks won't show up in `find_equity` so equity-targeted
-    analyses (insider clusters, 8-K events, crowding) ignore them, but
-    `genkei prices --ticker SPY` and the B-101 stack-outcome backtest's
-    abnormal-return column both work as soon as the bars land.
+    All three sections are equity-shaped from Yahoo's perspective (same
+    chart endpoint, same blob shape, same ``yahoo.candles`` storage).
+    Listing them in separate watchlist sections keeps the *semantic*
+    distinction without complicating the ingester:
+
+      * ``equities:`` — research targets (insider clusters, 8-K events,
+        crowding analyses pick these up).
+      * ``benchmarks:`` — comparators (SPY / QQQ / IWM); ``find_equity``
+        intentionally skips them so equity-targeted analyses ignore them,
+        but ``genkei prices --ticker SPY`` and the B-101 stack-outcome
+        backtest's abnormal-return column both work as soon as the bars
+        land.
+      * ``etf_tickers:`` — spot crypto ETFs (B-105 pivot). Tagged with
+        their underlying asset (BTC / ETH) so ``genkei etf-flows
+        --asset BTC`` can aggregate per-asset daily-dollar-volume across
+        the configured tickers.
 
     Yahoo accepts the watchlist's bare ticker as-is for every US-listed
-    equity we care about today (including the benchmark ETFs SPY / QQQ /
-    IWM). If a future ticker needs a Yahoo-specific suffix (BRK-B,
-    BHP.AX, etc.) the watchlist can grow a ``yahoo_ticker`` field —
-    out of scope for v1.
+    equity / ETF we care about today. If a future ticker needs a
+    Yahoo-specific suffix (BRK-B, BHP.AX, etc.) the watchlist can grow a
+    ``yahoo_ticker`` field — out of scope for v1.
     """
     try:
         watchlist = load_watchlist(path)
@@ -131,9 +138,21 @@ def load_equities(path: Path) -> list[EquityTarget]:
             )
         seen.add(symbol_key)
         out.append(EquityTarget(ticker=benchmark.symbol))
+    for etf in watchlist.etf_tickers:
+        symbol_key = etf.ticker.upper()
+        if symbol_key in seen:
+            # ETH (Grayscale Ethereum Mini Trust) is technically a valid
+            # ticker collision risk in theory; the watchlist loader
+            # uppers everything, so a real collision means a watchlist
+            # bug (e.g. someone added "ETH" as an equity).
+            raise SystemExit(
+                f"ETF ticker {etf.ticker!r} collides with an existing watchlist entry."
+            )
+        seen.add(symbol_key)
+        out.append(EquityTarget(ticker=etf.ticker))
     if not out:
         raise SystemExit(
-            "No equity or benchmark entries in the watchlist; "
+            "No equity / benchmark / ETF entries in the watchlist; "
             "the Yahoo collector has nothing to do."
         )
     return out

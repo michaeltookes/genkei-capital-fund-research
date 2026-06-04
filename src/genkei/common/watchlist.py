@@ -21,6 +21,8 @@ SleeveKind = Literal["crypto", "equity", "macro", "protocol", "filer"]
 
 @dataclass(frozen=True)
 class CryptoEntry:
+    """A crypto asset configured for market-data collection and research routing."""
+
     symbol: str
     name: str
     coingecko_id: str
@@ -34,6 +36,8 @@ class CryptoEntry:
 
 @dataclass(frozen=True)
 class EquityEntry:
+    """A public equity target configured for SEC and Yahoo-driven workflows."""
+
     symbol: str
     name: str
     cik: str | None
@@ -48,6 +52,8 @@ class EquityEntry:
 
 @dataclass(frozen=True)
 class MacroEntry:
+    """A macroeconomic time series configured for cross-sleeve context."""
+
     series_id: str
     name: str
     tier: str = "primary"
@@ -108,6 +114,31 @@ class FilerEntry:
 
 
 @dataclass(frozen=True)
+class EtfTickerEntry:
+    """A US spot crypto ETF we track via Yahoo OHLCV (B-105).
+
+    Pivoted from B-105's original Farside-scrape spec on 2026-06-03
+    after Farside + SoSoValue both Cloudflare-walled scripted access.
+    The Yahoo chart endpoint serves each ETF cleanly and the existing
+    ``genkei.ingest.yahoo`` collector lands rows in ``yahoo.candles``.
+
+    ``asset`` is the underlying (``BTC`` or ``ETH``) used to route
+    per-asset aggregations in ``genkei etf-flows --asset BTC``.
+    ``launch_date`` is the spot-ETF launch date used by the CLI query
+    layer to ignore pre-conversion Yahoo history for tickers that existed
+    before their spot ETF wrapper.
+    """
+
+    ticker: str
+    name: str
+    asset: str  # 'BTC' | 'ETH'
+    issuer: str
+    sleeve: str = "tactical"
+    launch_date: str | None = None
+    rationale: str | None = None
+
+
+@dataclass(frozen=True)
 class CotMarketEntry:
     """A CFTC-regulated futures market we ingest position data for (B-031).
 
@@ -133,6 +164,8 @@ class CotMarketEntry:
 
 @dataclass(frozen=True)
 class Watchlist:
+    """Typed watchlist data with convenience lookups by source identifier."""
+
     crypto: list[CryptoEntry]
     equities: list[EquityEntry]
     macro: list[MacroEntry]
@@ -140,8 +173,10 @@ class Watchlist:
     filers: list[FilerEntry]
     benchmarks: list[BenchmarkEntry] = dataclasses.field(default_factory=list)
     cot_markets: list[CotMarketEntry] = dataclasses.field(default_factory=list)
+    etf_tickers: list[EtfTickerEntry] = dataclasses.field(default_factory=list)
 
     def find_crypto(self, symbol: str) -> CryptoEntry | None:
+        """Lookup a crypto entry by symbol (case-insensitive)."""
         upper = symbol.upper()
         for entry in self.crypto:
             if entry.symbol.upper() == upper:
@@ -149,6 +184,7 @@ class Watchlist:
         return None
 
     def find_equity(self, symbol: str) -> EquityEntry | None:
+        """Lookup an equity entry by ticker symbol (case-insensitive)."""
         upper = symbol.upper()
         for entry in self.equities:
             if entry.symbol.upper() == upper:
@@ -166,6 +202,7 @@ class Watchlist:
         return None
 
     def find_macro(self, series_id: str) -> MacroEntry | None:
+        """Lookup a macro series by FRED series id (case-insensitive)."""
         lower = series_id.lower()
         for entry in self.macro:
             if entry.series_id.lower() == lower:
@@ -173,6 +210,7 @@ class Watchlist:
         return None
 
     def find_protocol(self, slug: str) -> ProtocolEntry | None:
+        """Lookup a protocol entry by DefiLlama slug (case-insensitive)."""
         lower = slug.lower()
         for entry in self.protocols:
             if entry.slug.lower() == lower:
@@ -197,6 +235,23 @@ class Watchlist:
             if entry.symbol.upper() == upper or entry.code.upper() == upper:
                 return entry
         return None
+
+    def find_etf_ticker(self, ticker: str) -> EtfTickerEntry | None:
+        """Lookup a spot ETF entry by ticker (case-insensitive)."""
+        if not ticker:
+            return None
+        upper = ticker.strip().upper()
+        for entry in self.etf_tickers:
+            if entry.ticker.upper() == upper:
+                return entry
+        return None
+
+    def etfs_for_asset(self, asset: str) -> list[EtfTickerEntry]:
+        """Return all configured ETFs that track the given underlying (BTC / ETH)."""
+        if not asset:
+            return []
+        upper = asset.strip().upper()
+        return [e for e in self.etf_tickers if e.asset.upper() == upper]
 
     def find_filer(self, identifier: str) -> FilerEntry | None:
         """Lookup a filer by CIK (with or without zero-padding) or by exact name.
@@ -450,6 +505,58 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                 )
             )
 
+    etf_tickers: list[EtfTickerEntry] = []
+    etf_root = data.get("etf_tickers", [])
+    if isinstance(etf_root, list):
+        seen_etf_tickers: set[str] = set()
+        for entry in etf_root:
+            if not isinstance(entry, dict):
+                continue
+            raw_ticker = entry.get("ticker")
+            if not isinstance(raw_ticker, str):
+                continue
+            ticker = raw_ticker.strip().upper()
+            if not ticker:
+                continue
+            raw_asset = entry.get("asset")
+            if not isinstance(raw_asset, str):
+                continue
+            asset = raw_asset.strip().upper()
+            if asset not in ("BTC", "ETH"):
+                # v1 only supports BTC + ETH spot ETFs; other assets get dropped.
+                continue
+            if ticker in seen_etf_tickers:
+                continue
+            seen_etf_tickers.add(ticker)
+            # launch_date is YAML-parsed as a datetime.date when unquoted.
+            # Keep it as ISO string so downstream code doesn't have to
+            # special-case typing.
+            raw_launch = entry.get("launch_date")
+            if hasattr(raw_launch, "isoformat"):
+                launch_str: str | None = raw_launch.isoformat()
+            elif isinstance(raw_launch, str) and raw_launch.strip():
+                launch_str = raw_launch.strip()
+            else:
+                launch_str = None
+            raw_issuer = entry.get("issuer")
+            if not isinstance(raw_issuer, str):
+                continue
+            issuer = raw_issuer.strip()
+            if not issuer:
+                continue
+            sleeve = str(entry.get("sleeve") or "tactical").strip() or "tactical"
+            etf_tickers.append(
+                EtfTickerEntry(
+                    ticker=ticker,
+                    name=str(entry.get("name") or "").strip(),
+                    asset=asset,
+                    issuer=issuer,
+                    sleeve=sleeve,
+                    launch_date=launch_str,
+                    rationale=_optional_string(entry.get("rationale")),
+                )
+            )
+
     return Watchlist(
         crypto=crypto,
         equities=equities,
@@ -458,6 +565,7 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
         filers=filers,
         benchmarks=benchmarks,
         cot_markets=cot_markets,
+        etf_tickers=etf_tickers,
     )
 
 
@@ -477,4 +585,5 @@ def _normalize_filer_cik(raw: object) -> str | None:
 
 
 def _optional_string(value: object) -> str | None:
+    """Return a non-empty string value or None for absent optional fields."""
     return value if isinstance(value, str) and value else None

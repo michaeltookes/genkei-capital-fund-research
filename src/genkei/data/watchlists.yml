@@ -606,3 +606,176 @@ cot_markets:
     report_type: disaggregated
     sleeve: macro
     rationale: WTI crude Managed-Money positioning — energy/inflation context for the macro regime label.
+
+# US spot crypto ETFs (B-105, Yahoo-pivoted from Farside).
+#
+# Originally scoped against farside.co.uk's published daily-flow tables;
+# pivoted on 2026-06-03 after Farside + SoSoValue both Cloudflare-walled
+# scripted access. v1 reads OHLCV via the existing Yahoo ingester (B-092):
+# volume x close = daily-dollar-volume as a magnitude proxy for ETF
+# activity. True signed net flow (creations minus redemptions) requires
+# shares-outstanding deltas Yahoo doesn't expose unauthenticated; filed
+# separately as v2 (see backlog B-107 — SEC EDGAR true-flow path).
+#
+# `asset` routes each ETF to its underlying for per-asset aggregations in
+# `genkei etf-flows --asset BTC`. `issuer` and `launch_date` are kept
+# verbatim for audit. All entries sleeve=tactical because spot-ETF
+# activity is a tactical-signal input, not a long-term hold.
+etf_tickers:
+  # Spot BTC ETFs (launched 2024-01-11)
+  - ticker: IBIT
+    name: iShares Bitcoin Trust ETF
+    asset: BTC
+    issuer: BlackRock
+    launch_date: 2024-01-11
+    sleeve: tactical
+    rationale: Largest spot BTC ETF by AUM; primary institutional vehicle.
+  - ticker: FBTC
+    name: Fidelity Wise Origin Bitcoin Fund
+    asset: BTC
+    issuer: Fidelity
+    launch_date: 2024-01-11
+    sleeve: tactical
+    rationale: Second-largest spot BTC ETF; Fidelity's institutional distribution.
+  - ticker: BITB
+    name: Bitwise Bitcoin ETF
+    asset: BTC
+    issuer: Bitwise
+    launch_date: 2024-01-11
+    sleeve: tactical
+    rationale: Crypto-native issuer; lower-fee competitor.
+  - ticker: ARKB
+    name: ARK 21Shares Bitcoin ETF
+    asset: BTC
+    issuer: ARK / 21Shares
+    launch_date: 2024-01-11
+    sleeve: tactical
+    rationale: ARK / Cathie Wood distribution.
+  - ticker: BTCO
+    name: Invesco Galaxy Bitcoin ETF
+    asset: BTC
+    issuer: Invesco / Galaxy
+    launch_date: 2024-01-11
+    sleeve: tactical
+    rationale: Invesco distribution + Galaxy crypto expertise.
+  - ticker: EZBC
+    name: Franklin Bitcoin ETF
+    asset: BTC
+    issuer: Franklin Templeton
+    launch_date: 2024-01-11
+    sleeve: tactical
+    rationale: Franklin Templeton distribution.
+  - ticker: BRRR
+    name: Valkyrie Bitcoin Fund
+    asset: BTC
+    issuer: Valkyrie
+    launch_date: 2024-01-11
+    sleeve: tactical
+    rationale: Smaller crypto-native issuer.
+  - ticker: HODL
+    name: VanEck Bitcoin Trust
+    asset: BTC
+    issuer: VanEck
+    launch_date: 2024-01-11
+    sleeve: tactical
+    rationale: VanEck distribution.
+  - ticker: BTCW
+    name: WisdomTree Bitcoin Fund
+    asset: BTC
+    issuer: WisdomTree
+    launch_date: 2024-01-11
+    sleeve: tactical
+    rationale: WisdomTree distribution.
+  - ticker: GBTC
+    name: Grayscale Bitcoin Trust ETF
+    asset: BTC
+    issuer: Grayscale
+    launch_date: 2024-01-11
+    sleeve: tactical
+    rationale: Converted from closed-end trust; persistent outflow story in 2024.
+  - ticker: DEFI
+    name: Hashdex Bitcoin ETF
+    asset: BTC
+    issuer: Hashdex
+    launch_date: 2024-03-27
+    sleeve: tactical
+    rationale: Hashdex spot BTC ETF after the 2024 conversion from its futures strategy.
+  - ticker: BTC
+    name: Grayscale Bitcoin Mini Trust ETF
+    asset: BTC
+    issuer: Grayscale
+    launch_date: 2024-07-31
+    sleeve: tactical
+    rationale: Grayscale low-fee spot BTC mini trust launched as a GBTC spin-off.
+
+  # Spot ETH ETFs (launched 2024-07-23)
+  - ticker: ETHA
+    name: iShares Ethereum Trust ETF
+    asset: ETH
+    issuer: BlackRock
+    launch_date: 2024-07-23
+    sleeve: tactical
+    rationale: BlackRock spot ETH ETF; parallel to IBIT.
+  - ticker: ETHB
+    name: iShares Staked Ethereum Trust ETF
+    asset: ETH
+    issuer: BlackRock
+    launch_date: 2026-03-12
+    sleeve: tactical
+    rationale: BlackRock staked ETH ETF introduced on Nasdaq in March 2026.
+  - ticker: FETH
+    name: Fidelity Ethereum Fund
+    asset: ETH
+    issuer: Fidelity
+    launch_date: 2024-07-23
+    sleeve: tactical
+    rationale: Fidelity spot ETH ETF; parallel to FBTC.
+  - ticker: ETHW
+    name: Bitwise Ethereum ETF
+    asset: ETH
+    issuer: Bitwise
+    launch_date: 2024-07-23
+    sleeve: tactical
+    rationale: Bitwise spot ETH ETF; parallel to BITB.
+  - ticker: TETH
+    name: 21Shares Ethereum ETF
+    asset: ETH
+    issuer: 21Shares
+    launch_date: 2024-07-23
+    sleeve: tactical
+    rationale: 21Shares spot ETH ETF; current ticker after the 2025 rename.
+  - ticker: ETHV
+    name: VanEck Ethereum ETF
+    asset: ETH
+    issuer: VanEck
+    launch_date: 2024-07-23
+    sleeve: tactical
+    rationale: VanEck spot ETH ETF; parallel to HODL.
+  - ticker: QETH
+    name: Invesco Galaxy Ethereum ETF
+    asset: ETH
+    issuer: Invesco / Galaxy
+    launch_date: 2024-07-23
+    sleeve: tactical
+    rationale: Invesco / Galaxy spot ETH ETF; parallel to BTCO.
+  - ticker: EZET
+    name: Franklin Ethereum ETF
+    asset: ETH
+    issuer: Franklin Templeton
+    launch_date: 2024-07-23
+    sleeve: tactical
+    rationale: Franklin spot ETH ETF; parallel to EZBC.
+  - ticker: ETHE
+    name: Grayscale Ethereum Trust ETF
+    asset: ETH
+    issuer: Grayscale
+    launch_date: 2024-07-23
+    sleeve: tactical
+    rationale: Converted from closed-end trust; parallel outflow narrative to GBTC.
+  - ticker: ETH
+    name: Grayscale Ethereum Mini Trust ETF
+    asset: ETH
+    issuer: Grayscale
+    launch_date: 2024-07-23
+    sleeve: tactical
+    rationale: Grayscale's lower-fee mini ETH product (distinct from ETHE).

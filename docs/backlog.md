@@ -158,20 +158,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - `genkei futures --product BTC --since 2024-01-01` answers "what's BTC futures OI over time" out of the box.
   - Unit tests pin the parser (per-product field quirks).
 
-### B-105 — Spot ETF flow ingester (Farside)
-- **Status:** open
-- **Priority:** high
-- **Context:** Daily net flows for the US spot BTC and ETH ETFs — the single most-cited "is institutional money flowing in or out?" data point in crypto research today. Farside Investors publishes this in scrape-friendly HTML tables at `farside.co.uk/btc/` and `farside.co.uk/eth/`, free, no API key. Each row is per-day per-ETF (IBIT, FBTC, BITB, ARKB, BTCO, EZBC, BRRR, HODL, BTCW, GBTC for BTC; the 9 ETH ETFs for ETH) net flow in USD millions, with rolling totals. **Surfaced 2026-06-02** during the ETH research session: "institutional attention" was the user's framing for SOL specifically and "OG sellers" was the framing for ETH; spot ETF flow data answers the institutional half of both narratives directly. BTC ETFs launched January 2024, ETH ETFs launched July 2024 — both have ~18-24 months of history that's directly relevant to today's crypto-core decisions.
-- **Acceptance criteria:**
-  - New ingester `genkei.ingest.etf_flows` that scrapes the Farside BTC + ETH tables. Polite scraping: respect `robots.txt`, single request per asset per day, browser-flavored User-Agent (Farside is small and we should not hammer them).
-  - Lands raw blobs (one HTML snapshot per asset per day) in `meta.raw_blobs`.
-  - Normalizes to `etf.spot_flows` with `(asset, ticker, flow_date, net_flow_usd_mm)` keyed on `(asset, ticker, flow_date)`. Aggregate `etf.spot_flows_daily` view sums across all tickers per asset per day for the headline "net BTC/ETH ETF flow today" query.
-  - Backfill mode pulls the full Farside history (Jan 2024 for BTC, Jul 2024 for ETH).
-  - Daily cron in a new `etf-flows-daily.yml` workflow. Farside updates ~22:00 ET on trading days; cron at 04:00 UTC the next day catches the snapshot reliably.
-  - `genkei watchlist health` surfaces the new source.
-  - `genkei etf-flows --asset BTC --since 2025-01-01` answers "what's the cumulative BTC ETF net flow YTD" out of the box.
-  - **TOS / future-proofing**: Farside doesn't publish an official API, so scraping is the only path today. SoSoValue (sosovalue.com) has a similar public table and may offer a cleaner alt in v2. Filed as a known fragility — if Farside changes their HTML structure or asks us to stop, we pivot to SoSoValue.
-  - Unit tests pin the Farside HTML parser against a fixture of the current table shape.
 
 ### B-106 — Etherscan whale-flow tracker (top-N ETH wallet net flow)
 - **Status:** open
@@ -188,6 +174,25 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - `genkei whales --category whale --since 2025-01-01` answers "are tracked whales net-selling ETH over time" without custom code.
   - Unit tests pin the Etherscan v2 response parser + the 24h-net-flow computation (sum of incoming txns minus sum of outgoing txns, with ETH-only filter; ERC-20 transfers ignored for v1).
   - **Known limitations**: (a) the address-list is necessarily incomplete — true whales obfuscate via fresh wallets; (b) exchange cold wallets aggregate many users so "exchange net inflow" doesn't equal "users buying" — exchange flows often reverse the intuitive sign; (c) Etherscan rate limits will cap address-list size at ~500 addresses per daily run. Document these limits in the writeup so users don't over-read the data.
+
+### B-107 — Spot ETF true net flow via SEC EDGAR (v2 of B-105)
+- **Status:** open
+- **Priority:** medium
+- **Context:** B-105 v1 shipped 2026-06-03 as "daily-dollar-volume per asset" via Yahoo OHLCV — a magnitude proxy for institutional ETF activity, NOT signed net flow. The pivot from the original Farside spec was forced by Cloudflare-walled scrape sources (Farside + SoSoValue) and Yahoo's auth-gated `quoteSummary` (which has shares-outstanding). The institutional-flow gap that drove the 2026-06-02 ETH/SOL/SUI research sessions is partially closed by B-105 v1 (we now see *if* ETF trading volume is heavy) but NOT fully closed (we don't see *if* creations exceed redemptions on a given day — the canonical "is money flowing in or out?" question). This item pursues the missing piece via the primary-source path: SEC EDGAR daily filings.
+- **Investigation required before kickoff:**
+  - Which SEC form(s) carry daily creation/redemption baskets or daily NAV+shares-outstanding for spot ETFs? Candidates: N-CEN (annual), N-PORT (quarterly, too slow), Form 8937 (corporate actions), Form NT-NCEN, Form NPX (annual). May require reading actual IBIT / FBTC filings to map.
+  - Each ETF issuer also publishes daily NAV + shares-outstanding on their own product page (e.g. ishares.com/us/products/333011/IBIT). Whether those pages are Cloudflare-walled like Farside or directly scrape-able needs probing — IBIT alone may be ~250 trading days × 1.5y = ~400 calls for a backfill, manageable if it works.
+  - Does Coinbase's institutional product feed have a free tier for ETF creation/redemption data? (Likely no, but worth a quick check.)
+- **Acceptance criteria (v2, draft — refine after investigation):**
+  - Per-ETF per-day shares-outstanding from a primary or near-primary source (SEC or issuer page).
+  - Derived net flow = (shares_outstanding_today − shares_outstanding_yesterday) × close.
+  - Lands in a new schema, e.g. `etf.net_flows`, keyed on `(ticker, flow_date)`. The B-105 v1 `dollar_volume_usd_mm` column remains the activity-magnitude proxy; this new column is the signed direction.
+  - Daily cron alongside `yahoo-daily.yml`; backfill per ticker from the ETF launch date forward.
+  - `genkei etf-flows --asset BTC --net-flow` shows the signed column; default behavior stays on `dollar_volume_usd_mm` so v1 callers don't break.
+  - Unit tests pin the shares-outstanding extractor for whichever source is chosen.
+- **References:**
+  - Original B-105 spec (resolved 2026-06-03) for the Farside + SoSoValue Cloudflare findings.
+  - Yahoo `quoteSummary` is auth-gated; B-092's existing chart-only path is what unblocked v1.
 
 
 
