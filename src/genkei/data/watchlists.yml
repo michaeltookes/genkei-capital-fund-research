@@ -693,6 +693,20 @@ etf_tickers:
     launch_date: 2024-01-11
     sleeve: tactical
     rationale: Converted from closed-end trust; persistent outflow story in 2024.
+  - ticker: DEFI
+    name: Hashdex Bitcoin ETF
+    asset: BTC
+    issuer: Hashdex
+    launch_date: 2024-03-27
+    sleeve: tactical
+    rationale: Hashdex spot BTC ETF after the 2024 conversion from its futures strategy.
+  - ticker: BTC
+    name: Grayscale Bitcoin Mini Trust ETF
+    asset: BTC
+    issuer: Grayscale
+    launch_date: 2024-07-31
+    sleeve: tactical
+    rationale: Grayscale low-fee spot BTC mini trust launched as a GBTC spin-off.
 
   # Spot ETH ETFs (launched 2024-07-23)
   - ticker: ETHA
