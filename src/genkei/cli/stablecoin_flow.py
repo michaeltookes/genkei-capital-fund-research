@@ -284,14 +284,18 @@ def _query_all_chains_snapshot(
     """Latest-day supply + 7d / 30d Δ per chain, filtered to material chains."""
     # Dedupe the double-ingest bug (see _query_chain_trajectory).
     sql = """
-        WITH dedupe AS (
+        WITH latest_day AS (
+            SELECT MAX(date_trunc('day', ts)::date) AS day
+            FROM defillama.stablecoins
+        ),
+        dedupe AS (
             SELECT DISTINCT ON (chain, date_trunc('day', ts)::date, asset_id)
                    chain,
                    date_trunc('day', ts)::date AS day,
                    asset_id,
                    supply_usd
             FROM defillama.stablecoins
-            WHERE ts >= NOW() - INTERVAL '60 days'
+            WHERE date_trunc('day', ts)::date >= (SELECT day FROM latest_day) - 60
             ORDER BY chain, date_trunc('day', ts)::date, asset_id, ingest_run_id DESC
         ),
         daily AS (
@@ -314,7 +318,7 @@ def _query_all_chains_snapshot(
         )
         SELECT chain, day, supply_b, delta_7d_b, delta_30d_b
         FROM ranked
-        WHERE rn = 1 AND supply_b >= %s
+        WHERE day = (SELECT day FROM latest_day) AND supply_b >= %s
         ORDER BY supply_b DESC
         LIMIT %s
     """

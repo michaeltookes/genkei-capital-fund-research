@@ -24,6 +24,7 @@ from genkei.cli.stablecoin_flow import (
     _format_chain_list_human,
     _format_trajectory_human,
     _horizon_tag,
+    _query_all_chains_snapshot,
     _query_chains_with_data,
     _resolve_chain,
     _tag_rows,
@@ -155,7 +156,7 @@ class ModeValidationTests(unittest.TestCase):
 
 
 class QuerySqlTests(unittest.TestCase):
-    def test_list_chains_query_uses_latest_day_not_exact_timestamp(self) -> None:
+    def _capture_sql(self, callback) -> str:
         captured: dict[str, str] = {}
 
         class FakeCursor:
@@ -165,7 +166,7 @@ class QuerySqlTests(unittest.TestCase):
             def __exit__(self, *exc):
                 return False
 
-            def execute(self, sql):
+            def execute(self, sql, params=None):
                 captured["sql"] = sql
 
             def fetchall(self):
@@ -182,13 +183,29 @@ class QuerySqlTests(unittest.TestCase):
                 return FakeCursor()
 
         with patch("genkei.cli.stablecoin_flow.db.connection", return_value=FakeConn()):
-            self.assertEqual(_query_chains_with_data(), [])
+            callback()
 
-        sql = captured["sql"]
+        return captured["sql"]
+
+    def test_list_chains_query_uses_latest_day_not_exact_timestamp(self) -> None:
+        sql = self._capture_sql(lambda: self.assertEqual(_query_chains_with_data(), []))
+
         self.assertIn("WITH latest_day AS", sql)
         self.assertIn("MAX(date_trunc('day', ts)::date) AS day", sql)
         self.assertIn("date_trunc('day', ts)::date = (SELECT day FROM latest_day)", sql)
         self.assertNotIn("latest_ts", sql)
+
+    def test_all_chains_query_anchors_snapshot_to_global_latest_day(self) -> None:
+        sql = self._capture_sql(
+            lambda: self.assertEqual(
+                _query_all_chains_snapshot(min_supply_b=0.5, limit=10),
+                [],
+            )
+        )
+
+        self.assertIn("WITH latest_day AS", sql)
+        self.assertIn("WHERE day = (SELECT day FROM latest_day)", sql)
+        self.assertIn("date_trunc('day', ts)::date >= (SELECT day FROM latest_day) - 60", sql)
 
 
 class FmtBTests(unittest.TestCase):
