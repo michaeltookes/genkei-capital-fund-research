@@ -57,9 +57,15 @@ class ResolveChainTests(unittest.TestCase):
         # it — the SQL just returns 0 rows if the chain doesn't exist.
         self.assertEqual(_resolve_chain("optimism"), "Optimism")
 
+    def test_unmapped_mixed_case_chain_preserves_user_casing(self) -> None:
+        self.assertEqual(_resolve_chain("opBNB"), "opBNB")
+        self.assertEqual(_resolve_chain("  BOB  "), "BOB")
+
     def test_empty_raises(self) -> None:
         with self.assertRaises(typer.BadParameter):
             _resolve_chain("")
+        with self.assertRaises(typer.BadParameter):
+            _resolve_chain("  ")
 
     def test_alias_keys_are_lowercase(self) -> None:
         # Defensive pin: ``_resolve_chain`` lowercases the input before

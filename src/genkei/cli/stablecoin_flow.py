@@ -117,19 +117,20 @@ def _default_since_date(today: Optional[date] = None) -> date:
 def _resolve_chain(raw: str) -> str:
     """Return the canonical defillama chain name for a user-provided alias.
 
-    Falls through unchanged for chain names that aren't aliased (so the
-    user can pass ``Optimism`` even though we don't have an alias for
-    it) — the SQL query will then return zero rows if the chain doesn't
-    exist, which surfaces as a clear "no rows" hint downstream.
+    Falls through for chain names that aren't aliased (so the user can
+    pass ``Optimism`` even though we don't have an alias for it) — the
+    SQL query will then return zero rows if the chain doesn't exist,
+    which surfaces as a clear "no rows" hint downstream.
     """
-    if not raw:
+    stripped = raw.strip() if raw else ""
+    if not stripped:
         raise typer.BadParameter("--chain must be a non-empty string.")
-    key = raw.strip().lower()
+    key = stripped.lower()
     if key in _CHAIN_ALIASES:
         return _CHAIN_ALIASES[key]
-    # Title-case unmatched input so e.g. ``optimism`` becomes ``Optimism``
-    # — defillama's chain naming is largely TitleCase.
-    return raw.strip().title()
+    # Preserve exact mixed-case/acronym chain names copied from --list-chains.
+    # Pure lowercase unknowns still get the historical TitleCase convenience.
+    return stripped.title() if stripped.islower() else stripped
 
 
 def _horizon_tag(chain: str) -> str:
