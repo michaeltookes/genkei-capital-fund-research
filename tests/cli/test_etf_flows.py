@@ -7,6 +7,8 @@ constant-flip surfaces in CI rather than at the next research session.
 """
 
 import unittest
+from datetime import date, datetime, timezone
+from unittest.mock import patch
 
 import typer
 
@@ -15,6 +17,8 @@ from genkei.cli.etf_flows import (
     _format_aggregate_human,
     _format_per_ticker_human,
     _horizon_tag,
+    _query_asset_aggregate,
+    _query_per_ticker,
     _resolve_asset,
     _tag_rows,
 )
@@ -84,6 +88,64 @@ class TagRowsTests(unittest.TestCase):
         rows = [{"flow_date": "2025-01-02", "dollar_volume_usd_mm": 100.0}]
         _tag_rows(rows, "etf:crypto:btc")
         self.assertNotIn("horizon_tag", rows[0])
+
+
+class QueryDateBoundsTests(unittest.TestCase):
+    """Validate SQL date bounds use UTC-aware timestamps."""
+
+    def _capture_params(self, query_func) -> list[object]:
+        captured: dict[str, list[object]] = {}
+
+        class FakeCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, _sql, params):
+                captured["params"] = list(params)
+
+            def fetchall(self):
+                return []
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def cursor(self):
+                return FakeCursor()
+
+        with patch("genkei.cli.etf_flows.db.connection", return_value=FakeConn()):
+            query_func(
+                "BTC",
+                ["IBIT"],
+                since=date(2025, 1, 2),
+                until=date(2025, 1, 3),
+                limit=10,
+            )
+        return captured["params"]
+
+    def test_aggregate_query_uses_utc_aware_date_bounds(self) -> None:
+        """Aggregate date filters bind UTC timestamps for TIMESTAMPTZ comparisons."""
+        params = self._capture_params(_query_asset_aggregate)
+        self.assertEqual(params[1], datetime(2025, 1, 2, tzinfo=timezone.utc))
+        self.assertEqual(
+            params[2],
+            datetime(2025, 1, 3, 23, 59, 59, 999999, tzinfo=timezone.utc),
+        )
+
+    def test_per_ticker_query_uses_utc_aware_date_bounds(self) -> None:
+        """Per-ticker date filters bind UTC timestamps for TIMESTAMPTZ comparisons."""
+        params = self._capture_params(_query_per_ticker)
+        self.assertEqual(params[1], datetime(2025, 1, 2, tzinfo=timezone.utc))
+        self.assertEqual(
+            params[2],
+            datetime(2025, 1, 3, 23, 59, 59, 999999, tzinfo=timezone.utc),
+        )
 
 
 class FormatAggregateHumanTests(unittest.TestCase):

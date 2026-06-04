@@ -29,7 +29,7 @@ Asset aliases accepted: BTC / bitcoin; ETH / ethereum / ether.
 """
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any, Optional
 
@@ -106,10 +106,10 @@ def _query_asset_aggregate(
     params: list[Any] = [tickers]
     if since is not None:
         sql += " AND ts >= %s"
-        params.append(datetime.combine(since, datetime.min.time()))
+        params.append(datetime.combine(since, datetime.min.time(), tzinfo=timezone.utc))
     if until is not None:
         sql += " AND ts <= %s"
-        params.append(datetime.combine(until, datetime.max.time()))
+        params.append(datetime.combine(until, datetime.max.time(), tzinfo=timezone.utc))
     sql += " GROUP BY flow_date ORDER BY flow_date DESC LIMIT %s"
     params.append(limit)
     with db.connection() as conn, conn.cursor() as cur:
@@ -152,10 +152,10 @@ def _query_per_ticker(
     params: list[Any] = [tickers]
     if since is not None:
         sql += " AND ts >= %s"
-        params.append(datetime.combine(since, datetime.min.time()))
+        params.append(datetime.combine(since, datetime.min.time(), tzinfo=timezone.utc))
     if until is not None:
         sql += " AND ts <= %s"
-        params.append(datetime.combine(until, datetime.max.time()))
+        params.append(datetime.combine(until, datetime.max.time(), tzinfo=timezone.utc))
     sql += " ORDER BY flow_date DESC, ticker LIMIT %s"
     params.append(limit)
     with db.connection() as conn, conn.cursor() as cur:
