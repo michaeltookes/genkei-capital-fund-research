@@ -220,27 +220,16 @@ def _query_chain_trajectory(
             datetime.combine(until, datetime.max.time(), tzinfo=timezone.utc)
         )
 
-    # ``DISTINCT ON (day, asset_id)`` dedupes the double-ingest bug
-    # discovered 2026-06-04: from 2026-05-10 onwards ``defillama.stablecoins``
-    # carries 2 ingest_run_ids per (chain, asset, day), which would otherwise
-    # double the SUM. Keeping the latest ingest_run_id per row is the correct
-    # de-duplication strategy — earlier runs reflect the same on-chain
-    # supply that the later run re-fetched. Filed as a follow-up backlog
-    # item; this CLI applies the same dedupe in every query path until the
-    # upstream ingester is fixed.
+    # B-109 retired the per-query DISTINCT ON workaround on 2026-06-04
+    # via the normalize-layer day-align fix + the dedupe migration.
+    # ts is now canonical UTC-midnight per day and the (asset_id, chain, ts)
+    # PK enforces per-day uniqueness, so SUM(supply_usd) GROUP BY ts::date
+    # produces the correct value directly.
     sql = f"""
-        WITH dedupe AS (
-            SELECT DISTINCT ON (date_trunc('day', ts)::date, asset_id)
-                   date_trunc('day', ts)::date AS day,
-                   asset_id,
-                   supply_usd
+        WITH daily AS (
+            SELECT ts::date AS day, SUM(supply_usd) / 1e9 AS supply_b
             FROM defillama.stablecoins
             WHERE {where}
-            ORDER BY date_trunc('day', ts)::date, asset_id, ingest_run_id DESC
-        ),
-        daily AS (
-            SELECT day, SUM(supply_usd) / 1e9 AS supply_b
-            FROM dedupe
             GROUP BY day
         ),
         with_deltas AS (
@@ -283,25 +272,18 @@ def _query_all_chains_snapshot(
     limit: int,
 ) -> list[dict[str, Any]]:
     """Latest-day supply + 7d / 30d Δ per chain, filtered to material chains."""
-    # Dedupe the double-ingest bug (see _query_chain_trajectory).
+    # B-109 retired the DISTINCT ON workaround (see _query_chain_trajectory).
+    # Direct SUM aggregation is correct now that ts is day-aligned + the
+    # PK enforces uniqueness.
     sql = """
         WITH latest_day AS (
-            SELECT MAX(date_trunc('day', ts)::date) AS day
+            SELECT MAX(ts::date) AS day
             FROM defillama.stablecoins
-        ),
-        dedupe AS (
-            SELECT DISTINCT ON (chain, date_trunc('day', ts)::date, asset_id)
-                   chain,
-                   date_trunc('day', ts)::date AS day,
-                   asset_id,
-                   supply_usd
-            FROM defillama.stablecoins
-            WHERE date_trunc('day', ts)::date >= (SELECT day FROM latest_day) - 60
-            ORDER BY chain, date_trunc('day', ts)::date, asset_id, ingest_run_id DESC
         ),
         daily AS (
-            SELECT chain, day, SUM(supply_usd) / 1e9 AS supply_b
-            FROM dedupe
+            SELECT chain, ts::date AS day, SUM(supply_usd) / 1e9 AS supply_b
+            FROM defillama.stablecoins
+            WHERE ts::date >= (SELECT day FROM latest_day) - 60
             GROUP BY chain, day
         ),
         ranked AS (
@@ -346,26 +328,24 @@ def _query_by_stablecoin(
     limit: int,
 ) -> list[dict[str, Any]]:
     """Per-stablecoin breakdown on the latest day for one chain."""
-    # DISTINCT ON dedupes the double-ingest bug (see _query_chain_trajectory).
-    # Without it, every asset's supply would be reported as 2× actual from
-    # 2026-05-10 onwards.
+    # B-109 retired the DISTINCT ON workaround. PK on (asset_id, chain, ts)
+    # + day-aligned ts means each (chain, asset_id, day) has at most one
+    # row natively.
     sql = """
         WITH latest_day AS (
-            SELECT MAX(date_trunc('day', ts))::date AS day
+            SELECT MAX(ts::date) AS day
             FROM defillama.stablecoins
             WHERE chain = %s
         ),
-        dedupe AS (
-            SELECT DISTINCT ON (asset_id)
-                   asset_id, symbol, name, peg_type, supply_usd
+        latest_rows AS (
+            SELECT asset_id, symbol, name, peg_type, supply_usd
             FROM defillama.stablecoins
             WHERE chain = %s
-              AND date_trunc('day', ts)::date = (SELECT day FROM latest_day)
-            ORDER BY asset_id, ingest_run_id DESC
+              AND ts::date = (SELECT day FROM latest_day)
         )
         SELECT (SELECT day FROM latest_day) AS day, asset_id, symbol, name,
                peg_type, supply_usd / 1e9 AS supply_b
-        FROM dedupe
+        FROM latest_rows
         ORDER BY supply_b DESC
         LIMIT %s
     """
@@ -390,25 +370,18 @@ def _query_by_stablecoin(
 
 def _query_chains_with_data() -> list[dict[str, Any]]:
     """Enumerate every chain with recent stablecoin presence (for --list-chains)."""
-    # Dedupe the double-ingest bug — for --list-chains we want the latest
-    # row per (chain, asset_id) on the latest day.
+    # B-109 retired the DISTINCT ON workaround. PK enforces uniqueness.
     sql = """
         WITH latest_day AS (
-            SELECT MAX(date_trunc('day', ts)::date) AS day
+            SELECT MAX(ts::date) AS day
             FROM defillama.stablecoins
-        ),
-        dedupe AS (
-            SELECT DISTINCT ON (chain, asset_id)
-                   chain, asset_id, supply_usd, ts
-            FROM defillama.stablecoins
-            WHERE date_trunc('day', ts)::date = (SELECT day FROM latest_day)
-            ORDER BY chain, asset_id, ingest_run_id DESC
         )
         SELECT chain,
                SUM(supply_usd) / 1e9 AS supply_b,
                COUNT(DISTINCT asset_id) AS n_assets,
-               MAX(date_trunc('day', ts)::date) AS latest_day
-        FROM dedupe
+               MAX(ts::date) AS latest_day
+        FROM defillama.stablecoins
+        WHERE ts::date = (SELECT day FROM latest_day)
         GROUP BY chain
         ORDER BY supply_b DESC
     """
