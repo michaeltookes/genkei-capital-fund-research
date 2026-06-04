@@ -68,6 +68,29 @@ def as_float(value: Any) -> float | None:
         return None
 
 
+def day_align_utc(value: datetime) -> datetime:
+    """Truncate a timestamp to UTC midnight of the day it represents (B-109).
+
+    DeFiLlama's per-protocol and stablecoins endpoints publish intra-day
+    timestamps that vary by collect time (e.g. ``05:51:47 UTC`` on a
+    morning poll vs ``00:00 UTC`` on an end-of-day backfill point).
+    Without aligning these, the natural-key PKs on
+    ``(slug, chain, ts)`` / ``(asset_id, chain, ts)`` / ``(slug, ts)``
+    can't enforce per-day uniqueness — the same logical day arrives
+    under two different ``ts`` values across runs and both rows persist.
+
+    Day-aligning every normalized ``ts`` value to UTC midnight collapses
+    those duplicates at the PK level: ON CONFLICT DO UPDATE in
+    ``db.bulk_upsert`` now correctly overwrites the earlier run's row
+    when the later run writes the same logical day.
+    """
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    else:
+        value = value.astimezone(timezone.utc)
+    return value.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
 def parse_history_timestamp(value: Any) -> datetime | None:
     """Parse DeFiLlama history timestamps (epoch seconds or ISO) as UTC."""
     if isinstance(value, bool) or value is None:
@@ -183,6 +206,9 @@ def normalize_stablecoins(
     if not isinstance(pegged_assets, list):
         return []
     rows: list[JsonObject] = []
+    # Day-align so the PK on (asset_id, chain, ts) dedupes correctly across
+    # runs that land on the same logical day (B-109).
+    snapshot_ts = day_align_utc(now)
     for asset in pegged_assets:
         if not isinstance(asset, dict):
             continue
@@ -210,7 +236,7 @@ def normalize_stablecoins(
                 {
                     "asset_id": asset_id,
                     "chain": str(chain_name),
-                    "ts": now,
+                    "ts": snapshot_ts,
                     "symbol": symbol,
                     "name": _stringify(asset.get("name")),
                     "peg_type": _stringify(asset.get("pegType")),
@@ -299,10 +325,16 @@ def normalize_protocol_history(
         for point in series:
             if not isinstance(point, dict):
                 continue
-            ts = parse_history_timestamp(point.get("date"))
+            raw_ts = parse_history_timestamp(point.get("date"))
             tvl = as_float(point.get("totalLiquidityUSD"))
-            if ts is None or tvl is None:
+            if raw_ts is None or tvl is None:
                 continue
+            # Day-align so the PK on (slug, chain, ts) dedupes correctly
+            # across runs landing the same logical day (B-109). DeFiLlama's
+            # /protocol/<slug> endpoint publishes the "today" point at the
+            # current epoch (intra-day) and historical points at end-of-day
+            # UTC; aligning both to UTC midnight makes the PK natural.
+            ts = day_align_utc(raw_ts)
             key = (str(chain_name), ts)
             if key in seen:
                 continue
@@ -349,10 +381,13 @@ def normalize_protocol_fee_series(
     for point in chart:
         if not isinstance(point, list) or len(point) < 2:
             continue
-        ts = parse_history_timestamp(point[0])
+        raw_ts = parse_history_timestamp(point[0])
         value = as_float(point[1])
-        if ts is None or value is None:
+        if raw_ts is None or value is None:
             continue
+        # Day-align so the PK on (slug, ts) dedupes correctly across
+        # runs landing the same logical day (B-109).
+        ts = day_align_utc(raw_ts)
         if ts in seen:
             continue
         seen.add(ts)
@@ -500,10 +535,17 @@ def normalize_stablecoin_history(
         for point in series:
             if not isinstance(point, dict):
                 continue
-            ts = parse_history_timestamp(point.get("date"))
+            raw_ts = parse_history_timestamp(point.get("date"))
             supply = _stablecoin_supply(point)
-            if ts is None or supply is None:
+            if raw_ts is None or supply is None:
                 continue
+            # Day-align so the backfill's ts values share the same canonical
+            # midnight-UTC convention as the daily collector's now-derived
+            # ts. Without this, the B-085 backfill (which writes the same
+            # natural day at end-of-day UTC, e.g. "2026-05-10 00:00 UTC")
+            # would coexist with the daily collector's row at
+            # "2026-05-10 06:42 UTC" — both per the existing PK (B-109).
+            ts = day_align_utc(raw_ts)
             key = (str(chain_name), ts)
             if key in seen:
                 continue

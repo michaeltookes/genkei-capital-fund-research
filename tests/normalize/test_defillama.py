@@ -171,8 +171,17 @@ class NormalizeStablecoinsTests(unittest.TestCase):
         self.assertEqual(chain_names, ["Ethereum", "Ethereum", "LegacyChain", "Tron"])
         self.assertEqual({row["symbol"] for row in rows}, {"LUSD", "USDT"})
         self.assertEqual({row["asset_id"] for row in rows}, {"1", "2"})
+        # ts is day-aligned to UTC midnight (B-109): the daily collector
+        # used to write the call-time `now` directly, but that left the
+        # natural-key PK on (asset_id, chain, ts) failing to dedupe across
+        # multiple runs of the same logical day. Aligning to UTC midnight
+        # collapses those duplicates.
+        expected_ts = NOW.replace(hour=0, minute=0, second=0, microsecond=0)
         for row in rows:
-            self.assertEqual(row["ts"], NOW)
+            self.assertEqual(row["ts"], expected_ts)
+            # fetched_at retains the original call time (provenance), only
+            # ts is day-aligned so the PK can enforce per-day uniqueness.
+            self.assertEqual(row["fetched_at"], NOW)
             self.assertEqual(row["ingest_run_id"], 7)
             self.assertEqual(row["source_endpoint"], "https://stablecoins.llama.fi/stablecoins")
 
