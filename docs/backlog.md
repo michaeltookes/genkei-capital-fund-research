@@ -194,22 +194,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Original B-105 spec (resolved 2026-06-03) for the Farside + SoSoValue Cloudflare findings.
   - Yahoo `quoteSummary` is auth-gated; B-092's existing chart-only path is what unblocked v1.
 
-### B-108 — `genkei stablecoin-flow` CLI subcommand
-- **Status:** open
-- **Priority:** high
-- **Context:** Today's 2026-06-03 BTC/ETH/SOL comparative research decision named stablecoin flow direction as *"the strongest single cross-asset comparative signal in the lake right now"* — the 8-day window showed $3.2B of stables LEAVING Ethereum and $0.5B ARRIVING on Solana through the same crypto-wide dip. That signal is observable today only via an SQL escape hatch (`genkei query "SELECT date_trunc('day', ts)::date, SUM(supply_usd) / 1e9 FROM defillama.stablecoins WHERE chain IN (…) GROUP BY day"`). Promoting it to a typed CLI removes friction for future comparative sessions and makes today's decision's trigger conditions (ETH stables crossing $158B or $162B; SOL stables crossing $14B or $17B) observable in one command. Zero new external dependencies — pure query layer over the already-flowing `defillama.stablecoins` table.
-- **Acceptance criteria:**
-  - New `src/genkei/cli/stablecoin_flow.py` CLI, registered as `genkei stablecoin-flow` in `cli/__init__.py`.
-  - `genkei stablecoin-flow --chain Ethereum --since 2026-01-01` → daily aggregated supply trajectory per chain, with 7d / 30d Δ columns so the "are stables flowing IN or OUT" question is observable at a glance without further math.
-  - `genkei stablecoin-flow --all-chains` → comparative snapshot across the chains that have material stablecoin presence (Ethereum, Solana, Tron, BSC, Arbitrum, Base, etc.) — latest day + 7d / 30d Δ per chain. The "is capital rotating between chains" question becomes one command.
-  - `genkei stablecoin-flow --chain Ethereum --by-stablecoin` → per-asset split within the chain (USDT, USDC, DAI, etc.) so a future research session can detect single-asset-driven flow effects (e.g. an MMF redemption hitting Ethereum that doesn't reflect broader sentiment).
-  - `--json` for the agent; honest column naming (`supply_usd_b`, `delta_7d_usd_b`, `delta_30d_usd_b`) — no signed-flow-direction lie, just deltas.
-  - Mirror the `genkei cot` / `genkei etf-flows` shape: `_resolve_*` alias helpers, horizon tag in JSON output, human-readable + JSON modes, `--list-chains` enumerator for discoverability.
-  - Unit tests pin the pure helpers (chain aliasing, windowed delta math, format renderers) — same testing pattern as `tests/cli/test_etf_flows.py`.
-- **Out of scope:**
-  - Engine emitter that fires a signal when stablecoin flow crosses a threshold — file separately as a follow-up engine rule (`crypto:core:capital_flight` was flagged in today's research session). The CLI is the manual query; the engine rule is the automated detector.
-  - Per-bridge or per-protocol stablecoin flow attribution — defillama.stablecoins is per-(chain, asset, day); chain-level aggregation is all v1 needs.
-
 ### B-109 — Fix defillama.stablecoins double-ingest bug
 - **Status:** open
 - **Priority:** high
