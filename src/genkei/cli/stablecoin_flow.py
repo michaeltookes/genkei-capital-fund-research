@@ -108,6 +108,12 @@ DEFAULT_TRAJECTORY_DAYS = 30
 DEFAULT_MIN_SUPPLY_B = 0.5
 
 
+def _default_since_date(today: Optional[date] = None) -> date:
+    """Return the inclusive lower bound for the default trajectory window."""
+    anchor = today or date.today()
+    return date.fromordinal(anchor.toordinal() - (DEFAULT_TRAJECTORY_DAYS - 1))
+
+
 def _resolve_chain(raw: str) -> str:
     """Return the canonical defillama chain name for a user-provided alias.
 
@@ -132,6 +138,40 @@ def _horizon_tag(chain: str) -> str:
 
 def _tag_rows(rows: list[dict[str, Any]], horizon_tag: str) -> list[dict[str, Any]]:
     return [{**row, "horizon_tag": horizon_tag} for row in rows]
+
+
+def _validate_mode_flags(
+    *,
+    list_chains: bool,
+    all_chains: bool,
+    chain: Optional[str],
+    by_stablecoin: bool,
+    since: Optional[str],
+    until: Optional[str],
+) -> None:
+    """Reject CLI mode combinations that would otherwise be silently ignored."""
+    if list_chains and any(
+        (
+            all_chains,
+            chain is not None,
+            by_stablecoin,
+            since is not None,
+            until is not None,
+        )
+    ):
+        raise typer.BadParameter(
+            "--list-chains cannot be combined with --chain, --all-chains, "
+            "--by-stablecoin, --since, or --until."
+        )
+    if all_chains and any(
+        (chain is not None, by_stablecoin, since is not None, until is not None)
+    ):
+        raise typer.BadParameter(
+            "--all-chains cannot be combined with --chain, --by-stablecoin, "
+            "--since, or --until."
+        )
+    if by_stablecoin and (since is not None or until is not None):
+        raise typer.BadParameter("--by-stablecoin does not support --since/--until.")
 
 
 def _to_float(value: Any) -> Optional[float]:
@@ -348,20 +388,21 @@ def _query_chains_with_data() -> list[dict[str, Any]]:
     # Dedupe the double-ingest bug — for --list-chains we want the latest
     # row per (chain, asset_id) on the latest day.
     sql = """
-        WITH latest_ts AS (
-            SELECT MAX(ts) AS ts FROM defillama.stablecoins
+        WITH latest_day AS (
+            SELECT MAX(date_trunc('day', ts)::date) AS day
+            FROM defillama.stablecoins
         ),
         dedupe AS (
             SELECT DISTINCT ON (chain, asset_id)
                    chain, asset_id, supply_usd, ts
             FROM defillama.stablecoins
-            WHERE ts = (SELECT ts FROM latest_ts)
+            WHERE date_trunc('day', ts)::date = (SELECT day FROM latest_day)
             ORDER BY chain, asset_id, ingest_run_id DESC
         )
         SELECT chain,
                SUM(supply_usd) / 1e9 AS supply_b,
                COUNT(DISTINCT asset_id) AS n_assets,
-               MAX(ts)::date AS latest_day
+               MAX(date_trunc('day', ts)::date) AS latest_day
         FROM dedupe
         GROUP BY chain
         ORDER BY supply_b DESC
@@ -542,6 +583,15 @@ def stablecoin_flow_cmd(
     ] = False,
 ) -> None:
     """Cross-chain stablecoin supply trajectory + rotation signal."""
+    _validate_mode_flags(
+        list_chains=list_chains,
+        all_chains=all_chains,
+        chain=chain,
+        by_stablecoin=by_stablecoin,
+        since=since,
+        until=until,
+    )
+
     if list_chains:
         rows = _query_chains_with_data()
         if json_out:
@@ -581,7 +631,7 @@ def stablecoin_flow_cmd(
         raise typer.BadParameter("--since must be on or before --until.")
     if since_d is None and until_d is None:
         # Default lookback: most recent 30 days.
-        since_d = date.fromordinal(date.today().toordinal() - DEFAULT_TRAJECTORY_DAYS)
+        since_d = _default_since_date()
 
     rows = _query_chain_trajectory(canonical, since=since_d, until=until_d, limit=limit)
     rows = _tag_rows(rows, horizon_tag)

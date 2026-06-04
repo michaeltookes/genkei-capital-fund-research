@@ -8,6 +8,8 @@ horizon helpers are pure functions covered here.
 """
 
 import unittest
+from datetime import date
+from unittest.mock import patch
 
 import typer
 
@@ -15,15 +17,18 @@ from genkei.cli.stablecoin_flow import (
     _CHAIN_ALIASES,
     DEFAULT_MIN_SUPPLY_B,
     DEFAULT_TRAJECTORY_DAYS,
+    _default_since_date,
     _fmt_b,
     _format_all_chains_human,
     _format_by_stablecoin_human,
     _format_chain_list_human,
     _format_trajectory_human,
     _horizon_tag,
+    _query_chains_with_data,
     _resolve_chain,
     _tag_rows,
     _to_float,
+    _validate_mode_flags,
 )
 
 
@@ -41,6 +46,7 @@ class ResolveChainTests(unittest.TestCase):
         self.assertEqual(_resolve_chain("bnb"), "BSC")
         self.assertEqual(_resolve_chain("arb"), "Arbitrum")
         self.assertEqual(_resolve_chain("matic"), "Polygon")
+        self.assertEqual(_resolve_chain("hyperliquid"), "Hyperliquid L1")
 
     def test_strips_whitespace(self) -> None:
         self.assertEqual(_resolve_chain("  eth  "), "Ethereum")
@@ -49,9 +55,6 @@ class ResolveChainTests(unittest.TestCase):
         # Optimism isn't aliased today, but the CLI should still accept
         # it — the SQL just returns 0 rows if the chain doesn't exist.
         self.assertEqual(_resolve_chain("optimism"), "Optimism")
-        # Multi-word title-casing is best-effort; users hitting a
-        # mismatch can drop the canonical name via --chain "Hyperliquid L1".
-        self.assertEqual(_resolve_chain("hyperliquid"), "Hyperliquid L1")  # aliased
 
     def test_empty_raises(self) -> None:
         with self.assertRaises(typer.BadParameter):
@@ -107,6 +110,85 @@ class ToFloatTests(unittest.TestCase):
         # defillama supply_usd is NUMERIC → Python Decimal. Must coerce
         # cleanly for JSON serialization.
         self.assertEqual(_to_float(Decimal("159.3053")), 159.3053)
+
+
+class ModeValidationTests(unittest.TestCase):
+    def _validate(self, **overrides) -> None:
+        kwargs = {
+            "list_chains": False,
+            "all_chains": False,
+            "chain": None,
+            "by_stablecoin": False,
+            "since": None,
+            "until": None,
+        }
+        kwargs.update(overrides)
+        _validate_mode_flags(**kwargs)
+
+    def test_list_chains_rejects_other_modes(self) -> None:
+        with self.assertRaises(typer.BadParameter):
+            self._validate(list_chains=True, chain="Ethereum")
+        with self.assertRaises(typer.BadParameter):
+            self._validate(list_chains=True, all_chains=True)
+        with self.assertRaises(typer.BadParameter):
+            self._validate(list_chains=True, since="2026-01-01")
+
+    def test_all_chains_rejects_other_modes(self) -> None:
+        with self.assertRaises(typer.BadParameter):
+            self._validate(all_chains=True, chain="Ethereum")
+        with self.assertRaises(typer.BadParameter):
+            self._validate(all_chains=True, by_stablecoin=True)
+        with self.assertRaises(typer.BadParameter):
+            self._validate(all_chains=True, until="2026-06-04")
+
+    def test_by_stablecoin_rejects_date_bounds(self) -> None:
+        with self.assertRaises(typer.BadParameter):
+            self._validate(chain="Ethereum", by_stablecoin=True, since="2026-01-01")
+        with self.assertRaises(typer.BadParameter):
+            self._validate(chain="Ethereum", by_stablecoin=True, until="2026-06-04")
+
+    def test_valid_modes_pass(self) -> None:
+        self._validate(list_chains=True)
+        self._validate(all_chains=True)
+        self._validate(chain="Ethereum", by_stablecoin=True)
+        self._validate(chain="Ethereum", since="2026-01-01", until="2026-06-04")
+
+
+class QuerySqlTests(unittest.TestCase):
+    def test_list_chains_query_uses_latest_day_not_exact_timestamp(self) -> None:
+        captured: dict[str, str] = {}
+
+        class FakeCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, sql):
+                captured["sql"] = sql
+
+            def fetchall(self):
+                return []
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def cursor(self):
+                return FakeCursor()
+
+        with patch("genkei.cli.stablecoin_flow.db.connection", return_value=FakeConn()):
+            self.assertEqual(_query_chains_with_data(), [])
+
+        sql = captured["sql"]
+        self.assertIn("WITH latest_day AS", sql)
+        self.assertIn("MAX(date_trunc('day', ts)::date) AS day", sql)
+        self.assertIn("date_trunc('day', ts)::date = (SELECT day FROM latest_day)", sql)
+        self.assertNotIn("latest_ts", sql)
 
 
 class FmtBTests(unittest.TestCase):
@@ -273,6 +355,9 @@ class ModuleConstantsTests(unittest.TestCase):
         # 30 days picks up the rolling 30d delta on day 1 (with the
         # 35-day lookback buffer in the query).
         self.assertEqual(DEFAULT_TRAJECTORY_DAYS, 30)
+
+    def test_default_since_date_is_inclusive_30_day_window(self) -> None:
+        self.assertEqual(_default_since_date(date(2026, 6, 4)), date(2026, 5, 6))
 
     def test_default_min_supply_b(self) -> None:
         # $0.5B filters the long tail of chains with sub-billion stables
