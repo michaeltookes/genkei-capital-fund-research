@@ -194,29 +194,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Original B-105 spec (resolved 2026-06-03) for the Farside + SoSoValue Cloudflare findings.
   - Yahoo `quoteSummary` is auth-gated; B-092's existing chart-only path is what unblocked v1.
 
-### B-109 — Fix defillama.* double-ingest bug (stablecoins + protocol_tvl + protocol_fees)
-- **Status:** open
-- **Priority:** high
-- **Context:** Originally discovered during the B-108 (`genkei stablecoin-flow`) kickoff on 2026-06-04: from 2026-05-10 onwards, `defillama.stablecoins` carries **2 distinct `ingest_run_id` values per (chain, asset_id, day)** — verified via `SELECT date_trunc('day', ts)::date, COUNT(*), COUNT(DISTINCT ingest_run_id) FROM defillama.stablecoins WHERE chain = 'Ethereum' AND ts::date IN ('2026-05-09','2026-05-10') GROUP BY 1`. The day before (2026-05-09) shows 150 rows / 1 run; 2026-05-10 onwards shows 305+ rows / 2 runs. **Scope expanded 2026-06-04 during the LINK research session:** the same 2-runs-per-day pattern affects `defillama.protocol_tvl` (verified on `slug='chainlink-staking'`: pre-dedupe `SUM(tvl_usd) = $818M`, post-dedupe `$411M`, ~2x doubling) and almost certainly `defillama.protocol_fees` too (same defillama collector writes all three tables). The two runs land near-identical values, so naive `SUM(...) GROUP BY day` double-counts everything on all three tables. Earlier days (before 2026-05-10) are unaffected.
-- **Downstream blast radius:**
-  - `genkei stablecoin-flow` (B-108): worked around at query time with `DISTINCT ON (chain, asset_id) ORDER BY ingest_run_id DESC` in every query path. The workaround correctly de-duplicates but is duplicated SQL and would silently re-introduce the bug if a new query path forgets it.
-  - Today's 2026-06-04 LINK research session had to apply `DISTINCT ON (chain, ts::date) ORDER BY ingest_run_id DESC` manually via `genkei query` against `defillama.protocol_tvl` to get accurate Chainlink-staking TVS numbers. Without the manual dedupe the displayed value would have been ~2x reality.
-  - The 2026-06-02 ETH research decision: queried via `genkei query` without dedupe. Reported figures like "$161.2B Ethereum stables today" — these match the de-duplicated value (within rounding), suggesting that day's query happened to pick the un-bugged path OR the same SUM coincidentally landed cleanly. **Worth re-verifying against deduplicated data before treating the absolute thresholds (ETH $158B / $162B; SOL $14B / $17B) as canonical.**
-  - The 2026-06-03 BTC/ETH/SOL comparison decision + the 2026-06-04 LINK reassessment: same `genkei query` SQL escape hatch on at least one query path each. Same re-verify caveat applies.
-- **Investigation required:**
-  - Identify the second ingest-run path. Likely a daily cron + a separate backfill / replay path both writing into the defillama.* tables without the natural-key upsert collision the schema *should* enforce. Read `src/genkei/ingest/defillama.py` and the `meta.ingest_runs` rows for `source='defillama'` around 2026-05-10 to find what started running twice.
-  - Check whether each table's PK / unique constraint is missing the natural key:
-    - `defillama.stablecoins`: needs UNIQUE on `(chain, asset_id, ts)`.
-    - `defillama.protocol_tvl`: needs UNIQUE on `(slug, chain, ts)`.
-    - `defillama.protocol_fees`: needs UNIQUE on `(slug, ts)`.
-  - If the schema allows duplicate rows, the ingester's INSERT can't dedupe at write time. Fix shape: `CREATE UNIQUE INDEX` migration + `ON CONFLICT (…) DO UPDATE SET ingest_run_id = EXCLUDED.ingest_run_id, fetched_at = EXCLUDED.fetched_at, …` on the ingester writes.
-- **Acceptance criteria:**
-  - Root cause identified and the upstream ingester / schema fixed so new daily runs land 1 row per natural key on **all three tables**.
-  - One-time backfill cleanup: delete duplicate rows from 2026-05-10 onwards on each table, keeping the latest `ingest_run_id` per natural key. Cleanup must run *before* the unique index creation to avoid violation errors.
-  - `genkei stablecoin-flow` CLI's `DISTINCT ON` workarounds removed — replaced with clean SUM aggregations once the schema enforces uniqueness. (Defense-in-depth retention not needed — the schema-level guarantee is stronger.)
-  - Cross-source canary: extend `genkei.common.schema_drift` to assert per-natural-key uniqueness on recent rows in each of the three tables. A regression where someone reintroduces dual-ingest surfaces as a DRIFT alert in `genkei watchlist health` rather than in the next research session.
-  - Migration is reversible (downgrade drops the unique indexes; can't un-cleanup the deleted dupes, but those don't need to come back).
-
 ### B-032 — EIA energy data ingester
 - **Status:** open
 - **Priority:** medium
