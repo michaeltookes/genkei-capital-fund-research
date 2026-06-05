@@ -171,6 +171,34 @@ equities:
       sector: Enterprise software
       sleeve: core
       rationale: Enterprise CRM incumbent; AI agent/Copilot monetization.
+    - symbol: NOW
+      cik: "0001373715"
+      cusip: "81762P102"
+      name: ServiceNow, Inc.
+      sector: Enterprise software
+      sleeve: core
+      rationale: Workflow-automation incumbent; ITSM/IT-ops moat + Now Assist AI agents.
+    - symbol: ADBE
+      cik: "0000796343"
+      cusip: "00724F101"
+      name: Adobe Inc.
+      sector: Enterprise software
+      sleeve: core
+      rationale: Creative-suite + Document Cloud SaaS; AI integration + Firefly monetization.
+    - symbol: WDAY
+      cik: "0001327811"
+      cusip: "98138H101"
+      name: Workday, Inc.
+      sector: Enterprise software
+      sleeve: core
+      rationale: HCM + Financial Management SaaS; enterprise back-office incumbent.
+    - symbol: SNOW
+      cik: "0001640147"
+      cusip: "833445109"
+      name: Snowflake Inc.
+      sector: Data platform
+      sleeve: core
+      rationale: Cloud data warehouse + AI data layer; growth + secular cloud-data tailwind.
     - symbol: PLTR
       cik: "0001321655"
       name: Palantir Technologies Inc.
