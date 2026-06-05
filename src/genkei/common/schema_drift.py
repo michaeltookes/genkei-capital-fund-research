@@ -253,6 +253,48 @@ SCHEMA_SPECS: tuple[EndpointSchema, ...] = (
 
 
 @dataclass(frozen=True)
+class NaturalKeyUniquenessSpec:
+    """Declares that ``<source>.<table>`` should have at most 1 row per
+    natural-key + day on recent data (B-109).
+
+    The natural-key columns are joined to ``ts::date`` to form the
+    per-day group; ``COUNT(*) > 1`` on any group is a drift. A regression
+    where someone reintroduces dual-ingest or removes the day-align
+    semantics surfaces here as a ``DUPLICATE_NATURAL_KEY`` DriftIssue
+    in ``genkei watchlist health`` rather than in the next research
+    session's manual SQL escape hatch.
+    """
+
+    source: str
+    table: str  # schema-qualified, e.g. "defillama.stablecoins"
+    natural_key_cols: tuple[str, ...]
+    # Look back this many days; older rows aren't worth flagging because
+    # the B-109 cleanup migration deleted the historical dupes.
+    lookback_days: int = 30
+
+
+# Tables whose ``ts`` semantics are per-day (one row per natural-key per
+# day). Add a new entry when a future ingester lands a similar shape.
+NATURAL_KEY_SPECS: tuple[NaturalKeyUniquenessSpec, ...] = (
+    NaturalKeyUniquenessSpec(
+        source="defillama",
+        table="defillama.stablecoins",
+        natural_key_cols=("asset_id", "chain"),
+    ),
+    NaturalKeyUniquenessSpec(
+        source="defillama",
+        table="defillama.protocol_tvl",
+        natural_key_cols=("slug", "chain"),
+    ),
+    NaturalKeyUniquenessSpec(
+        source="defillama",
+        table="defillama.protocol_fees",
+        natural_key_cols=("slug",),
+    ),
+)
+
+
+@dataclass(frozen=True)
 class DriftIssue:
     """One schema-drift finding, surfaced via `watchlist drift` / `watchlist health`."""
 
@@ -260,7 +302,8 @@ class DriftIssue:
     endpoint_kind: str
     sample_endpoint_name: str | None
     # One of: MISSING_REQUIRED_KEY, WRONG_TOP_LEVEL_TYPE, EMPTY_ARRAY,
-    # MISSING_NESTED_PATH, NO_RECENT_SAMPLES, CHECKER_ERROR.
+    # MISSING_NESTED_PATH, NO_RECENT_SAMPLES, DUPLICATE_NATURAL_KEY,
+    # CHECKER_ERROR.
     kind: str
     detail: str
 
@@ -497,6 +540,65 @@ def check_recent_blobs(
                         sample_endpoint_name=endpoint_name,
                         kind=issue.kind,
                         detail=issue.detail,
+                    )
+                )
+    return issues
+
+
+def check_natural_key_uniqueness(
+    specs: tuple[NaturalKeyUniquenessSpec, ...] = NATURAL_KEY_SPECS,
+) -> list[DriftIssue]:
+    """Table-level canary: assert per-day natural-key uniqueness (B-109).
+
+    For each spec, query the table for any group of rows sharing the
+    same natural key + ``ts::date`` with COUNT > 1 in the most recent
+    ``lookback_days`` days. Such a group means the day-align contract
+    has been silently broken (e.g. a new ingest path landed without
+    going through ``day_align_utc`` in the normalize layer).
+
+    Returns one ``DriftIssue`` per affected table (not per duplicate
+    group) — the detail string carries the count of affected groups.
+    Zero issues = uniqueness contract intact.
+    """
+    issues: list[DriftIssue] = []
+    with db.connection() as conn, conn.cursor() as cur:
+        for spec in specs:
+            key_cols_sql = ", ".join(spec.natural_key_cols)
+            sql = (
+                f"SELECT COUNT(*) FROM ("
+                f"  SELECT {key_cols_sql}, ts::date AS day FROM {spec.table}"
+                f"  WHERE ts::date >= (CURRENT_DATE - %s)::date"
+                f"  GROUP BY {key_cols_sql}, ts::date HAVING COUNT(*) > 1"
+                f") t"
+            )
+            try:
+                cur.execute(sql, [spec.lookback_days])
+                row = cur.fetchone()
+            except Exception as exc:  # noqa: BLE001 — defensive
+                issues.append(
+                    DriftIssue(
+                        source=spec.source,
+                        endpoint_kind=spec.table,
+                        sample_endpoint_name=None,
+                        kind="CHECKER_ERROR",
+                        detail=str(exc)[:300],
+                    )
+                )
+                continue
+            n_groups = int(row[0]) if row and row[0] is not None else 0
+            if n_groups > 0:
+                key_label = " + ".join(spec.natural_key_cols)
+                issues.append(
+                    DriftIssue(
+                        source=spec.source,
+                        endpoint_kind=spec.table,
+                        sample_endpoint_name=None,
+                        kind="DUPLICATE_NATURAL_KEY",
+                        detail=(
+                            f"{n_groups} ({key_label}, ts::date) group(s) "
+                            f"have >1 row in the last {spec.lookback_days}d "
+                            "— B-109 day-align contract broken"
+                        ),
                     )
                 )
     return issues

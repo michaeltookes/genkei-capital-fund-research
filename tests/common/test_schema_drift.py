@@ -12,8 +12,11 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 from genkei.common.schema_drift import (
+    NATURAL_KEY_SPECS,
     SCHEMA_SPECS,
     EndpointSchema,
+    NaturalKeyUniquenessSpec,
+    check_natural_key_uniqueness,
     check_payload,
     check_recent_blobs,
 )
@@ -294,6 +297,91 @@ class RecentBlobQueryTests(unittest.TestCase):
         self.assertEqual(issues, [])
         self.assertIn("endpoint_name NOT LIKE", str(captured["sql"]))
         self.assertIn("submissions\\_history\\_%", captured["params"])
+
+
+class NaturalKeyUniquenessTests(unittest.TestCase):
+    """Pin the B-109 table-level canary that surfaces day-align regressions."""
+
+    def _capture_with_fake_db(self, *, returns: list[tuple[int]]) -> tuple[list, list[str]]:
+        sqls: list[str] = []
+        idx = {"i": 0}
+
+        class FakeCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, sql: str, params: list[object]) -> None:
+                sqls.append(sql)
+
+            def fetchone(self):
+                row = returns[idx["i"]]
+                idx["i"] += 1
+                return row
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def cursor(self):
+                return FakeCursor()
+
+        with patch("genkei.common.schema_drift.db.connection", return_value=FakeConn()):
+            issues = check_natural_key_uniqueness()
+        return issues, sqls
+
+    def test_zero_dupes_returns_empty(self) -> None:
+        # All three specs see 0 duplicate groups → no issues.
+        issues, _ = self._capture_with_fake_db(returns=[(0,), (0,), (0,)])
+        self.assertEqual(issues, [])
+
+    def test_dupes_surface_as_duplicate_natural_key_issue(self) -> None:
+        # stablecoins has 3 dupe groups; the other two clean.
+        issues, _ = self._capture_with_fake_db(returns=[(3,), (0,), (0,)])
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].source, "defillama")
+        self.assertEqual(issues[0].endpoint_kind, "defillama.stablecoins")
+        self.assertEqual(issues[0].kind, "DUPLICATE_NATURAL_KEY")
+        self.assertIn("3 (asset_id + chain, ts::date) group(s)", issues[0].detail)
+        self.assertIn("day-align contract broken", issues[0].detail)
+
+    def test_query_uses_natural_key_columns(self) -> None:
+        # The SQL must reference each spec's natural-key columns + ts::date.
+        _, sqls = self._capture_with_fake_db(returns=[(0,), (0,), (0,)])
+        self.assertEqual(len(sqls), 3)
+        stables_sql = sqls[0]
+        self.assertIn("asset_id, chain", stables_sql)
+        self.assertIn("ts::date", stables_sql)
+        self.assertIn("defillama.stablecoins", stables_sql)
+        # protocol_tvl uses (slug, chain); protocol_fees uses (slug,).
+        self.assertIn("slug, chain", sqls[1])
+        self.assertIn("defillama.protocol_tvl", sqls[1])
+        self.assertIn("defillama.protocol_fees", sqls[2])
+
+    def test_natural_key_specs_cover_all_three_affected_tables(self) -> None:
+        tables = {spec.table for spec in NATURAL_KEY_SPECS}
+        self.assertEqual(
+            tables,
+            {
+                "defillama.stablecoins",
+                "defillama.protocol_tvl",
+                "defillama.protocol_fees",
+            },
+        )
+
+    def test_spec_dataclass_carries_natural_key_tuple(self) -> None:
+        spec = NaturalKeyUniquenessSpec(
+            source="test",
+            table="test.tbl",
+            natural_key_cols=("a", "b"),
+        )
+        self.assertEqual(spec.natural_key_cols, ("a", "b"))
+        self.assertEqual(spec.lookback_days, 30)  # default
 
 
 class RealisticPayloadShapeTests(unittest.TestCase):

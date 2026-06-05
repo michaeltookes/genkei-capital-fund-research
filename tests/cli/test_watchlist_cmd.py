@@ -225,7 +225,12 @@ class DriftRowsTests(unittest.TestCase):
                 detail="required key 'filings' not in top-level object",
             )
         ]
-        with patch("genkei.cli.watchlist.check_recent_blobs", return_value=issues):
+        with (
+            patch("genkei.cli.watchlist.check_recent_blobs", return_value=issues),
+            # B-109 added a second drift source; mock to empty so this
+            # test stays focused on the blob-shape drift contract.
+            patch("genkei.cli.watchlist.check_natural_key_uniqueness", return_value=[]),
+        ):
             rows = _drift_rows(max_age_hours=72)
 
         self.assertEqual(rows[0]["endpoint"], "submissions_<cik>")
@@ -242,13 +247,43 @@ class DriftRowsTests(unittest.TestCase):
                 detail="no raw_blobs rows matching pattern",
             )
         ]
-        with patch("genkei.cli.watchlist.check_recent_blobs", return_value=issues):
+        with (
+            patch("genkei.cli.watchlist.check_recent_blobs", return_value=issues),
+            patch("genkei.cli.watchlist.check_natural_key_uniqueness", return_value=[]),
+        ):
             rows = _drift_rows(max_age_hours=72)
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["drift_kind"], "NO_RECENT_SAMPLES")
         self.assertEqual(rows[0]["endpoint"], "observations_<id>")
         self.assertEqual(rows[0]["error"], "no raw_blobs rows matching pattern")
+
+    def test_natural_key_uniqueness_rows_surface_in_drift_output(self) -> None:
+        """B-109: a DUPLICATE_NATURAL_KEY DriftIssue propagates to the
+        health-row output the same way blob-shape drift does, so a
+        regression where the day-align contract breaks surfaces in
+        `genkei watchlist health` rather than the next research
+        session's manual SQL."""
+        nk_issues = [
+            DriftIssue(
+                source="defillama",
+                endpoint_kind="defillama.stablecoins",
+                sample_endpoint_name=None,
+                kind="DUPLICATE_NATURAL_KEY",
+                detail="3 (asset_id + chain, ts::date) group(s) have >1 row in the last 30d",
+            )
+        ]
+        with (
+            patch("genkei.cli.watchlist.check_recent_blobs", return_value=[]),
+            patch("genkei.cli.watchlist.check_natural_key_uniqueness", return_value=nk_issues),
+        ):
+            rows = _drift_rows(max_age_hours=72)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["source"], "defillama")
+        self.assertEqual(rows[0]["endpoint"], "defillama.stablecoins")
+        self.assertEqual(rows[0]["drift_kind"], "DUPLICATE_NATURAL_KEY")
+        self.assertIn("group(s) have >1 row", rows[0]["error"])
 
 
 class QuerySourceHealthTests(unittest.TestCase):

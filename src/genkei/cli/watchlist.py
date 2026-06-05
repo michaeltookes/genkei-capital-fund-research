@@ -50,7 +50,7 @@ from psycopg import sql
 from genkei.cli._helpers import json_default as _json_default
 from genkei.cli._helpers import parse_date as _parse_date
 from genkei.common import db
-from genkei.common.schema_drift import check_recent_blobs
+from genkei.common.schema_drift import check_natural_key_uniqueness, check_recent_blobs
 from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
     Watchlist,
@@ -349,6 +349,11 @@ def _drift_rows(max_age_hours: int = 72) -> list[dict[str, Any]]:
     """
     try:
         issues = check_recent_blobs(max_age_hours=max_age_hours)
+        # B-109 — table-level canary: per-day natural-key uniqueness on
+        # the three affected defillama tables. Returns 0 issues when the
+        # day-align contract is intact; a regression surfaces as one
+        # DUPLICATE_NATURAL_KEY row per affected table.
+        issues = issues + check_natural_key_uniqueness()
     except Exception as exc:  # noqa: BLE001 — defensive
         # Don't let a drift-check failure mask the rest of the health
         # output. Surface it as one DRIFT row instead.
