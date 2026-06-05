@@ -220,11 +220,9 @@ def _query_chain_trajectory(
             datetime.combine(until, datetime.max.time(), tzinfo=timezone.utc)
         )
 
-    # B-109 retired the per-query DISTINCT ON workaround on 2026-06-04
-    # via the normalize-layer day-align fix + the dedupe migration.
-    # ts is now canonical UTC-midnight per day and the (asset_id, chain, ts)
-    # PK enforces per-day uniqueness, so SUM(supply_usd) GROUP BY ts::date
-    # produces the correct value directly.
+    # ts is day-aligned to UTC midnight in the normalize layer, and the
+    # (asset_id, chain, ts) PK enforces one row per chain+asset+day.
+    # Direct SUM(supply_usd) GROUP BY ts::date is therefore correct.
     sql = f"""
         WITH daily AS (
             SELECT ts::date AS day, SUM(supply_usd) / 1e9 AS supply_b
@@ -272,9 +270,8 @@ def _query_all_chains_snapshot(
     limit: int,
 ) -> list[dict[str, Any]]:
     """Latest-day supply + 7d / 30d Δ per chain, filtered to material chains."""
-    # B-109 retired the DISTINCT ON workaround (see _query_chain_trajectory).
-    # Direct SUM aggregation is correct now that ts is day-aligned + the
-    # PK enforces uniqueness.
+    # Day-aligned ts plus PK uniqueness makes direct SUM aggregation
+    # safe across each chain+asset+day.
     sql = """
         WITH latest_day AS (
             SELECT MAX(ts::date) AS day
@@ -328,9 +325,8 @@ def _query_by_stablecoin(
     limit: int,
 ) -> list[dict[str, Any]]:
     """Per-stablecoin breakdown on the latest day for one chain."""
-    # B-109 retired the DISTINCT ON workaround. PK on (asset_id, chain, ts)
-    # + day-aligned ts means each (chain, asset_id, day) has at most one
-    # row natively.
+    # Day-aligned ts plus the (asset_id, chain, ts) PK means each
+    # chain+asset+day has at most one native row.
     sql = """
         WITH latest_day AS (
             SELECT MAX(ts::date) AS day
@@ -370,7 +366,7 @@ def _query_by_stablecoin(
 
 def _query_chains_with_data() -> list[dict[str, Any]]:
     """Enumerate every chain with recent stablecoin presence (for --list-chains)."""
-    # B-109 retired the DISTINCT ON workaround. PK enforces uniqueness.
+    # Day-aligned ts plus PK uniqueness makes the latest-day aggregate direct.
     sql = """
         WITH latest_day AS (
             SELECT MAX(ts::date) AS day

@@ -1,4 +1,4 @@
-"""Dedupe defillama.* + day-align ts (B-109).
+"""Dedupe defillama.* + day-align ts.
 
 Cleanup migration for the double-ingest bug found 2026-06-04. Root
 cause: ``normalize_stablecoins`` / ``normalize_protocol_history`` /
@@ -7,7 +7,7 @@ wrote ``ts`` with intra-day precision. The natural-key PKs on
 ``(asset_id, chain, ts)`` / ``(slug, chain, ts)`` / ``(slug, ts)``
 couldn't dedupe because the same logical day arrived under different
 ``ts`` values across runs (e.g. the daily collector landing
-``05:51:47 UTC`` and the B-085 stablecoin backfill landing
+``05:51:47 UTC`` and a stablecoin backfill landing
 ``00:00 UTC`` for the same logical day → both rows persist).
 
 The normalize-layer fix lands in the same commit series as this
@@ -18,10 +18,11 @@ Strategy per table (run in this order to avoid PK violations):
 
   1. **Dedupe** — for every group of rows sharing the same logical day
      under the natural key, keep the row with the highest
-     ``ingest_run_id`` (the most recent normalize run's value wins) and
-     ``DELETE`` the rest. Same as the ``DISTINCT ON (... ORDER BY
-     ingest_run_id DESC)`` workaround the ``genkei stablecoin-flow``
-     CLI was applying at query time.
+     ``ingest_run_id`` and latest intra-day ``ts`` (the most recent
+     normalize run's value wins) and ``DELETE`` the rest. For
+     ``protocol_fees``, merge non-null ``fees_usd`` / ``revenue_usd``
+     values into the keeper before deletion so partial endpoint outages
+     don't erase the other metric.
   2. **Day-align** — UPDATE the remaining rows' ``ts`` to UTC midnight
      of the day each value represents. Steps 1 and 2 cannot be
      combined into a single statement because the UPDATE would PK-collide
@@ -53,8 +54,8 @@ depends_on: str | Sequence[str] | None = None
 
 # Per-table dedupe + day-align SQL. Each table follows the same shape:
 #   1. CTE ranks rows within the natural-key + ts::date group by
-#      ingest_run_id DESC; we identify rows by the natural-key tuple
-#      itself (PK on the table) rather than ``ctid``. TimescaleDB
+#      ingest_run_id DESC, ts DESC; we identify rows by the natural-key
+#      tuple itself (PK on the table) rather than ``ctid``. TimescaleDB
 #      compressed chunks don't expose ``ctid`` (only ``tableoid`` is
 #      supported as a system column on decompressed scans), so using
 #      the natural-key tuple is the portable identifier.
@@ -76,7 +77,7 @@ _DEDUPE_STABLECOINS = """
                    ROW_NUMBER() OVER (
                        PARTITION BY asset_id, chain,
                                     date_trunc('day', ts AT TIME ZONE 'UTC')
-                       ORDER BY ingest_run_id DESC
+                       ORDER BY ingest_run_id DESC, ts DESC
                    ) AS rn
             FROM defillama.stablecoins
         ) ranked
@@ -111,7 +112,7 @@ _DEDUPE_PROTOCOL_TVL = """
                    ROW_NUMBER() OVER (
                        PARTITION BY slug, chain,
                                     date_trunc('day', ts AT TIME ZONE 'UTC')
-                       ORDER BY ingest_run_id DESC
+                       ORDER BY ingest_run_id DESC, ts DESC
                    ) AS rn
             FROM defillama.protocol_tvl
         ) ranked
@@ -136,6 +137,39 @@ _SWEEP_PROTOCOL_TVL = """
     WHERE ts <> date_trunc('day', ts AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
 """
 
+_MERGE_PROTOCOL_FEES = """
+    WITH ranked AS (
+        SELECT slug, ts, fees_usd, revenue_usd, ingest_run_id,
+               date_trunc('day', ts AT TIME ZONE 'UTC') AS day,
+               ROW_NUMBER() OVER (
+                   PARTITION BY slug,
+                                date_trunc('day', ts AT TIME ZONE 'UTC')
+                   ORDER BY ingest_run_id DESC, ts DESC
+               ) AS rn
+        FROM defillama.protocol_fees
+    ),
+    merged AS (
+        SELECT slug, day,
+               (ARRAY_AGG(fees_usd ORDER BY ingest_run_id DESC, ts DESC)
+                    FILTER (WHERE fees_usd IS NOT NULL))[1] AS fees_usd,
+               (ARRAY_AGG(revenue_usd ORDER BY ingest_run_id DESC, ts DESC)
+                    FILTER (WHERE revenue_usd IS NOT NULL))[1] AS revenue_usd
+        FROM ranked
+        GROUP BY slug, day
+        HAVING COUNT(*) > 1
+    )
+    UPDATE defillama.protocol_fees AS t
+    SET fees_usd = COALESCE(t.fees_usd, m.fees_usd),
+        revenue_usd = COALESCE(t.revenue_usd, m.revenue_usd)
+    FROM ranked AS keeper
+    JOIN merged AS m
+      ON m.slug = keeper.slug
+     AND m.day = keeper.day
+    WHERE keeper.rn = 1
+      AND t.slug = keeper.slug
+      AND t.ts = keeper.ts
+"""
+
 _DEDUPE_PROTOCOL_FEES = """
     DELETE FROM defillama.protocol_fees t
     WHERE (t.slug, t.ts) IN (
@@ -144,7 +178,7 @@ _DEDUPE_PROTOCOL_FEES = """
                    ROW_NUMBER() OVER (
                        PARTITION BY slug,
                                     date_trunc('day', ts AT TIME ZONE 'UTC')
-                       ORDER BY ingest_run_id DESC
+                       ORDER BY ingest_run_id DESC, ts DESC
                    ) AS rn
             FROM defillama.protocol_fees
         ) ranked
@@ -188,6 +222,7 @@ def upgrade() -> None:
     op.execute(_ALIGN_PROTOCOL_TVL)
     op.execute(_SWEEP_PROTOCOL_TVL)
     # defillama.protocol_fees
+    op.execute(_MERGE_PROTOCOL_FEES)
     op.execute(_DEDUPE_PROTOCOL_FEES)
     op.execute(_ALIGN_PROTOCOL_FEES)
     op.execute(_SWEEP_PROTOCOL_FEES)

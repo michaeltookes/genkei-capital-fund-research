@@ -300,7 +300,7 @@ class RecentBlobQueryTests(unittest.TestCase):
 
 
 class NaturalKeyUniquenessTests(unittest.TestCase):
-    """Pin the B-109 table-level canary that surfaces day-align regressions."""
+    """Pin the table-level canary that surfaces day-align regressions."""
 
     def _capture_with_fake_db(self, *, returns: list[tuple[int]]) -> tuple[list, list[str]]:
         sqls: list[str] = []
@@ -331,6 +331,9 @@ class NaturalKeyUniquenessTests(unittest.TestCase):
             def cursor(self):
                 return FakeCursor()
 
+            def rollback(self) -> None:
+                pass
+
         with patch("genkei.common.schema_drift.db.connection", return_value=FakeConn()):
             issues = check_natural_key_uniqueness()
         return issues, sqls
@@ -349,6 +352,65 @@ class NaturalKeyUniquenessTests(unittest.TestCase):
         self.assertEqual(issues[0].kind, "DUPLICATE_NATURAL_KEY")
         self.assertIn("3 (asset_id + chain, ts::date) group(s)", issues[0].detail)
         self.assertIn("day-align contract broken", issues[0].detail)
+
+    def test_checker_error_rolls_back_before_continuing(self) -> None:
+        specs = (
+            NaturalKeyUniquenessSpec(
+                source="defillama",
+                table="defillama.bad_table",
+                natural_key_cols=("slug",),
+            ),
+            NaturalKeyUniquenessSpec(
+                source="defillama",
+                table="defillama.good_table",
+                natural_key_cols=("slug",),
+            ),
+        )
+
+        class FakeCursor:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, sql: str, params: list[object]) -> None:
+                self.calls += 1
+                if self.calls == 1:
+                    raise RuntimeError("boom")
+
+            def fetchone(self):
+                return (0,)
+
+        class FakeConn:
+            def __init__(self) -> None:
+                self.cursor_obj = FakeCursor()
+                self.rollbacks = 0
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def cursor(self):
+                return self.cursor_obj
+
+            def rollback(self) -> None:
+                self.rollbacks += 1
+
+        conn = FakeConn()
+        with patch("genkei.common.schema_drift.db.connection", return_value=conn):
+            issues = check_natural_key_uniqueness(specs)
+
+        self.assertEqual(conn.rollbacks, 1)
+        self.assertEqual(conn.cursor_obj.calls, 2)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].kind, "CHECKER_ERROR")
+        self.assertEqual(issues[0].endpoint_kind, "defillama.bad_table")
 
     def test_query_uses_natural_key_columns(self) -> None:
         # The SQL must reference each spec's natural-key columns + ts::date.

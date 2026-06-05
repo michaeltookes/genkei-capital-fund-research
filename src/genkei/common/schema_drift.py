@@ -255,7 +255,7 @@ SCHEMA_SPECS: tuple[EndpointSchema, ...] = (
 @dataclass(frozen=True)
 class NaturalKeyUniquenessSpec:
     """Declares that ``<source>.<table>`` should have at most 1 row per
-    natural-key + day on recent data (B-109).
+    natural-key + day on recent data.
 
     The natural-key columns are joined to ``ts::date`` to form the
     per-day group; ``COUNT(*) > 1`` on any group is a drift. A regression
@@ -268,8 +268,8 @@ class NaturalKeyUniquenessSpec:
     source: str
     table: str  # schema-qualified, e.g. "defillama.stablecoins"
     natural_key_cols: tuple[str, ...]
-    # Look back this many days; older rows aren't worth flagging because
-    # the B-109 cleanup migration deleted the historical dupes.
+    # Look back this many days; older rows were already normalized by the
+    # one-shot cleanup migration.
     lookback_days: int = 30
 
 
@@ -548,7 +548,7 @@ def check_recent_blobs(
 def check_natural_key_uniqueness(
     specs: tuple[NaturalKeyUniquenessSpec, ...] = NATURAL_KEY_SPECS,
 ) -> list[DriftIssue]:
-    """Table-level canary: assert per-day natural-key uniqueness (B-109).
+    """Table-level canary: assert per-day natural-key uniqueness.
 
     For each spec, query the table for any group of rows sharing the
     same natural key + ``ts::date`` with COUNT > 1 in the most recent
@@ -575,6 +575,7 @@ def check_natural_key_uniqueness(
                 cur.execute(sql, [spec.lookback_days])
                 row = cur.fetchone()
             except Exception as exc:  # noqa: BLE001 — defensive
+                conn.rollback()
                 issues.append(
                     DriftIssue(
                         source=spec.source,
@@ -597,7 +598,7 @@ def check_natural_key_uniqueness(
                         detail=(
                             f"{n_groups} ({key_label}, ts::date) group(s) "
                             f"have >1 row in the last {spec.lookback_days}d "
-                            "— B-109 day-align contract broken"
+                            "— day-align contract broken"
                         ),
                     )
                 )

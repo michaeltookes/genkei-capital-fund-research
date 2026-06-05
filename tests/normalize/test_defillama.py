@@ -292,6 +292,20 @@ class NormalizeProtocolHistoryTests(unittest.TestCase):
         self.assertEqual(len(rows), 3)
         chains = sorted({r["chain"] for r in rows})
         self.assertEqual(chains, ["Arbitrum", "Ethereum"])
+        expected_ts_1 = day_align_utc(
+            datetime.fromtimestamp(1_700_000_000, tz=timezone.utc)
+        )
+        expected_ts_2 = day_align_utc(
+            datetime.fromtimestamp(1_700_086_400, tz=timezone.utc)
+        )
+        self.assertEqual(
+            {(r["chain"], r["ts"]) for r in rows},
+            {
+                ("Ethereum", expected_ts_1),
+                ("Ethereum", expected_ts_2),
+                ("Arbitrum", expected_ts_1),
+            },
+        )
         for row in rows:
             self.assertEqual(row["slug"], "aave-v3")
             self.assertEqual(row["fetched_at"], NOW)
@@ -325,6 +339,20 @@ class NormalizeStablecoinHistoryTests(unittest.TestCase):
             fetched_at=NOW,
         )
         self.assertEqual(len(rows), 3)
+        expected_ts_1 = day_align_utc(
+            datetime.fromtimestamp(1_700_000_000, tz=timezone.utc)
+        )
+        expected_ts_2 = day_align_utc(
+            datetime.fromtimestamp(1_700_086_400, tz=timezone.utc)
+        )
+        self.assertEqual(
+            {(r["chain"], r["ts"]) for r in rows},
+            {
+                ("Ethereum", expected_ts_1),
+                ("Ethereum", expected_ts_2),
+                ("Tron", expected_ts_1),
+            },
+        )
         for row in rows:
             self.assertEqual(row["asset_id"], "1")
             self.assertEqual(row["symbol"], "USDT")
@@ -368,10 +396,10 @@ class NormalizeProtocolFeeSeriesTests(unittest.TestCase):
 
     def test_parses_totaldatachart_into_one_row_per_ts(self) -> None:
         # Real DefiLlama shape: totalDataChart is a list of
-        # [epoch_seconds, value_usd] pairs. ts is parsed as UTC datetime.
+        # [epoch_seconds, value_usd] pairs. ts is day-aligned to UTC midnight.
         payload = {
             "totalDataChart": [
-                [1691366400, 3844.0],     # 2023-08-07
+                [1691366461, 3844.0],     # 2023-08-07 00:01:01
                 [1691452800, 5120.5],     # 2023-08-08
                 [1691539200, None],       # missing value → skipped
                 [1691625600, 9999.0],     # 2023-08-10
@@ -389,7 +417,10 @@ class NormalizeProtocolFeeSeriesTests(unittest.TestCase):
         first = rows[0]
         self.assertEqual(first["slug"], "chainlink-requests")
         self.assertEqual(first["fees_usd"], 3844.0)
-        self.assertEqual(first["ts"], datetime(2023, 8, 7, tzinfo=timezone.utc))
+        self.assertEqual(
+            first["ts"],
+            day_align_utc(datetime.fromtimestamp(1691366461, tz=timezone.utc)),
+        )
         self.assertEqual(first["ingest_run_id"], 42)
         self.assertIn("source_endpoint", first)
         # value_field controls which column the value lands in
