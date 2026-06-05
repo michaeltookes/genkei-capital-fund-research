@@ -146,7 +146,7 @@ class NormalizerIntegrationTests(unittest.TestCase):
         self.assertEqual(chain_count, 2)
         self.assertEqual(stable_count, 1)
         self.assertEqual(price_count, 1)
-        self.assertEqual(stable_ts, FETCHED_AT)
+        self.assertEqual(stable_ts, normalizer.day_align_utc(FETCHED_AT))
         self.assertEqual(stable_fetched_at, FETCHED_AT)
         self.assertEqual(price_ts, FETCHED_AT)
         self.assertEqual(price_fetched_at, FETCHED_AT)

@@ -12,6 +12,7 @@ from genkei.normalize.defillama import (
     _upsert_protocol_fee_rows,
     as_float,
     chain_history_stem,
+    day_align_utc,
     merge_fee_revenue_rows,
     normalize_chain_tvl_history,
     normalize_prices,
@@ -58,6 +59,46 @@ class HelperTests(unittest.TestCase):
     def test_rows_for_requires_blob(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "Missing required raw blob.*protocols"):
             _rows_for({}, "protocols", normalize_protocols, 1, 99)
+
+
+class DayAlignUtcTests(unittest.TestCase):
+    """Pin the load-bearing day-align helper that prevents the B-109 bug."""
+
+    def test_truncates_intra_day_utc_to_midnight(self) -> None:
+        ts = datetime(2026, 6, 4, 12, 34, 56, 789, tzinfo=timezone.utc)
+        self.assertEqual(
+            day_align_utc(ts),
+            datetime(2026, 6, 4, 0, 0, 0, 0, tzinfo=timezone.utc),
+        )
+
+    def test_already_aligned_passes_through(self) -> None:
+        ts = datetime(2026, 6, 4, 0, 0, tzinfo=timezone.utc)
+        self.assertEqual(day_align_utc(ts), ts)
+
+    def test_non_utc_input_converts_to_utc_first(self) -> None:
+        # 2026-06-04 19:00:00-05:00 == 2026-06-05 00:00:00 UTC,
+        # which day-aligns to 2026-06-05 00:00 UTC (NOT 2026-06-04).
+        # This is exactly the case that caused the bug: defillama's
+        # backfill rows arrived as "2026-05-10 19:00:00-05:00" and were
+        # being rendered as 2026-05-10 in session-local time but
+        # represented 2026-05-11 00:00 UTC.
+        from datetime import timedelta
+
+        est = timezone(timedelta(hours=-5))
+        ts = datetime(2026, 6, 4, 19, 0, tzinfo=est)
+        self.assertEqual(
+            day_align_utc(ts),
+            datetime(2026, 6, 5, 0, 0, tzinfo=timezone.utc),
+        )
+
+    def test_naive_input_assumed_utc(self) -> None:
+        # parse_history_timestamp always returns tz-aware, but defensive
+        # pin: naive input is interpreted as UTC.
+        ts = datetime(2026, 6, 4, 14, 30)  # naive
+        self.assertEqual(
+            day_align_utc(ts),
+            datetime(2026, 6, 4, 0, 0, tzinfo=timezone.utc),
+        )
 
 
 class NormalizeProtocolsTests(unittest.TestCase):
@@ -171,8 +212,17 @@ class NormalizeStablecoinsTests(unittest.TestCase):
         self.assertEqual(chain_names, ["Ethereum", "Ethereum", "LegacyChain", "Tron"])
         self.assertEqual({row["symbol"] for row in rows}, {"LUSD", "USDT"})
         self.assertEqual({row["asset_id"] for row in rows}, {"1", "2"})
+        # ts is day-aligned to UTC midnight (B-109): the daily collector
+        # used to write the call-time `now` directly, but that left the
+        # natural-key PK on (asset_id, chain, ts) failing to dedupe across
+        # multiple runs of the same logical day. Aligning to UTC midnight
+        # collapses those duplicates.
+        expected_ts = NOW.replace(hour=0, minute=0, second=0, microsecond=0)
         for row in rows:
-            self.assertEqual(row["ts"], NOW)
+            self.assertEqual(row["ts"], expected_ts)
+            # fetched_at retains the original call time (provenance), only
+            # ts is day-aligned so the PK can enforce per-day uniqueness.
+            self.assertEqual(row["fetched_at"], NOW)
             self.assertEqual(row["ingest_run_id"], 7)
             self.assertEqual(row["source_endpoint"], "https://stablecoins.llama.fi/stablecoins")
 
@@ -242,6 +292,20 @@ class NormalizeProtocolHistoryTests(unittest.TestCase):
         self.assertEqual(len(rows), 3)
         chains = sorted({r["chain"] for r in rows})
         self.assertEqual(chains, ["Arbitrum", "Ethereum"])
+        expected_ts_1 = day_align_utc(
+            datetime.fromtimestamp(1_700_000_000, tz=timezone.utc)
+        )
+        expected_ts_2 = day_align_utc(
+            datetime.fromtimestamp(1_700_086_400, tz=timezone.utc)
+        )
+        self.assertEqual(
+            {(r["chain"], r["ts"]) for r in rows},
+            {
+                ("Ethereum", expected_ts_1),
+                ("Ethereum", expected_ts_2),
+                ("Arbitrum", expected_ts_1),
+            },
+        )
         for row in rows:
             self.assertEqual(row["slug"], "aave-v3")
             self.assertEqual(row["fetched_at"], NOW)
@@ -275,6 +339,20 @@ class NormalizeStablecoinHistoryTests(unittest.TestCase):
             fetched_at=NOW,
         )
         self.assertEqual(len(rows), 3)
+        expected_ts_1 = day_align_utc(
+            datetime.fromtimestamp(1_700_000_000, tz=timezone.utc)
+        )
+        expected_ts_2 = day_align_utc(
+            datetime.fromtimestamp(1_700_086_400, tz=timezone.utc)
+        )
+        self.assertEqual(
+            {(r["chain"], r["ts"]) for r in rows},
+            {
+                ("Ethereum", expected_ts_1),
+                ("Ethereum", expected_ts_2),
+                ("Tron", expected_ts_1),
+            },
+        )
         for row in rows:
             self.assertEqual(row["asset_id"], "1")
             self.assertEqual(row["symbol"], "USDT")
@@ -318,10 +396,10 @@ class NormalizeProtocolFeeSeriesTests(unittest.TestCase):
 
     def test_parses_totaldatachart_into_one_row_per_ts(self) -> None:
         # Real DefiLlama shape: totalDataChart is a list of
-        # [epoch_seconds, value_usd] pairs. ts is parsed as UTC datetime.
+        # [epoch_seconds, value_usd] pairs. ts is day-aligned to UTC midnight.
         payload = {
             "totalDataChart": [
-                [1691366400, 3844.0],     # 2023-08-07
+                [1691366461, 3844.0],     # 2023-08-07 00:01:01
                 [1691452800, 5120.5],     # 2023-08-08
                 [1691539200, None],       # missing value → skipped
                 [1691625600, 9999.0],     # 2023-08-10
@@ -339,7 +417,10 @@ class NormalizeProtocolFeeSeriesTests(unittest.TestCase):
         first = rows[0]
         self.assertEqual(first["slug"], "chainlink-requests")
         self.assertEqual(first["fees_usd"], 3844.0)
-        self.assertEqual(first["ts"], datetime(2023, 8, 7, tzinfo=timezone.utc))
+        self.assertEqual(
+            first["ts"],
+            day_align_utc(datetime.fromtimestamp(1691366461, tz=timezone.utc)),
+        )
         self.assertEqual(first["ingest_run_id"], 42)
         self.assertIn("source_endpoint", first)
         # value_field controls which column the value lands in

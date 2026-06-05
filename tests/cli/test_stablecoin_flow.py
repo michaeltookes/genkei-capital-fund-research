@@ -194,14 +194,25 @@ class QuerySqlTests(unittest.TestCase):
         return captured["sql"]
 
     def test_list_chains_query_uses_latest_day_not_exact_timestamp(self) -> None:
+        # B-109 simplified the query — ts is now day-aligned so ts::date
+        # is the canonical day form. The historical regression this test
+        # guards against (using ts == MAX(ts) which would drop chains
+        # that lag the most-recent collector run by minutes) is still
+        # prevented by anchoring to MAX(ts::date) instead.
         sql = self._capture_sql(lambda: self.assertEqual(_query_chains_with_data(), []))
 
         self.assertIn("WITH latest_day AS", sql)
-        self.assertIn("MAX(date_trunc('day', ts)::date) AS day", sql)
-        self.assertIn("date_trunc('day', ts)::date = (SELECT day FROM latest_day)", sql)
+        self.assertIn("MAX(ts::date) AS day", sql)
+        self.assertIn("ts::date = (SELECT day FROM latest_day)", sql)
         self.assertNotIn("latest_ts", sql)
+        # Defense-in-depth: the historical DISTINCT ON workaround MUST
+        # be gone — its presence would mean the dedupe migration was
+        # silently rolled back.
+        self.assertNotIn("DISTINCT ON", sql)
 
     def test_all_chains_query_anchors_snapshot_to_global_latest_day(self) -> None:
+        # B-109 simplified the query — day-aligned ts means a clean
+        # GROUP BY ts::date is correct; no DISTINCT ON dedupe needed.
         sql = self._capture_sql(
             lambda: self.assertEqual(
                 _query_all_chains_snapshot(min_supply_b=0.5, limit=10),
@@ -211,7 +222,11 @@ class QuerySqlTests(unittest.TestCase):
 
         self.assertIn("WITH latest_day AS", sql)
         self.assertIn("WHERE day = (SELECT day FROM latest_day)", sql)
-        self.assertIn("date_trunc('day', ts)::date >= (SELECT day FROM latest_day) - 60", sql)
+        self.assertIn("ts::date >= (SELECT day FROM latest_day) - 60", sql)
+        # Defense-in-depth: the historical DISTINCT ON workaround MUST
+        # be gone — its presence would mean the dedupe migration was
+        # silently rolled back.
+        self.assertNotIn("DISTINCT ON", sql)
 
 
 class FmtBTests(unittest.TestCase):
