@@ -194,6 +194,29 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Original B-105 spec (resolved 2026-06-03) for the Farside + SoSoValue Cloudflare findings.
   - Yahoo `quoteSummary` is auth-gated; B-092's existing chart-only path is what unblocked v1.
 
+### B-111 — Equity rel-strength emitter (generalize B-098 to equities vs SPY/QQQ)
+- **Status:** open
+- **Priority:** high
+- **Context:** The 2026-06-05 SaaS sector research decision explicitly flagged this as a backlog implication: *"Equity rel-strength emitter (B-098 generalized to equities) — the crypto rel-strength emitter currently fires on crypto-core assets only; an equity-side equivalent would have flagged the SaaS-cohort underperformance vs SPY/QQQ as a `laggard_crossing` event months ago, giving the engine its first multi-source bearish stack on enterprise SaaS."* B-098 ships the template for crypto (BTC peer, ±15pp / 30d thresholds, saturating-ramp strength helpers, 3-state episode-onset machine); B-111 generalizes to equities reading from `yahoo.candles` instead of `coinbase.candles` and using SPY as the fixed peer.
+- **Why now:** unblocks every future equity research session's engine confluence. Today, individual equity events fire (insider clusters, 8-K impacts, crowding) but multi-source stacks are rare because the cohort has zero rel-strength signal contributing to the confluence math. Adding rel-strength as a second equity-side source means the engine starts producing real stacks on names like CRM (where individual buy clusters fire but never stack) and the SaaS cohort (where the -55 to -82pp 1y vs SPY/QQQ underperformance would have surfaced as a sustained-laggard episode months ago).
+- **Design choices:**
+  - **Peer:** SPY (the equity-core sleeve baseline benchmark from B-102). QQQ tech-tilted variant deferred to v2 — keeps v1 single-peer and matches B-098's "one fixed peer" simplicity.
+  - **Data source:** `yahoo.candles` (column `close`, ticker-keyed). Trading-calendar friendly (both targets and SPY trade NYSE so the daily walk naturally produces a row per trading day).
+  - **Window:** 30 calendar days (`window_days=30` calendar). `compute_return_pct`'s close-on-or-before semantics handles weekends/holidays gracefully — same as B-098.
+  - **Thresholds:** `LAGGARD_THRESHOLD_PCT = -10`, `LEADER_THRESHOLD_PCT = +10`, `STRENGTH_SATURATION_PP = 15` — initial calibration at ~67% of B-098's crypto values, reflecting equity volatility being ~2/3 of crypto. Tune after the first run against historical SaaS-cohort data. Constants live in the module so a re-tune shows up in git blame.
+  - **Asset class + horizon:** `asset_class="equity"`, `horizon="equity:{sleeve}"` (currently every equity is sleeve=core). New tactical-sleeve equities pick up `equity:tactical` automatically.
+  - **Source name:** `EMITTER_SOURCE = "equity_relative_strength"` (distinct from crypto's `"relative_strength"`) so signal_rules can target it specifically.
+- **Acceptance criteria:**
+  - New `src/genkei/experiments/emitters/equity_relative_strength_emitter.py` mirrors B-098 structure: three-state machine (laggard/neutral/leader), episode-onset detection (one event per state transition), saturating-ramp strength helper, idempotent `source_ref` (`<ticker>:SPY:30d:<crossing_iso>`).
+  - Endpoint registered in `RECURRING_ENDPOINTS["signal_emitter"]` so `genkei watchlist health` monitors it alongside the other emitters.
+  - New `src/genkei/cli/equity_relative_strength.py` CLI: `genkei equity-rel-strength --ticker CRM --since 2025-01-01` prints current windowed rel-strength readings vs SPY across 7/30/90/180/365d horizons; `--json` for the agent. Mirror the `genkei relative-strength` CLI shape from B-090.
+  - Unit tests pin the threshold helpers, strength saturation, state machine, watchlist routing, and CLI alias resolution — same testing pattern as the B-098 emitter tests.
+  - **Calibration step:** run the emitter against the last 12 months of yahoo.candles for the SaaS cohort (CRM, NOW, ADBE, WDAY, SNOW) + the rest of the equity watchlist; verify the SaaS underperformance fires meaningful laggard_crossing events. Re-tune the saturation constant if real episodes cluster outside the chosen range.
+- **Out of scope (file separately if pursued):**
+  - QQQ as a secondary peer (tech-tilted sub-cohort routing) — defer to v2 once v1 ships and stack-rule integration is verified.
+  - `equity:core:demand_contraction` engine rule pairing rel-strength weakness with revenue deceleration / margin compression — separate rule-config work, downstream of this emitter.
+  - `equity_relative_strength` analytics view (parallel to `analytics.crypto_relative_strength`) — pure live computation works for v1; materialized view can be added later if performance demands.
+
 ### B-032 — EIA energy data ingester
 - **Status:** open
 - **Priority:** medium
