@@ -124,7 +124,7 @@ The April 2026 small net disposal (-48k shares across 5 transactions) is **not a
 
 **Critical context:** none of the 2025-12-05 ValueAct decision's three reassessment triggers have fired:
 - Revenue YoY < 5% two consecutive quarters: NO — Q1/Q2/Q3 FY26 each at 6.0% / 7.7% / 8.6%, accelerating slightly.
-- ValueAct SC 13D/A reducing position: NOT VISIBLE in lake (would need 13D/A ingest; the lake doesn't track this directly). 13F filer count showing CRM holdings actually expanded across recent quarters (3 → 4 → 5 → 6 watchlist filers).
+- ValueAct SC 13D/A reducing position: NOT VISIBLE in lake (would need 13D/A ingest; the lake doesn't track this directly). The available 13F watchlist-filer proxy is bearish rather than confirming ValueAct: CRM holders declined 6 → 5 → 4 → 3 from 2025-06-30 to 2026-03-31, matching the low-strength `crowding_exit` signal below.
 - Insider sell cluster ≥3 reporters within 14d: NO — only buy clusters have fired; April's disposal was scattered.
 
 ### 13F crowding (`sec.form13f_holdings` via watchlist filers)
@@ -175,7 +175,7 @@ For SNOW: up 15% YoY, behaves like an "AI infrastructure winner" not a "SaaS-is-
 
 **Specific signals that would confirm the bear counter-thesis:**
 
-1. **CRM revenue YoY drops below 5% for any single quarter** within the next 9 months (would be the "deceleration accelerating" tell — not yet the prior decision's 2-quarter trigger but a warning shot). Q4 FY26 (period ending 2026-04-30, reporting late May/early June 2026) is the most-immediate next read.
+1. **CRM revenue YoY drops below 5% for any single quarter** within the next 9 months (would be the "deceleration accelerating" tell — not yet the prior decision's 2-quarter trigger but a warning shot). Q1 FY27 (period ending 2026-04-30, reporting late May/early June 2026) is the most-immediate next read.
 2. **Microsoft Dynamics 365 quarterly disclosures show >30% YoY revenue growth** sustained for 3+ quarters → market-share loss from Salesforce side is showing up. Hard to track from outside Microsoft earnings calls in real time, but a fundamental tell.
 3. **A flagship top-20 Salesforce / ServiceNow / Workday customer publicly announces migrating off the platform** for AI-native replacement (would be the high-profile "AI-eats-SaaS" moment the bear thesis is implicitly anchored on).
 4. **CRM operating margin contracts** (not just decelerates) in the next 10-Q — would mean expense pressure is overcoming pricing power and the profitability pivot is reversing.
@@ -183,7 +183,7 @@ For SNOW: up 15% YoY, behaves like an "AI infrastructure winner" not a "SaaS-is-
 
 **Signals that would confirm the bull thesis:**
 
-1. **CRM Q4 FY26 revenue prints ≥9% YoY** (would confirm the Q1/Q2/Q3 acceleration trajectory).
+1. **CRM Q1 FY27 revenue prints ≥9% YoY** (would confirm the Q1/Q2/Q3 acceleration trajectory).
 2. **NOW publishes a 10-Q showing >25% YoY revenue growth** sustained from prior quarter (would shock the bear thesis on the highest-growth incumbent).
 3. **Agentforce / Now Assist / Illuminate ARR disclosure shows accelerating sequential growth** at >50% QoQ on the AI-product subsegment (would be the "AI integration wins" data point).
 4. **ValueAct files another Form 4 buy** (would be the 3rd ValueAct cluster; activist conviction tripled-down would be extremely strong).
@@ -221,7 +221,7 @@ For SNOW: up 15% YoY, behaves like an "AI infrastructure winner" not a "SaaS-is-
 
 **Key risks (counter-thesis distilled):**
 
-1. **AI seat-displacement materializes in CRM Q4 FY26 results** (revenue YoY drops to <5%, or operating margin contracts). The next reporting cycle is the immediate watchpoint.
+1. **AI seat-displacement materializes in CRM Q1 FY27 results** (revenue YoY drops to <5%, or operating margin contracts). The next reporting cycle is the immediate watchpoint.
 2. **Microsoft Dynamics 365 growth disclosures show step-function acceleration** (would suggest Microsoft cross-sell is finally working at scale against Salesforce/ServiceNow).
 3. **Flagship customer migration off Salesforce or ServiceNow** publicly announced (would be the high-profile thesis-confirming event).
 4. **Sector breadth widens** — if SNOW joins the drawdown (currently +15% YoY), it would suggest the bear narrative is spreading from "old SaaS" to "all enterprise data/software" and the market is becoming more uniformly bearish on the sector.
