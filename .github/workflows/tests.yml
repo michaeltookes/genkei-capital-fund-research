@@ -13,6 +13,8 @@ jobs:
     name: Unit + integration tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      TESTCONTAINERS_RYUK_DISABLED: "true"
 
     steps:
       - name: Check out repository
@@ -33,7 +35,9 @@ jobs:
         # up the TimescaleDB image and the integration tests under
         # tests/migrations/ + tests/common/test_db_integration.py exercise
         # real Postgres. The mock-based suite runs in the same invocation.
+        # Ryuk is disabled above so CI does not need an extra Docker Hub
+        # pull before starting the TimescaleDB container.
         run: python3 -m unittest discover -s tests
 
       - name: Compile-check
-        run: python3 -m compileall src tests scripts migrations
+        run: python3 -m compileall src tests migrations

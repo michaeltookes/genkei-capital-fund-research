@@ -60,6 +60,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    """Add ``period_start`` to the live ``sec.facts`` primary key."""
     # 1. Make period_start NOT NULL. Safe per investigation (0 NULLs
     #    in 442k rows on the live homelab DB); PostgreSQL would
     #    implicitly enforce NOT NULL once the column joins the PK
@@ -77,6 +78,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Restore the legacy 5-column ``sec.facts`` primary key."""
     # Restore the original 5-col PK + remove NOT NULL on period_start.
     # Note: any rows landed after the upgrade that have the same 5-col
     # tuple with different period_start values would PK-collide here

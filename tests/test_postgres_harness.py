@@ -46,6 +46,21 @@ class PostgresHarnessHelperTests(unittest.TestCase):
         self.assertFalse(_postgres._docker_available())
         run.assert_not_called()
 
+    @patch("tests._postgres.PostgresContainer", create=True)
+    @patch.object(_postgres.PostgresHarness, "_apply_migrations")
+    def test_harness_start_failure_skips_integration_tests(
+        self, apply_migrations: MagicMock, container_cls: MagicMock
+    ) -> None:
+        container = MagicMock()
+        container.start.side_effect = RuntimeError("registry timeout")
+        container_cls.return_value = container
+
+        with self.assertRaises(unittest.SkipTest) as ctx:
+            _postgres.PostgresHarness()
+
+        self.assertIn("could not start", str(ctx.exception))
+        apply_migrations.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

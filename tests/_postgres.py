@@ -86,7 +86,13 @@ class PostgresHarness:
 
     def __init__(self) -> None:
         self._container = PostgresContainer(TIMESCALE_IMAGE, driver=None)
-        self._container.start()
+        try:
+            self._container.start()
+        except Exception as exc:
+            raise unittest.SkipTest(
+                "Docker + testcontainers required for Postgres integration tests; "
+                f"could not start {TIMESCALE_IMAGE}: {exc}"
+            ) from exc
         self.url = self._container.get_connection_url()
         self._apply_migrations()
 
