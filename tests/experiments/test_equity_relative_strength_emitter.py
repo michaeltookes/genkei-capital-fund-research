@@ -7,6 +7,7 @@ from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import MagicMock, patch
 
 from genkei.common.watchlist import load_watchlist
 from genkei.experiments.emitters.equity_relative_strength_emitter import (
@@ -23,6 +24,7 @@ from genkei.experiments.emitters.equity_relative_strength_emitter import (
     _date_ts,
     _detect_crossings,
     _equity_assets,
+    _load_price_series,
     _state_for,
     _strength_from_rel_strength,
     compute_daily_relative_strength,
@@ -214,6 +216,45 @@ class ComputeDailyRelativeStrengthTests(unittest.TestCase):
         series = [PricePoint(ts=date(2026, 2, 1), price_usd=Decimal("100"))]
         rows = compute_daily_relative_strength(series, series, window_days=30)
         self.assertEqual(rows, [])
+
+
+# ---------------------------------------------------------------------------
+# Yahoo candle loading.
+# ---------------------------------------------------------------------------
+
+
+class LoadPriceSeriesTests(unittest.TestCase):
+    """Cover Yahoo adjusted-close loading semantics."""
+
+    def test_prefers_adjusted_close_with_close_fallback(self) -> None:
+        """The SQL uses adjusted close for return signals when available."""
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [
+            (date(2026, 1, 1), Decimal("100")),
+            (date(2026, 2, 1), Decimal("110")),
+        ]
+        conn = MagicMock()
+        conn.cursor.return_value.__enter__.return_value = cursor
+        connection_cm = MagicMock()
+        connection_cm.__enter__.return_value = conn
+
+        with patch(
+            "genkei.experiments.emitters.equity_relative_strength_emitter.db.connection",
+            return_value=connection_cm,
+        ):
+            rows = _load_price_series("CRM", until=date(2026, 2, 1))
+
+        sql, params = cursor.execute.call_args.args
+        self.assertIn("COALESCE(adj_close, close)::numeric", sql)
+        self.assertIn("COALESCE(adj_close, close) IS NOT NULL", sql)
+        self.assertEqual(params, ["CRM", date(2026, 2, 1)])
+        self.assertEqual(
+            rows,
+            [
+                PricePoint(ts=date(2026, 1, 1), price_usd=Decimal("100")),
+                PricePoint(ts=date(2026, 2, 1), price_usd=Decimal("110")),
+            ],
+        )
 
 
 # ---------------------------------------------------------------------------

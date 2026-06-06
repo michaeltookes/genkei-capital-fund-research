@@ -187,18 +187,19 @@ def _date_ts(crossing_date: date) -> datetime:
 
 
 def _load_price_series(ticker: str, *, until: date | None = None) -> list[PricePoint]:
-    """Pull (ts, close) rows from ``yahoo.candles`` for one ticker.
+    """Pull adjusted (ts, price) rows from ``yahoo.candles`` for one ticker.
 
-    Returns rows ascending by date. Inner-join semantics on ``close``
-    being non-null. Pre-listing days are silently absent. Full-history
-    load (no ``since`` bound) because the caller needs trailing
-    lookback for the relative-strength window AND the prior day's
-    state for the crossing detector.
+    Returns rows ascending by date, preferring split/dividend-adjusted
+    ``adj_close`` and falling back to raw ``close`` when adjusted data
+    is absent. Pre-listing days are silently absent. Full-history load
+    (no ``since`` bound) because the caller needs trailing lookback for
+    the relative-strength window AND the prior day's state for the
+    crossing detector.
     """
     sql = (
-        "SELECT ts::date AS d, close::numeric "
+        "SELECT ts::date AS d, COALESCE(adj_close, close)::numeric "
         "FROM yahoo.candles "
-        "WHERE ticker = %s AND close IS NOT NULL"
+        "WHERE ticker = %s AND COALESCE(adj_close, close) IS NOT NULL"
     )
     params: list[Any] = [ticker]
     if until is not None:
