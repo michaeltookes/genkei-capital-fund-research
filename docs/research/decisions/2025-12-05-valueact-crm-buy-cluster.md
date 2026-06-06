@@ -4,10 +4,11 @@ asset: CRM
 sleeve: equity-core
 horizon: years
 confidence: medium
-status: pending
+status: resolved
 trigger_reassessment: "CRM revenue YoY < 5% for two consecutive quarters OR ValueAct files SC 13D/A reducing position OR insider sell cluster ≥3 reporters within 14d"
 related:
   - decision: insider-cluster-signal-baseline
+  - decision: 2026-06-05-saas-sector-thesis-vs-ai-disruption
   - data: sec.form4_transactions
 ---
 
@@ -86,6 +87,8 @@ The base-rate question: activist add-ons at +18 months work more often than not 
 
 ---
 
-## Outcome (filled in by /reflect-decisions)
+## Outcome
 
-(reserved — pending; will resolve at 2026-12-05 unless trigger fires earlier)
+Resolved early on 2026-06-05 by the SaaS-sector reassessment (`2026-06-05-saas-sector-thesis-vs-ai-disruption.md`), which supersedes this CRM-specific BUY call. The original bear triggers did not fire before supersession: CRM Q1 FY27 revenue was $11.1B, up 13% YoY / 12% constant currency, GAAP operating margin was 21.1%, no qualifying insider sell cluster was observed, and no ValueAct 13D/A exit was visible in the lake. The live decision is now HOLD existing CRM with optional disciplined add sizing, so `/reflect-decisions` should not keep this older BUY queued as a separate pending call.
+
+Reflection: The ValueAct add-on thesis identified a credible activist support signal, but it underweighted how quickly AI-disruption narrative pressure could re-rate application SaaS before fundamentals deteriorated. The useful calibration is to pair activist evidence with sector-level price action and competitive-risk checks before adding through a drawdown; the new sector decision carries that framework forward.
