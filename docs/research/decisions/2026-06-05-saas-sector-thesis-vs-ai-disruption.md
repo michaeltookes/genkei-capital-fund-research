@@ -165,7 +165,7 @@ For SNOW: up 15% YoY, behaves like an "AI infrastructure winner" not a "SaaS-is-
 2. **AI seat-displacement risk is real and unproven defensively.** A core revenue model for CRM (Sales Cloud, Service Cloud) is seat-licensed: more sales reps, more seats, more revenue. AI agents that do qualification/routing/customer support let companies have FEWER seats, not more. Same for ServiceNow (per-employee ITSM), Workday (per-employee HCM). Even if the incumbents win the AI integration race, they may win it by REDUCING their own revenue base.
 3. **Microsoft is the existential threat.** Microsoft Dynamics 365 + Copilot is the most credible "AI-native CRM/ITSM/HCM" stack, distributed via the M365 enterprise bundle that already covers ~85% of the addressable Salesforce/ServiceNow customer base. If Microsoft cross-sells aggressively, customer churn would show up first in slowing net retention, then in revenue contraction. The CRM Q3 quarterly trajectory (Q1 +6, Q2 +7.7, Q3 +8.6) shows acceleration NOT slowing — but a single quarter doesn't prove safety.
 4. **Watchlist 13F filers are reducing CRM.** 6 → 3 filer count over 9 months is a real, monotonic decline. The smartest-money curated set is voting with their feet, even as ValueAct adds. ValueAct could be wrong this time.
-5. **The "AI INTEGRATION wins" hypothesis is not yet quantified.** Salesforce and ServiceNow report AI-product adoption, but this decision does not have an auditable Agentforce / Now Assist ARR figure in the local source set, so the AI revenue contribution should not be treated as proven offset against Salesforce's ~$42B revenue base. If AI integration is a real revenue driver, we should see it as accelerating overall growth, not just maintaining flat single-digit growth. So far the data shows the latter, which is consistent with "they're keeping up but not winning."
+5. **The "AI INTEGRATION wins" hypothesis is still not fully proven.** Salesforce disclosed **$1.2B Agentforce ARR** and nearly **$3.4B combined Agentforce / Data 360 ARR** in Q1 FY27, but that remains small versus the raised $45.9-46.2B FY27 revenue guide and includes an inorganic Informatica contribution in the quarter. If AI integration is a real revenue driver, we should see it as sustained organic acceleration, not just one acquisition-aided quarter. The Q1 print is encouraging, but the next 2-3 quarters still have to prove durability.
 6. **3-month action is "less bad" not "good."** CRM −2.2% over 3 months is in a 27% drawdown from peak, not a turn. NOW +3.5% / WDAY +2.7% are tiny positives off massive drawdowns; the market is testing the lows, not breaking out.
 7. **No engine multi-source stack has fired bullish on CRM.** Individual events (buy clusters, 8-K event-study bullish hits) have fired but the engine hasn't found enough cross-source confluence to produce a stack. The engine is *not confirming* a bullish setup; it's just emitting standalone events that have to be interpreted.
 
@@ -175,7 +175,7 @@ For SNOW: up 15% YoY, behaves like an "AI infrastructure winner" not a "SaaS-is-
 
 **Specific signals that would confirm the bear counter-thesis:**
 
-1. **CRM revenue YoY drops below 5% for any single quarter** within the next 9 months (would be the "deceleration accelerating" tell — not yet the prior decision's 2-quarter trigger but a warning shot). Q1 FY27 (period ending 2026-04-30, reporting late May/early June 2026) is the most-immediate next read.
+1. **CRM revenue YoY drops below 5% for any single quarter** within the next 9 months (would be the "deceleration accelerating" tell — not yet the prior decision's 2-quarter trigger but a warning shot). **Q1 FY27 did not fire this bear signal:** Salesforce reported Q1 FY27 revenue of $11.1B, up 13% YoY / 12% CC, including $444M of Informatica contribution ([Salesforce release, 2026-05-27](https://www.salesforce.com/news/press-releases/2026/05/27/fy27-q1-earnings/)). Q2 FY27 is the next clean watchpoint for whether the acceleration persists.
 2. **Microsoft Dynamics 365 quarterly disclosures show >30% YoY revenue growth** sustained for 3+ quarters → market-share loss from Salesforce side is showing up. Hard to track from outside Microsoft earnings calls in real time, but a fundamental tell.
 3. **A flagship top-20 Salesforce / ServiceNow / Workday customer publicly announces migrating off the platform** for AI-native replacement (would be the high-profile "AI-eats-SaaS" moment the bear thesis is implicitly anchored on).
 4. **CRM operating margin contracts** (not just decelerates) in the next 10-Q — would mean expense pressure is overcoming pricing power and the profitability pivot is reversing.
@@ -183,7 +183,7 @@ For SNOW: up 15% YoY, behaves like an "AI infrastructure winner" not a "SaaS-is-
 
 **Signals that would confirm the bull thesis:**
 
-1. **CRM Q1 FY27 revenue prints ≥9% YoY** (would confirm the Q1/Q2/Q3 acceleration trajectory).
+1. **CRM Q1 FY27 revenue prints ≥9% YoY: FIRED on headline.** Q1 FY27 revenue was $11.1B, up 13% YoY / 12% CC, with $444M of Informatica contribution. This confirms the headline acceleration path, but the acquisition contribution means the bull confirmation should be treated as positive, not decisive.
 2. **NOW publishes a 10-Q showing >25% YoY revenue growth** sustained from prior quarter (would shock the bear thesis on the highest-growth incumbent).
 3. **Agentforce / Now Assist / Illuminate ARR disclosure shows accelerating sequential growth** at >50% QoQ on the AI-product subsegment (would be the "AI integration wins" data point).
 4. **ValueAct files another Form 4 buy** (would be the 3rd ValueAct cluster; activist conviction tripled-down would be extremely strong).
@@ -221,7 +221,7 @@ For SNOW: up 15% YoY, behaves like an "AI infrastructure winner" not a "SaaS-is-
 
 **Key risks (counter-thesis distilled):**
 
-1. **AI seat-displacement materializes in CRM Q1 FY27 results** (revenue YoY drops to <5%, or operating margin contracts). The next reporting cycle is the immediate watchpoint.
+1. **AI seat-displacement materializes in CRM results** (revenue YoY drops to <5%, or operating margin contracts). Q1 FY27 did **not** show this: revenue grew 13% YoY and GAAP operating margin was 21.1%. The immediate watchpoint moves to Q2 FY27 for organic durability after the acquisition-aided Q1 print.
 2. **Microsoft Dynamics 365 growth disclosures show step-function acceleration** (would suggest Microsoft cross-sell is finally working at scale against Salesforce/ServiceNow).
 3. **Flagship customer migration off Salesforce or ServiceNow** publicly announced (would be the high-profile thesis-confirming event).
 4. **Sector breadth widens** — if SNOW joins the drawdown (currently +15% YoY), it would suggest the bear narrative is spreading from "old SaaS" to "all enterprise data/software" and the market is becoming more uniformly bearish on the sector.
