@@ -53,6 +53,27 @@ RawBlob = tuple[str, Any, datetime]
 JsonObject = dict[str, Any]
 LOGGER = logging.getLogger(__name__)
 
+# Natural-key column set for ``sec.facts`` upserts. MUST exactly match
+# the live PRIMARY KEY on ``sec.facts`` (per migration ``e4c8b9d2f306``
+# / B-110) — otherwise ON CONFLICT raises ``there is no unique or
+# exclusion constraint matching the ON CONFLICT specification`` and
+# the whole normalize run fails. ``period_start`` is load-bearing:
+# 10-K filings report BOTH the full-year AND the fourth-quarter value
+# for the same concept under the same ``(cik, concept, unit, period_end,
+# accession_number)``; without ``period_start`` in the key the upsert
+# silently drops one of the two values (the original B-110 bug). The
+# migration enforces NOT NULL on ``period_start`` so the PK is well-
+# formed; pin the column tuple here so a future contributor reordering
+# or shortening it surfaces in tests rather than at the next normalize.
+FACTS_CONFLICT_KEYS: tuple[str, ...] = (
+    "cik",
+    "concept",
+    "unit",
+    "period_start",
+    "period_end",
+    "accession_number",
+)
+
 
 # ---------------------------------------------------------------------------
 # Pure helpers
@@ -407,17 +428,9 @@ def normalize(*, source_run_id: int | None = None) -> tuple[int, int]:
                         conn,
                         "sec.facts",
                         fact_rows,
-                        # PK on sec.facts is (cik, concept, unit, period_start,
-                        # period_end, accession_number); ON CONFLICT must match
-                        # the migration's constraint exactly.
-                        conflict_keys=[
-                            "cik",
-                            "concept",
-                            "unit",
-                            "period_start",
-                            "period_end",
-                            "accession_number",
-                        ],
+                        # Conflict-key tuple pinned at module scope so a
+                        # test can assert the contract holds (B-110).
+                        conflict_keys=list(FACTS_CONFLICT_KEYS),
                     )
                 )
 

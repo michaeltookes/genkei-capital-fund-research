@@ -85,12 +85,20 @@ class PostgresHarness:
     """Owns a running TimescaleDB container with migrations applied."""
 
     def __init__(self) -> None:
+        """Start TimescaleDB and apply migrations, or skip if startup fails."""
         self._container = PostgresContainer(TIMESCALE_IMAGE, driver=None)
-        self._container.start()
+        try:
+            self._container.start()
+        except Exception as exc:
+            raise unittest.SkipTest(
+                "Docker + testcontainers required for Postgres integration tests; "
+                f"could not start {TIMESCALE_IMAGE}: {exc}"
+            ) from exc
         self.url = self._container.get_connection_url()
         self._apply_migrations()
 
     def _apply_migrations(self) -> None:
+        """Run the full Alembic migration chain against the harness database."""
         # Imported lazily so harness import doesn't pull alembic into every
         # offline test run.
         from alembic import command
@@ -133,6 +141,7 @@ class PostgresHarness:
             conn.commit()
 
     def stop(self) -> None:
+        """Stop the owned TimescaleDB container."""
         self._container.stop()
 
 

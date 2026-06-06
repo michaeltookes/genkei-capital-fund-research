@@ -12,6 +12,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from genkei.normalize.sec import (
+    FACTS_CONFLICT_KEYS,
     _as_numeric,
     is_sec_blob_endpoint,
     main,
@@ -379,6 +380,110 @@ class NormalizeFactsTests(unittest.TestCase):
             ),
             [],
         )
+
+
+class FactsConflictKeysContractTests(unittest.TestCase):
+    """Pin the natural-key contract for ``sec.facts`` upserts (B-110).
+
+    The bug B-110 fixed was a mismatch between the live PRIMARY KEY
+    (5 columns) and the normalize code's ``conflict_keys`` (6 columns
+    including ``period_start``). The 6-col shape is the correct one
+    because 10-K filings report BOTH the full-year AND the
+    fourth-quarter value for the same concept under the same
+    ``(cik, concept, unit, period_end, accession_number)``; without
+    ``period_start`` in the key, the upsert silently drops one of the
+    two values. These tests guard against a future regression where
+    someone reorders, removes, or rearranges the conflict_keys.
+    """
+
+    def test_conflict_keys_match_live_pk_exactly(self) -> None:
+        # MUST match the live PRIMARY KEY on sec.facts. If a future
+        # contributor adds / removes / reorders columns, the next
+        # `genkei watchlist health` will surface
+        # "no unique or exclusion constraint matching the ON CONFLICT
+        # specification" — same bug B-110 fixed.
+        self.assertEqual(
+            FACTS_CONFLICT_KEYS,
+            (
+                "cik",
+                "concept",
+                "unit",
+                "period_start",
+                "period_end",
+                "accession_number",
+            ),
+        )
+
+    def test_period_start_is_present(self) -> None:
+        # Specific defense-in-depth pin against the B-110 bug shape.
+        # The original 5-col PK omitted period_start, which silently
+        # dropped one of {Q4, FY} for every 10-K. The fix added it back;
+        # this test prevents a future "fix" from removing it again.
+        self.assertIn("period_start", FACTS_CONFLICT_KEYS)
+
+    def test_facts_with_same_5col_tuple_but_different_period_start_both_land(
+        self,
+    ) -> None:
+        """The load-bearing semantic test: a 10-K reporting BOTH the
+        full-year (period_start = year-start) AND the Q4 value
+        (period_start = Q4-start) for the same concept produces TWO
+        distinct rows, both with the same accession_number, cik,
+        concept, unit, and period_end — distinguished ONLY by
+        period_start. The 6-col conflict_keys preserves both; the
+        5-col version (the B-110 bug) would have dropped one.
+        """
+        payload = {
+            "facts": {
+                "us-gaap": {
+                    "Revenues": {
+                        "units": {
+                            "USD": [
+                                {
+                                    "start": "2025-02-01",
+                                    "end": "2026-01-31",
+                                    "val": 41_525_000_000,  # FY value
+                                    "accn": "0001108524-26-000060",
+                                    "form": "10-K",
+                                    "fy": 2025,
+                                    "fp": "FY",
+                                },
+                                {
+                                    "start": "2025-11-01",
+                                    "end": "2026-01-31",
+                                    "val": 10_400_000_000,  # Q4-only value
+                                    "accn": "0001108524-26-000060",
+                                    "form": "10-K",
+                                    "fy": 2025,
+                                    "fp": "Q4",
+                                },
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+        rows = normalize_facts(
+            payload,
+            cik="0001108524",
+            source_endpoint="https://data.sec.gov/api/xbrl/companyfacts/CIK0001108524.json",
+            ingest_run_id=42,
+            fetched_at=NOW,
+        )
+        self.assertEqual(len(rows), 2, "Both FY and Q4 rows must be emitted")
+        # Distinguishing-column invariant: ONLY period_start differs.
+        for col in ("cik", "concept", "unit", "period_end", "accession_number"):
+            values = {r[col] for r in rows}
+            self.assertEqual(
+                len(values),
+                1,
+                f"Expected all rows to share {col}; got {values}",
+            )
+        period_starts = {r["period_start"] for r in rows}
+        self.assertEqual(len(period_starts), 2)
+        # Values are preserved verbatim — the FY $41.5B and Q4 $10.4B
+        # both survive into the row stream.
+        values = sorted(r["value"] for r in rows)
+        self.assertEqual(values, [Decimal("10400000000"), Decimal("41525000000")])
 
 
 if __name__ == "__main__":
