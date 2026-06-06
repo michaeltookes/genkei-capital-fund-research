@@ -109,6 +109,57 @@ rules:
         signal_kind: item_4_02  # Non-reliance on prior financials
         weight: 0.8
 
+  # Rel-strength-driven stacks — landed with B-111 (equity rel-strength
+  # emitter). The equity analog of the crypto `crypto_tvl_stress_combo`:
+  # pair an idiosyncratic price weakness / strength signal with a
+  # fundamental / flow signal to confirm direction. The 2026-06-05 SaaS
+  # sector research session named this as the engine confluence the
+  # equity side was missing — bear-side, paired with insider sell
+  # clusters; bull-side, paired with insider buy clusters.
+
+  - name: equity_rel_strength_exit
+    description: >-
+      Equity rel-strength laggard crossing (30d vs SPY) + insider sell
+      cluster on the same name within a month. Pair "name is losing
+      relative leadership" with "insiders aren't waiting" — the cleanest
+      bearish confluence for equity-core. Wider window than
+      deterioration_stack because rel-strength laggard episodes typically
+      precede insider activity by a few weeks (and the activity follows
+      filings windows + 10b5-1 plan cadence).
+    direction: bearish
+    horizon: equity:core
+    window_days: 60
+    min_score: 1.4
+    min_distinct_sources: 2
+    components:
+      - source: equity_relative_strength
+        signal_kind: laggard_crossing
+        weight: 1.0
+      - source: insider_clusters
+        signal_kind: sell_cluster
+        weight: 1.0
+
+  - name: equity_rel_strength_entry
+    description: >-
+      Equity rel-strength leader crossing (30d vs SPY) + insider buy
+      cluster on the same name within a month. Pair "name is gaining
+      relative leadership" with "insiders are buying" — the cleanest
+      bullish confluence for equity-core. Wider window than
+      smart_money_buy because rel-strength leader episodes can precede
+      or follow the insider activity by a few weeks.
+    direction: bullish
+    horizon: equity:core
+    window_days: 60
+    min_score: 1.4
+    min_distinct_sources: 2
+    components:
+      - source: equity_relative_strength
+        signal_kind: leader_crossing
+        weight: 1.0
+      - source: insider_clusters
+        signal_kind: buy_cluster
+        weight: 1.0
+
   # Crypto-side stacks — first introduced with B-095 (TVL drawdown).
   # Pre-staged for the full picture; until B-098 (relative-strength
   # emitter) lands, the second source isn't live so the rule won't fire

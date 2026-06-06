@@ -194,6 +194,7 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Original B-105 spec (resolved 2026-06-03) for the Farside + SoSoValue Cloudflare findings.
   - Yahoo `quoteSummary` is auth-gated; B-092's existing chart-only path is what unblocked v1.
 
+
 ### B-032 — EIA energy data ingester
 - **Status:** open
 - **Priority:** medium
@@ -388,6 +389,16 @@ The cross-source signal correlation engine (B-064, resolved 2026-05-28) shipped 
   - Hysteresis / band definition documented so a score oscillating on a boundary doesn't emit repeatedly.
   - Standard idempotency, `meta.ingest_runs` wrapping, watchlist registration.
   - Unit tests pin band-crossing logic and no-emit-within-band behavior.
+
+### ~~B-111 — Equity relative-strength emitter (generalize B-098 to equities vs SPY/QQQ)~~
+- **Status:** resolved 2026-06-06 (see `docs/resolved.md`)
+- **Priority:** medium
+- **Context:** Add an equity-side relative-strength emitter so cross-source rules can pair price leadership/laggard onsets with other equity signals.
+- **Acceptance criteria:**
+  - Emitter reads `yahoo.candles`, compares each watchlist equity against SPY over a trailing 30-day window, and emits one signal per laggard/leader crossing onset.
+  - Signal rules consume the new `equity_relative_strength` source for bullish and bearish confluence stacks.
+  - Daily Yahoo workflow runs the emitter after normalize, and `genkei watchlist health` monitors it as a recurring signal emitter.
+  - Tests pin thresholds, crossing behavior, event shape, watchlist routing, and UTC timestamp conversion.
 
 
 ### B-099 — Correlator: decay weighting by event age
