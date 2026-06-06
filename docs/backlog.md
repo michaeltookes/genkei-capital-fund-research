@@ -194,7 +194,24 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Original B-105 spec (resolved 2026-06-03) for the Farside + SoSoValue Cloudflare findings.
   - Yahoo `quoteSummary` is auth-gated; B-092's existing chart-only path is what unblocked v1.
 
-### B-032 — EIA energy data ingester
+### B-110 — Fix sec normalize ON CONFLICT failure + backfill NOW/ADBE/WDAY/SNOW
+- **Status:** open
+- **Priority:** high
+- **Context:** `genkei watchlist health` has been showing `sec normalize FAIL — there is no unique or exclusion constraint matching the ON CONFLICT specification` for 4+ days. Investigation 2026-06-06 found the root cause: **migration drift** in commit `a322aad` (`Harden SEC ingestion and normalization`). That commit edited `migrations/versions/20260510_create_sec_schema.py` to change the `sec.facts` PK from 5 columns `(cik, concept, unit, period_end, accession_number)` to 6 columns adding `period_start`, AND simultaneously bumped the normalize code's `conflict_keys` to 6 cols. **But alembic doesn't re-run an edited migration** — the live `sec.facts` still carries the original 5-col PK. The normalize INSERT's 6-col ON CONFLICT can't resolve, hence the per-day failure. Live verification: 442k rows, 0 NULL `period_start` values, 0 collisions on the 5-col tuple with different period_start — so the 6-col extension is safe to apply, and the live schema has been silently overwriting one of Q4-vs-FY values for ~13 months (10-Ks report both with same `period_end` but different `period_start`).
+- **Why now:** today's 2026-06-05 SaaS sector research session explicitly flagged "SEC backfill needed for NOW + ADBE + WDAY + SNOW" as the largest data gap. The backfill is blocked until the normalize step works. Closing this unblocks the institutional-positioning + fundamentals lens on the 4 new equity-core watchlist tickers, which directly upgrades the confidence on the NOW position recommendation (currently MEDIUM-LOW pending SEC data) and unblocks the engine emitters on all four names.
+- **Fix shape (mirrors B-109 pattern):**
+  - New alembic migration that brings the live schema in line with the code:
+    - `ALTER TABLE sec.facts ALTER COLUMN period_start SET NOT NULL` (verified safe: 0 NULLs in 442k rows).
+    - `ALTER TABLE sec.facts DROP CONSTRAINT facts_pkey`.
+    - `ALTER TABLE sec.facts ADD CONSTRAINT facts_pkey PRIMARY KEY (cik, concept, unit, period_start, period_end, accession_number)` — matches the migration-file declaration + the normalize code's `conflict_keys`.
+  - Verify normalize step succeeds end-to-end against the live homelab DB; confirm the FAIL clears in `genkei watchlist health`.
+  - Re-run sec collect+normalize to land any backlog of unprocessed raw_blobs from the past 4 days of failed runs.
+  - Run SEC backfill (`python3 -m genkei.ingest.sec --backfill --ticker NOW`, then ADBE/WDAY/SNOW) so the 4 newly-watchlisted SaaS tickers land in `sec.companies` / `sec.filings` / `sec.facts` / `sec.form4_transactions`. Verify each ticker has revenue + insider data queryable.
+  - Unit test pinning the 6-col PK semantics (the natural-key conflict_keys MUST include period_start to preserve Q4-vs-FY values in 10-K filings).
+- **Out of scope (file separately if pursued):**
+  - 13D/13D-A ingester (mentioned in the 2026-06-05 SaaS decision's backlog implications — activist exit signal).
+  - Equity rel-strength emitter (generalize B-098 to equities).
+  - `equity:core:demand_contraction` engine rule.
 - **Status:** open
 - **Priority:** medium
 - **Context:** Oil inventories, natural gas storage, electricity demand — useful for energy-sector context.
