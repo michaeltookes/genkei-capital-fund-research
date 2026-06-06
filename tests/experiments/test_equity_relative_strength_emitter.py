@@ -25,7 +25,9 @@ from genkei.experiments.emitters.equity_relative_strength_emitter import (
     _equity_assets,
     _state_for,
     _strength_from_rel_strength,
+    compute_daily_relative_strength,
 )
+from genkei.experiments.relative_strength import PricePoint
 
 WATCHLIST_YAML = (
     "version: 1\n"
@@ -51,6 +53,7 @@ WATCHLIST_YAML = (
 
 
 def _load_watchlist() -> object:
+    """Load the fixture watchlist through the production parser."""
     with TemporaryDirectory() as tmp:
         path = Path(tmp) / "watchlists.yml"
         path.write_text(WATCHLIST_YAML, encoding="utf-8")
@@ -65,7 +68,10 @@ def _load_watchlist() -> object:
 
 
 class ConstantsTests(unittest.TestCase):
+    """Pin module constants that downstream signal rules depend on."""
+
     def test_equity_thresholds_are_two_thirds_of_crypto(self) -> None:
+        """Equity thresholds stay calibrated to the B-098 crypto values."""
         # B-098 crypto values: LAGGARD=-15, LEADER=15, SATURATION=20.
         # B-111 equity values: LAGGARD=-10, LEADER=10, SATURATION=15.
         # The 2/3 ratio reflects equity volatility being ~2/3 of crypto
@@ -76,10 +82,12 @@ class ConstantsTests(unittest.TestCase):
         self.assertEqual(STRENGTH_SATURATION_PP, Decimal("15"))
 
     def test_peer_is_spy(self) -> None:
+        """SPY remains the fixed equity benchmark."""
         self.assertEqual(PEER_TICKER, "SPY")
         self.assertEqual(PEER_SYMBOL, "SPY")
 
     def test_emitter_source_is_distinct_from_crypto(self) -> None:
+        """Equity and crypto relative-strength sources do not collide."""
         # Critical for signal_rules.yml — the equity-side rules
         # reference 'equity_relative_strength' explicitly. If this
         # constant collided with crypto's 'relative_strength' the
@@ -88,11 +96,13 @@ class ConstantsTests(unittest.TestCase):
         self.assertNotEqual(EMITTER_SOURCE, "relative_strength")
 
     def test_endpoint_matches_recurring_endpoints_registration(self) -> None:
+        """Health monitoring uses the emitter endpoint constant."""
         # Matches the value wired into RECURRING_ENDPOINTS in
         # genkei.cli.watchlist for `genkei watchlist health` monitoring.
         self.assertEqual(EMITTER_ENDPOINT, "equity_relative_strength")
 
     def test_window_days_is_30(self) -> None:
+        """The trailing-return window matches the B-098 horizon."""
         self.assertEqual(WINDOW_DAYS, 30)
 
 
@@ -102,20 +112,26 @@ class ConstantsTests(unittest.TestCase):
 
 
 class StateForTests(unittest.TestCase):
+    """Cover state classification at threshold edges."""
+
     def test_none_yields_none(self) -> None:
+        """Missing relative strength stays unclassified."""
         self.assertIsNone(_state_for(None))
 
     def test_at_or_below_laggard_threshold_is_laggard(self) -> None:
+        """Values at or below -10pp are laggard."""
         self.assertEqual(_state_for(Decimal("-10")), "laggard")
         self.assertEqual(_state_for(Decimal("-15")), "laggard")
         self.assertEqual(_state_for(Decimal("-50")), "laggard")
 
     def test_at_or_above_leader_threshold_is_leader(self) -> None:
+        """Values at or above +10pp are leader."""
         self.assertEqual(_state_for(Decimal("10")), "leader")
         self.assertEqual(_state_for(Decimal("15")), "leader")
         self.assertEqual(_state_for(Decimal("50")), "leader")
 
     def test_strictly_between_thresholds_is_neutral(self) -> None:
+        """Values strictly between threshold edges are neutral."""
         self.assertEqual(_state_for(Decimal("0")), "neutral")
         self.assertEqual(_state_for(Decimal("9.99")), "neutral")
         self.assertEqual(_state_for(Decimal("-9.99")), "neutral")
@@ -127,7 +143,10 @@ class StateForTests(unittest.TestCase):
 
 
 class StrengthFromRelStrengthTests(unittest.TestCase):
+    """Cover the saturating-ramp strength helper."""
+
     def test_at_threshold_yields_two_thirds(self) -> None:
+        """Threshold-edge crossings get meaningful nonzero strength."""
         # ±10pp / 15pp saturation = 0.667 — the threshold-edge
         # crossing has meaningful strength rather than being near-zero.
         self.assertEqual(
@@ -136,10 +155,12 @@ class StrengthFromRelStrengthTests(unittest.TestCase):
         )
 
     def test_at_saturation_yields_one(self) -> None:
+        """Values at either saturation edge clamp to one."""
         self.assertEqual(_strength_from_rel_strength(Decimal("-15")), Decimal("1"))
         self.assertEqual(_strength_from_rel_strength(Decimal("15")), Decimal("1"))
 
     def test_above_saturation_clamps_to_one(self) -> None:
+        """Extreme values do not exceed the normalized strength cap."""
         # Real SaaS-cohort May 2026 fires reached -12 to -15pp; far
         # extremes (-50pp+) should still cap at 1.0, not blow up the
         # strength scale.
@@ -148,17 +169,69 @@ class StrengthFromRelStrengthTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Daily relative-strength row computation.
+# ---------------------------------------------------------------------------
+
+
+class ComputeDailyRelativeStrengthTests(unittest.TestCase):
+    """Cover trailing-return and peer-date alignment behavior."""
+
+    def test_computes_relative_strength_from_unsorted_inputs(self) -> None:
+        """Unsorted series still produce date-ordered daily rows."""
+        asset_series = [
+            PricePoint(ts=date(2026, 2, 1), price_usd=Decimal("130")),
+            PricePoint(ts=date(2026, 1, 1), price_usd=Decimal("100")),
+        ]
+        peer_series = [
+            PricePoint(ts=date(2026, 2, 1), price_usd=Decimal("110")),
+            PricePoint(ts=date(2026, 1, 1), price_usd=Decimal("100")),
+        ]
+        rows = compute_daily_relative_strength(
+            asset_series, peer_series, window_days=30
+        )
+        self.assertEqual(
+            rows,
+            [(date(2026, 2, 1), Decimal("30"), Decimal("10"), Decimal("20"))],
+        )
+
+    def test_skips_asset_day_without_exact_peer_observation(self) -> None:
+        """Asset dates without a peer row are skipped defensively."""
+        asset_series = [
+            PricePoint(ts=date(2026, 1, 1), price_usd=Decimal("100")),
+            PricePoint(ts=date(2026, 2, 1), price_usd=Decimal("130")),
+        ]
+        peer_series = [
+            PricePoint(ts=date(2026, 1, 1), price_usd=Decimal("100")),
+            PricePoint(ts=date(2026, 2, 2), price_usd=Decimal("110")),
+        ]
+        rows = compute_daily_relative_strength(
+            asset_series, peer_series, window_days=30
+        )
+        self.assertEqual(rows, [])
+
+    def test_skips_rows_without_trailing_lookback(self) -> None:
+        """Rows before both series have lookback history are omitted."""
+        series = [PricePoint(ts=date(2026, 2, 1), price_usd=Decimal("100"))]
+        rows = compute_daily_relative_strength(series, series, window_days=30)
+        self.assertEqual(rows, [])
+
+
+# ---------------------------------------------------------------------------
 # Crossing-detector state machine (mirrors B-098's tests).
 # ---------------------------------------------------------------------------
 
 
 class DetectCrossingsTests(unittest.TestCase):
+    """Cover the episode-onset crossing detector."""
+
     def _row(
         self, day: date, rel: Decimal
     ) -> tuple[date, Decimal, Decimal, Decimal]:
+        """Build a daily rel-strength row with synthetic returns."""
         return (day, Decimal("0"), Decimal("0"), rel)
 
     def test_transition_neutral_to_laggard_emits_one(self) -> None:
+        """Entering laggard state emits exactly one crossing."""
         d0 = date(2026, 5, 1)
         rows = [
             self._row(d0, Decimal("-5")),  # neutral
@@ -172,6 +245,7 @@ class DetectCrossingsTests(unittest.TestCase):
         self.assertEqual(crossings[0].rel_strength_pct, Decimal("-12"))
 
     def test_transition_neutral_to_leader_emits_one(self) -> None:
+        """Entering leader state emits exactly one crossing."""
         rows = [
             self._row(date(2026, 5, 1), Decimal("3")),  # neutral
             self._row(date(2026, 5, 2), Decimal("11")),  # leader onset
@@ -183,6 +257,7 @@ class DetectCrossingsTests(unittest.TestCase):
         self.assertEqual(crossings[0].rel_strength_pct, Decimal("11"))
 
     def test_transition_back_to_neutral_silent(self) -> None:
+        """Returning to neutral does not emit a recovery event."""
         rows = [
             self._row(date(2026, 5, 1), Decimal("-12")),  # laggard onset
             self._row(date(2026, 5, 2), Decimal("-5")),  # back to neutral — silent
@@ -192,6 +267,7 @@ class DetectCrossingsTests(unittest.TestCase):
         self.assertEqual(crossings[0].kind, "laggard_crossing")
 
     def test_laggard_to_leader_emits_each(self) -> None:
+        """Direct laggard-to-leader transitions emit both onsets."""
         rows = [
             self._row(date(2026, 5, 1), Decimal("-12")),  # laggard onset
             self._row(date(2026, 5, 2), Decimal("11")),  # leader onset
@@ -208,7 +284,10 @@ class DetectCrossingsTests(unittest.TestCase):
 
 
 class BuildEventTests(unittest.TestCase):
+    """Cover the signal event payload contract."""
+
     def test_laggard_event_has_correct_asset_class_and_direction(self) -> None:
+        """Laggard events are equity-scoped bearish events."""
         crossing = Crossing(
             asset="CRM",
             peer="SPY",
@@ -237,6 +316,7 @@ class BuildEventTests(unittest.TestCase):
         self.assertEqual(event["source_ref"], "CRM:SPY:30d:2026-05-20")
 
     def test_leader_event_direction_is_bullish(self) -> None:
+        """Leader events are bullish and strength-capped."""
         crossing = Crossing(
             asset="SNOW",
             peer="SPY",
@@ -260,7 +340,10 @@ class BuildEventTests(unittest.TestCase):
 
 
 class EquityAssetsTests(unittest.TestCase):
+    """Cover watchlist routing into equity ticker and sleeve pairs."""
+
     def test_emits_watchlist_equities_excluding_spy(self) -> None:
+        """Watchlist equities are returned without benchmark symbols."""
         watchlist = _load_watchlist()
         assets = _equity_assets(watchlist)
         tickers = sorted({t for t, _ in assets})
@@ -270,6 +353,7 @@ class EquityAssetsTests(unittest.TestCase):
         self.assertEqual(tickers, ["AAPL", "CRM", "NOW"])
 
     def test_filters_spy_when_it_collides_with_equity(self) -> None:
+        """SPY is filtered even if accidentally listed as an equity."""
         # Defensive pin: if a future contributor adds SPY to equities by
         # accident, the emitter filters it out (otherwise the emitter
         # would try to compute SPY vs SPY rel-strength).
@@ -294,6 +378,7 @@ class EquityAssetsTests(unittest.TestCase):
         self.assertEqual({t for t, _ in assets}, {"CRM"})
 
     def test_passes_through_sleeve_to_horizon_routing(self) -> None:
+        """Equity sleeve values pass through for horizon construction."""
         # Today every equity is sleeve=core; the sleeve field is read so
         # a future tactical-sleeve equity is routed to "equity:tactical"
         # automatically.
@@ -325,7 +410,10 @@ class EquityAssetsTests(unittest.TestCase):
 
 
 class DateTsTests(unittest.TestCase):
+    """Cover timestamp conversion for crossing dates."""
+
     def test_converts_to_utc_midnight(self) -> None:
+        """Crossing dates become timezone-aware UTC midnights."""
         self.assertEqual(
             _date_ts(date(2026, 5, 20)),
             datetime(2026, 5, 20, 0, 0, tzinfo=timezone.utc),

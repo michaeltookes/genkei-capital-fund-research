@@ -76,9 +76,10 @@ in-Python to the *emission* window after crossings are detected.
 from __future__ import annotations
 
 import logging
+from bisect import bisect_right
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -87,7 +88,7 @@ from genkei.cli._helpers import json_default as _json_default
 from genkei.cli._helpers import parse_date as _parse_date
 from genkei.common import db
 from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, Watchlist, load_watchlist
-from genkei.experiments.relative_strength import PricePoint, compute_return_pct
+from genkei.experiments.relative_strength import PricePoint
 from genkei.experiments.signal_store import emit_signals_bulk
 
 EMITTER_SOURCE = "equity_relative_strength"
@@ -103,9 +104,9 @@ PEER_TICKER = "SPY"
 PEER_SYMBOL = "SPY"
 
 # Trailing-return window. 30 calendar days matches B-098's crypto
-# emitter — same horizon, same semantic. ``compute_return_pct`` uses
-# close-on-or-before lookback so weekends / holidays / sparse early
-# data are handled gracefully.
+# emitter — same horizon, same semantic. The return helper uses close-
+# on-or-before lookback so weekends / holidays / sparse early data are
+# handled gracefully.
 WINDOW_DAYS = 30
 
 # Bearish / bullish threshold edges. ±10pp over 30d is the equity
@@ -210,6 +211,29 @@ def _load_price_series(ticker: str, *, until: date | None = None) -> list[PriceP
     return [PricePoint(ts=d, price_usd=Decimal(price)) for d, price in rows]
 
 
+def _compute_return_pct_through(
+    sorted_series: Sequence[PricePoint],
+    dates: Sequence[date],
+    end_index: int,
+    *,
+    window_days: int,
+) -> Decimal | None:
+    """Compute return using ``sorted_series[:end_index]`` without slicing."""
+    if window_days < 1:
+        raise ValueError("window_days must be >= 1")
+    if end_index < 1:
+        return None
+    latest = sorted_series[end_index - 1]
+    target_ts = latest.ts - timedelta(days=window_days)
+    lookback_end = bisect_right(dates, target_ts, hi=end_index - 1)
+    if lookback_end == 0:
+        return None
+    lookback = sorted_series[lookback_end - 1]
+    if lookback.price_usd == 0:
+        return None
+    return (latest.price_usd - lookback.price_usd) / lookback.price_usd * Decimal(100)
+
+
 def compute_daily_relative_strength(
     asset_series: Sequence[PricePoint],
     peer_series: Sequence[PricePoint],
@@ -226,22 +250,25 @@ def compute_daily_relative_strength(
     """
     if not asset_series or not peer_series:
         return []
-    peer_by_date: dict[date, PricePoint] = {p.ts: p for p in peer_series}
     sorted_asset = sorted(asset_series, key=lambda p: p.ts)
+    sorted_peer = sorted(peer_series, key=lambda p: p.ts)
+    asset_dates = [point.ts for point in sorted_asset]
+    peer_dates = [point.ts for point in sorted_peer]
+    peer_date_set = set(peer_dates)
     out: list[tuple[date, Decimal, Decimal, Decimal]] = []
     for i, anchor in enumerate(sorted_asset):
-        if anchor.ts not in peer_by_date:
+        if anchor.ts not in peer_date_set:
             # Peer didn't trade on this exact date — skip rather than
             # invent a lookback peer price. For equities this should be
             # essentially never (both target and SPY share the NYSE
             # calendar) but the defensive skip matches B-098.
             continue
-        asset_return, _, _ = compute_return_pct(
-            list(sorted_asset[: i + 1]), window_days=window_days
+        asset_return = _compute_return_pct_through(
+            sorted_asset, asset_dates, i + 1, window_days=window_days
         )
-        peer_through_anchor = [p for p in peer_series if p.ts <= anchor.ts]
-        peer_return, _, _ = compute_return_pct(
-            peer_through_anchor, window_days=window_days
+        peer_end = bisect_right(peer_dates, anchor.ts)
+        peer_return = _compute_return_pct_through(
+            sorted_peer, peer_dates, peer_end, window_days=window_days
         )
         if asset_return is None or peer_return is None:
             continue
@@ -436,10 +463,13 @@ def emit_recent_crossings(
 
 
 def parse_args(argv: list[str]) -> Any:
+    """Parse CLI args for the equity relative-strength emitter."""
     import argparse
 
     def parse_date_arg(label: str) -> Any:
+        """Return an argparse type function for one date-labeled flag."""
         def parse(raw: str) -> date | None:
+            """Parse one date argument and convert errors for argparse."""
             try:
                 return _parse_date(raw, label=label)
             except Exception as exc:
@@ -457,6 +487,7 @@ def parse_args(argv: list[str]) -> Any:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the emitter CLI and print either JSON or a concise summary."""
     import json as _json
     import sys
 
