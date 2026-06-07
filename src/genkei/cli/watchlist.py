@@ -176,6 +176,7 @@ PRIMARY_TABLES: dict[str, list[str]] = {
     ],
     "coingecko": ["coingecko.market_data"],
     "onchain_staking": ["onchain.staking_events"],
+    "sui_staking": ["onchain.sui_validators"],
     "cftc": ["cftc.cot_reports"],
     "ishares": ["etf.fund_snapshots"],
     # B-090 — derived view, no ingest_runs row (computed live from
@@ -205,6 +206,9 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
     # (parses logs inline + writes rows directly to onchain.staking_events,
     # no raw_blobs hop), so only the 'collect' endpoint is recurring.
     "onchain_staking": ["collect"],
+    # B-088 Sui staking — two RPC POSTs per run (system state + APYs)
+    # parsed inline into onchain.sui_validators. Daily epoch cadence.
+    "sui_staking": ["collect"],
     # B-031 CFTC ingester also collapses collect+normalize (parses the
     # Socrata JSON inline and writes directly to cftc.cot_reports).
     # Weekly Friday-release cadence; health treats it as recurring.
