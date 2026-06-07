@@ -181,9 +181,9 @@ def parse_snapshots(
 
     Filters to ``watchlist_etfs`` entries (already pre-filtered to
     ``issuer == "BlackRock"`` by the caller). Drops any feed entry where NAV
-    or TNA is missing or non-positive — both are required to derive
-    shares_outstanding, and silently writing rows with one zeroed-out would
-    mask data-quality issues.
+    is missing/non-positive or TNA is missing/negative. NAV must be positive
+    for the shares_outstanding divide; zero TNA is valid and preserves a
+    terminal snapshot as zero shares.
 
     Critically: ``navAmountAsOf`` and ``totalNetAssetsFundAsOf`` must match.
     When they differ (rare; observed once around prior-month roll-over), the
@@ -230,9 +230,9 @@ def parse_snapshots(
                 nav_as_of,
             )
             continue
-        if tna <= 0:
+        if tna < 0:
             LOGGER.warning(
-                "iShares %s: non-positive TNA %s on %s — skipping",
+                "iShares %s: negative TNA %s on %s — skipping",
                 ticker,
                 tna,
                 tna_as_of,

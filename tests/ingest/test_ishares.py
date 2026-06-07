@@ -329,24 +329,35 @@ class ParseSnapshotsTests(unittest.TestCase):
         snaps = parse_snapshots(payload, watchlist_etfs=[IBIT_WATCHLIST])
         self.assertEqual(snaps, [])
 
-    def test_skips_zero_or_negative_tna(self) -> None:
-        """TNA <= 0 is skipped before deriving shares-outstanding."""
-        for tna_value in (0.0, -1.0):
-            with self.subTest(tna_value=tna_value):
-                payload = {
-                    "333011": {
-                        "localExchangeTicker": "IBIT",
-                        "navAmount": {"d": "33.81", "r": 33.805916},
-                        "navAmountAsOf": {"d": "Jun 05, 2026", "r": 20260605},
-                        "totalNetAssets": {"d": str(tna_value), "r": tna_value},
-                        "totalNetAssetsFundAsOf": {
-                            "d": "Jun 05, 2026",
-                            "r": 20260605,
-                        },
-                    },
-                }
-                snaps = parse_snapshots(payload, watchlist_etfs=[IBIT_WATCHLIST])
-                self.assertEqual(snaps, [])
+    def test_allows_zero_tna(self) -> None:
+        """Zero TNA is valid and derives a zero shares-outstanding snapshot."""
+        payload = {
+            "333011": {
+                "localExchangeTicker": "IBIT",
+                "navAmount": {"d": "33.81", "r": 33.805916},
+                "navAmountAsOf": {"d": "Jun 05, 2026", "r": 20260605},
+                "totalNetAssets": {"d": "0.00", "r": 0.0},
+                "totalNetAssetsFundAsOf": {"d": "Jun 05, 2026", "r": 20260605},
+            },
+        }
+        snaps = parse_snapshots(payload, watchlist_etfs=[IBIT_WATCHLIST])
+        self.assertEqual(len(snaps), 1)
+        self.assertEqual(snaps[0].total_net_assets_usd, Decimal("0.0"))
+        self.assertEqual(snaps[0].shares_outstanding, Decimal("0.0000"))
+
+    def test_skips_negative_tna(self) -> None:
+        """Negative TNA would violate the DB constraint, so skip it."""
+        payload = {
+            "333011": {
+                "localExchangeTicker": "IBIT",
+                "navAmount": {"d": "33.81", "r": 33.805916},
+                "navAmountAsOf": {"d": "Jun 05, 2026", "r": 20260605},
+                "totalNetAssets": {"d": "-1.00", "r": -1.0},
+                "totalNetAssetsFundAsOf": {"d": "Jun 05, 2026", "r": 20260605},
+            },
+        }
+        snaps = parse_snapshots(payload, watchlist_etfs=[IBIT_WATCHLIST])
+        self.assertEqual(snaps, [])
 
     def test_empty_payload_returns_empty(self) -> None:
         """An empty product-screener payload yields no snapshots."""
