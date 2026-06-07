@@ -339,7 +339,8 @@ class ExpectationsRegistryTests(unittest.TestCase):
         # The registry grows as new ingesters land (B-082 added
         # onchain_staking; B-090 added analytics for the
         # crypto_relative_strength view; B-064 added signal_emitter
-        # for the cross-source correlation event store). Pin the
+        # for the cross-source correlation event store; B-107 added
+        # ishares for spot crypto ETF daily snapshots). Pin the
         # current shape so an accidental rename / drop is caught.
         self.assertEqual(
             set(PRIMARY_TABLES),
@@ -352,6 +353,7 @@ class ExpectationsRegistryTests(unittest.TestCase):
                 "analytics",
                 "signal_emitter",
                 "cftc",
+                "ishares",
             },
         )
 

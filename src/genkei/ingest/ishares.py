@@ -53,7 +53,12 @@ from genkei.common.watchlist import (
 )
 
 SOURCE_NAME = "ishares"
-COLLECT_ENDPOINT_LABEL = "product_screener"
+# "collect" matches the convention pinned by test_every_source_expects_at_
+# least_a_collect_endpoint in tests/cli/test_watchlist_cmd.py. The label is
+# generic by design: a v2.1 ingester adding a second iShares endpoint
+# (e.g. a per-product NAV-history download) would land alongside this one
+# as "ishares.<other>" and not collide.
+COLLECT_ENDPOINT_LABEL = "collect"
 ISSUER_FILTER = "BlackRock"
 
 # Public iShares product-screener endpoint. Returns a JSON object keyed by

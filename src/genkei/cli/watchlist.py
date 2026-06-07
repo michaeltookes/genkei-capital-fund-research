@@ -212,7 +212,7 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
     # B-107 iShares spot crypto ETF snapshots — single product-screener
     # JSON fetch parses inline + writes directly to etf.fund_snapshots
     # (no separate normalize step). Daily T+1 cadence.
-    "ishares": ["product_screener"],
+    "ishares": ["collect"],
     # B-064 — one entry per signal emitter that runs on a daily cron.
     # B-093 added crowding; B-094 added eight_k_impact; B-095 added
     # tvl_drawdown (first crypto-side emitter); B-098 added
