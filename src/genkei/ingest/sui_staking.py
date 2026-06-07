@@ -319,10 +319,20 @@ def collect(*, http: HttpClient | None = None) -> int:
             SOURCE_NAME,
             endpoint=COLLECT_ENDPOINT_LABEL,
         ) as run:
+            partial_failures: list[dict[str, str]] = []
+
+            def record_partial(name: str, error: Exception) -> None:
+                partial_failures.append(
+                    {
+                        "name": name,
+                        "url": SUI_RPC_URL,
+                        "error": str(error),
+                    }
+                )
+                db.record_partial_endpoints(run.id, partial_failures)
+
             try:
                 system_state = _rpc_post(http, METHOD_SYSTEM_STATE)
-                apy_payload = _rpc_post(http, METHOD_VALIDATORS_APY)
-                fetched_at = datetime.now(timezone.utc)
             except (
                 httpx.TimeoutException,
                 httpx.NetworkError,
@@ -331,26 +341,38 @@ def collect(*, http: HttpClient | None = None) -> int:
                 ValueError,
             ) as exc:
                 LOGGER.error("Sui RPC fetch failed: %s", exc)
-                db.record_partial_endpoints(
-                    run.id,
-                    [
-                        {
-                            "name": COLLECT_ENDPOINT_LABEL,
-                            "url": SUI_RPC_URL,
-                            "error": str(exc),
-                        }
-                    ],
-                )
+                record_partial(COLLECT_ENDPOINT_LABEL, exc)
                 raise RuntimeError(f"Sui RPC fetch failed: {exc}") from exc
+
+            try:
+                apy_payload = _rpc_post(http, METHOD_VALIDATORS_APY)
+            except (
+                httpx.TimeoutException,
+                httpx.NetworkError,
+                httpx.HTTPStatusError,
+                json.JSONDecodeError,
+                ValueError,
+            ) as exc:
+                LOGGER.warning("Sui APY RPC fetch failed: %s", exc)
+                record_partial(METHOD_VALIDATORS_APY, exc)
+                apy_payload = None
+
+            fetched_at = datetime.now(timezone.utc)
 
             db.store_raw_blob(
                 run.id, f"{METHOD_SYSTEM_STATE}", SUI_RPC_URL, system_state
             )
-            db.store_raw_blob(
-                run.id, f"{METHOD_VALIDATORS_APY}", SUI_RPC_URL, apy_payload
-            )
+            if apy_payload is not None:
+                db.store_raw_blob(
+                    run.id, f"{METHOD_VALIDATORS_APY}", SUI_RPC_URL, apy_payload
+                )
 
-            validator_rows = parse_validator_rows(system_state, apy_payload)
+            try:
+                validator_rows = parse_validator_rows(system_state, apy_payload)
+            except ValueError as exc:
+                LOGGER.error("Sui payload parse failed: %s", exc)
+                record_partial(COLLECT_ENDPOINT_LABEL, exc)
+                raise RuntimeError(f"Sui payload parse failed: {exc}") from exc
             if not validator_rows:
                 LOGGER.warning(
                     "Sui collector parsed 0 validator rows — possible upstream shape change"

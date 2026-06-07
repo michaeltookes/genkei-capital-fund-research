@@ -81,8 +81,12 @@ def upgrade() -> None:
             ingest_run_id                  BIGINT         NOT NULL REFERENCES meta.ingest_runs(id),
             PRIMARY KEY (epoch, validator_address),
             CHECK (stake_amount_mist >= 0),
+            CONSTRAINT sui_validators_next_epoch_stake_mist_nonnegative
+                CHECK (next_epoch_stake_mist IS NULL OR next_epoch_stake_mist >= 0),
             CHECK (pending_stake_mist >= 0),
-            CHECK (pending_withdraw_mist >= 0)
+            CHECK (pending_withdraw_mist >= 0),
+            CONSTRAINT sui_validators_rewards_pool_mist_nonnegative
+                CHECK (rewards_pool_mist IS NULL OR rewards_pool_mist >= 0)
         )
         """
     )

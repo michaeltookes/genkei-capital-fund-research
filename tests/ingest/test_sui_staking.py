@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timezone
 from decimal import Decimal
+from unittest.mock import patch
 
 from genkei.ingest.sui_staking import (
     COLLECT_ENDPOINT_LABEL,
@@ -15,6 +16,7 @@ from genkei.ingest.sui_staking import (
     _coerce_decimal,
     _coerce_int,
     _ms_to_utc_datetime,
+    collect,
     parse_validator_rows,
 )
 
@@ -356,6 +358,103 @@ class ParseValidatorRowsTests(unittest.TestCase):
         by_name = {r.name: r for r in rows}
         self.assertEqual(by_name["Mysten-1"].commission_rate_bps, 200)
         self.assertEqual(by_name["Coinbase"].commission_rate_bps, 1000)
+
+
+class CollectTests(unittest.TestCase):
+    """Collector orchestration paths that are not covered by parser-only tests."""
+
+    def test_keeps_validator_snapshots_when_apy_rpc_fails(self) -> None:
+        """APY RPC failure is partial; system-state rows still land with apy=None."""
+
+        def fake_rpc_post(_http: object, method: str, params: object = None) -> object:
+            if method == METHOD_SYSTEM_STATE:
+                return SAMPLE_SYSTEM_STATE
+            if method == METHOD_VALIDATORS_APY:
+                raise ValueError("apy rpc down")
+            raise AssertionError(f"unexpected method {method!r}")
+
+        class FakeRun:
+            id = 42
+
+            def add_rows(self, n: int) -> None:
+                self._added = n
+
+        fake_run = FakeRun()
+        with (
+            patch("genkei.ingest.sui_staking._rpc_post", side_effect=fake_rpc_post),
+            patch("genkei.ingest.sui_staking.db.ingest_run") as ingest_run_cm,
+            patch("genkei.ingest.sui_staking.db.record_partial_endpoints") as partial,
+            patch("genkei.ingest.sui_staking.db.store_raw_blob") as store_blob,
+            patch("genkei.ingest.sui_staking.db.connection") as connection_cm,
+            patch(
+                "genkei.ingest.sui_staking.db.bulk_upsert", return_value=2
+            ) as bulk_upsert,
+        ):
+            ingest_run_cm.return_value.__enter__.return_value = fake_run
+            ingest_run_cm.return_value.__exit__.return_value = False
+
+            self.assertEqual(collect(http=object()), 42)
+
+        partial.assert_called_once_with(
+            42,
+            [
+                {
+                    "name": METHOD_VALIDATORS_APY,
+                    "url": SUI_RPC_URL,
+                    "error": "apy rpc down",
+                }
+            ],
+        )
+        store_blob.assert_called_once_with(
+            42, METHOD_SYSTEM_STATE, SUI_RPC_URL, SAMPLE_SYSTEM_STATE
+        )
+        connection_cm.assert_called_once()
+        bulk_rows = bulk_upsert.call_args.args[2]
+        self.assertEqual(len(bulk_rows), 2)
+        self.assertTrue(all(row["apy"] is None for row in bulk_rows))
+        self.assertEqual(fake_run._added, 2)
+
+    def test_records_parse_failures_before_reraising(self) -> None:
+        """Malformed system-state shapes are recorded in partial_endpoints."""
+        bad_system_state = dict(SAMPLE_SYSTEM_STATE)
+        bad_system_state["activeValidators"] = "not-a-list"
+
+        def fake_rpc_post(_http: object, method: str, params: object = None) -> object:
+            if method == METHOD_SYSTEM_STATE:
+                return bad_system_state
+            if method == METHOD_VALIDATORS_APY:
+                return SAMPLE_APY_PAYLOAD
+            raise AssertionError(f"unexpected method {method!r}")
+
+        class FakeRun:
+            id = 43
+
+            def add_rows(self, n: int) -> None:
+                self._added = n
+
+        fake_run = FakeRun()
+        with (
+            patch("genkei.ingest.sui_staking._rpc_post", side_effect=fake_rpc_post),
+            patch("genkei.ingest.sui_staking.db.ingest_run") as ingest_run_cm,
+            patch("genkei.ingest.sui_staking.db.record_partial_endpoints") as partial,
+            patch("genkei.ingest.sui_staking.db.store_raw_blob") as store_blob,
+            patch("genkei.ingest.sui_staking.db.connection") as connection_cm,
+            patch("genkei.ingest.sui_staking.db.bulk_upsert") as bulk_upsert,
+        ):
+            ingest_run_cm.return_value.__enter__.return_value = fake_run
+            ingest_run_cm.return_value.__exit__.return_value = False
+
+            with self.assertRaisesRegex(RuntimeError, "Sui payload parse failed"):
+                collect(http=object())
+
+        self.assertEqual(store_blob.call_count, 2)
+        partial_args = partial.call_args.args
+        self.assertEqual(partial_args[0], 43)
+        self.assertEqual(partial_args[1][0]["name"], COLLECT_ENDPOINT_LABEL)
+        self.assertIn("activeValidators", partial_args[1][0]["error"])
+        connection_cm.assert_not_called()
+        bulk_upsert.assert_not_called()
+        self.assertFalse(hasattr(fake_run, "_added"))
 
 
 if __name__ == "__main__":
