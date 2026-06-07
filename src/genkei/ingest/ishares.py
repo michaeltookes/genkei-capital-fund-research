@@ -181,14 +181,15 @@ def parse_snapshots(
 
     Filters to ``watchlist_etfs`` entries (already pre-filtered to
     ``issuer == "BlackRock"`` by the caller). Drops any feed entry where NAV
-    or TNA is missing — both are required to derive shares_outstanding, and
-    silently writing rows with one zeroed-out would mask data-quality issues.
+    or TNA is missing or non-positive — both are required to derive
+    shares_outstanding, and silently writing rows with one zeroed-out would
+    mask data-quality issues.
 
-    Critically: ``navAmountAsOf`` and ``totalNetAssetsFundAsOf`` are both
-    stamped on the feed but are not guaranteed to match. When they differ
-    (rare; observed once around prior-month roll-over) we use the EARLIER
-    of the two as the snapshot_date — both NAV and TNA must be known on
-    that date for the shares-outstanding derivation to be honest.
+    Critically: ``navAmountAsOf`` and ``totalNetAssetsFundAsOf`` must match.
+    When they differ (rare; observed once around prior-month roll-over), the
+    row is skipped until iShares republishes aligned fields. Combining a NAV
+    from one date with TNA from another would corrupt the ``(ticker,
+    snapshot_date)`` natural key and the next net-flow calculation.
     """
     if not isinstance(payload, dict):
         raise ValueError(
@@ -229,8 +230,24 @@ def parse_snapshots(
                 nav_as_of,
             )
             continue
+        if tna <= 0:
+            LOGGER.warning(
+                "iShares %s: non-positive TNA %s on %s — skipping",
+                ticker,
+                tna,
+                tna_as_of,
+            )
+            continue
+        if nav_as_of != tna_as_of:
+            LOGGER.warning(
+                "iShares %s: NAV as-of %s and TNA as-of %s differ — skipping",
+                ticker,
+                nav_as_of,
+                tna_as_of,
+            )
+            continue
 
-        snapshot_date = min(nav_as_of, tna_as_of)
+        snapshot_date = nav_as_of
         # Derive shares_outstanding as TNA / NAV. Quantize to 4 decimals to
         # match the schema; the divide can pick up fractional drift because
         # TNA is rounded to dollars upstream.

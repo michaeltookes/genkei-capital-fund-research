@@ -358,10 +358,24 @@ class ExpectationsRegistryTests(unittest.TestCase):
         )
 
     def test_every_source_expects_at_least_a_collect_endpoint(self) -> None:
+        """Recurring endpoint coverage includes every source health checks expect."""
         # All classic ingest sources have a `collect` endpoint. Some
         # exceptions: onchain_staking fuses collect+normalize, and
         # signal_emitter's endpoints are per-emitter (insider_clusters,
         # crowding, etc.) rather than the classic collect/normalize pair.
+        self.assertEqual(
+            set(RECURRING_ENDPOINTS),
+            {
+                "defillama",
+                "fred",
+                "sec",
+                "coingecko",
+                "onchain_staking",
+                "cftc",
+                "ishares",
+                "signal_emitter",
+            },
+        )
         emitter_exempt = {"signal_emitter"}
         for source, eps in RECURRING_ENDPOINTS.items():
             if source in emitter_exempt:

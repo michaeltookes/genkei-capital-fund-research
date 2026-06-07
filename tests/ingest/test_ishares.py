@@ -273,13 +273,8 @@ class ParseSnapshotsTests(unittest.TestCase):
         self.assertEqual(by_ticker["ETHB"].asset, "ETH")
         self.assertEqual(by_ticker["IBIT"].issuer, "BlackRock")
 
-    def test_snapshot_date_is_min_of_nav_and_tna_as_of(self) -> None:
-        """When nav_as_of != tna_as_of, snapshot_date is the EARLIER one.
-
-        Both fields are required to derive shares-outstanding honestly — if
-        TNA is stamped Jun 05 but NAV is stamped Jun 04, the derived shares
-        count is only knowable as of Jun 04.
-        """
+    def test_skips_mismatched_nav_and_tna_as_of_dates(self) -> None:
+        """NAV and TNA must be stamped with the same as-of date."""
         payload = {
             "333011": {
                 "localExchangeTicker": "IBIT",
@@ -293,8 +288,7 @@ class ParseSnapshotsTests(unittest.TestCase):
             },
         }
         snaps = parse_snapshots(payload, watchlist_etfs=[IBIT_WATCHLIST])
-        self.assertEqual(len(snaps), 1)
-        self.assertEqual(snaps[0].snapshot_date, date(2026, 6, 4))
+        self.assertEqual(snaps, [])
 
     def test_skips_entries_with_missing_required_fields(self) -> None:
         """An entry missing NAV / TNA / either as-of date is dropped silently."""
@@ -334,6 +328,25 @@ class ParseSnapshotsTests(unittest.TestCase):
         }
         snaps = parse_snapshots(payload, watchlist_etfs=[IBIT_WATCHLIST])
         self.assertEqual(snaps, [])
+
+    def test_skips_zero_or_negative_tna(self) -> None:
+        """TNA <= 0 is skipped before deriving shares-outstanding."""
+        for tna_value in (0.0, -1.0):
+            with self.subTest(tna_value=tna_value):
+                payload = {
+                    "333011": {
+                        "localExchangeTicker": "IBIT",
+                        "navAmount": {"d": "33.81", "r": 33.805916},
+                        "navAmountAsOf": {"d": "Jun 05, 2026", "r": 20260605},
+                        "totalNetAssets": {"d": str(tna_value), "r": tna_value},
+                        "totalNetAssetsFundAsOf": {
+                            "d": "Jun 05, 2026",
+                            "r": 20260605,
+                        },
+                    },
+                }
+                snaps = parse_snapshots(payload, watchlist_etfs=[IBIT_WATCHLIST])
+                self.assertEqual(snaps, [])
 
     def test_empty_payload_returns_empty(self) -> None:
         """An empty product-screener payload yields no snapshots."""

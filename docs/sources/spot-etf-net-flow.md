@@ -38,7 +38,7 @@ HEAD/GET probes against each major issuer's product page (Mozilla User-Agent, no
 
 iShares publishes a single public JSON feed covering all ~530 of their US ETFs:
 
-```
+```text
 https://www.ishares.com/us/product-screener/product-screener-v3.1.jsn
   ?dcrPath=/templatedata/config/product-screener-v3/data/en/us-ishares/ishares-product-screener-backend-config
   &siteEntryPassthrough=true
@@ -55,9 +55,9 @@ Returns a ~1.9 MB JSON object keyed by `portfolioId`. No auth, no Cloudflare, no
 
 **Derivation:**
 
-```
+```text
 shares_outstanding = totalNetAssets / navAmount
-net_flow_usd_day  = (shares_outstanding_today − shares_outstanding_yesterday) × close_price
+net_flow_usd_day  = (shares_outstanding_today - shares_outstanding_yesterday) x close_price
 ```
 
 For IBIT on 2026-06-05: shares_outstanding = 46_211_335_562 / 33.81 ≈ **1.367 billion shares**. Match against IBIT's market cap and the math is consistent.
@@ -82,17 +82,17 @@ Rationale:
 
 ## v1 acceptance criteria (revised from B-107 spec)
 
-- New ingester `genkei.ingest.ishares_etf_flows` reading the product-screener JSON above.
+- New ingester `genkei.ingest.ishares` reading the product-screener JSON above.
 - Lands raw blob in `meta.raw_blobs` per ingest run (one JSON blob covering all iShares products in a single fetch).
 - Normalizes the three crypto products into a new table `etf.fund_snapshots` keyed on `(ticker, snapshot_date)`:
-  - `ticker` (IBIT / ETHA / ETHB), `cik`, `cusip`, `isin`
-  - `snapshot_date` (= `navAmountAsOf`)
+  - `ticker` (IBIT / ETHA / ETHB), `cusip`, `isin`
+  - `snapshot_date` (= matching `navAmountAsOf` and `totalNetAssetsFundAsOf`)
   - `nav_per_share_usd` (`navAmount`)
   - `total_net_assets_usd` (`totalNetAssets`)
   - `shares_outstanding` (derived: `total_net_assets / nav_per_share`)
-  - `daily_net_flow_usd` (derived: `(shares_today − shares_yesterday) × close_today`, computed on insert via `LAG()` window in the normalizer)
   - `ingest_run_id` for audit
-- Daily cron in a new `ishares-daily.yml` workflow at ~22:00 UTC (after iShares publishes the T+1 NAV / TNA snapshot, before next-day open).
+- Daily net flow is derived at query time in `src/genkei/cli/etf_flows.py` as `(shares_today - shares_yesterday) x nav_today` via `LAG()`; it is not stored in `etf.fund_snapshots`.
+- Daily cron in `.github/workflows/ishares-daily.yml` at `0 13 * * *` (after iShares publishes the T+1 NAV / TNA snapshot, before next-day open).
 - `genkei watchlist health` monitors the source for staleness.
 - New typed CLI subcommand `genkei etf-flows --asset BTC --since 2026-06-07` returning the snapshot rows + derived net flow. Aliases `--asset ETH` for ETHA and ETHB.
 - Unit tests pin the extractor for the JSON-keyed payload (one record per crypto-relevant key) and the shares-outstanding derivation arithmetic.

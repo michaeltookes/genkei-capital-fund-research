@@ -315,7 +315,11 @@ class QueryNetFlowTests(unittest.TestCase):
         defaults = {"since": date(2026, 1, 1), "until": date(2026, 6, 7), "limit": 10}
         defaults.update(kwargs)
         with patch("genkei.cli.etf_flows.db.connection", return_value=FakeConn()):
-            _query_net_flow("BTC", **defaults)
+            _query_net_flow(
+                "BTC",
+                [("IBIT", date(2024, 1, 11)), ("FBTC", date(2024, 1, 11))],
+                **defaults,
+            )
         return str(captured["sql"]), list(captured["params"])
 
     def test_window_uses_lag_partitioned_by_ticker(self) -> None:
@@ -341,21 +345,23 @@ class QueryNetFlowTests(unittest.TestCase):
         self.assertGreater(outer_marker, window_marker)
 
     def test_params_order(self) -> None:
-        """Bound params are [asset, since, until, limit]."""
+        """Bound params are [asset, tickers, since, until, limit]."""
         _, params = self._capture_query()
         self.assertEqual(params[0], "BTC")
-        self.assertEqual(params[1], date(2026, 1, 1))
-        self.assertEqual(params[2], date(2026, 6, 7))
-        self.assertEqual(params[3], 10)
+        self.assertEqual(params[1], ["FBTC", "IBIT"])
+        self.assertEqual(params[2], date(2026, 1, 1))
+        self.assertEqual(params[3], date(2026, 6, 7))
+        self.assertEqual(params[4], 10)
 
     def test_since_only_binds_since(self) -> None:
         """When only --since is set, no until param is bound."""
         _, params = self._capture_query(until=None)
-        # asset, since, limit only — until omitted
-        self.assertEqual(len(params), 3)
+        # asset, tickers, since, limit only — until omitted
+        self.assertEqual(len(params), 4)
         self.assertEqual(params[0], "BTC")
-        self.assertEqual(params[1], date(2026, 1, 1))
-        self.assertEqual(params[2], 10)
+        self.assertEqual(params[1], ["FBTC", "IBIT"])
+        self.assertEqual(params[2], date(2026, 1, 1))
+        self.assertEqual(params[3], 10)
 
     def test_filters_by_asset_inside_subquery(self) -> None:
         """The asset filter goes INSIDE the subquery so the window is per-asset.
@@ -368,6 +374,12 @@ class QueryNetFlowTests(unittest.TestCase):
         # Subquery: "FROM etf.fund_snapshots WHERE asset = %s)" — closes the inner
         self.assertIn("FROM etf.fund_snapshots", sql)
         self.assertIn("asset = %s", sql)
+
+    def test_filters_by_watchlist_tickers_inside_subquery(self) -> None:
+        """Ticker filter keeps net-flow rows anchored to configured ETFs."""
+        sql, params = self._capture_query()
+        self.assertIn("ticker = ANY(%s::text[])", sql)
+        self.assertEqual(params[1], ["FBTC", "IBIT"])
 
 
 class FormatNetFlowHumanTests(unittest.TestCase):

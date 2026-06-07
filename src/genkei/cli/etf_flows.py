@@ -5,12 +5,12 @@ Two query modes, sharing the same ``--asset`` / ``--since`` / ``--until`` /
 
   * **default (B-105 v1)** — daily dollar-volume per asset, summed across
     every configured ETF in ``etf_tickers``. Data sourced from
-    ``yahoo.candles`` via ``SUM(volume × close)``. A *magnitude proxy* for
+    ``yahoo.candles`` via ``SUM(volume x close)``. A *magnitude proxy* for
     institutional activity, NOT signed net flow.
   * **--net-flow (B-107 v2)** — signed daily net flow per BlackRock ETF
     (IBIT, ETHA, ETHB) derived from the iShares product-screener feed in
-    ``etf.fund_snapshots``. ``net_flow_usd = (shares_today − shares_yesterday)
-    × nav_today`` computed via a SQL window function. This is the canonical
+    ``etf.fund_snapshots``. ``net_flow_usd = (shares_today - shares_yesterday)
+    x nav_today`` computed via a SQL window function. This is the canonical
     creations-vs-redemptions signal — see ``docs/sources/spot-etf-net-flow.md``
     for the v2 investigation.
 
@@ -290,6 +290,7 @@ def _format_per_ticker_human(asset: str, rows: list[dict[str, Any]], horizon_tag
 
 def _query_net_flow(
     asset: str,
+    targets: list[TickerLaunch],
     *,
     since: Optional[date],
     until: Optional[date],
@@ -297,7 +298,7 @@ def _query_net_flow(
 ) -> list[dict[str, Any]]:
     """Return signed-net-flow rows per BlackRock ETF for one underlying asset.
 
-    Net flow is derived at query time via ``(shares − LAG(shares)) × nav``.
+    Net flow is derived at query time via ``(shares - LAG(shares)) x nav``.
     Using ``LAG(shares) OVER (PARTITION BY ticker ORDER BY snapshot_date)``
     means the very first snapshot per ticker has a NULL ``shares_prev`` and
     therefore a NULL ``net_flow_usd`` row — that's intentional: net flow
@@ -309,6 +310,9 @@ def _query_net_flow(
     the predecessor snapshot exists. The outer ``WHERE`` clause filters the
     output rows after the window has resolved.
     """
+    tickers = sorted({ticker.strip().upper() for ticker, _ in targets if ticker.strip()})
+    if not tickers:
+        return []
     sql = (
         "SELECT * FROM ("
         "  SELECT ticker, snapshot_date, asset, issuer, "
@@ -319,11 +323,11 @@ def _query_net_flow(
         "     - LAG(shares_outstanding) OVER (PARTITION BY ticker ORDER BY snapshot_date)) "
         "    * nav_per_share_usd AS net_flow_usd "
         "  FROM etf.fund_snapshots "
-        "  WHERE asset = %s"
+        "  WHERE asset = %s AND ticker = ANY(%s::text[])"
         ") s "
         "WHERE 1=1"
     )
-    params: list[Any] = [asset]
+    params: list[Any] = [asset, tickers]
     if since is not None:
         sql += " AND snapshot_date >= %s"
         params.append(since)
@@ -409,7 +413,7 @@ def _format_net_flow_human(asset: str, rows: list[dict[str, Any]], horizon_tag: 
         )
     lines.append("")
     lines.append(
-        "  net_flow_mm = (shares_outstanding − shares_outstanding_prev) × nav, "
+        "  net_flow_mm = (shares_outstanding - shares_outstanding_prev) x nav, "
         "in USD millions. Signed: positive = net creations, negative = net redemptions."
     )
     return "\n".join(lines)
@@ -529,7 +533,11 @@ def etf_flows_cmd(
                 "per-ticker by design — every row is one ETF on one day)."
             )
         rows = _query_net_flow(
-            canonical_asset, since=since_d, until=until_d, limit=limit
+            canonical_asset,
+            targets,
+            since=since_d,
+            until=until_d,
+            limit=limit,
         )
     elif by_ticker:
         rows = _query_per_ticker(
