@@ -253,6 +253,17 @@ class ParseValidatorRowsTests(unittest.TestCase):
         self.assertEqual(by_name["Mysten-1"].apy, Decimal("0.015600"))
         self.assertEqual(by_name["Coinbase"].apy, Decimal("0.014300"))
 
+    def test_apy_epoch_mismatch_keeps_rows_with_null_apy(self) -> None:
+        """Do not stamp stale/next-epoch APYs onto current validator rows."""
+        apy_payload = dict(SAMPLE_APY_PAYLOAD)
+        apy_payload["epoch"] = "1150"
+
+        rows = parse_validator_rows(SAMPLE_SYSTEM_STATE, apy_payload)
+
+        self.assertEqual(len(rows), 2)
+        for r in rows:
+            self.assertIsNone(r.apy)
+
     def test_validator_without_apy_kept_with_null(self) -> None:
         """Missing APY is a soft signal-quality issue — keep the row, null the field.
 

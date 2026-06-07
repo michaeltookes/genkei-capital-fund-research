@@ -51,11 +51,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Drop the follow-up non-negative checks."""
-    op.execute(
-        """
-        ALTER TABLE onchain.sui_validators
-            DROP CONSTRAINT IF EXISTS sui_validators_next_epoch_stake_mist_nonnegative,
-            DROP CONSTRAINT IF EXISTS sui_validators_rewards_pool_mist_nonnegative
-        """
-    )
+    """Leave constraints in place because the base Sui table revision owns them."""
+    # This migration backfills constraints for databases that already applied the
+    # base table migration before the checks were added there. Fresh upgrades get
+    # the same named constraints from a6e7d8f9c012, so downgrading only this
+    # revision must preserve that revision's declared schema contract.
+    pass

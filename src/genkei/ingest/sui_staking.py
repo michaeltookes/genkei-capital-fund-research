@@ -181,10 +181,11 @@ def parse_validator_rows(
     """Decode the suix_getLatestSuiSystemState + suix_getValidatorsApy
     payloads into a list of per-validator snapshot rows.
 
-    Joins APY into each validator row by suiAddress = apys[].address. A
-    validator missing from the APY response is kept with apy=None rather
-    than dropped — the missing APY is a soft signal-quality issue, not a
-    reason to discard the staking/flow data we already have.
+    Joins same-epoch APY into each validator row by
+    suiAddress = apys[].address. A validator missing from the APY response is
+    kept with apy=None rather than dropped — the missing APY is a soft
+    signal-quality issue, not a reason to discard the staking/flow data we
+    already have.
     """
     if not isinstance(system_state, dict):
         raise ValueError(
@@ -210,8 +211,11 @@ def parse_validator_rows(
     # be empty (e.g. if the APY method is briefly unavailable); fall through.
     apy_by_address: dict[str, Decimal] = {}
     if isinstance(apy_payload, dict):
-        apys_list = apy_payload.get("apys")
-        if isinstance(apys_list, list):
+        apy_epoch = _coerce_int(apy_payload.get("epoch"))
+        if apy_epoch == epoch:
+            apys_list = apy_payload.get("apys")
+            if not isinstance(apys_list, list):
+                apys_list = []
             for entry in apys_list:
                 if not isinstance(entry, dict):
                     continue
@@ -225,6 +229,13 @@ def parse_validator_rows(
                     apy_by_address[addr] = Decimal(str(apy_value)).quantize(
                         Decimal("0.000001")
                     )
+        elif "apys" in apy_payload:
+            LOGGER.warning(
+                "Sui APY payload epoch %r does not match system state epoch %s; "
+                "leaving validator APY null",
+                apy_payload.get("epoch"),
+                epoch,
+            )
 
     rows: list[_ValidatorRow] = []
     for v in active:
