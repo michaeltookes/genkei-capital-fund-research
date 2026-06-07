@@ -68,6 +68,7 @@ METHOD_SYSTEM_STATE = "suix_getLatestSuiSystemState"
 METHOD_VALIDATORS_APY = "suix_getValidatorsApy"
 
 LOGGER = logging.getLogger(__name__)
+_SUI_VALIDATOR_CONFLICT_KEYS = ("epoch", "validator_address")
 
 
 @dataclass(frozen=True)
@@ -174,6 +175,11 @@ def _ms_to_utc_datetime(raw: Any) -> datetime | None:
         return None
 
 
+def _apy_payload_matches_epoch(apy_payload: Any, epoch: int) -> bool:
+    """Return true only when the APY payload can safely update same-epoch APYs."""
+    return isinstance(apy_payload, dict) and _coerce_int(apy_payload.get("epoch")) == epoch
+
+
 def parse_validator_rows(
     system_state: Any,
     apy_payload: Any,
@@ -211,8 +217,7 @@ def parse_validator_rows(
     # be empty (e.g. if the APY method is briefly unavailable); fall through.
     apy_by_address: dict[str, Decimal] = {}
     if isinstance(apy_payload, dict):
-        apy_epoch = _coerce_int(apy_payload.get("epoch"))
-        if apy_epoch == epoch:
+        if _apy_payload_matches_epoch(apy_payload, epoch):
             apys_list = apy_payload.get("apys")
             if not isinstance(apys_list, list):
                 apys_list = []
@@ -312,6 +317,19 @@ def _row_to_dict(
     }
 
 
+def _sui_validator_update_cols(
+    row: dict[str, Any],
+    *,
+    apy_payload: Any,
+    epoch: int,
+) -> list[str]:
+    """Columns to update on same-epoch conflicts for Sui validator snapshots."""
+    excluded = set(_SUI_VALIDATOR_CONFLICT_KEYS)
+    if not _apy_payload_matches_epoch(apy_payload, epoch):
+        excluded.add("apy")
+    return [col for col in row if col not in excluded]
+
+
 def collect(*, http: HttpClient | None = None) -> int:
     """Run the Sui staking collector once. Returns the meta.ingest_runs id.
 
@@ -405,7 +423,12 @@ def collect(*, http: HttpClient | None = None) -> int:
                     conn,
                     "onchain.sui_validators",
                     rows,
-                    conflict_keys=("epoch", "validator_address"),
+                    conflict_keys=_SUI_VALIDATOR_CONFLICT_KEYS,
+                    update_cols=_sui_validator_update_cols(
+                        rows[0],
+                        apy_payload=apy_payload,
+                        epoch=validator_rows[0].epoch,
+                    ),
                 )
             run.add_rows(written)
             LOGGER.info(

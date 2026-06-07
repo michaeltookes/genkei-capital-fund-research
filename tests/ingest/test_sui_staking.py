@@ -423,6 +423,50 @@ class CollectTests(unittest.TestCase):
         bulk_rows = bulk_upsert.call_args.args[2]
         self.assertEqual(len(bulk_rows), 2)
         self.assertTrue(all(row["apy"] is None for row in bulk_rows))
+        self.assertNotIn("apy", bulk_upsert.call_args.kwargs["update_cols"])
+        self.assertEqual(fake_run._added, 2)
+
+    def test_preserves_existing_apy_when_payload_epoch_mismatches(self) -> None:
+        """Stale APY payloads should not null prior APYs on same-epoch conflicts."""
+        stale_apy_payload = dict(SAMPLE_APY_PAYLOAD)
+        stale_apy_payload["epoch"] = "1150"
+
+        def fake_rpc_post(_http: object, method: str, params: object = None) -> object:
+            if method == METHOD_SYSTEM_STATE:
+                return SAMPLE_SYSTEM_STATE
+            if method == METHOD_VALIDATORS_APY:
+                return stale_apy_payload
+            raise AssertionError(f"unexpected method {method!r}")
+
+        class FakeRun:
+            id = 44
+
+            def add_rows(self, n: int) -> None:
+                self._added = n
+
+        fake_run = FakeRun()
+        with (
+            patch("genkei.ingest.sui_staking._rpc_post", side_effect=fake_rpc_post),
+            patch("genkei.ingest.sui_staking.db.ingest_run") as ingest_run_cm,
+            patch("genkei.ingest.sui_staking.db.record_partial_endpoints") as partial,
+            patch("genkei.ingest.sui_staking.db.store_raw_blob") as store_blob,
+            patch("genkei.ingest.sui_staking.db.connection") as connection_cm,
+            patch(
+                "genkei.ingest.sui_staking.db.bulk_upsert", return_value=2
+            ) as bulk_upsert,
+        ):
+            ingest_run_cm.return_value.__enter__.return_value = fake_run
+            ingest_run_cm.return_value.__exit__.return_value = False
+
+            self.assertEqual(collect(http=object()), 44)
+
+        partial.assert_not_called()
+        self.assertEqual(store_blob.call_count, 2)
+        connection_cm.assert_called_once()
+        bulk_rows = bulk_upsert.call_args.args[2]
+        self.assertEqual(len(bulk_rows), 2)
+        self.assertTrue(all(row["apy"] is None for row in bulk_rows))
+        self.assertNotIn("apy", bulk_upsert.call_args.kwargs["update_cols"])
         self.assertEqual(fake_run._added, 2)
 
     def test_records_parse_failures_before_reraising(self) -> None:
