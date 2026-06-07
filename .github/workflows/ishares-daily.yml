@@ -1,0 +1,55 @@
+name: iShares Daily ETF Snapshots
+
+# B-107 — pulls the iShares product-screener JSON feed and lands daily
+# NAV / total-net-assets / shares-outstanding snapshots for IBIT, ETHA,
+# ETHB into etf.fund_snapshots. Runs on the self-hosted Beelink runner
+# so it can reach the homelab Postgres on mission_control_net.
+#
+# iShares publishes T+1 snapshots — yesterday's close is available on
+# the feed by the next morning. A daily cron at 13:00 UTC (~9am ET)
+# catches the previous trading day's snapshot well after iShares has
+# published it. Idempotent via (ticker, snapshot_date) PK so a missed
+# run is harmless: the next run upserts the same snapshot.
+#
+# No backfill input — the product-screener feed only returns the current
+# snapshot, not historical NAVs. Historical backfill is a v2.1 follow-up
+# via SEC 10-Q quarter-end shares-outstanding extraction.
+
+on:
+  schedule:
+    - cron: "0 13 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    name: iShares product-screener collect (Postgres-backed)
+    runs-on: [self-hosted, beelink]
+    timeout-minutes: 10
+    env:
+      GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+
+      - name: Apply database migrations
+        run: alembic upgrade head
+
+      - name: Collect iShares ETF snapshots into etf.fund_snapshots
+        run: |
+          python3 -m genkei.ingest.ishares
