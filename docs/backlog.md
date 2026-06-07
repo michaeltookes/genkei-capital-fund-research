@@ -194,6 +194,25 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Original B-105 spec (resolved 2026-06-03) for the Farside + SoSoValue Cloudflare findings.
   - Yahoo `quoteSummary` is auth-gated; B-092's existing chart-only path is what unblocked v1.
 
+### B-112 — Add QQQ as secondary peer for equity rel-strength (B-111 v2)
+- **Status:** open
+- **Priority:** medium
+- **Context:** B-111 shipped with SPY as the single fixed peer for every watchlist equity. SPY (~30% tech weight, S&P 500) is the right baseline for broad-market underperformance, but for tech-heavy names (semis, software, cloud, data, fintech, crypto-equity) the more meaningful comp is QQQ (Nasdaq-100, ~50% tech weight). The 2025-09 / Q4 2025 hyperscaler rotation that pulled MSFT / GOOG / META up while underweighted-AI names (CRM / ADBE / WDAY) lagged would have produced *different* rel-strength signals against SPY vs QQQ — and the QQQ-relative read is the better one for the tech sub-cohort because it isolates "this name is lagging its tech peers" rather than "this name is lagging the broad market." The 2026-06-05 SaaS sector decision deferred QQQ to v2 explicitly; B-112 ships v2.
+- **Design choice — sector-routed (one peer per asset):**
+  - Each watchlist equity routes to EXACTLY ONE peer based on its `sector` field. Tech-comp sectors → QQQ; everything else → SPY. The alternative ("every equity → both peers, producing 2 events per crossing") was considered but rejected: it doubles event volume without adding signal precision, and the routing is the genuine v2 design surface this branch introduces.
+  - QQQ-routing keyword list (case-insensitive substring match against `sector`): `technology`, `software`, `semi`, `internet`, `cloud`, `data`, `server`, `fintech`, `crypto`, `bitcoin`, `ev`. The list is calibrated against the current watchlist's sector strings (covers AAPL / MSFT / GOOG / GOOGL / AMZN / META / NVDA / AMD / AVGO / MU / SMCI / TSM / CRM / NOW / ADBE / WDAY / SNOW / DOCN / PLTR / SOFI / HOOD / COIN / MSTR / TSLA + bitcoin-mining names). SPY-routed remainder: JPM (Banking), V (Payments), UBER (Mobility), CCJ (Mining / uranium), oil & gas, plus any future non-tech additions. Keyword list lives in the emitter module so a re-tune shows up in git blame.
+  - `EquityEntry` dataclass extended with `sector: str | None = None`. The watchlist YAML has always carried `sector:` per equity entry but the parser hasn't surfaced it; B-112 connects the existing field through to the routing.
+- **Acceptance criteria:**
+  - `genkei.common.watchlist.EquityEntry` gains a `sector` field; `load_watchlist` populates it from the existing YAML `sector:` key.
+  - `genkei.experiments.emitters.equity_relative_strength_emitter` gains a `QQQ_SECTOR_KEYWORDS` constant + a `_peer_for_sector(sector)` helper that returns `"QQQ"` or `"SPY"`.
+  - The emitter pre-loads both SPY + QQQ price series at the top of `emit_recent_crossings`, then per-asset uses the right peer. `source_ref` naturally disambiguates: `<ticker>:<peer>:30d:<crossing_iso>` already encodes the peer code so SPY + QQQ events on the same asset don't collide on natural key.
+  - The existing two `equity_rel_strength_*` rules in `signal_rules.yml` consume `equity_relative_strength` events regardless of peer — no rule changes needed; either peer's `laggard_crossing` paired with an `insider_clusters/sell_cluster` fires the bear stack.
+  - Unit tests: verify `EquityEntry.sector` is parsed; verify `_peer_for_sector` classifies the current watchlist's sector strings correctly (CRM/NOW/ADBE/WDAY → QQQ; JPM/V → SPY; semis → QQQ; fintech → QQQ); verify QQQ-routed events carry `peer=QQQ` in payload + source_ref; verify SPY-routed events still carry `peer=SPY`.
+  - Calibration run against the homelab DB; spot-check that semiconductor names (NVDA / AMD / AVGO / MU) and SaaS names (CRM / NOW / ADBE / WDAY) now produce QQQ-relative signals.
+- **Out of scope (file separately if pursued):**
+  - Per-entry `peer:` override field in watchlists.yml for edge cases where the sector keyword doesn't classify cleanly. Sector-based routing covers the current cohort; add the override only if a future watchlist addition forces it.
+  - Peer-specific stack rules (e.g. `equity_rel_strength_exit_qqq` that requires the laggard came from a tech-cohort comp specifically). v3 once the dual-peer data settles.
+  - Generalizing the `genkei relative-strength` CLI to equities (deferred from B-111).
 
 ### B-032 — EIA energy data ingester
 - **Status:** open
