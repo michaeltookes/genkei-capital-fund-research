@@ -175,24 +175,28 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Unit tests pin the Etherscan v2 response parser + the 24h-net-flow computation (sum of incoming txns minus sum of outgoing txns, with ETH-only filter; ERC-20 transfers ignored for v1).
   - **Known limitations**: (a) the address-list is necessarily incomplete — true whales obfuscate via fresh wallets; (b) exchange cold wallets aggregate many users so "exchange net inflow" doesn't equal "users buying" — exchange flows often reverse the intuitive sign; (c) Etherscan rate limits will cap address-list size at ~500 addresses per daily run. Document these limits in the writeup so users don't over-read the data.
 
-### B-107 — Spot ETF true net flow via SEC EDGAR (v2 of B-105)
+### B-113 — Multi-issuer expansion of spot ETF net flow (B-107 v2.1)
 - **Status:** open
-- **Priority:** medium
-- **Context:** B-105 v1 shipped 2026-06-03 as "daily-dollar-volume per asset" via Yahoo OHLCV — a magnitude proxy for institutional ETF activity, NOT signed net flow. The pivot from the original Farside spec was forced by Cloudflare-walled scrape sources (Farside + SoSoValue) and Yahoo's auth-gated `quoteSummary` (which has shares-outstanding). The institutional-flow gap that drove the 2026-06-02 ETH/SOL/SUI research sessions is partially closed by B-105 v1 (we now see *if* ETF trading volume is heavy) but NOT fully closed (we don't see *if* creations exceed redemptions on a given day — the canonical "is money flowing in or out?" question). This item pursues the missing piece via the primary-source path: SEC EDGAR daily filings.
-- **Investigation required before kickoff:**
-  - Which SEC form(s) carry daily creation/redemption baskets or daily NAV+shares-outstanding for spot ETFs? Candidates: N-CEN (annual), N-PORT (quarterly, too slow), Form 8937 (corporate actions), Form NT-NCEN, Form NPX (annual). May require reading actual IBIT / FBTC filings to map.
-  - Each ETF issuer also publishes daily NAV + shares-outstanding on their own product page (e.g. ishares.com/us/products/333011/IBIT). Whether those pages are Cloudflare-walled like Farside or directly scrape-able needs probing — IBIT alone may be ~250 trading days × 1.5y = ~400 calls for a backfill, manageable if it works.
-  - Does Coinbase's institutional product feed have a free tier for ETF creation/redemption data? (Likely no, but worth a quick check.)
-- **Acceptance criteria (v2, draft — refine after investigation):**
-  - Per-ETF per-day shares-outstanding from a primary or near-primary source (SEC or issuer page).
-  - Derived net flow = (shares_outstanding_today − shares_outstanding_yesterday) × close.
-  - Lands in a new schema, e.g. `etf.net_flows`, keyed on `(ticker, flow_date)`. The B-105 v1 `dollar_volume_usd_mm` column remains the activity-magnitude proxy; this new column is the signed direction.
-  - Daily cron alongside `yahoo-daily.yml`; backfill per ticker from the ETF launch date forward.
-  - `genkei etf-flows --asset BTC --net-flow` shows the signed column; default behavior stays on `dollar_volume_usd_mm` so v1 callers don't break.
-  - Unit tests pin the shares-outstanding extractor for whichever source is chosen.
-- **References:**
-  - Original B-105 spec (resolved 2026-06-03) for the Farside + SoSoValue Cloudflare findings.
-  - Yahoo `quoteSummary` is auth-gated; B-092's existing chart-only path is what unblocked v1.
+- **Priority:** low
+- **Context:** B-107 v1 shipped 2026-06-07 covering BlackRock-issued ETFs only (IBIT / ETHA / ETHB) via the iShares product-screener JSON. That's the dominant share of spot crypto ETF AUM (IBIT alone is ~$46B vs ~$60B total spot BTC ETF AUM as of 2026-06-05), but a complete net-flow picture needs the other major issuers. Phase 1 investigation (see `docs/sources/spot-etf-net-flow.md`) showed mixed accessibility: ARKB is Cloudflare-walled, GBTC rate-limits scripted access, FBTC URL is not yet identified, BITB plausible but unprobed. Each issuer needs its own ingester or scrape path.
+- **Acceptance criteria:**
+  - Per-issuer ingester(s) landing rows into the existing `etf.fund_snapshots` table (no schema changes — the table was designed to extend cleanly).
+  - At least one additional issuer's full daily NAV + shares-outstanding (or shares-outstanding alone, computed against `yahoo.candles` close).
+  - Watchlist health monitors each new issuer source.
+  - Unit tests for the per-issuer extractor.
+- **Out of scope:**
+  - 10-Q quarter-end shares-outstanding triangulation — file separately if pursued (it's a different code path than the daily issuer-page scrapes).
+
+### B-114 — SEC 10-Q quarter-end ETF shares-outstanding backfill (B-107 v2.1)
+- **Status:** open
+- **Priority:** low
+- **Context:** B-107 v1's iShares product-screener ingester only fetches the current daily snapshot — there's no backfill path from that endpoint. Historical daily NAV / shares-outstanding lives elsewhere (likely behind iShares's JS-rendered chart widgets or a paid feed). However, the SEC 10-Q quarterly filings DO contain point-in-time shares-outstanding at quarter end — 4 checkpoints per year per ETF, going back to inception (IBIT: 2024-01-11 → 10 quarters as of mid-2026). Extracting those would let us reconstruct historical AUM trajectory (not daily flows, but quarterly drift) and triangulate against the daily snapshots once they accumulate.
+- **Acceptance criteria:**
+  - 10-Q parser extracting shares-outstanding as of report-period-end for IBIT / ETHA / ETHB (and any future watchlist BlackRock ETFs).
+  - Lands rows in `etf.fund_snapshots` keyed on the report-period-end date (which is always quarter-end) with an explicit `source_endpoint` marker distinguishing 10-Q-derived rows from daily-feed rows.
+  - Unit tests pin the 10-Q XBRL extraction.
+- **Out of scope:**
+  - Backfilling daily NAV / TNA between quarter-end points — that's the gap a paid feed would fill; not pursuing today per the "free/open sources only" stance.
 
 ### B-032 — EIA energy data ingester
 - **Status:** open
