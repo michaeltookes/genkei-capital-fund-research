@@ -233,18 +233,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - If a free source emerges or a paid budget opens: schema + collector for cross-oracle TVS share over time, by protocol category (price feeds, randomness, CCIP-style cross-chain).
   - Pair with B-081 once both exist — would let `genkei query` join LINK's TVS share against competitors' over the same time series.
 
-### B-088 — Sui on-chain validator + staking-flow ingester
-- **Status:** open
-- **Priority:** medium
-- **Context:** Surfaced by the SUI /research session (2026-05-20). Equivalent to the LINK B-082 ingester on Ethereum, but for the Sui consensus stake. The session noted "no Sui-chain validator / staking flow" as the second-biggest data gap on crypto-tactical assets — without it, "are stakers committing more capital or unbonding" is unanswerable, which is exactly the signal that would distinguish a Sui-chain bottom from a death-rattle. Blockvision (`https://docs.blockvision.org/reference/rpc-node-for-sui`) exposes a managed Sui JSON-RPC endpoint that supports the standard `suix_getLatestSuiSystemState`, `suix_getValidatorsApy`, `suix_getCommitteeInfo`, and `suix_getStakes` methods — the natural source for validator + staking data. Mirrors the precedent set by B-082's Etherscan-V2-keyed collector for LINK.
-- **Acceptance criteria:**
-  - Verify Blockvision's free-tier availability + rate limits for the Sui RPC endpoint. Document the key registration flow (likely BLOCKVISION_API_KEY env var pattern, mirroring ETHERSCAN_API_KEY in B-082). If a key is required, follow the D-020 graceful-skip-when-no-key pattern: collector records a successful run with 0 rows + loud warning rather than failing the daily cron.
-  - New schema (`onchain.sui_validators` or extend `onchain.staking_events` with a `chain` discriminator column — pick the cleaner of the two given B-086's pending generalization work). Capture per-epoch validator state (`validator_address`, `voting_power`, `stake_amount`, `commission_rate`, `apy`) and per-epoch staking flow (delta vs prior epoch).
-  - New collector module `src/genkei/ingest/sui_staking.py` following the B-082 shape: `PoolConfig`-style parameterization for future multi-chain reuse, soft per-epoch failure, incremental + `--backfill` modes.
-  - `genkei watchlist health` surfaces the new source with the same loud OK / STALE / FAIL / MISSING / EMPTY semantics as the other sources.
-  - `genkei query` against the new table answers "is total Sui staked SUI growing or shrinking over the last 30 days" without needing custom code.
-  - Update the SUI /research decision file's "Backlog implications" note to point at the resolved item.
-
 ### B-089 — SUI token unlock / vesting schedule data source
 - **Status:** open
 - **Priority:** medium
