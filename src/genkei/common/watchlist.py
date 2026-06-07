@@ -48,6 +48,13 @@ class EquityEntry:
     # as the 13F crowding monitor needs each ticker; entries without a
     # CUSIP still work for everything else (Form 4, 8-K event study, etc.).
     cusip: str | None = None
+    # Free-text sector classification (e.g. "Enterprise software",
+    # "Semiconductors", "Banking"). Originally informational only; B-112
+    # promoted it to the peer-routing input for the equity rel-strength
+    # emitter (tech-comp sectors → QQQ; everything else → SPY). The YAML
+    # has carried this field for every equity entry since the watchlist
+    # was first populated; B-112 connects it through to the dataclass.
+    sector: str | None = None
 
 
 @dataclass(frozen=True)
@@ -365,6 +372,7 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                         tier=str(tier_name),
                         sleeve=str(entry.get("sleeve") or "core"),
                         cusip=cusip,
+                        sector=_optional_string(entry.get("sector")),
                     )
                 )
 
