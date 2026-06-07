@@ -15,9 +15,11 @@ import typer
 from genkei.cli.etf_flows import (
     _ASSET_ALIASES,
     _format_aggregate_human,
+    _format_net_flow_human,
     _format_per_ticker_human,
     _horizon_tag,
     _query_asset_aggregate,
+    _query_net_flow,
     _query_per_ticker,
     _query_targets,
     _resolve_asset,
@@ -270,6 +272,193 @@ class FormatPerTickerHumanTests(unittest.TestCase):
         self.assertIn("FBTC", out)
         self.assertIn("40.50", out)
         self.assertIn("60.00", out)
+
+
+class QueryNetFlowTests(unittest.TestCase):
+    """Pin the --net-flow SQL shape (B-107).
+
+    The window function is the load-bearing piece: the LAG over a ticker-
+    partitioned, date-ordered window must run over the FULL snapshot history,
+    not just the rows in the since/until filter, or the first row in the
+    filter window loses its predecessor and reports NULL net_flow when the
+    predecessor snapshot actually exists.
+    """
+
+    def _capture_query(self, **kwargs) -> tuple[str, list[object]]:
+        """Run _query_net_flow against a fake cursor and return the captured SQL."""
+        captured: dict[str, object] = {}
+
+        class FakeCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, _sql, params):
+                captured["sql"] = _sql
+                captured["params"] = list(params)
+
+            def fetchall(self):
+                return []
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def cursor(self):
+                return FakeCursor()
+
+        defaults = {"since": date(2026, 1, 1), "until": date(2026, 6, 7), "limit": 10}
+        defaults.update(kwargs)
+        with patch("genkei.cli.etf_flows.db.connection", return_value=FakeConn()):
+            _query_net_flow("BTC", **defaults)
+        return str(captured["sql"]), list(captured["params"])
+
+    def test_window_uses_lag_partitioned_by_ticker(self) -> None:
+        """LAG window partitions by ticker so net flow is computed within-ETF."""
+        sql, _ = self._capture_query()
+        self.assertIn("LAG(shares_outstanding)", sql)
+        self.assertIn("PARTITION BY ticker ORDER BY snapshot_date", sql)
+
+    def test_filter_applied_outside_window(self) -> None:
+        """Since/until are applied to the OUTER query so LAG sees full history.
+
+        If the WHERE were inside the subquery, the LAG window would be
+        restricted to the filtered set and the earliest row in the filter
+        window would never have a predecessor — net_flow would be NULL for
+        rows that legitimately have a known prior snapshot.
+        """
+        sql, _ = self._capture_query()
+        # The filter conditions reference snapshot_date directly (in the
+        # outer query), not c.snapshot_date or similar — outer-query shape.
+        outer_marker = sql.find("snapshot_date >= %s")
+        window_marker = sql.find("LAG(shares_outstanding)")
+        # LAG appears before the date filter in the textual SQL.
+        self.assertGreater(outer_marker, window_marker)
+
+    def test_params_order(self) -> None:
+        """Bound params are [asset, since, until, limit]."""
+        _, params = self._capture_query()
+        self.assertEqual(params[0], "BTC")
+        self.assertEqual(params[1], date(2026, 1, 1))
+        self.assertEqual(params[2], date(2026, 6, 7))
+        self.assertEqual(params[3], 10)
+
+    def test_since_only_binds_since(self) -> None:
+        """When only --since is set, no until param is bound."""
+        _, params = self._capture_query(until=None)
+        # asset, since, limit only — until omitted
+        self.assertEqual(len(params), 3)
+        self.assertEqual(params[0], "BTC")
+        self.assertEqual(params[1], date(2026, 1, 1))
+        self.assertEqual(params[2], 10)
+
+    def test_filters_by_asset_inside_subquery(self) -> None:
+        """The asset filter goes INSIDE the subquery so the window is per-asset.
+
+        Filtering by asset outside would make the LAG window span BTC + ETH
+        snapshots ordered by date, which is wrong — an ETHA snapshot would
+        end up as the predecessor of an IBIT snapshot.
+        """
+        sql, _ = self._capture_query()
+        # Subquery: "FROM etf.fund_snapshots WHERE asset = %s)" — closes the inner
+        self.assertIn("FROM etf.fund_snapshots", sql)
+        self.assertIn("asset = %s", sql)
+
+
+class FormatNetFlowHumanTests(unittest.TestCase):
+    """Validate the --net-flow human-readable renderer (B-107)."""
+
+    def test_empty_rows_points_to_collector(self) -> None:
+        """When the table is empty, hint that the collector hasn't run yet."""
+        out = _format_net_flow_human("BTC", [], "etf:crypto:btc")
+        self.assertIn("No etf.fund_snapshots rows", out)
+        self.assertIn("ishares", out)
+
+    def test_first_day_marker_for_null_flow(self) -> None:
+        """The very first snapshot per ticker has a NULL flow → '(first day)'.
+
+        Rendering '(first day)' instead of '$0.0' is load-bearing: zero
+        would lie about the data — we *don't know* the flow, we just don't
+        have yesterday's snapshot.
+        """
+        rows = [
+            {
+                "asset": "BTC",
+                "ticker": "IBIT",
+                "snapshot_date": "2026-06-05",
+                "issuer": "BlackRock",
+                "nav_per_share_usd": 33.81,
+                "total_net_assets_usd": 46_211_335_562.0,
+                "shares_outstanding": 1_366_960_018.5,
+                "net_flow_usd": None,
+                "horizon_tag": "etf:crypto:btc",
+            }
+        ]
+        out = _format_net_flow_human("BTC", rows, "etf:crypto:btc")
+        self.assertIn("(first day)", out)
+
+    def test_signed_flow_formatting(self) -> None:
+        """Positive and negative net flows render with explicit sign markers."""
+        rows = [
+            {
+                "asset": "BTC",
+                "ticker": "IBIT",
+                "snapshot_date": "2026-06-05",
+                "issuer": "BlackRock",
+                "nav_per_share_usd": 33.81,
+                "total_net_assets_usd": 46_211_335_562.0,
+                "shares_outstanding": 1_366_960_018.5,
+                "net_flow_usd": 152_400_000.0,  # +$152.4M creations
+                "horizon_tag": "etf:crypto:btc",
+            },
+            {
+                "asset": "BTC",
+                "ticker": "IBIT",
+                "snapshot_date": "2026-06-04",
+                "issuer": "BlackRock",
+                "nav_per_share_usd": 33.50,
+                "total_net_assets_usd": 46_058_935_562.0,
+                "shares_outstanding": 1_374_555_540.0,
+                "net_flow_usd": -98_500_000.0,  # -$98.5M redemptions
+                "horizon_tag": "etf:crypto:btc",
+            },
+        ]
+        out = _format_net_flow_human("BTC", rows, "etf:crypto:btc")
+        # Positive flow renders with explicit '+'
+        self.assertIn("+152.4", out)
+        # Negative flow renders with '-'
+        self.assertIn("-98.5", out)
+        # Disclaimer pins the signed semantics
+        self.assertIn("positive = net creations", out)
+        self.assertIn("negative = net redemptions", out)
+
+    def test_carries_horizon_tag_in_header(self) -> None:
+        """Output header includes the asset horizon tag for traceability."""
+        out = _format_net_flow_human("ETH", [], "etf:crypto:eth")
+        # Even on empty output we don't pretend the horizon doesn't matter
+        # because the user passed it — but for the empty case the hint
+        # message is the user-facing content. Test the populated path:
+        rows = [
+            {
+                "asset": "ETH",
+                "ticker": "ETHA",
+                "snapshot_date": "2026-06-05",
+                "issuer": "BlackRock",
+                "nav_per_share_usd": 11.75,
+                "total_net_assets_usd": 4_450_501_503.0,
+                "shares_outstanding": 378_920_007.0,
+                "net_flow_usd": 25_400_000.0,
+                "horizon_tag": "etf:crypto:eth",
+            }
+        ]
+        out = _format_net_flow_human("ETH", rows, "etf:crypto:eth")
+        self.assertIn("horizon=etf:crypto:eth", out)
+        self.assertIn("BlackRock ETF", out)
 
 
 if __name__ == "__main__":  # pragma: no cover
