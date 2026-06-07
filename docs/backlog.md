@@ -194,7 +194,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Original B-105 spec (resolved 2026-06-03) for the Farside + SoSoValue Cloudflare findings.
   - Yahoo `quoteSummary` is auth-gated; B-092's existing chart-only path is what unblocked v1.
 
-
 ### B-032 — EIA energy data ingester
 - **Status:** open
 - **Priority:** medium

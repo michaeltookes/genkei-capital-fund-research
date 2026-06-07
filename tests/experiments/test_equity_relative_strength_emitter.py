@@ -17,17 +17,26 @@ from genkei.experiments.emitters.equity_relative_strength_emitter import (
     LEADER_THRESHOLD_PCT,
     PEER_SYMBOL,
     PEER_TICKER,
+    QQQ_SECTOR_KEYWORDS,
+    QQQ_SYMBOL,
+    QQQ_TICKER,
+    SPY_SYMBOL,
+    SPY_TICKER,
     STRENGTH_SATURATION_PP,
     WINDOW_DAYS,
     Crossing,
     _build_event,
     _date_ts,
+    _delete_superseded_spy_peer_events,
     _detect_crossings,
     _equity_assets,
     _load_price_series,
+    _normalize_sector_text,
+    _peer_for_sector,
     _state_for,
     _strength_from_rel_strength,
     compute_daily_relative_strength,
+    emit_recent_crossings,
 )
 from genkei.experiments.relative_strength import PricePoint
 
@@ -38,14 +47,17 @@ WATCHLIST_YAML = (
     "    - symbol: CRM\n"
     "      cik: '0001108524'\n"
     "      name: Salesforce, Inc.\n"
+    "      sector: Enterprise software\n"
     "      sleeve: core\n"
     "    - symbol: NOW\n"
     "      cik: '0001373715'\n"
     "      name: ServiceNow, Inc.\n"
+    "      sector: Enterprise software\n"
     "      sleeve: core\n"
     "    - symbol: AAPL\n"
     "      cik: '0000320193'\n"
     "      name: Apple Inc.\n"
+    "      sector: Consumer technology\n"
     "      sleeve: core\n"
     "benchmarks:\n"
     "  - symbol: SPY\n"
@@ -84,9 +96,21 @@ class ConstantsTests(unittest.TestCase):
         self.assertEqual(STRENGTH_SATURATION_PP, Decimal("15"))
 
     def test_peer_is_spy(self) -> None:
-        """SPY remains the fixed equity benchmark."""
+        """Back-compat aliases default to SPY (B-111 contract preserved)."""
+        # PEER_TICKER / PEER_SYMBOL stayed as back-compat aliases pointing
+        # at SPY so any caller imported them under the B-111 single-peer
+        # design continues to behave identically.
         self.assertEqual(PEER_TICKER, "SPY")
         self.assertEqual(PEER_SYMBOL, "SPY")
+
+    def test_explicit_peer_constants_are_defined(self) -> None:
+        """B-112 introduces explicit SPY_*/QQQ_* constants."""
+        # The dual-peer design needs both tickers named explicitly so
+        # the source_ref + payload code can reference them by name.
+        self.assertEqual(SPY_TICKER, "SPY")
+        self.assertEqual(SPY_SYMBOL, "SPY")
+        self.assertEqual(QQQ_TICKER, "QQQ")
+        self.assertEqual(QQQ_SYMBOL, "QQQ")
 
     def test_emitter_source_is_distinct_from_crypto(self) -> None:
         """Equity and crypto relative-strength sources do not collide."""
@@ -387,17 +411,17 @@ class EquityAssetsTests(unittest.TestCase):
         """Watchlist equities are returned without benchmark symbols."""
         watchlist = _load_watchlist()
         assets = _equity_assets(watchlist)
-        tickers = sorted({t for t, _ in assets})
+        tickers = sorted({t for t, _, _ in assets})
         # The 3 equities under primary; SPY is in benchmarks not equities,
         # so it isn't iterated. (Defense-in-depth: if someone moves SPY
         # to equities it still gets filtered out by ticker.)
         self.assertEqual(tickers, ["AAPL", "CRM", "NOW"])
 
-    def test_filters_spy_when_it_collides_with_equity(self) -> None:
-        """SPY is filtered even if accidentally listed as an equity."""
-        # Defensive pin: if a future contributor adds SPY to equities by
-        # accident, the emitter filters it out (otherwise the emitter
-        # would try to compute SPY vs SPY rel-strength).
+    def test_filters_spy_and_qqq_when_they_collide_with_equity(self) -> None:
+        """SPY / QQQ are filtered even if accidentally listed as equities."""
+        # Defensive pin: if a future contributor adds SPY or QQQ to
+        # equities by accident, the emitter filters them out (otherwise
+        # the emitter would try to compute peer-vs-peer rel-strength).
         yaml = (
             "version: 1\n"
             "equities:\n"
@@ -405,10 +429,17 @@ class EquityAssetsTests(unittest.TestCase):
             "    - symbol: SPY\n"
             "      name: oops shouldn't be here\n"
             "      cik: '0000884394'\n"
+            "      sector: Broad market ETF\n"
+            "      sleeve: core\n"
+            "    - symbol: QQQ\n"
+            "      name: also shouldn't be here\n"
+            "      cik: '0000000000'\n"
+            "      sector: Tech ETF\n"
             "      sleeve: core\n"
             "    - symbol: CRM\n"
             "      cik: '0001108524'\n"
             "      name: Salesforce\n"
+            "      sector: Enterprise software\n"
             "      sleeve: core\n"
         )
         with TemporaryDirectory() as tmp:
@@ -416,7 +447,7 @@ class EquityAssetsTests(unittest.TestCase):
             path.write_text(yaml, encoding="utf-8")
             watchlist = load_watchlist(path)
         assets = _equity_assets(watchlist)
-        self.assertEqual({t for t, _ in assets}, {"CRM"})
+        self.assertEqual({t for t, _, _ in assets}, {"CRM"})
 
     def test_passes_through_sleeve_to_horizon_routing(self) -> None:
         """Equity sleeve values pass through for horizon construction."""
@@ -430,24 +461,369 @@ class EquityAssetsTests(unittest.TestCase):
             "    - symbol: CRM\n"
             "      cik: '0001108524'\n"
             "      name: Salesforce\n"
+            "      sector: Enterprise software\n"
             "      sleeve: core\n"
             "    - symbol: TACTICAL_EQUITY\n"
             "      cik: '0000000000'\n"
             "      name: Hypothetical tactical equity\n"
+            "      sector: Banking\n"
             "      sleeve: tactical\n"
         )
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "watchlists.yml"
             path.write_text(yaml, encoding="utf-8")
             watchlist = load_watchlist(path)
-        assets = dict(_equity_assets(watchlist))
-        self.assertEqual(assets["CRM"], "core")
-        self.assertEqual(assets["TACTICAL_EQUITY"], "tactical")
+        sleeves = {ticker: sleeve for ticker, sleeve, _ in _equity_assets(watchlist)}
+        self.assertEqual(sleeves["CRM"], "core")
+        self.assertEqual(sleeves["TACTICAL_EQUITY"], "tactical")
+
+    def test_emits_peer_per_asset_based_on_sector(self) -> None:
+        """Sector-routed peer assignment (B-112) — CRM/AAPL → QQQ; JPM → SPY."""
+        yaml = (
+            "version: 1\n"
+            "equities:\n"
+            "  primary:\n"
+            "    - symbol: CRM\n"
+            "      cik: '0001108524'\n"
+            "      name: Salesforce\n"
+            "      sector: Enterprise software\n"
+            "      sleeve: core\n"
+            "    - symbol: AAPL\n"
+            "      cik: '0000320193'\n"
+            "      name: Apple\n"
+            "      sector: Consumer technology\n"
+            "      sleeve: core\n"
+            "    - symbol: JPM\n"
+            "      cik: '0000019617'\n"
+            "      name: JPMorgan\n"
+            "      sector: Banking\n"
+            "      sleeve: core\n"
+        )
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(yaml, encoding="utf-8")
+            watchlist = load_watchlist(path)
+        peers = {ticker: peer for ticker, _, peer in _equity_assets(watchlist)}
+        self.assertEqual(peers["CRM"], "QQQ")
+        self.assertEqual(peers["AAPL"], "QQQ")
+        self.assertEqual(peers["JPM"], "SPY")
 
 
 # ---------------------------------------------------------------------------
 # Small _date_ts pin.
 # ---------------------------------------------------------------------------
+
+
+class PeerForSectorTests(unittest.TestCase):
+    """B-112: sector-routed peer assignment.
+
+    Each watchlist equity goes to QQQ if its lowercased sector string
+    contains any of QQQ_SECTOR_KEYWORDS; otherwise to SPY. The keyword
+    list was calibrated against the live watchlist's sector strings;
+    these tests cover every distinct sector in the current watchlist so
+    a future contributor reordering or shortening the keyword list
+    sees the regression immediately rather than at the next emitter run.
+    """
+
+    def test_missing_sector_defaults_to_spy(self) -> None:
+        """Missing sector labels fall back to the broad-market peer."""
+        # No sector → broad-market default (safe fallback when
+        # classification is unknown).
+        self.assertEqual(_peer_for_sector(None), "SPY")
+        self.assertEqual(_peer_for_sector(""), "SPY")
+        self.assertEqual(_peer_for_sector("   "), "SPY")
+
+    def test_technology_sectors_route_to_qqq(self) -> None:
+        """Current technology sector labels route to QQQ."""
+        # AAPL ("Consumer technology") through to all the
+        # software / cloud / internet / semis / data / server names.
+        for sector in (
+            "Consumer technology",
+            "Software / cloud",
+            "Internet / cloud / AI",
+            "E-commerce / cloud",
+            "Internet / advertising / AI",
+            "Semiconductors",
+            "Semiconductors / software",
+            "Semiconductors / memory",
+            "Semiconductors / foundry",
+            "Server systems",
+            "Enterprise software",
+            "Data platform",
+            "Data / defense software",
+            "Cloud infrastructure",
+        ):
+            with self.subTest(sector=sector):
+                self.assertEqual(_peer_for_sector(sector), "QQQ")
+
+    def test_fintech_crypto_bitcoin_ev_route_to_qqq(self) -> None:
+        """Nasdaq-correlated non-obvious tech labels route to QQQ."""
+        # The "non-obviously-tech" sectors that the user wanted in the
+        # QQQ-comp bucket because they're Nasdaq-correlated.
+        for sector in (
+            "Consumer fintech",
+            "Brokerage / fintech",
+            "Crypto exchange",
+            "Bitcoin treasury",
+            "Bitcoin mining",
+            "EV / energy",
+            "EV/energy",
+            "EV  /   energy",
+        ):
+            with self.subTest(sector=sector):
+                self.assertEqual(_peer_for_sector(sector), "QQQ")
+
+    def test_broad_market_sectors_route_to_spy(self) -> None:
+        """Non-tech sector labels route to the SPY baseline."""
+        # The non-tech-correlated names in today's watchlist.
+        for sector in (
+            "Banking",
+            "Payments",
+            "Mobility",
+            "Mining / uranium",
+            "Oil & gas",
+            "Sui treasury",  # treasury without bitcoin/crypto keyword → SPY
+        ):
+            with self.subTest(sector=sector):
+                self.assertEqual(_peer_for_sector(sector), "SPY")
+
+    def test_case_insensitive(self) -> None:
+        """Sector routing ignores input case."""
+        self.assertEqual(_peer_for_sector("enterprise software"), "QQQ")
+        self.assertEqual(_peer_for_sector("ENTERPRISE SOFTWARE"), "QQQ")
+        self.assertEqual(_peer_for_sector("BANKING"), "SPY")
+
+    def test_normalizes_slash_spacing(self) -> None:
+        """Slash-delimited sector labels normalize before keyword checks."""
+        self.assertEqual(_normalize_sector_text(" EV  /   energy "), "ev/energy")
+        self.assertEqual(_normalize_sector_text("Software / cloud"), "software/cloud")
+
+    def test_ev_keyword_avoids_substring_false_positives(self) -> None:
+        """EV matching stays slash-bound to avoid common substring hits."""
+        # The "ev/" keyword deliberately
+        # avoids matching common words containing "ev" (revenue, level,
+        # eleven, …) that aren't tech-correlated.
+        self.assertEqual(_peer_for_sector("Revenue services"), "SPY")
+        self.assertEqual(_peer_for_sector("Eleven banking"), "SPY")
+
+    def test_keyword_list_is_lowercase(self) -> None:
+        """Routing keywords remain lowercase because sectors are normalized."""
+        # ``_peer_for_sector`` lowercases the input before checking, so
+        # any keyword with mixed case would silently never match. Pin
+        # the invariant.
+        for kw in QQQ_SECTOR_KEYWORDS:
+            with self.subTest(keyword=kw):
+                self.assertEqual(kw, kw.lower())
+
+
+class DeleteSupersededSpyPeerEventsTests(unittest.TestCase):
+    """Cover cleanup of legacy B-111 SPY-peer rows for QQQ-routed assets."""
+
+    def test_empty_assets_short_circuits_without_db(self) -> None:
+        """Empty cleanup input returns zero without opening a connection."""
+        with patch(
+            "genkei.experiments.emitters.equity_relative_strength_emitter.db.connection"
+        ) as connection_mock:
+            deleted = _delete_superseded_spy_peer_events([])
+
+        self.assertEqual(deleted, 0)
+        connection_mock.assert_not_called()
+
+    def test_deletes_legacy_spy_refs_for_normalized_asset_set(self) -> None:
+        """Cleanup targets source-ref rows for deduped QQQ-routed assets."""
+        cursor = MagicMock()
+        cursor.rowcount = 3
+        conn = MagicMock()
+        conn.cursor.return_value.__enter__.return_value = cursor
+        connection_cm = MagicMock()
+        connection_cm.__enter__.return_value = conn
+
+        with patch(
+            "genkei.experiments.emitters.equity_relative_strength_emitter.db.connection",
+            return_value=connection_cm,
+        ):
+            deleted = _delete_superseded_spy_peer_events(["crm", "CRM", "NOW"])
+
+        sql, params = cursor.execute.call_args.args
+        self.assertIn("DELETE FROM meta.signal_events", sql)
+        self.assertIn("asset = ANY(%s)", sql)
+        self.assertIn("source_ref LIKE asset || ':'", sql)
+        self.assertEqual(
+            params,
+            [
+                EMITTER_SOURCE,
+                "equity",
+                ["CRM", "NOW"],
+                "laggard_crossing",
+                "leader_crossing",
+                SPY_TICKER,
+                WINDOW_DAYS,
+            ],
+        )
+        self.assertEqual(deleted, 3)
+
+
+class EmitRecentCrossingsTests(unittest.TestCase):
+    """Cover B-112 orchestration behavior around QQQ cleanup."""
+
+    def test_deletes_superseded_spy_rows_for_data_backed_qqq_assets(self) -> None:
+        """Only QQQ-routed assets with loadable price data trigger cleanup."""
+
+        class FakeRun:
+            """Minimal ingest-run context manager used by the orchestrator."""
+
+            id = 42
+
+            def __init__(self) -> None:
+                """Initialize the captured row-count field."""
+                self.rows_added: int | None = None
+
+            def __enter__(self) -> FakeRun:
+                """Enter the fake ingest-run context."""
+                return self
+
+            def __exit__(self, *_: object) -> None:
+                """Exit the fake ingest-run context."""
+                return None
+
+            def add_rows(self, rows: int) -> None:
+                """Capture rows added by the emitter."""
+                self.rows_added = rows
+
+        yaml = (
+            "version: 1\n"
+            "equities:\n"
+            "  primary:\n"
+            "    - symbol: CRM\n"
+            "      cik: '0001108524'\n"
+            "      name: Salesforce\n"
+            "      sector: Enterprise software\n"
+            "      sleeve: core\n"
+            "    - symbol: SNOW\n"
+            "      cik: '0001640147'\n"
+            "      name: Snowflake\n"
+            "      sector: Data platform\n"
+            "      sleeve: core\n"
+            "    - symbol: JPM\n"
+            "      cik: '0000019617'\n"
+            "      name: JPMorgan\n"
+            "      sector: Banking\n"
+            "      sleeve: core\n"
+        )
+
+        def fake_load(ticker: str, *, until: object = None) -> list[PricePoint]:
+            """Return no asset data for one QQQ-routed ticker."""
+            if ticker == "SNOW":
+                return []
+            return [
+                PricePoint(ts=date(2026, 1, 1), price_usd=Decimal("100")),
+                PricePoint(ts=date(2026, 2, 1), price_usd=Decimal("115")),
+            ]
+
+        def fake_daily(
+            *_: object, **__: object
+        ) -> list[tuple[date, Decimal, Decimal, Decimal]]:
+            """Produce one leader crossing for each loaded asset."""
+            return [(date(2026, 2, 1), Decimal("15"), Decimal("0"), Decimal("15"))]
+
+        fake_run = FakeRun()
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(yaml, encoding="utf-8")
+            with (
+                patch(
+                    "genkei.experiments.emitters.equity_relative_strength_emitter.db.ingest_run",
+                    return_value=fake_run,
+                ),
+                patch(
+                    "genkei.experiments.emitters.equity_relative_strength_emitter._load_price_series",
+                    side_effect=fake_load,
+                ),
+                patch(
+                    "genkei.experiments.emitters.equity_relative_strength_emitter.compute_daily_relative_strength",
+                    side_effect=fake_daily,
+                ),
+                patch(
+                    "genkei.experiments.emitters.equity_relative_strength_emitter.emit_signals_bulk",
+                    side_effect=lambda events, *, ingest_run_id: len(events),
+                ),
+                patch(
+                    "genkei.experiments.emitters.equity_relative_strength_emitter._delete_superseded_spy_peer_events",
+                    return_value=4,
+                ) as delete_mock,
+            ):
+                result = emit_recent_crossings(config=path)
+
+        delete_mock.assert_called_once_with(["CRM"])
+        self.assertEqual(result.crossings_emitted, 2)
+        self.assertEqual(result.assets_skipped_no_data, 1)
+        self.assertEqual(result.superseded_spy_events_deleted, 4)
+        self.assertEqual(fake_run.rows_added, 2)
+
+
+class QqqEventConstructionTests(unittest.TestCase):
+    """B-112: QQQ-routed crossings produce events with peer=QQQ.
+
+    The source_ref encodes the peer code (``<ticker>:<peer>:30d:<date>``)
+    so SPY and QQQ events for the same asset and date are natural-key-
+    distinct. The payload's ``peer`` field also carries the code so
+    downstream queries can filter cleanly.
+    """
+
+    def test_qqq_laggard_event_carries_qqq_in_source_ref_and_payload(self) -> None:
+        """QQQ-routed events carry QQQ in payload and source ref."""
+        crossing = Crossing(
+            asset="NOW",
+            peer="QQQ",
+            ts=date(2026, 5, 12),
+            kind="laggard_crossing",
+            rel_strength_pct=Decimal("-18.0"),
+            asset_return_pct=Decimal("-5.0"),
+            peer_return_pct=Decimal("13.0"),
+        )
+        event = _build_event(crossing, horizon="equity:core")
+        self.assertEqual(event["asset"], "NOW")
+        self.assertEqual(event["payload"]["peer"], "QQQ")
+        # Source ref naturally includes the peer code — SPY events for
+        # the same asset / date would have a DIFFERENT source_ref.
+        self.assertEqual(event["source_ref"], "NOW:QQQ:30d:2026-05-12")
+        # Strength clamps at saturation for -18pp (15pp saturation cap).
+        self.assertEqual(event["strength"], Decimal("1"))
+
+    def test_spy_and_qqq_events_have_distinct_source_refs(self) -> None:
+        """Peer code keeps SPY and QQQ event natural keys distinct."""
+        # Same asset, same date, same kind — only peer differs. The
+        # natural-key UNIQUE constraint on
+        # (asset, ts, source, signal_kind, source_ref, horizon) keys on
+        # source_ref so the two peers' events coexist in
+        # meta.signal_events without collision.
+        spy_event = _build_event(
+            Crossing(
+                asset="CRM",
+                peer="SPY",
+                ts=date(2026, 5, 12),
+                kind="laggard_crossing",
+                rel_strength_pct=Decimal("-12"),
+                asset_return_pct=Decimal("-2"),
+                peer_return_pct=Decimal("10"),
+            ),
+            horizon="equity:core",
+        )
+        qqq_event = _build_event(
+            Crossing(
+                asset="CRM",
+                peer="QQQ",
+                ts=date(2026, 5, 12),
+                kind="laggard_crossing",
+                rel_strength_pct=Decimal("-13.6"),
+                asset_return_pct=Decimal("-2"),
+                peer_return_pct=Decimal("11.6"),
+            ),
+            horizon="equity:core",
+        )
+        self.assertNotEqual(spy_event["source_ref"], qqq_event["source_ref"])
+        self.assertEqual(spy_event["source_ref"], "CRM:SPY:30d:2026-05-12")
+        self.assertEqual(qqq_event["source_ref"], "CRM:QQQ:30d:2026-05-12")
 
 
 class DateTsTests(unittest.TestCase):
