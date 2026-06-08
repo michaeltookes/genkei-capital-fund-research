@@ -10,8 +10,15 @@ from unittest.mock import patch
 
 from genkei.ingest.onchain_staking import (
     BLOCK_CHUNK_SIZE,
+    CHAINLINK_V01_POOL_ADDRESS,
+    CHAINLINK_V02_OPERATOR_POOL,
+    CHAINLINK_V02_OPERATOR_POOL_ADDRESS,
     CHAINLINK_V02_POOL,
+    CHAINLINK_V02_POOL_ADDRESS,
+    DEFAULT_POOLS,
     ETHERSCAN_API_KEY_ENV,
+    EVENT_TOPIC_OPERATOR_REMOVED,
+    EVENT_TOPIC_SLASHED,
     EVENT_TOPIC_STAKED,
     EVENT_TOPIC_UNBONDING_STARTED,
     EVENT_TOPIC_UNSTAKED,
@@ -105,6 +112,14 @@ class EventTypeForTopicTests(unittest.TestCase):
             event_type_for_topic(EVENT_TOPIC_UNBONDING_STARTED), "unbonding_started"
         )
 
+    def test_operator_removed_topic_returns_operator_removed(self) -> None:
+        self.assertEqual(
+            event_type_for_topic(EVENT_TOPIC_OPERATOR_REMOVED), "operator_removed"
+        )
+
+    def test_slashed_topic_returns_slashed(self) -> None:
+        self.assertEqual(event_type_for_topic(EVENT_TOPIC_SLASHED), "slashed")
+
     def test_unknown_topic_returns_none(self) -> None:
         # Other events from the same contract (e.g. RewardsAdded) get
         # skipped at parse time rather than mis-decoded.
@@ -196,6 +211,50 @@ class ParseLogTests(unittest.TestCase):
         assert row is not None
         self.assertEqual(row["event_type"], "unbonding_started")
         self.assertEqual(row["amount_token"], Decimal(0))
+
+    def test_parses_operator_removed_event_as_principal_reduction(self) -> None:
+        # Deployed OperatorStakingPool ABI:
+        # OperatorRemoved(address indexed operator, uint256 principal, uint256 newTotalPrincipal)
+        principal = format(31 * 10**18, "064x")
+        new_total = format(1_700_000 * 10**18, "064x")
+        log = _build_log(topic0=EVENT_TOPIC_OPERATOR_REMOVED)
+        log["data"] = "0x" + principal + new_total
+
+        row = parse_log(
+            log,
+            pool=CHAINLINK_V02_OPERATOR_POOL,
+            source_endpoint="x",
+            ingest_run_id=1,
+            fetched_at=NOW,
+        )
+
+        assert row is not None
+        self.assertEqual(row["event_type"], "operator_removed")
+        self.assertEqual(row["protocol_slug"], "chainlink-v02-operator")
+        self.assertEqual(row["amount_token"], Decimal(31))
+
+    def test_parses_slashed_event_as_principal_reduction(self) -> None:
+        # Deployed OperatorStakingPool ABI:
+        # Slashed(address indexed operator, uint256 slashedAmount,
+        #         uint256 updatedStakerPrincipal, uint256 newTotalPrincipal)
+        slashed = format(2 * 10**18, "064x")
+        updated_principal = format(28 * 10**18, "064x")
+        new_total = format(1_699_998 * 10**18, "064x")
+        log = _build_log(topic0=EVENT_TOPIC_SLASHED)
+        log["data"] = "0x" + slashed + updated_principal + new_total
+
+        row = parse_log(
+            log,
+            pool=CHAINLINK_V02_OPERATOR_POOL,
+            source_endpoint="x",
+            ingest_run_id=1,
+            fetched_at=NOW,
+        )
+
+        assert row is not None
+        self.assertEqual(row["event_type"], "slashed")
+        self.assertEqual(row["protocol_slug"], "chainlink-v02-operator")
+        self.assertEqual(row["amount_token"], Decimal(2))
 
     def test_skips_unknown_event_type(self) -> None:
         # Other contract events (RewardsAdded, etc.) return None — the
@@ -661,6 +720,93 @@ class _MockHttp:
 
     def close(self) -> None:
         pass
+
+
+# ---------------------------------------------------------------------------
+# DEFAULT_POOLS surface (B-086)
+# ---------------------------------------------------------------------------
+
+
+class DefaultPoolsTests(unittest.TestCase):
+    """Pin the multi-pool surface so accidentally dropping a pool surfaces in CI.
+
+    DefiLlama's chainlink-staking adapter lists exactly 3 LINK-balance owners
+    (verified by fetching projects/chainlink/index.js from the DefiLlama-
+    Adapters repo on 2026-06-07). DEFAULT_POOLS covers the two v0.2 contracts
+    that share the same event signatures; the v0.1 legacy contract is tracked
+    as a constant (so the test can pin its identity) but is intentionally NOT
+    in DEFAULT_POOLS — wiring it up needs a parser extension because its event
+    signatures differ from v0.2. Filed as a separate follow-up.
+    """
+
+    def test_default_pools_carry_both_v02_contracts(self) -> None:
+        """v0.2 community + v0.2 operator both ship by default."""
+        slugs = sorted(p.protocol_slug for p in DEFAULT_POOLS)
+        self.assertEqual(slugs, ["chainlink-v02", "chainlink-v02-operator"])
+
+    def test_v02_pool_addresses_are_distinct(self) -> None:
+        """A typo making both PoolConfig entries point at the same address would
+        silently re-ingest the same events under two slugs."""
+        addresses = {p.contract_address.lower() for p in DEFAULT_POOLS}
+        self.assertEqual(len(addresses), len(DEFAULT_POOLS))
+
+    def test_operator_pool_uses_v02_base_event_topics(self) -> None:
+        """Operator pool reuses the v0.2 base topics — verified live 2026-06-07.
+
+        Pinned to prevent a future contributor from accidentally setting
+        different topic constants per-pool without first extending PoolConfig
+        with per-pool topic overrides.
+        """
+        self.assertEqual(
+            CHAINLINK_V02_OPERATOR_POOL.contract_address,
+            CHAINLINK_V02_OPERATOR_POOL_ADDRESS,
+        )
+        self.assertEqual(
+            CHAINLINK_V02_OPERATOR_POOL.token_decimals, LINK_DECIMALS
+        )
+        # Same deployment_block as community pool — both v0.2 contracts
+        # were deployed at block 18572190 on 2023-11-14.
+        self.assertEqual(
+            CHAINLINK_V02_OPERATOR_POOL.deployment_block,
+            CHAINLINK_V02_POOL.deployment_block,
+        )
+
+    def test_operator_pool_principal_reduction_topics_are_pinned(self) -> None:
+        """Operator-only topics come from the deployed Etherscan ABI.
+
+        These are not emitted by the community pool but must stay parsed while
+        the operator pool remains in DEFAULT_POOLS.
+        """
+        self.assertEqual(
+            EVENT_TOPIC_OPERATOR_REMOVED,
+            "0xd8572c381824ffffebc7dcf1cc25a094eedc7498e31f3ddfd0a82d4ffa026e9d",
+        )
+        self.assertEqual(
+            EVENT_TOPIC_SLASHED,
+            "0x23ee33e2cc85d581547d857dc227450a3e2ef8666fa2faa5b13f0a0893e4d4ad",
+        )
+
+    def test_v02_pool_addresses_match_module_constants(self) -> None:
+        """Module-level address constants are the canonical source of truth."""
+        self.assertEqual(
+            CHAINLINK_V02_POOL.contract_address, CHAINLINK_V02_POOL_ADDRESS
+        )
+        self.assertEqual(
+            CHAINLINK_V02_OPERATOR_POOL.contract_address,
+            CHAINLINK_V02_OPERATOR_POOL_ADDRESS,
+        )
+
+    def test_v01_address_is_constant_but_not_in_default_pools(self) -> None:
+        """v0.1 legacy contract is tracked but NOT enabled — pinned to make
+        the future B-116 enablement diff obvious in code review."""
+        self.assertEqual(
+            CHAINLINK_V01_POOL_ADDRESS,
+            "0x3feB1e09b4bb0E7f0387CeE092a52e85797ab889",
+        )
+        addresses_in_defaults = {p.contract_address.lower() for p in DEFAULT_POOLS}
+        self.assertNotIn(
+            CHAINLINK_V01_POOL_ADDRESS.lower(), addresses_in_defaults
+        )
 
 
 if __name__ == "__main__":

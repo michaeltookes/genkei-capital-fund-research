@@ -1,24 +1,44 @@
-"""On-chain staking-pool event ingester (B-082).
+"""On-chain staking-pool event ingester (B-082 + B-086).
 
-Reads Staked / Unstaked / UnbondingPeriodStarted log events from a
-configured staking-pool contract via Etherscan's V2 logs API and lands
-one row per event in ``onchain.staking_events``. First (and currently
-only) protocol covered: Chainlink v0.2 community staking pool at
-``0xBc10f2E862ED4502144c7d632a3459F49DFCDB5e`` on Ethereum mainnet.
+Reads staking-principal log events from a configured staking-pool
+contract via Etherscan's V2 logs API and lands one row per event in
+``onchain.staking_events``. Currently covers the Chainlink v0.2 staking
+system on Ethereum mainnet — both halves of it:
+
+  - ``chainlink-v02``           — CommunityStakingPool
+                                  (``0xBc10f2E862ED4502144c7d632a3459F49DFCDB5e``)
+  - ``chainlink-v02-operator``  — OperatorStakingPool
+                                  (``0xa1d76a7ca72128541e9fcacafbda3a92ef94fdc5``)
+
+Both contracts share the v0.2 codebase and emit the same Staked /
+Unstaked / UnbondingPeriodStarted event signatures (verified via the
+Etherscan topic probe in B-086). The operator pool also emits
+OperatorRemoved / Slashed when active operator principal is reduced
+outside the normal unbond -> unstake path; those topics are parsed as
+separate event types so active-principal queries can include them.
 
 The schema (migration ``5d3e8b9c1a02``) is deliberately generic so
 adding Lido / RocketPool / EigenLayer in the future is a config
 change plus a contract-address constant, not a new schema.
 
-Signal-interpretation note (learned from the first backfill):
+Not covered (filed as B-116 follow-up): the v0.1 legacy ``Staking``
+contract (``0x3feB1e09b4bb0E7f0387CeE092a52e85797ab889``). It still
+holds 0.46M LINK during unwind as of 2026-06-07 but emits DIFFERENT
+event signatures than v0.2 — wiring it up requires extending
+PoolConfig with per-pool event-topic overrides and a separate parse
+path. The two v0.2 pools together reconcile within ~3% of DefiLlama's
+chainlink-staking TVL so v0.1 is not load-bearing for v1.
 
-  The Chainlink v0.2 pool runs at a **capped capacity** (~6.5M LINK).
-  Once the cap filled in Nov-Dec 2023, every Unstaked event is
-  immediately matched by a queued Staked event of the same amount —
-  monthly net flow is structurally **zero** in steady state. So
-  "net flow per month" is NOT a useful demand signal for this pool;
-  the framing in B-082's original acceptance criteria was wrong on
-  that front.
+Signal-interpretation notes (learned from the B-082 + B-086 backfills):
+
+  **Cap-and-intent dynamics.** The v0.2 community pool runs at a
+  **capped capacity** (~40.9M LINK as of 2026-06-07, not the ~6.5M
+  observed in the early ramp during the B-082 design window).
+  Once the cap fills, every Unstaked event is immediately matched by
+  a queued Staked event of the same amount — monthly net flow is
+  structurally **zero** in steady state. So "net flow per month" is
+  NOT a useful demand signal for the capped pool; the framing in
+  B-082's original acceptance criteria was wrong on that front.
 
   The actual demand signal is the **UnbondingPeriodStarted** count
   (stakers signaling intent to exit, waiting ~28d before the actual
@@ -27,10 +47,43 @@ Signal-interpretation note (learned from the first backfill):
   losing patience, which is real on-chain conviction data of the
   kind the LINK research session was looking for.
 
-  Queries computing demand signal should aggregate by event_type and
-  look at the unbonding_started count over time, not the
-  staked-minus-unstaked flow. See the example queries in the B-082
-  resolved entry in docs/resolved.md.
+  **Operator pool runs differently.** The OperatorStakingPool has
+  much lower turnover (104 Staked + 16 Unstaked events vs 17,488 +
+  3,141 on the community pool) because it tracks bonded node-
+  operator stake rather than retail flow. Net-stake-delta is more
+  meaningful there — operator bonding/unbonding is an institutional
+  signal in its own right. For active principal, count
+  OperatorRemoved and Slashed as negative principal deltas. Do not also
+  subtract a later Unstaked event for an already-removed operator's
+  removed-principal withdrawal, because OperatorRemoved already took
+  that principal out of the active pool.
+
+  **TVL reconciliation methodology.** SUM(staked - unstaked) per
+  protocol_slug x current LINK price should land within ~10% of
+  DefiLlama's chainlink-staking TVL. Verified at 2026-06-07:
+  community 40,875,000 LINK + operator 1,731,903 LINK = 42,606,903
+  LINK; at $7.68 = $327M vs DefiLlama's $338M (~3% gap, entirely
+  explained by LINK price drift across DB snapshots + the v0.1
+  contract's 457K LINK that B-116 will add). Run the reconciliation
+  any time a new pool ships:
+
+      SELECT protocol_slug,
+             SUM(CASE WHEN event_type='staked'   THEN amount_token
+                      WHEN event_type='unstaked' THEN -amount_token END) AS net_link
+      FROM onchain.staking_events
+      WHERE protocol_slug LIKE 'chainlink-%'
+        AND event_type IN ('staked','unstaked')
+      GROUP BY protocol_slug;
+
+  For the operator pool's active-principal time series, subtract
+  OperatorRemoved and Slashed too, but filter out Unstaked rows that
+  occur after an OperatorRemoved row for the same staker. Those later
+  Unstaked logs are removed-principal withdrawals: they reduce the
+  contract's LINK balance, not active operator principal.
+
+  Queries computing demand signal should aggregate by event_type +
+  protocol_slug; aggregating the community pool's staked-minus-
+  unstaked alone is structurally meaningless on capped pools.
 
 Configuration:
   - ``ETHERSCAN_API_KEY`` — Etherscan V2 strictly requires a key (no
@@ -86,12 +139,27 @@ COLLECT_ENDPOINT_LABEL = "collect"
 ETHERSCAN_V2_URL = "https://api.etherscan.io/v2/api"
 ETHEREUM_CHAIN_ID = 1
 
-# Chainlink v0.2 Community Staking Pool — the live pool tracked at
-# https://staking.chain.link. Deployment block reference from
-# Etherscan: contract creation Nov 2023.
+# Chainlink v0.2 staking pools — the live system tracked at
+# https://staking.chain.link. Both contracts deployed at block 18572190
+# (2023-11-14); we use 18638000 as a safe lower bound for backfill since
+# events only start landing a few weeks after deployment when the cap-and-
+# intent ramp finished. Both pools emit the same base Staked / Unstaked /
+# UnbondingPeriodStarted event signatures; the operator pool adds
+# OperatorRemoved / Slashed principal-reduction events.
 CHAINLINK_V02_POOL_ADDRESS = "0xBc10f2E862ED4502144c7d632a3459F49DFCDB5e"
+CHAINLINK_V02_OPERATOR_POOL_ADDRESS = "0xa1d76a7ca72128541e9fcacafbda3a92ef94fdc5"
 CHAINLINK_V02_DEPLOYMENT_BLOCK = 18638000  # ~Nov 2023, safe lower bound
 LINK_DECIMALS = 18  # standard ERC-20
+
+# Chainlink v0.1 Staking contract — legacy pool, still holds 0.46M LINK
+# during unwind as of 2026-06-07. NOT in DEFAULT_POOLS because the v0.1
+# contract emits DIFFERENT event signatures than v0.2 (the v0.2 Staked
+# topic returns 0 results on the v0.1 contract — verified live 2026-06-07).
+# Wiring v0.1 up requires extending PoolConfig with per-pool event-topic
+# overrides and a separate parse path. Filed as a follow-up; the operator
+# + community pools together already reconcile within 3% of DefiLlama's
+# chainlink-staking TVL so v0.1 is not load-bearing for v1.
+CHAINLINK_V01_POOL_ADDRESS = "0x3feB1e09b4bb0E7f0387CeE092a52e85797ab889"
 
 # Event signatures (keccak256 of the canonical event sig) for the
 # Chainlink v0.2 Community Staking Pool. Verified live 2026-05-17 by
@@ -105,6 +173,11 @@ LINK_DECIMALS = 18  # standard ERC-20
 EVENT_TOPIC_STAKED = "0xb4caaf29adda3eefee3ad552a8e85058589bf834c7466cae4ee58787f70589ed"
 EVENT_TOPIC_UNSTAKED = "0x204fccf0d92ed8d48f204adb39b2e81e92bad0dedb93f5716ca9478cfb57de00"
 EVENT_TOPIC_UNBONDING_STARTED = "0x5b9cd1c6f24b416d2354b7b7ad07d92bc1c662a403180e84fac2782414a5f4ed"
+# OperatorStakingPool-only principal reductions, from the deployed ABI
+# fetched from Etherscan on 2026-06-07. Both index operator as topic[1];
+# decode_amount_token reads the first data word (principal / slashedAmount).
+EVENT_TOPIC_OPERATOR_REMOVED = "0xd8572c381824ffffebc7dcf1cc25a094eedc7498e31f3ddfd0a82d4ffa026e9d"
+EVENT_TOPIC_SLASHED = "0x23ee33e2cc85d581547d857dc227450a3e2ef8666fa2faa5b13f0a0893e4d4ad"
 
 ETHERSCAN_API_KEY_ENV = "ETHERSCAN_API_KEY"
 
@@ -150,7 +223,20 @@ CHAINLINK_V02_POOL = PoolConfig(
     deployment_block=CHAINLINK_V02_DEPLOYMENT_BLOCK,
     token_decimals=LINK_DECIMALS,
 )
-DEFAULT_POOLS: list[PoolConfig] = [CHAINLINK_V02_POOL]
+# Operator-only counterpart to the community pool. Same v0.2 codebase,
+# same event signatures, same deployment block. Holds the node-operator
+# bonded stake — much smaller than the community pool (1.7M LINK vs 40.9M
+# on 2026-06-07) but represents a distinct staker cohort whose flow
+# behavior is operationally different from retail community stakers.
+CHAINLINK_V02_OPERATOR_POOL = PoolConfig(
+    chain="ethereum",
+    chain_id=ETHEREUM_CHAIN_ID,
+    protocol_slug="chainlink-v02-operator",
+    contract_address=CHAINLINK_V02_OPERATOR_POOL_ADDRESS,
+    deployment_block=CHAINLINK_V02_DEPLOYMENT_BLOCK,
+    token_decimals=LINK_DECIMALS,
+)
+DEFAULT_POOLS: list[PoolConfig] = [CHAINLINK_V02_POOL, CHAINLINK_V02_OPERATOR_POOL]
 
 
 def resolve_api_key() -> str | None:
@@ -269,6 +355,10 @@ def event_type_for_topic(topic0: str) -> str | None:
         return "unstaked"
     if t == EVENT_TOPIC_UNBONDING_STARTED.lower():
         return "unbonding_started"
+    if t == EVENT_TOPIC_OPERATOR_REMOVED.lower():
+        return "operator_removed"
+    if t == EVENT_TOPIC_SLASHED.lower():
+        return "slashed"
     return None
 
 
@@ -282,7 +372,7 @@ def parse_log(
 ) -> dict[str, Any] | None:
     """Decode one Etherscan log dict into an onchain.staking_events row.
 
-    Returns ``None`` if the log isn't a Staked/Unstaked event (other
+    Returns ``None`` if the log isn't a staking-principal event (other
     events from the same contract — e.g. RewardsAdded — are silently
     skipped). Returns ``None`` on malformed shape too; we'd rather drop
     one event than fail the whole batch.
@@ -303,9 +393,9 @@ def parse_log(
     if not isinstance(data_hex, str):
         return None
     # UnbondingPeriodStarted has no data payload — emit amount=0 so the
-    # row still records the intent signal. Staked / Unstaked carry
-    # (amount, newStake, newTotalPrincipal); decode_amount_token reads
-    # just the first 32-byte word (amount).
+    # row still records the intent signal. Other supported events carry
+    # their principal delta in the first data word; later words are
+    # post-event principal snapshots.
     if event_type == "unbonding_started":
         amount = Decimal(0)
     else:
