@@ -177,6 +177,7 @@ PRIMARY_TABLES: dict[str, list[str]] = {
     "coingecko": ["coingecko.market_data"],
     "onchain_staking": ["onchain.staking_events"],
     "sui_staking": ["onchain.sui_validators"],
+    "sui_unlocks": ["onchain.sui_unlocks"],
     "cftc": ["cftc.cot_reports"],
     "ishares": ["etf.fund_snapshots"],
     # B-090 — derived view, no ingest_runs row (computed live from
@@ -209,6 +210,11 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
     # B-088 Sui staking — two RPC POSTs per run (system state + APYs)
     # parsed inline into onchain.sui_validators. Daily epoch cadence.
     "sui_staking": ["collect"],
+    # B-089 SUI unlocks — single GET against CryptoRank's vesting page
+    # parsed inline (Next.js __NEXT_DATA__ extraction) into
+    # onchain.sui_unlocks. v1 covers Community Reserves only (1 of 8
+    # SUI allocations); see docs/sources/sui-unlocks.md.
+    "sui_unlocks": ["collect"],
     # B-031 CFTC ingester also collapses collect+normalize (parses the
     # Socrata JSON inline and writes directly to cftc.cot_reports).
     # Weekly Friday-release cadence; health treats it as recurring.
