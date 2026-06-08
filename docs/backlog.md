@@ -248,16 +248,18 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - If a free source emerges or a paid budget opens: schema + collector for cross-oracle TVS share over time, by protocol category (price feeds, randomness, CCIP-style cross-chain).
   - Pair with B-081 once both exist — would let `genkei query` join LINK's TVS share against competitors' over the same time series.
 
-### B-086 — Map the full Chainlink staking surface (cross-source reconciliation)
+### B-116 — Enable Chainlink v0.1 legacy Staking contract (B-086 follow-up)
 - **Status:** open
-- **Priority:** medium
-- **Context:** Surfaced by the first live B-082 backfill (2026-05-17). DefiLlama reports `chainlink-staking` TVL at ~$414.8M, but the v0.2 Community Staking Pool we ingest (`0xBc10f2E862ED4502144c7d632a3459F49DFCDB5e`) only holds ~6.5M LINK ≈ $64M at current price — a **6.5× discrepancy** between sources. Most likely DefiLlama is summing across multiple contracts: the v0.1 community pool (legacy, still holds LINK during unwind), a separate node-operator-only pool, and possibly other staking-related contracts. Until we map and ingest the full set, queries against `onchain.staking_events` give a misleadingly small picture of Chainlink staking demand and the DefiLlama TVL number can't be tied back to on-chain reality.
-- **Acceptance criteria:**
-  - Identify every contract DefiLlama includes under the `chainlink-staking` slug. Likely starting points: DefiLlama's protocol page source, the Chainlink docs (`docs.chain.link/architecture-overview/staking`), Etherscan "Related" addresses for `0xBc10f2E862ED4502...DFCDB5e`.
-  - Add each contract as a new `PoolConfig` entry in `genkei.ingest.onchain_staking.DEFAULT_POOLS` (the schema and collector are already generic across protocols).
-  - Run the historical backfill against the new pools — the schema's `(tx_hash, log_index, block_timestamp)` PK keeps re-runs idempotent so the v0.2 pool's existing 18,827 events don't duplicate.
-  - Verify: compute net staked LINK per pool (`staked` minus `unstaked`), sum across all `chainlink-*` pools, multiply by the latest LINK price, and compare that value to DefiLlama's `chainlink-staking` TVL. The result should land within ~10%; if the gap stays large after pool-mapping, document why (DefiLlama including delegated-but-not-pool LINK, accounting differences, etc.).
-  - Update the cap-and-intent interpretation note in `onchain_staking.py`'s module docstring to reflect the full-surface picture (current text only covers the v0.2 community pool).
+- **Priority:** low
+- **Context:** B-086 (2026-06-07) mapped the full DefiLlama chainlink-staking surface as 3 contracts and shipped ingestion for the 2 v0.2 pools (Community + Operator). The third — the v0.1 legacy `Staking` contract at `0x3feB1e09b4bb0E7f0387CeE092a52e85797ab889` — is intentionally NOT in `DEFAULT_POOLS` because it emits different event signatures from v0.2 (the v0.2 Staked topic returns 0 results on the v0.1 address; verified live 2026-06-07). The contract still holds 0.46M LINK during unwind (~$3.5M, <1% of total chainlink-staking TVL), so its absence doesn't materially hurt the reconciliation — but the unwind dynamics themselves are interesting and would round out the surface.
+- **What's required to ship:**
+  - Pull the v0.1 contract's ABI from Etherscan; compute keccak256 of each Staked/Unstaked event signature.
+  - Extend `PoolConfig` with per-pool event-topic overrides (or a per-pool topic-to-event-type mapping), since v0.1 and v0.2 emit different shapes.
+  - Extend the parse path to accept v0.1's likely-different data field layout.
+  - Add `CHAINLINK_V01_POOL = PoolConfig(protocol_slug="chainlink-v01", ...)` to `DEFAULT_POOLS`.
+  - Run backfill from the v0.1 deployment block (16083969, Nov 2022).
+  - Update the docstring + tests.
+- **Out of scope:** generalizing to other protocols (Lido / RocketPool / EigenLayer) — that's a separate B-082 follow-up if pursued.
 
 ## Phase 3 — Custom CLI
 
