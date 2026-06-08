@@ -807,3 +807,126 @@ etf_tickers:
     launch_date: 2024-07-23
     sleeve: tactical
     rationale: Grayscale's lower-fee mini ETH product (distinct from ETHE).
+
+
+# B-106 — curated ETH wallets we snapshot daily for whale-flow tracking.
+# See docs/sources/eth-whale-addresses.md for the curation methodology and
+# the four hard limits callers must read alongside the data. Addresses are
+# lowercased here; the load_watchlist parser also lowercases at read time
+# so checksum casing in YAML doesn't matter (Etherscan returns lowercase).
+#
+# CRITICAL READING NOTE: exchange-category inflow REVERSES the intuitive
+# sign — when ETH flows into a CEX cold wallet, that's users preparing to
+# sell, not the exchange buying. The other three categories follow the
+# intuitive read (custodian inflow = staking commitment, foundation
+# outflow = treasury monetization, whale outflow = position trimming).
+eth_whale_addresses:
+  # foundation
+  - address: "0xde0b295669a9fd93d5f28d9ec85e40f4cb697bae"
+    label: Ethereum Foundation
+    category: foundation
+    notes: |
+      Etherscan canonical label. Historical role: the EF has sold tranches of
+      ETH from this address during bull runs (notably 2021, 2024) — outflow
+      is the meaningful supply-side signal. Balance at add-time (2026-06-08):
+      ~9,774 ETH.
+  - address: "0xab5801a7d398351b8be11c439e05c5b3259aec9b"
+    label: Vitalik Buterin (primary)
+    category: foundation
+    notes: |
+      Self-identified on Twitter many times. Smaller than the EF treasury
+      but symbolically watched; movement here drives crypto-press cycles.
+
+  # custodian
+  - address: "0xae7ab96520de3a18e5e111b5eaab095312d7fe84"
+    label: Lido stETH token contract
+    category: custodian
+    notes: |
+      Etherscan canonical label. Holds the modest buffer ETH; the bulk of
+      Lido-staked ETH sits in the Beacon Deposit Contract. Inflow here =
+      stETH redemptions queued (bearish for ETH conviction); outflow =
+      withdrawals settling. Balance at add-time: ~3,157 ETH.
+  - address: "0x00000000219ab540356cbb839cbe05303d7705fa"
+    label: Eth2 Beacon Deposit Contract
+    category: custodian
+    notes: |
+      Etherscan canonical label. The single largest ETH holder on the
+      network — all newly-staked ETH flows here. Net flow against this
+      contract is the structural "is ETH being staked or unstaked" signal.
+      Pre-Shapella (Apr 2023) it was one-way in; post-Shapella the
+      withdrawal credentials let validators exit.
+  - address: "0xdc24316b9ae028f1497c275eb9192a3ea0f67022"
+    label: Lido stETH/ETH Curve Pool
+    category: custodian
+    notes: |
+      Etherscan canonical label. Material liquidity for the un-stake exit
+      path — if the pool balance shifts heavily toward ETH, it signals
+      stakers exiting via Curve rather than waiting for the Lido queue.
+
+  # exchange — CEX cold wallets. INFLOW = SELL pressure (users sending TO
+  # the exchange to sell). See category note above + docs/sources/eth-whale-
+  # addresses.md before reading these signals.
+  - address: "0xf977814e90da44bfa03b6295a0616a897441acec"
+    label: Binance cold wallet 1
+    category: exchange
+    notes: "Etherscan canonical label. Balance at add-time: ~556,224 ETH."
+  - address: "0x28c6c06298d514db089934071355e5743bf21d60"
+    label: Binance 14
+    category: exchange
+    notes: Etherscan canonical label.
+  - address: "0x21a31ee1afc51d94c2efccaa2092ad1028285549"
+    label: Binance 7
+    category: exchange
+    notes: Etherscan canonical label.
+  - address: "0xdfd5293d8e347dfe59e90efd55b2956a1343963d"
+    label: Binance 16
+    category: exchange
+    notes: Etherscan canonical label.
+  - address: "0x71660c4005ba85c37ccec55d0c4493e66fe775d3"
+    label: Coinbase 1
+    category: exchange
+    notes: Etherscan canonical label.
+  - address: "0x503828976d22510aad0201ac7ec88293211d23da"
+    label: Coinbase 2
+    category: exchange
+    notes: Etherscan canonical label.
+  - address: "0xddfabcdc4d8ffc6d5beaf154f18b778f892a0740"
+    label: Coinbase 4
+    category: exchange
+    notes: Etherscan canonical label.
+  - address: "0xa9d1e08c7793af67e9d92fe308d5697fb81d3e43"
+    label: Coinbase 10
+    category: exchange
+    notes: Etherscan canonical label.
+  - address: "0x2910543af39aba0cd09dbb2d50200b3e800a63d2"
+    label: Kraken 1
+    category: exchange
+    notes: Etherscan canonical label.
+  - address: "0xe853c56864a2ebe4576a807d26fdc4a0ada51919"
+    label: Kraken 4
+    category: exchange
+    notes: Etherscan canonical label.
+  - address: "0x0a869d79a7052c7f1b55a8ebabbea3420f0d1e13"
+    label: Kraken 5
+    category: exchange
+    notes: Etherscan canonical label.
+  - address: "0x6cc5f688a315f3dc28a7781717a9a798a59fda7b"
+    label: OKX cold
+    category: exchange
+    notes: Etherscan canonical label.
+  - address: "0xf89d7b9c864f589bbf53a82105107622b35eaa40"
+    label: Bybit cold
+    category: exchange
+    notes: Etherscan canonical label.
+  - address: "0x1151314c646ce4e0efd76d1af4760ae66a9fe30f"
+    label: Bitfinex
+    category: exchange
+    notes: Etherscan canonical label.
+  - address: "0x07ee55aa48bb72dcc6e9d78256648910de513eca"
+    label: Gemini 1
+    category: exchange
+    notes: Etherscan canonical label.
+
+  # whale — intentionally empty in v1 (the provenance bar is high; adding
+  # these is the natural v2 expansion if a research session names a
+  # specific holder we want to track). See docs/sources/eth-whale-addresses.md.
