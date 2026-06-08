@@ -247,16 +247,35 @@ def parse_allocations(
                 unlock_tokens=unlock_tokens,
                 vesting_type=vesting_type,
             )
-            # De-dupe within the same allocation. CryptoRank occasionally
-            # publishes overlapping monthly + special-event batches on the
-            # same date; preserve the first non-zero row if a placeholder zero
-            # appears before the real unlock.
+            # Collapse same-day rows within the same allocation. CryptoRank can
+            # publish a zero placeholder before the real row, or a monthly row
+            # plus a special-event row on the same date. The table key cannot
+            # represent both, so preserve zero-placeholders only until a real
+            # row arrives and aggregate multiple real same-day batches.
             existing = rows_by_date.get(unlock_date)
-            if existing is None or (
-                existing.unlock_percent_of_allocation == Decimal("0")
-                and unlock_pct > Decimal("0")
-            ):
+            if existing is None:
                 rows_by_date[unlock_date] = candidate
+                continue
+
+            aggregate_pct = existing.unlock_percent_of_allocation
+            if unlock_pct > Decimal("0"):
+                if aggregate_pct == Decimal("0"):
+                    aggregate_pct = unlock_pct
+                else:
+                    aggregate_pct += unlock_pct
+
+            rows_by_date[unlock_date] = _UnlockRow(
+                allocation_name=existing.allocation_name,
+                unlock_date=existing.unlock_date,
+                allocation_total_tokens=existing.allocation_total_tokens,
+                allocation_total_percent_of_supply=existing.allocation_total_percent_of_supply,
+                is_tge=existing.is_tge or candidate.is_tge,
+                unlock_percent_of_allocation=aggregate_pct,
+                unlock_tokens=(total_tokens * aggregate_pct / Decimal(100)).quantize(
+                    Decimal("0.0001")
+                ),
+                vesting_type=existing.vesting_type,
+            )
         rows.extend(rows_by_date.values())
     return rows
 

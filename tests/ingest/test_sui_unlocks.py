@@ -63,11 +63,12 @@ SAMPLE_NEXT_DATA = {
                             },
                             # Defective batch — missing date — must be skipped.
                             {"is_tge": False, "unlock_percent": 0.5},
-                            # Duplicate date — first non-zero wins, duplicate dropped.
+                            # Same-day special-event row — must aggregate with
+                            # the monthly row instead of being dropped.
                             {
                                 "date": "2023-07-01T00:00:00.000Z",
                                 "is_tge": False,
-                                "unlock_percent": 99.0,
+                                "unlock_percent": 0.124,
                             },
                         ],
                     },
@@ -285,22 +286,25 @@ class ParseAllocationsTests(unittest.TestCase):
         rows = parse_allocations(SAMPLE_NEXT_DATA)
         self.assertEqual(rows[0].vesting_type, "linear")
 
-    def test_duplicate_date_drops_second_occurrence(self) -> None:
-        """The second batch with a duplicate date is silently dropped.
+    def test_duplicate_date_aggregates_same_day_non_zero_batches(self) -> None:
+        """Same-day non-zero rows are aggregated into one output row.
 
         Upstream occasionally publishes overlapping monthly + special-event
-        batches on the same date; the first non-zero one wins so the PK on
+        batches on the same date; aggregating the percentages lets the PK on
         (allocation_name, unlock_date) doesn't collide at insert time and
         the bulk_upsert doesn't see two rows with identical conflict keys
         in a single batch (which psycopg's COPY-based upsert hates).
         """
         rows = parse_allocations(SAMPLE_NEXT_DATA)
         by_date = {r.unlock_date: r for r in rows}
-        # The duplicate had unlock_percent=99.0 but the first 2023-07-01
-        # entry had 0.376 — we kept the first.
+        # 2023-07-01 has a 0.376 monthly row plus a 0.124 special-event row.
         self.assertEqual(
             by_date[date(2023, 7, 1)].unlock_percent_of_allocation,
-            Decimal("0.376"),
+            Decimal("0.500"),
+        )
+        self.assertEqual(
+            by_date[date(2023, 7, 1)].unlock_tokens,
+            Decimal("5323979.5450"),
         )
 
     def test_duplicate_date_preserves_first_non_zero_occurrence(self) -> None:
@@ -378,6 +382,7 @@ class CollectTests(unittest.TestCase):
 
     def test_zero_parsed_rows_record_partial_and_fail_run(self) -> None:
         """A valid page with no rows should not count as a successful ingest."""
+        expected_payload = {"props": {"pageProps": {"vestingInfo": {"allocations": []}}}}
 
         class FakeResponse:
             text = (
@@ -414,7 +419,12 @@ class CollectTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "parsed 0 rows"):
                 collect(http=FakeHttp())
 
-        store_blob.assert_called_once()
+        store_blob.assert_called_once_with(
+            99,
+            COLLECT_ENDPOINT_LABEL,
+            CRYPTORANK_SUI_VESTING_URL,
+            expected_payload,
+        )
         partial_args = partial.call_args.args
         self.assertEqual(partial_args[0], 99)
         self.assertEqual(partial_args[1][0]["name"], COLLECT_ENDPOINT_LABEL)
