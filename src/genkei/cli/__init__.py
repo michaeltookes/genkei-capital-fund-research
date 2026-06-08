@@ -151,7 +151,10 @@ app.command(
 )(stablecoin_flow.stablecoin_flow_cmd)
 app.command(
     "whales",
-    help="ETH whale-address daily flow aggregate (--category exchange|custodian|foundation|whale or --address).",
+    help=(
+        "ETH whale-address daily flow aggregate "
+        "(--category exchange|custodian|foundation|whale or --address)."
+    ),
 )(whales.whales_cmd)
 app.command(
     "query",
