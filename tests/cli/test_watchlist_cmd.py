@@ -341,8 +341,9 @@ class ExpectationsRegistryTests(unittest.TestCase):
         # crypto_relative_strength view; B-064 added signal_emitter
         # for the cross-source correlation event store; B-107 added
         # ishares for spot crypto ETF daily snapshots; B-088 added
-        # sui_staking for per-epoch Sui validator snapshots). Pin the
-        # current shape so an accidental rename / drop is caught.
+        # sui_staking for per-epoch Sui validator snapshots; B-089
+        # added sui_unlocks for per-batch SUI vesting events). Pin
+        # the current shape so an accidental rename / drop is caught.
         self.assertEqual(
             set(PRIMARY_TABLES),
             {
@@ -352,6 +353,7 @@ class ExpectationsRegistryTests(unittest.TestCase):
                 "coingecko",
                 "onchain_staking",
                 "sui_staking",
+                "sui_unlocks",
                 "analytics",
                 "signal_emitter",
                 "cftc",
@@ -374,6 +376,7 @@ class ExpectationsRegistryTests(unittest.TestCase):
                 "coingecko",
                 "onchain_staking",
                 "sui_staking",
+                "sui_unlocks",
                 "cftc",
                 "ishares",
                 "signal_emitter",
