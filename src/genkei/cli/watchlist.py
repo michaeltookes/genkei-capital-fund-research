@@ -178,6 +178,7 @@ PRIMARY_TABLES: dict[str, list[str]] = {
     "onchain_staking": ["onchain.staking_events"],
     "sui_staking": ["onchain.sui_validators"],
     "sui_unlocks": ["onchain.sui_unlocks"],
+    "eth_whale_flow": ["onchain.eth_whale_flows"],
     "cftc": ["cftc.cot_reports"],
     "ishares": ["etf.fund_snapshots"],
     # B-090 — derived view, no ingest_runs row (computed live from
@@ -215,6 +216,10 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
     # onchain.sui_unlocks. v1 covers Community Reserves only (1 of 8
     # SUI allocations); see docs/sources/sui-unlocks.md.
     "sui_unlocks": ["collect"],
+    # B-106 ETH whale-flow — daily snapshot per address (balance +
+    # 24h net flow + tx count) via Etherscan v2. Reuses the B-082
+    # ETHERSCAN_API_KEY. See docs/sources/eth-whale-addresses.md.
+    "eth_whale_flow": ["collect"],
     # B-031 CFTC ingester also collapses collect+normalize (parses the
     # Socrata JSON inline and writes directly to cftc.cot_reports).
     # Weekly Friday-release cadence; health treats it as recurring.

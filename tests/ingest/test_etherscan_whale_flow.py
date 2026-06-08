@@ -1,0 +1,646 @@
+"""Unit tests for the ETH whale-flow snapshot collector (B-106)."""
+
+from __future__ import annotations
+
+import unittest
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import date, datetime, time, timezone
+from decimal import Decimal
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from genkei.common.watchlist import EthWhaleAddressEntry
+from genkei.ingest.etherscan_whale_flow import (
+    COLLECT_ENDPOINT_LABEL,
+    ETH_DECIMALS,
+    ETHERSCAN_API_KEY_ENV,
+    SOURCE_NAME,
+    TXLIST_PAGE_SIZE,
+    _iter_snapshot_dates,
+    _redact_api_key,
+    _utc_midnight,
+    _wei_to_eth,
+    build_snapshot,
+    collect,
+    compute_net_flow_and_count,
+    fetch_balance_wei,
+    fetch_txlist,
+)
+
+# Address constants used across cases. Lowercased — the parser stores
+# them this way and the compute_net_flow_and_count helper compares
+# case-insensitively.
+WHALE_ADDR = "0xde0b295669a9fd93d5f28d9ec85e40f4cb697bae"  # EF
+OTHER_ADDR = "0xabcdef1234567890abcdef1234567890abcdef12"
+
+# 1 ETH and 0.5 ETH expressed in wei (Etherscan returns these as strings).
+ONE_ETH_WEI = str(10**18)
+HALF_ETH_WEI = str(5 * 10**17)
+TWO_ETH_WEI = str(2 * 10**18)
+WINDOW_START_TS = 1_000
+WINDOW_END_TS = 2_000
+
+
+def _tx(
+    *,
+    to: str,
+    from_: str,
+    value_wei: str,
+    is_error: str = "0",
+    time_stamp: str = "1500",
+) -> dict[str, object]:
+    """Build a minimal Etherscan txlist entry for tests."""
+    return {
+        "to": to,
+        "from": from_,
+        "value": value_wei,
+        "isError": is_error,
+        "timeStamp": time_stamp,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Module-level constants
+# ---------------------------------------------------------------------------
+
+
+class ModuleConstantsTests(unittest.TestCase):
+    """Pin constants the workflow + health checks depend on."""
+
+    def test_source_name(self) -> None:
+        """Source name is what PRIMARY_TABLES + RECURRING_ENDPOINTS key on."""
+        self.assertEqual(SOURCE_NAME, "eth_whale_flow")
+
+    def test_collect_endpoint_label_follows_convention(self) -> None:
+        """'collect' matches the universal convention pinned by test_watchlist_cmd."""
+        self.assertEqual(COLLECT_ENDPOINT_LABEL, "collect")
+
+    def test_api_key_env_name(self) -> None:
+        """Shares the Etherscan key env var with onchain_staking (B-082/B-086)."""
+        self.assertEqual(ETHERSCAN_API_KEY_ENV, "ETHERSCAN_API_KEY")
+
+    def test_eth_decimals(self) -> None:
+        """Native ETH precision pinned — wei→ETH math depends on this."""
+        self.assertEqual(ETH_DECIMALS, 18)
+
+    def test_txlist_page_size_matches_etherscan_cap(self) -> None:
+        """Pagination should use the largest Etherscan txlist page."""
+        self.assertEqual(TXLIST_PAGE_SIZE, 10_000)
+
+
+# ---------------------------------------------------------------------------
+# Wei → ETH conversion
+# ---------------------------------------------------------------------------
+
+
+class WeiToEthTests(unittest.TestCase):
+    """Lossless wei→ETH conversion to 18 decimal places."""
+
+    def test_one_eth(self) -> None:
+        """10^18 wei == 1.0 ETH exactly."""
+        self.assertEqual(_wei_to_eth(10**18), Decimal("1"))
+
+    def test_fractional_eth(self) -> None:
+        """0.5 ETH = 5 x 10^17 wei."""
+        self.assertEqual(_wei_to_eth(5 * 10**17), Decimal("0.5"))
+
+    def test_large_balance(self) -> None:
+        """Binance-cold-1 scale balance: ~556K ETH."""
+        wei = 556_224 * 10**18
+        self.assertEqual(_wei_to_eth(wei), Decimal("556224"))
+
+    def test_zero(self) -> None:
+        """Zero wei == zero ETH (no division-by-zero or sign artifacts)."""
+        self.assertEqual(_wei_to_eth(0), Decimal("0"))
+
+
+# ---------------------------------------------------------------------------
+# 24h-window net-flow computation
+# ---------------------------------------------------------------------------
+
+
+class ComputeNetFlowTests(unittest.TestCase):
+    """The load-bearing arithmetic: sum(incoming) - sum(outgoing), error-filtered."""
+
+    def _compute(
+        self,
+        txs: list[dict[str, object]],
+        address: str = WHALE_ADDR,
+    ) -> tuple[int, int]:
+        """Run compute_net_flow_and_count with the test timestamp window."""
+        return compute_net_flow_and_count(
+            txs,
+            address=address,
+            start_ts=WINDOW_START_TS,
+            end_ts=WINDOW_END_TS,
+        )
+
+    def test_pure_inflow(self) -> None:
+        """Two incoming txs sum to +3 ETH net + 2 tx_count."""
+        txs = [
+            _tx(to=WHALE_ADDR, from_=OTHER_ADDR, value_wei=ONE_ETH_WEI),
+            _tx(to=WHALE_ADDR, from_=OTHER_ADDR, value_wei=TWO_ETH_WEI),
+        ]
+        net, count = self._compute(txs)
+        self.assertEqual(net, 3 * 10**18)
+        self.assertEqual(count, 2)
+
+    def test_pure_outflow(self) -> None:
+        """One outgoing tx = -1 ETH net + 1 tx_count."""
+        txs = [
+            _tx(to=OTHER_ADDR, from_=WHALE_ADDR, value_wei=ONE_ETH_WEI),
+        ]
+        net, count = self._compute(txs)
+        self.assertEqual(net, -(10**18))
+        self.assertEqual(count, 1)
+
+    def test_mixed_inflow_outflow(self) -> None:
+        """Inflow + outflow nets correctly + counts both."""
+        txs = [
+            _tx(to=WHALE_ADDR, from_=OTHER_ADDR, value_wei=TWO_ETH_WEI),
+            _tx(to=OTHER_ADDR, from_=WHALE_ADDR, value_wei=HALF_ETH_WEI),
+        ]
+        net, count = self._compute(txs)
+        self.assertEqual(net, 2 * 10**18 - 5 * 10**17)  # +1.5 ETH
+        self.assertEqual(count, 2)
+
+    def test_skips_reverted_tx(self) -> None:
+        """isError='1' txs move no value and would inflate flow if counted."""
+        txs = [
+            _tx(to=WHALE_ADDR, from_=OTHER_ADDR, value_wei=ONE_ETH_WEI),
+            _tx(
+                to=WHALE_ADDR,
+                from_=OTHER_ADDR,
+                value_wei=TWO_ETH_WEI,
+                is_error="1",
+            ),
+        ]
+        net, count = self._compute(txs)
+        # Only the first tx contributed
+        self.assertEqual(net, 10**18)
+        self.assertEqual(count, 1)
+
+    def test_address_match_is_case_insensitive(self) -> None:
+        """Etherscan returns lowercase; the watchlist might be checksum-cased.
+
+        Without case-insensitive matching the flow calculation would
+        silently report zero for any checksum-cased input.
+        """
+        # Checksum-cased query address; lowercased data in the tx
+        checksum = "0xDE0B295669a9FD93d5F28D9Ec85E40f4cb697BAe"
+        txs = [_tx(to=WHALE_ADDR, from_=OTHER_ADDR, value_wei=ONE_ETH_WEI)]
+        net, count = self._compute(txs, address=checksum)
+        self.assertEqual(net, 10**18)
+        self.assertEqual(count, 1)
+
+    def test_self_to_self(self) -> None:
+        """An address sending to itself nets to zero but still counts the tx.
+
+        Wash-style same-address moves are rare on real cold wallets but a
+        v1 ingester should handle them deterministically rather than
+        double-count.
+        """
+        txs = [_tx(to=WHALE_ADDR, from_=WHALE_ADDR, value_wei=ONE_ETH_WEI)]
+        net, count = self._compute(txs)
+        # +1 ETH (incoming) - 1 ETH (outgoing) = 0
+        self.assertEqual(net, 0)
+        self.assertEqual(count, 1)
+
+    def test_skips_non_touching_txs(self) -> None:
+        """Txs that don't touch the address are ignored."""
+        txs = [
+            _tx(to=OTHER_ADDR, from_=OTHER_ADDR, value_wei=ONE_ETH_WEI),
+        ]
+        net, count = self._compute(txs)
+        self.assertEqual(net, 0)
+        self.assertEqual(count, 0)
+
+    def test_skips_malformed_value(self) -> None:
+        """A non-numeric value field is dropped, not raised on."""
+        txs = [
+            _tx(to=WHALE_ADDR, from_=OTHER_ADDR, value_wei="not-a-number"),
+            _tx(to=WHALE_ADDR, from_=OTHER_ADDR, value_wei=ONE_ETH_WEI),
+        ]
+        net, count = self._compute(txs)
+        # Only the good tx counted
+        self.assertEqual(net, 10**18)
+        self.assertEqual(count, 1)
+
+    def test_filters_to_exact_timestamp_window(self) -> None:
+        """Boundary blocks can include neighboring txs; timestamps define the window."""
+        txs = [
+            _tx(
+                to=WHALE_ADDR,
+                from_=OTHER_ADDR,
+                value_wei=ONE_ETH_WEI,
+                time_stamp="999",
+            ),
+            _tx(
+                to=WHALE_ADDR,
+                from_=OTHER_ADDR,
+                value_wei=ONE_ETH_WEI,
+                time_stamp="1000",
+            ),
+            _tx(
+                to=WHALE_ADDR,
+                from_=OTHER_ADDR,
+                value_wei=ONE_ETH_WEI,
+                time_stamp="1999",
+            ),
+            _tx(
+                to=WHALE_ADDR,
+                from_=OTHER_ADDR,
+                value_wei=ONE_ETH_WEI,
+                time_stamp="2000",
+            ),
+        ]
+        net, count = self._compute(txs)
+        self.assertEqual(net, 2 * 10**18)
+        self.assertEqual(count, 2)
+
+    def test_skips_malformed_timestamp(self) -> None:
+        """A malformed timeStamp cannot be assigned to the intended window."""
+        txs = [
+            _tx(
+                to=WHALE_ADDR,
+                from_=OTHER_ADDR,
+                value_wei=ONE_ETH_WEI,
+                time_stamp="",
+            ),
+            _tx(
+                to=WHALE_ADDR,
+                from_=OTHER_ADDR,
+                value_wei=ONE_ETH_WEI,
+                time_stamp="not-a-ts",
+            ),
+            _tx(to=WHALE_ADDR, from_=OTHER_ADDR, value_wei=ONE_ETH_WEI),
+        ]
+        net, count = self._compute(txs)
+        self.assertEqual(net, 10**18)
+        self.assertEqual(count, 1)
+
+    def test_empty_list(self) -> None:
+        """Zero txs in window == 0 flow + 0 count, not an error."""
+        net, count = self._compute([])
+        self.assertEqual(net, 0)
+        self.assertEqual(count, 0)
+
+
+# ---------------------------------------------------------------------------
+# Etherscan response handling
+# ---------------------------------------------------------------------------
+
+
+class FetchBalanceWeiTests(unittest.TestCase):
+    """Etherscan balance endpoint handling."""
+
+    def test_redact_api_key_strips_key_from_url(self) -> None:
+        """The secret API key is never persisted in raw-blob URLs."""
+        url = "https://api.etherscan.io/v2/api?module=account&apikey=SECRET"
+        redacted = _redact_api_key(url, "SECRET")
+        self.assertNotIn("SECRET", redacted)
+        self.assertIn("apikey=***", redacted)
+
+    def test_stores_raw_blob_when_requested(self) -> None:
+        """Balance fetches store their raw response with a redacted URL."""
+        class FakeHttp:
+            """Minimal fake HTTP client capturing the requested URL."""
+
+            def get_json(self, url: str) -> object:
+                """Return a successful balance payload."""
+                self.url = url
+                return {"status": "1", "message": "OK", "result": ONE_ETH_WEI}
+
+        fake = FakeHttp()
+        with patch("genkei.ingest.etherscan_whale_flow.db.store_raw_blob") as store:
+            self.assertEqual(
+                fetch_balance_wei(
+                    fake,  # type: ignore[arg-type]
+                    api_key="SECRET",
+                    address=WHALE_ADDR,
+                    ingest_run_id=42,
+                    endpoint_name="balance_2026-06-08_0xabc",
+                ),
+                10**18,
+            )
+
+        stored_url = store.call_args.args[2]
+        self.assertNotIn("SECRET", stored_url)
+        self.assertIn("apikey=***", stored_url)
+        store.assert_called_once_with(
+            42,
+            "balance_2026-06-08_0xabc",
+            stored_url,
+            {"status": "1", "message": "OK", "result": ONE_ETH_WEI},
+        )
+
+
+class FetchTxlistTests(unittest.TestCase):
+    """Etherscan txlist endpoint handling."""
+
+    def test_paginates_until_short_page_and_stores_each_raw_page(self) -> None:
+        """Full pages are followed until the first short page."""
+        first_page = [{"hash": "0x1"}, {"hash": "0x2"}]
+        second_page = [{"hash": "0x3"}]
+
+        class FakeHttp:
+            """Fake paginated Etherscan client."""
+
+            def __init__(self) -> None:
+                """Track URLs requested by the collector."""
+                self.urls: list[str] = []
+
+            def get_json(self, url: str) -> object:
+                """Return deterministic payloads based on the page query."""
+                self.urls.append(url)
+                if "page=1" in url:
+                    return {"status": "1", "message": "OK", "result": first_page}
+                if "page=2" in url:
+                    return {"status": "1", "message": "OK", "result": second_page}
+                raise AssertionError(f"unexpected URL: {url}")
+
+        fake = FakeHttp()
+        with (
+            patch("genkei.ingest.etherscan_whale_flow.TXLIST_PAGE_SIZE", 2),
+            patch("genkei.ingest.etherscan_whale_flow.db.store_raw_blob") as store,
+        ):
+            rows = fetch_txlist(
+                fake,  # type: ignore[arg-type]
+                api_key="SECRET",
+                address=WHALE_ADDR,
+                start_block=1,
+                end_block=2,
+                ingest_run_id=42,
+                endpoint_name_prefix="txlist_2026-06-08_0xabc",
+            )
+
+        self.assertEqual(rows, first_page + second_page)
+        self.assertEqual(len(fake.urls), 2)
+        self.assertIn("page=1", fake.urls[0])
+        self.assertIn("page=2", fake.urls[1])
+        self.assertNotIn("SECRET", store.call_args_list[0].args[2])
+        self.assertIn("apikey=***", store.call_args_list[0].args[2])
+        self.assertNotIn("SECRET", store.call_args_list[1].args[2])
+        self.assertIn("apikey=***", store.call_args_list[1].args[2])
+        self.assertEqual(
+            store.call_args_list[0].args[1],
+            "txlist_2026-06-08_0xabc_page_1",
+        )
+        self.assertEqual(
+            store.call_args_list[1].args[1],
+            "txlist_2026-06-08_0xabc_page_2",
+        )
+
+    def test_no_transactions_found_after_full_page_returns_accumulated_rows(self) -> None:
+        """A terminal no-transactions page preserves prior accumulated rows."""
+        first_page = [{"hash": "0x1"}, {"hash": "0x2"}]
+
+        class FakeHttp:
+            """Fake client returning one full page followed by no results."""
+
+            def get_json(self, url: str) -> object:
+                """Return page one rows, then Etherscan's empty sentinel."""
+                if "page=1" in url:
+                    return {"status": "1", "message": "OK", "result": first_page}
+                return {
+                    "status": "0",
+                    "message": "No transactions found",
+                    "result": "No transactions found",
+                }
+
+        with patch("genkei.ingest.etherscan_whale_flow.TXLIST_PAGE_SIZE", 2):
+            rows = fetch_txlist(
+                FakeHttp(),  # type: ignore[arg-type]
+                api_key="k",
+                address=WHALE_ADDR,
+                start_block=1,
+                end_block=2,
+            )
+
+        self.assertEqual(rows, first_page)
+
+
+# ---------------------------------------------------------------------------
+# collect — run-level failure semantics
+# ---------------------------------------------------------------------------
+
+
+class CollectTests(unittest.TestCase):
+    """Run-level failure behavior for the collector."""
+
+    def test_fails_when_every_address_fetch_fails(self) -> None:
+        """All-address fetch failure records partial metadata and raises."""
+        entry = EthWhaleAddressEntry(
+            address=WHALE_ADDR,
+            label="Ethereum Foundation",
+            category="foundation",
+            notes=None,
+        )
+
+        class FakeRun:
+            """Minimal ingest-run handle used by collect()."""
+
+            id = 42
+
+            def __init__(self) -> None:
+                """Initialize an in-memory row counter."""
+                self.rows_written = 0
+
+            def add_rows(self, n: int) -> None:
+                """Track rows that collect() reports as written."""
+                self.rows_written += n
+
+        fake_run = FakeRun()
+
+        @contextmanager
+        def fake_ingest_run(*args: object, **kwargs: object) -> Iterator[FakeRun]:
+            """Yield the fake run handle from a context-manager wrapper."""
+            yield fake_run
+
+        with (
+            patch(
+                "genkei.ingest.etherscan_whale_flow.load_watchlist",
+                return_value=SimpleNamespace(eth_whale_addresses=[entry]),
+            ),
+            patch(
+                "genkei.ingest.etherscan_whale_flow.db.ingest_run",
+                fake_ingest_run,
+            ),
+            patch("genkei.ingest.etherscan_whale_flow.eth_price_usd_at"),
+            patch(
+                "genkei.ingest.etherscan_whale_flow.fetch_block_by_time",
+                return_value=1,
+            ),
+            patch(
+                "genkei.ingest.etherscan_whale_flow.fetch_current_head_block",
+                return_value=2,
+            ),
+            patch(
+                "genkei.ingest.etherscan_whale_flow.fetch_balance_wei",
+                side_effect=RuntimeError("rate limited apikey=SECRET"),
+            ),
+            patch(
+                "genkei.ingest.etherscan_whale_flow.db.record_partial_endpoints"
+            ) as partial,
+            self.assertRaisesRegex(RuntimeError, "every address"),
+        ):
+            collect(
+                Path("ignored.yml"),
+                http=object(),  # type: ignore[arg-type]
+                api_key="SECRET",
+                now=datetime(2026, 6, 8, 14, 0, tzinfo=timezone.utc),
+            )
+
+        partial.assert_called_once()
+        self.assertEqual(partial.call_args.args[0], 42)
+        failure = partial.call_args.args[1][0]
+        self.assertEqual(failure["name"], f"address_2026-06-08_{WHALE_ADDR}")
+        self.assertNotIn("SECRET", failure["error"])
+        self.assertIn("apikey=***", failure["error"])
+        self.assertEqual(fake_run.rows_written, 0)
+
+
+# ---------------------------------------------------------------------------
+# build_snapshot — joins ETH math with USD pricing
+# ---------------------------------------------------------------------------
+
+
+class BuildSnapshotTests(unittest.TestCase):
+    """Snapshot assembly: USD columns are derived only when price is known."""
+
+    def _entry(self) -> EthWhaleAddressEntry:
+        """Return the canonical test watchlist entry."""
+        return EthWhaleAddressEntry(
+            address=WHALE_ADDR,
+            label="Ethereum Foundation",
+            category="foundation",
+            notes=None,
+        )
+
+    def test_balance_and_flow_eth_columns(self) -> None:
+        """wei inputs become Decimal ETH on the snapshot."""
+        snap = build_snapshot(
+            address_entry=self._entry(),
+            ts=datetime(2026, 6, 8, tzinfo=timezone.utc),
+            balance_wei=9774 * 10**18,
+            net_wei=5 * 10**17,  # +0.5 ETH
+            tx_count=3,
+            eth_price_usd=Decimal("2500"),
+        )
+        self.assertEqual(snap.balance_eth, Decimal("9774"))
+        self.assertEqual(snap.net_flow_eth_24h, Decimal("0.5"))
+        self.assertEqual(snap.tx_count_24h, 3)
+
+    def test_usd_columns_when_price_known(self) -> None:
+        """USD columns quantize to 2 decimals (cents)."""
+        snap = build_snapshot(
+            address_entry=self._entry(),
+            ts=datetime(2026, 6, 8, tzinfo=timezone.utc),
+            balance_wei=10**18,  # 1 ETH
+            net_wei=5 * 10**17,  # +0.5 ETH
+            tx_count=1,
+            eth_price_usd=Decimal("2500"),
+        )
+        self.assertEqual(snap.balance_usd_at_snapshot, Decimal("2500.00"))
+        self.assertEqual(snap.net_flow_usd_24h, Decimal("1250.00"))
+
+    def test_usd_columns_null_when_price_missing(self) -> None:
+        """USD columns are None when coingecko hasn't backfilled yet.
+
+        The ETH-denominated columns are still load-bearing — never raise
+        on missing price; let the row land with NULL USD and let a later
+        re-run fill it in via the (address, ts) upsert.
+        """
+        snap = build_snapshot(
+            address_entry=self._entry(),
+            ts=datetime(2026, 6, 8, tzinfo=timezone.utc),
+            balance_wei=10**18,
+            net_wei=10**17,
+            tx_count=1,
+            eth_price_usd=None,
+        )
+        self.assertEqual(snap.balance_eth, Decimal("1"))
+        self.assertIsNone(snap.balance_usd_at_snapshot)
+        self.assertIsNone(snap.net_flow_usd_24h)
+
+    def test_historical_balance_can_be_null_while_flow_is_priced(self) -> None:
+        """Backfills do not write today's balance into historical rows."""
+        snap = build_snapshot(
+            address_entry=self._entry(),
+            ts=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            balance_wei=None,
+            net_wei=10**18,
+            tx_count=2,
+            eth_price_usd=Decimal("2000"),
+        )
+        self.assertIsNone(snap.balance_eth)
+        self.assertIsNone(snap.balance_usd_at_snapshot)
+        self.assertEqual(snap.net_flow_eth_24h, Decimal("1"))
+        self.assertEqual(snap.net_flow_usd_24h, Decimal("2000.00"))
+
+    def test_carries_watchlist_metadata(self) -> None:
+        """label + category come from the watchlist entry, not the upstream tx data."""
+        snap = build_snapshot(
+            address_entry=self._entry(),
+            ts=datetime(2026, 6, 8, tzinfo=timezone.utc),
+            balance_wei=0,
+            net_wei=0,
+            tx_count=0,
+            eth_price_usd=None,
+        )
+        self.assertEqual(snap.label, "Ethereum Foundation")
+        self.assertEqual(snap.category, "foundation")
+        self.assertEqual(snap.address, WHALE_ADDR)
+
+
+# ---------------------------------------------------------------------------
+# Backfill date iteration
+# ---------------------------------------------------------------------------
+
+
+class IterSnapshotDatesTests(unittest.TestCase):
+    """Calendar walking for incremental + backfill modes."""
+
+    def test_incremental_returns_today_only(self) -> None:
+        """No --since means a single snapshot for today."""
+        days = _iter_snapshot_dates(since=None, today=date(2026, 6, 8))
+        self.assertEqual(days, [date(2026, 6, 8)])
+
+    def test_backfill_inclusive_range(self) -> None:
+        """--since includes both endpoints."""
+        days = _iter_snapshot_dates(
+            since=date(2026, 6, 5), today=date(2026, 6, 8)
+        )
+        self.assertEqual(
+            days,
+            [
+                date(2026, 6, 5),
+                date(2026, 6, 6),
+                date(2026, 6, 7),
+                date(2026, 6, 8),
+            ],
+        )
+
+    def test_since_equals_today_returns_one_day(self) -> None:
+        """--since today == only today (not zero days)."""
+        days = _iter_snapshot_dates(
+            since=date(2026, 6, 8), today=date(2026, 6, 8)
+        )
+        self.assertEqual(days, [date(2026, 6, 8)])
+
+
+class UtcMidnightTests(unittest.TestCase):
+    """The PK ts uses UTC midnight of the snapshot date — pin this contract."""
+
+    def test_utc_midnight_returns_aware_datetime(self) -> None:
+        """Returned datetime is tz-aware UTC."""
+        m = _utc_midnight(date(2026, 6, 8))
+        self.assertEqual(m, datetime(2026, 6, 8, 0, 0, 0, tzinfo=timezone.utc))
+        self.assertEqual(m.tzinfo, timezone.utc)
+        self.assertEqual(m.time(), time.min)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -159,22 +159,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Unit tests pin the parser (per-product field quirks).
 
 
-### B-106 — Etherscan whale-flow tracker (top-N ETH wallet net flow)
-- **Status:** open
-- **Priority:** medium
-- **Context:** The user's "OG sellers" framing on ETH directly maps to "are large long-term ETH wallets net-selling?" — a question the lake explicitly couldn't answer in the 2026-06-02 ETH session. Etherscan v2 API (free tier 100k calls/day, already used by B-082 for LINK staking) exposes per-address balance history + transaction history, which is enough to track per-day net flow for a maintained list of known whale addresses. The list of addresses is the hard part: it has to be curated (exchanges, custodians, foundation wallets, known whales identified by community analyses). Once curated, the ingest is mechanical. Lower priority than B-031 / B-104 / B-105 because (a) the address-list curation is ongoing rather than one-shot, (b) the data is per-wallet rather than aggregate so the "institutional vs retail" cut is harder to make, and (c) the COT / CME / ETF flow data closes most of the institutional-flow gap at a higher signal-to-noise ratio.
-- **Acceptance criteria:**
-  - Watchlist gains an `eth_whale_addresses:` section listing addresses with `address`, `label` (e.g. "Binance cold wallet 1", "Ethereum Foundation"), `category` (exchange / custodian / foundation / whale), `notes`. v1 seed list: ~25-50 known addresses from publicly-documented sources (Etherscan's own labeled-addresses dataset, known foundation wallets, Lookonchain-style published whale identifications). Document curation methodology in `docs/sources/eth-whale-addresses.md`.
-  - New ingester `genkei.ingest.etherscan_whale_flow` reading Etherscan v2 API. Uses the same `ETHERSCAN_API_KEY` env var as B-082; gracefully skips with a loud warning when no key is set (per D-020).
-  - Daily per-address snapshot: `(address, ts, balance_eth, balance_usd_at_snapshot, net_flow_eth_24h, net_flow_usd_24h, tx_count_24h)` keyed on `(address, ts)`.
-  - Lands raw blobs (one blob per address per day) for audit trail.
-  - Normalizes to `onchain.eth_whale_flows`. View `onchain.eth_whale_flows_aggregate` sums per category (exchange / custodian / foundation / whale) per day for the "are whales net-selling?" headline query.
-  - Daily cron in a new `etherscan-whales-daily.yml` workflow, or extended into `sec-daily.yml`'s self-hosted runner block to share the Etherscan rate-limit budget with B-082.
-  - Backfill mode walks Etherscan's transaction history for each address back to a configurable `--since` date (default: 1 year).
-  - `genkei whales --category whale --since 2025-01-01` answers "are tracked whales net-selling ETH over time" without custom code.
-  - Unit tests pin the Etherscan v2 response parser + the 24h-net-flow computation (sum of incoming txns minus sum of outgoing txns, with ETH-only filter; ERC-20 transfers ignored for v1).
-  - **Known limitations**: (a) the address-list is necessarily incomplete — true whales obfuscate via fresh wallets; (b) exchange cold wallets aggregate many users so "exchange net inflow" doesn't equal "users buying" — exchange flows often reverse the intuitive sign; (c) Etherscan rate limits will cap address-list size at ~500 addresses per daily run. Document these limits in the writeup so users don't over-read the data.
-
 ### B-113 — Multi-issuer expansion of spot ETF net flow (B-107 v2.1)
 - **Status:** open
 - **Priority:** low

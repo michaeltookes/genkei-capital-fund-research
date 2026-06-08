@@ -43,6 +43,7 @@ Subcommand surface (B-037):
 - ``genkei etf-flows`` Spot crypto ETF daily activity           [B-105 ✓]
 - ``genkei stablecoin-flow``
                         Cross-chain stablecoin supply trajectory [B-108 ✓]
+- ``genkei whales``    ETH whale-address daily flow (per category) [B-106 ✓]
 """
 
 from __future__ import annotations
@@ -72,6 +73,7 @@ from genkei.cli import (
     tvl,
     tvl_drawdown,
     watchlist,
+    whales,
 )
 
 app = typer.Typer(
@@ -147,6 +149,13 @@ app.command(
     "stablecoin-flow",
     help="Cross-chain stablecoin supply trajectory + rotation signal (per-chain or --all-chains).",
 )(stablecoin_flow.stablecoin_flow_cmd)
+app.command(
+    "whales",
+    help=(
+        "ETH whale-address daily flow aggregate "
+        "(--category exchange|custodian|foundation|whale or --address)."
+    ),
+)(whales.whales_cmd)
 app.command(
     "query",
     help="Ad-hoc SQL escape hatch (read-only, timeout + row cap enforced).",

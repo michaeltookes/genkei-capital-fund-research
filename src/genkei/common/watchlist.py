@@ -170,6 +170,25 @@ class CotMarketEntry:
 
 
 @dataclass(frozen=True)
+class EthWhaleAddressEntry:
+    """An ETH wallet we snapshot daily for whale-flow tracking (B-106).
+
+    ``address`` is normalized to lowercase 0x-prefixed hex (checksum-
+    insensitive); the collector compares against Etherscan responses
+    which return lowercase addresses. ``category`` is one of
+    ``exchange`` / ``custodian`` / ``foundation`` / ``whale`` — see
+    ``docs/sources/eth-whale-addresses.md`` for the curation
+    methodology and how each category's flow sign should be read
+    (exchange inflow = sell pressure, etc.).
+    """
+
+    address: str
+    label: str
+    category: str  # 'exchange' | 'custodian' | 'foundation' | 'whale'
+    notes: str | None = None
+
+
+@dataclass(frozen=True)
 class Watchlist:
     """Typed watchlist data with convenience lookups by source identifier."""
 
@@ -181,6 +200,9 @@ class Watchlist:
     benchmarks: list[BenchmarkEntry] = dataclasses.field(default_factory=list)
     cot_markets: list[CotMarketEntry] = dataclasses.field(default_factory=list)
     etf_tickers: list[EtfTickerEntry] = dataclasses.field(default_factory=list)
+    eth_whale_addresses: list[EthWhaleAddressEntry] = dataclasses.field(
+        default_factory=list
+    )
 
     def find_crypto(self, symbol: str) -> CryptoEntry | None:
         """Lookup a crypto entry by symbol (case-insensitive)."""
@@ -565,6 +587,51 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                 )
             )
 
+    eth_whale_addresses: list[EthWhaleAddressEntry] = []
+    eth_whale_root = data.get("eth_whale_addresses", [])
+    if isinstance(eth_whale_root, list):
+        seen_eth_whale_addresses: set[str] = set()
+        for entry in eth_whale_root:
+            if not isinstance(entry, dict):
+                raise ValueError(f"Invalid eth_whale_addresses entry: {entry!r}")
+            raw_addr = entry.get("address")
+            if not isinstance(raw_addr, str):
+                raise ValueError(f"Invalid eth_whale_addresses.address: {raw_addr!r}")
+            # Normalize to lowercase + 0x-prefix; Etherscan returns lowercase
+            # so storing the canonical lowercase form keeps the (address, ts)
+            # PK stable regardless of the YAML author's checksum-case choices.
+            addr = raw_addr.strip().lower()
+            try:
+                int(addr[2:], 16)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Invalid eth_whale_addresses.address: {raw_addr!r}"
+                ) from exc
+            if not addr.startswith("0x") or len(addr) != 42:
+                raise ValueError(f"Invalid eth_whale_addresses.address: {raw_addr!r}")
+            if addr in seen_eth_whale_addresses:
+                continue
+            seen_eth_whale_addresses.add(addr)
+            raw_category = entry.get("category")
+            if not isinstance(raw_category, str):
+                raise ValueError(
+                    f"Invalid eth_whale_addresses.category {raw_category!r} for {addr}"
+                )
+            category = raw_category.strip().lower()
+            if category not in ("exchange", "custodian", "foundation", "whale"):
+                raise ValueError(
+                    f"Invalid eth_whale_addresses.category {raw_category!r} for {addr}"
+                )
+            label = str(entry.get("label") or "").strip() or addr
+            eth_whale_addresses.append(
+                EthWhaleAddressEntry(
+                    address=addr,
+                    label=label,
+                    category=category,
+                    notes=_optional_string(entry.get("notes")),
+                )
+            )
+
     return Watchlist(
         crypto=crypto,
         equities=equities,
@@ -574,6 +641,7 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
         benchmarks=benchmarks,
         cot_markets=cot_markets,
         etf_tickers=etf_tickers,
+        eth_whale_addresses=eth_whale_addresses,
     )
 
 
