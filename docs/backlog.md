@@ -198,6 +198,21 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
 - **Out of scope:**
   - Backfilling daily NAV / TNA between quarter-end points — that's the gap a paid feed would fill; not pursuing today per the "free/open sources only" stance.
 
+### B-115 — SUI unlock schedule for the 7 paywalled allocations (B-089 v2)
+- **Status:** open
+- **Priority:** low
+- **Context:** B-089 v1 (2026-06-07) shipped a CryptoRank-scraped ingester covering ONE of SUI's 8 allocation categories (Community Reserves, 10.648% of supply). The remaining 7 categories — including the load-bearing **Series A** (7.142%), **Series B** (6.956%), and **Early Contributors** (6.134%) VC tranches that actually drive the unlock-pressure bear thesis — are paywalled across all eight surveyed free sources (see `docs/sources/sui-unlocks.md`). The collector module's `KNOWN_FREE_ALLOCATIONS` tuple is the extension point: adding a name there is the entire code change once data becomes available.
+- **Unblock paths (in priority order per the survey doc):**
+  - Sui Foundation publishes a structured release schedule (JSON / CSV in a repo or stable URL). Lowest cost; highest signal.
+  - Paid-data budget opens per CLAUDE.md's "Paid APIs deferred until a private-data story exists." DefiLlama Pro at the current per-API tier would close this immediately.
+  - Tokenomist's free tier expands to cover full SUI schedules without RSC-fragility parsing.
+  - On-chain vesting-object discovery — community publishes verified canonical addresses for each allocation category. A Sui RPC-based collector would then land the same shape as the CryptoRank ingester with full coverage.
+- **Acceptance criteria:**
+  - Extend `KNOWN_FREE_ALLOCATIONS` in `src/genkei/ingest/sui_unlocks.py` (or add a parallel collector if the new data path is structurally different — on-chain vs scraped vs paid API).
+  - Per-category batch rows land in the existing `onchain.sui_unlocks` table — no schema migration needed since v1 was designed to extend cleanly.
+  - Unit tests cover the new allocation parser.
+  - Update the SUI 2026-05-20 research decision file's Backlog implications note to mark the gap fully closed.
+
 ### B-032 — EIA energy data ingester
 - **Status:** open
 - **Priority:** medium
@@ -232,17 +247,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Survey of available sources (free + paid) with rough pricing + coverage assessment — that's the first deliverable.
   - If a free source emerges or a paid budget opens: schema + collector for cross-oracle TVS share over time, by protocol category (price feeds, randomness, CCIP-style cross-chain).
   - Pair with B-081 once both exist — would let `genkei query` join LINK's TVS share against competitors' over the same time series.
-
-### B-089 — SUI token unlock / vesting schedule data source
-- **Status:** open
-- **Priority:** medium
-- **Context:** Surfaced by the SUI /research session (2026-05-20). The session noted "no SUI token unlock schedule — Sui had aggressive vesting at launch (3y+ cliff), continued unlocks are a known headwind not visible in the lake." For tactical-sleeve crypto positions on a months horizon, knowing whether a major unlock is imminent is the single most actionable supply-side data point — base-case bear thesis for any post-2023 alt-L1 is "VC unlocks compress the token." Lake-gap-free analysis isn't possible until this lands. Investigation tier first because the Blockvision indexing API documented endpoints (`docs.blockvision.org/reference/sui-indexing-api`) do *not* list token-vesting / unlock-schedule endpoints — coverage stops at account holdings + coin market data. Likely sources: (a) on-chain analysis of known vesting contracts via the Sui RPC + Blockvision's Account Activity endpoint, (b) CryptoRank / TokenUnlocks-style external APIs (may be paid), (c) Sui Foundation's published tokenomics schedule (static, but parseable into a per-month unlock schedule).
-- **Acceptance criteria:**
-  - Survey of available sources (free + paid + on-chain) for SUI vesting / unlock data. First deliverable: a one-page comparison in `docs/sources/sui-unlocks.md` covering coverage (cliff dates, monthly amounts, recipient categorization), staleness, and cost.
-  - If a free / cheap source emerges: new schema (`onchain.sui_unlocks` or similar — `unlock_date`, `unlock_amount_sui`, `category` (team / investor / community / etc.), `cumulative_pct_supply`) + collector + normalizer following the standard `meta.ingest_runs` + `meta.raw_blobs` pattern.
-  - If only paid sources exist: B-089 stays open at low priority; add the survey doc to the repo so the next time the paid-data question opens, this is in the queue (mirrors the precedent set by B-084 for oracle market share).
-  - `genkei query` against the new table answers "how much SUI unlocks in the next 30 / 60 / 90 days, and what % of circulating supply does that represent." That number directly informs position sizing in the crypto-tactical sleeve.
-  - Update the SUI /research decision file's "Backlog implications" note to point at the resolved item.
 
 ### B-086 — Map the full Chainlink staking surface (cross-source reconciliation)
 - **Status:** open
