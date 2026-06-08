@@ -1,24 +1,42 @@
-"""On-chain staking-pool event ingester (B-082).
+"""On-chain staking-pool event ingester (B-082 + B-086).
 
 Reads Staked / Unstaked / UnbondingPeriodStarted log events from a
 configured staking-pool contract via Etherscan's V2 logs API and lands
-one row per event in ``onchain.staking_events``. First (and currently
-only) protocol covered: Chainlink v0.2 community staking pool at
-``0xBc10f2E862ED4502144c7d632a3459F49DFCDB5e`` on Ethereum mainnet.
+one row per event in ``onchain.staking_events``. Currently covers the
+Chainlink v0.2 staking system on Ethereum mainnet — both halves of it:
+
+  - ``chainlink-v02``           — CommunityStakingPool
+                                  (``0xBc10f2E862ED4502144c7d632a3459F49DFCDB5e``)
+  - ``chainlink-v02-operator``  — OperatorStakingPool
+                                  (``0xa1d76a7ca72128541e9fcacafbda3a92ef94fdc5``)
+
+Both contracts share the v0.2 codebase and emit the same Staked /
+Unstaked / UnbondingPeriodStarted event signatures (verified via the
+Etherscan topic probe in B-086), so DEFAULT_POOLS reuses the existing
+EVENT_TOPIC_* constants for both — no per-pool topic overrides needed.
 
 The schema (migration ``5d3e8b9c1a02``) is deliberately generic so
 adding Lido / RocketPool / EigenLayer in the future is a config
 change plus a contract-address constant, not a new schema.
 
-Signal-interpretation note (learned from the first backfill):
+Not covered (filed as B-116 follow-up): the v0.1 legacy ``Staking``
+contract (``0x3feB1e09b4bb0E7f0387CeE092a52e85797ab889``). It still
+holds 0.46M LINK during unwind as of 2026-06-07 but emits DIFFERENT
+event signatures than v0.2 — wiring it up requires extending
+PoolConfig with per-pool event-topic overrides and a separate parse
+path. The two v0.2 pools together reconcile within ~3% of DefiLlama's
+chainlink-staking TVL so v0.1 is not load-bearing for v1.
 
-  The Chainlink v0.2 pool runs at a **capped capacity** (~6.5M LINK).
-  Once the cap filled in Nov-Dec 2023, every Unstaked event is
-  immediately matched by a queued Staked event of the same amount —
-  monthly net flow is structurally **zero** in steady state. So
-  "net flow per month" is NOT a useful demand signal for this pool;
-  the framing in B-082's original acceptance criteria was wrong on
-  that front.
+Signal-interpretation notes (learned from the B-082 + B-086 backfills):
+
+  **Cap-and-intent dynamics.** The v0.2 community pool runs at a
+  **capped capacity** (~40.9M LINK as of 2026-06-07, not the ~6.5M
+  observed in the early ramp during the B-082 design window).
+  Once the cap fills, every Unstaked event is immediately matched by
+  a queued Staked event of the same amount — monthly net flow is
+  structurally **zero** in steady state. So "net flow per month" is
+  NOT a useful demand signal for the capped pool; the framing in
+  B-082's original acceptance criteria was wrong on that front.
 
   The actual demand signal is the **UnbondingPeriodStarted** count
   (stakers signaling intent to exit, waiting ~28d before the actual
@@ -27,10 +45,33 @@ Signal-interpretation note (learned from the first backfill):
   losing patience, which is real on-chain conviction data of the
   kind the LINK research session was looking for.
 
-  Queries computing demand signal should aggregate by event_type and
-  look at the unbonding_started count over time, not the
-  staked-minus-unstaked flow. See the example queries in the B-082
-  resolved entry in docs/resolved.md.
+  **Operator pool runs differently.** The OperatorStakingPool has
+  much lower turnover (104 Staked + 16 Unstaked events vs 17,488 +
+  3,141 on the community pool) because it tracks bonded node-
+  operator stake rather than retail flow. Net-stake-delta is more
+  meaningful there — operator bonding/unbonding is an institutional
+  signal in its own right.
+
+  **TVL reconciliation methodology.** SUM(staked - unstaked) per
+  protocol_slug × current LINK price should land within ~10% of
+  DefiLlama's chainlink-staking TVL. Verified at 2026-06-07:
+  community 40,875,000 LINK + operator 1,731,903 LINK = 42,606,903
+  LINK; at $7.68 = $327M vs DefiLlama's $338M (~3% gap, entirely
+  explained by LINK price drift across DB snapshots + the v0.1
+  contract's 457K LINK that B-116 will add). Run the reconciliation
+  any time a new pool ships:
+
+      SELECT protocol_slug,
+             SUM(CASE WHEN event_type='staked'   THEN amount_token
+                      WHEN event_type='unstaked' THEN -amount_token END) AS net_link
+      FROM onchain.staking_events
+      WHERE protocol_slug LIKE 'chainlink-%'
+        AND event_type IN ('staked','unstaked')
+      GROUP BY protocol_slug;
+
+  Queries computing demand signal should aggregate by event_type +
+  protocol_slug; aggregating the community pool's staked-minus-
+  unstaked alone is structurally meaningless on capped pools.
 
 Configuration:
   - ``ETHERSCAN_API_KEY`` — Etherscan V2 strictly requires a key (no
