@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import unittest
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from genkei.common.watchlist import EthWhaleAddressEntry
@@ -15,9 +19,11 @@ from genkei.ingest.etherscan_whale_flow import (
     SOURCE_NAME,
     TXLIST_PAGE_SIZE,
     _iter_snapshot_dates,
+    _redact_api_key,
     _utc_midnight,
     _wei_to_eth,
     build_snapshot,
+    collect,
     compute_net_flow_and_count,
     fetch_balance_wei,
     fetch_txlist,
@@ -287,6 +293,12 @@ class ComputeNetFlowTests(unittest.TestCase):
 
 
 class FetchBalanceWeiTests(unittest.TestCase):
+    def test_redact_api_key_strips_key_from_url(self) -> None:
+        url = "https://api.etherscan.io/v2/api?module=account&apikey=SECRET"
+        redacted = _redact_api_key(url, "SECRET")
+        self.assertNotIn("SECRET", redacted)
+        self.assertIn("apikey=***", redacted)
+
     def test_stores_raw_blob_when_requested(self) -> None:
         class FakeHttp:
             def get_json(self, url: str) -> object:
@@ -298,7 +310,7 @@ class FetchBalanceWeiTests(unittest.TestCase):
             self.assertEqual(
                 fetch_balance_wei(
                     fake,  # type: ignore[arg-type]
-                    api_key="k",
+                    api_key="SECRET",
                     address=WHALE_ADDR,
                     ingest_run_id=42,
                     endpoint_name="balance_2026-06-08_0xabc",
@@ -306,10 +318,13 @@ class FetchBalanceWeiTests(unittest.TestCase):
                 10**18,
             )
 
+        stored_url = store.call_args.args[2]
+        self.assertNotIn("SECRET", stored_url)
+        self.assertIn("apikey=***", stored_url)
         store.assert_called_once_with(
             42,
             "balance_2026-06-08_0xabc",
-            fake.url,
+            stored_url,
             {"status": "1", "message": "OK", "result": ONE_ETH_WEI},
         )
 
@@ -338,7 +353,7 @@ class FetchTxlistTests(unittest.TestCase):
         ):
             rows = fetch_txlist(
                 fake,  # type: ignore[arg-type]
-                api_key="k",
+                api_key="SECRET",
                 address=WHALE_ADDR,
                 start_block=1,
                 end_block=2,
@@ -350,6 +365,10 @@ class FetchTxlistTests(unittest.TestCase):
         self.assertEqual(len(fake.urls), 2)
         self.assertIn("page=1", fake.urls[0])
         self.assertIn("page=2", fake.urls[1])
+        self.assertNotIn("SECRET", store.call_args_list[0].args[2])
+        self.assertIn("apikey=***", store.call_args_list[0].args[2])
+        self.assertNotIn("SECRET", store.call_args_list[1].args[2])
+        self.assertIn("apikey=***", store.call_args_list[1].args[2])
         self.assertEqual(
             store.call_args_list[0].args[1],
             "txlist_2026-06-08_0xabc_page_1",
@@ -382,6 +401,78 @@ class FetchTxlistTests(unittest.TestCase):
             )
 
         self.assertEqual(rows, first_page)
+
+
+# ---------------------------------------------------------------------------
+# collect — run-level failure semantics
+# ---------------------------------------------------------------------------
+
+
+class CollectTests(unittest.TestCase):
+    def test_fails_when_every_address_fetch_fails(self) -> None:
+        entry = EthWhaleAddressEntry(
+            address=WHALE_ADDR,
+            label="Ethereum Foundation",
+            category="foundation",
+            notes=None,
+        )
+
+        class FakeRun:
+            id = 42
+
+            def __init__(self) -> None:
+                self.rows_written = 0
+
+            def add_rows(self, n: int) -> None:
+                self.rows_written += n
+
+        fake_run = FakeRun()
+
+        @contextmanager
+        def fake_ingest_run(*args: object, **kwargs: object) -> Iterator[FakeRun]:
+            yield fake_run
+
+        with (
+            patch(
+                "genkei.ingest.etherscan_whale_flow.load_watchlist",
+                return_value=SimpleNamespace(eth_whale_addresses=[entry]),
+            ),
+            patch(
+                "genkei.ingest.etherscan_whale_flow.db.ingest_run",
+                fake_ingest_run,
+            ),
+            patch("genkei.ingest.etherscan_whale_flow.eth_price_usd_at"),
+            patch(
+                "genkei.ingest.etherscan_whale_flow.fetch_block_by_time",
+                return_value=1,
+            ),
+            patch(
+                "genkei.ingest.etherscan_whale_flow.fetch_current_head_block",
+                return_value=2,
+            ),
+            patch(
+                "genkei.ingest.etherscan_whale_flow.fetch_balance_wei",
+                side_effect=RuntimeError("rate limited apikey=SECRET"),
+            ),
+            patch(
+                "genkei.ingest.etherscan_whale_flow.db.record_partial_endpoints"
+            ) as partial,
+            self.assertRaisesRegex(RuntimeError, "every address"),
+        ):
+            collect(
+                Path("ignored.yml"),
+                http=object(),  # type: ignore[arg-type]
+                api_key="SECRET",
+                now=datetime(2026, 6, 8, 14, 0, tzinfo=timezone.utc),
+            )
+
+        partial.assert_called_once()
+        self.assertEqual(partial.call_args.args[0], 42)
+        failure = partial.call_args.args[1][0]
+        self.assertEqual(failure["name"], f"address_2026-06-08_{WHALE_ADDR}")
+        self.assertNotIn("SECRET", failure["error"])
+        self.assertIn("apikey=***", failure["error"])
+        self.assertEqual(fake_run.rows_written, 0)
 
 
 # ---------------------------------------------------------------------------

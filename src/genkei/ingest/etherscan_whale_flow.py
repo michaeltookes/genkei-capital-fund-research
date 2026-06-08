@@ -171,9 +171,15 @@ def _store_raw_blob(
     endpoint_name: str | None,
     url: str,
     payload: Any,
+    api_key: str | None = None,
 ) -> None:
     if ingest_run_id is not None and endpoint_name is not None:
-        db.store_raw_blob(ingest_run_id, endpoint_name, url, payload)
+        db.store_raw_blob(ingest_run_id, endpoint_name, _redact_api_key(url, api_key), payload)
+
+
+def _redact_api_key(text: str, api_key: str | None) -> str:
+    """Redact Etherscan API keys before text lands in raw-blob metadata."""
+    return text.replace(api_key, "***") if api_key else text
 
 
 def fetch_balance_wei(
@@ -201,6 +207,7 @@ def fetch_balance_wei(
         endpoint_name=endpoint_name,
         url=url,
         payload=payload,
+        api_key=api_key,
     )
     if not isinstance(payload, dict):
         raise RuntimeError(f"Etherscan balance malformed: {payload!r}")
@@ -254,6 +261,7 @@ def fetch_txlist(
             endpoint_name=endpoint_name,
             url=url,
             payload=payload,
+            api_key=api_key,
         )
         if not isinstance(payload, dict):
             raise RuntimeError(f"Etherscan txlist malformed: {payload!r}")
@@ -479,7 +487,7 @@ def collect(
                 run.add_rows(0)
                 return run.id
 
-            total_written = 0
+            partial_failures: list[dict[str, str]] = []
             for snapshot_date in snapshot_days:
                 # 24h window:
                 #   - Historical day (snapshot_date < today): midnight-to-
@@ -557,11 +565,22 @@ def collect(
                         httpx.NetworkError,
                         RuntimeError,
                     ) as exc:
+                        safe_error = _redact_api_key(str(exc), resolved_key)
                         LOGGER.warning(
                             "Etherscan fetch failed for %s on %s: %s — skipping address",
                             entry.address,
                             snapshot_date,
-                            exc,
+                            safe_error,
+                        )
+                        partial_failures.append(
+                            {
+                                "name": (
+                                    f"address_{snapshot_date.isoformat()}_"
+                                    f"{entry.address.lower()}"
+                                ),
+                                "url": ETHERSCAN_V2_URL,
+                                "error": safe_error,
+                            }
                         )
                         continue
                     net_wei, tx_count = compute_net_flow_and_count(
@@ -588,26 +607,32 @@ def collect(
                     )
 
                 if not rows:
-                    LOGGER.info(
+                    db.record_partial_endpoints(run.id, partial_failures)
+                    message = (
+                        "Whale-flow fetch failed for every address on "
+                        f"{snapshot_date}; see partial_endpoints."
+                    )
+                    LOGGER.error(
                         "Whale-flow: 0 rows landed for %s (every address fetch failed)",
                         snapshot_date,
                     )
-                    continue
+                    raise RuntimeError(message)
                 with db.connection() as conn:
                     written = db.bulk_upsert(
                         conn,
                         "onchain.eth_whale_flows",
                         rows,
                         conflict_keys=("address", "ts"),
-                    )
-                total_written += written
+                )
+                run.add_rows(written)
                 LOGGER.info(
                     "Whale-flow: +%s rows for %s (%s addresses)",
                     written,
                     snapshot_date,
                     len(rows),
                 )
-            run.add_rows(total_written)
+            if partial_failures:
+                db.record_partial_endpoints(run.id, partial_failures)
             return run.id
     finally:
         if owns_http:
