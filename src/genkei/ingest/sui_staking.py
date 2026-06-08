@@ -101,7 +101,11 @@ def _rpc_post(http: HttpClient, method: str, params: list[Any] | None = None) ->
     """
     payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or []}
     response = http.request(
-        "POST", SUI_RPC_URL, json=payload, headers={"Content-Type": "application/json"}
+        "POST",
+        SUI_RPC_URL,
+        retryable=True,
+        json=payload,
+        headers={"Content-Type": "application/json"},
     )
     response.raise_for_status()
     body = response.json()

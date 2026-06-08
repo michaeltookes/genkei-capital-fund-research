@@ -477,6 +477,30 @@ class RetryBehaviorTests(unittest.TestCase):
         self.assertEqual(attempts, ["POST"])
         self.assertEqual(clock.sleeps, [])
 
+    def test_retries_opted_in_non_idempotent_retryable_status(self) -> None:
+        attempts: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            attempts.append(request.method)
+            if len(attempts) == 1:
+                return httpx.Response(503)
+            return httpx.Response(200, json={"ok": True})
+
+        client, clock = self._client(
+            handler,
+            RetryPolicy(max_attempts=3, jitter=0.0, initial_backoff=1.0),
+        )
+        with client:
+            response = client.request(
+                "POST",
+                "https://example.test/x",
+                retryable=True,
+                json={"value": 1},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(attempts, ["POST", "POST"])
+        self.assertEqual(clock.sleeps, [1.0])
+
     def test_does_not_retry_non_idempotent_network_error(self) -> None:
         attempts: list[str] = []
 
@@ -492,6 +516,30 @@ class RetryBehaviorTests(unittest.TestCase):
             client.request("POST", "https://example.test/x", json={"value": 1})
         self.assertEqual(attempts, ["POST"])
         self.assertEqual(clock.sleeps, [])
+
+    def test_retries_opted_in_non_idempotent_network_error(self) -> None:
+        attempts: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            attempts.append(request.method)
+            if len(attempts) == 1:
+                raise httpx.ConnectError("nope", request=request)
+            return httpx.Response(200, json={"ok": True})
+
+        client, clock = self._client(
+            handler,
+            RetryPolicy(max_attempts=3, jitter=0.0, initial_backoff=1.0),
+        )
+        with client:
+            response = client.request(
+                "POST",
+                "https://example.test/x",
+                retryable=True,
+                json={"value": 1},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(attempts, ["POST", "POST"])
+        self.assertEqual(clock.sleeps, [1.0])
 
 
 class GetJsonTests(unittest.TestCase):

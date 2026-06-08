@@ -16,6 +16,7 @@ from genkei.ingest.sui_staking import (
     _coerce_decimal,
     _coerce_int,
     _ms_to_utc_datetime,
+    _rpc_post,
     collect,
     parse_validator_rows,
 )
@@ -118,6 +119,45 @@ class ModuleConstantsTests(unittest.TestCase):
         """Sui standard RPC method names — pin them so a typo doesn't go silently."""
         self.assertEqual(METHOD_SYSTEM_STATE, "suix_getLatestSuiSystemState")
         self.assertEqual(METHOD_VALIDATORS_APY, "suix_getValidatorsApy")
+
+
+# ---------------------------------------------------------------------------
+# RPC helper
+# ---------------------------------------------------------------------------
+
+
+class RpcPostTests(unittest.TestCase):
+    """JSON-RPC helper behavior."""
+
+    def test_opts_into_retries_for_read_only_post(self) -> None:
+        """Sui JSON-RPC methods are read-only despite using POST."""
+        calls: list[tuple[str, str, dict[str, object]]] = []
+
+        class FakeResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict[str, object]:
+                return {"result": {"ok": True}}
+
+        class FakeHttp:
+            def request(self, method: str, url: str, **kwargs: object) -> FakeResponse:
+                calls.append((method, url, kwargs))
+                return FakeResponse()
+
+        self.assertEqual(_rpc_post(FakeHttp(), METHOD_SYSTEM_STATE), {"ok": True})
+
+        self.assertEqual(len(calls), 1)
+        method, url, kwargs = calls[0]
+        self.assertEqual(method, "POST")
+        self.assertEqual(url, SUI_RPC_URL)
+        self.assertIs(kwargs["retryable"], True)
+        self.assertEqual(kwargs["json"], {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": METHOD_SYSTEM_STATE,
+            "params": [],
+        })
 
 
 # ---------------------------------------------------------------------------

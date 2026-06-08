@@ -194,15 +194,25 @@ class HttpClient:
             headers={"User-Agent": self.user_agent},
         )
 
-    def request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+    def request(
+        self,
+        method: str,
+        url: str,
+        *,
+        retryable: bool = False,
+        **kwargs: Any,
+    ) -> httpx.Response:
         """Issue a request with retry + backoff + rate limiting applied.
 
         Returns the final :class:`httpx.Response` whether or not it's a 2xx.
         Network-layer exceptions are re-raised after the retry budget is
         exhausted; retryable status codes return the last response so the
         caller can inspect it.
+
+        ``retryable=True`` is an explicit opt-in for read-only calls that use a
+        method outside ``IDEMPOTENT_METHODS`` (for example JSON-RPC over POST).
         """
-        if method.upper() not in IDEMPOTENT_METHODS:
+        if method.upper() not in IDEMPOTENT_METHODS and not retryable:
             if self._limiter is not None:
                 self._limiter.acquire()
             return self._client.request(method, url, **kwargs)
