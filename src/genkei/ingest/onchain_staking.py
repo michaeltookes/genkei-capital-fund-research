@@ -53,7 +53,7 @@ Signal-interpretation notes (learned from the B-082 + B-086 backfills):
   signal in its own right.
 
   **TVL reconciliation methodology.** SUM(staked - unstaked) per
-  protocol_slug × current LINK price should land within ~10% of
+  protocol_slug x current LINK price should land within ~10% of
   DefiLlama's chainlink-staking TVL. Verified at 2026-06-07:
   community 40,875,000 LINK + operator 1,731,903 LINK = 42,606,903
   LINK; at $7.68 = $327M vs DefiLlama's $338M (~3% gap, entirely
