@@ -1,0 +1,59 @@
+name: SUI Unlocks Daily Snapshot
+
+# B-089 — fetches CryptoRank's SUI vesting page, extracts the Next.js
+# __NEXT_DATA__ JSON blob, and writes per-batch unlock rows into
+# onchain.sui_unlocks. Runs on the self-hosted Beelink runner so it can
+# reach the homelab Postgres on mission_control_net.
+#
+# v1 covers ONE of SUI's 8 allocation categories (Community Reserves)
+# because the other 7 are paywalled across surveyed free sources — see
+# docs/sources/sui-unlocks.md for the full investigation.
+#
+# The vesting schedule is mostly static (past batches are immutable
+# once published) but we run daily anyway so any forward-looking
+# revisions get picked up promptly. Idempotent via the
+# (allocation_name, unlock_date) PK so re-runs within the same day are
+# no-op upserts.
+#
+# Cadence chosen to share the Beelink runner gracefully with other daily
+# crons: 07:00 UTC sits between sui-staking-daily (06:00 UTC) and
+# ishares-daily (13:00 UTC).
+
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    name: SUI unlocks scrape (Postgres-backed)
+    runs-on: [self-hosted, beelink]
+    timeout-minutes: 10
+    env:
+      GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+
+      - name: Apply database migrations
+        run: alembic upgrade head
+
+      - name: Collect SUI unlock schedule into onchain.sui_unlocks
+        run: |
+          python3 -m genkei.ingest.sui_unlocks
