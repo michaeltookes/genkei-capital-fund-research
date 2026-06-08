@@ -74,11 +74,18 @@ def upgrade() -> None:
             vesting_type                       TEXT,
             source_endpoint                    TEXT           NOT NULL,
             fetched_at                         TIMESTAMPTZ    NOT NULL DEFAULT now(),
-            ingest_run_id                      BIGINT         NOT NULL REFERENCES meta.ingest_runs(id),
+            ingest_run_id                      BIGINT         NOT NULL
+                REFERENCES meta.ingest_runs(id),
             PRIMARY KEY (allocation_name, unlock_date),
             CHECK (allocation_total_tokens >= 0),
-            CHECK (allocation_total_percent_of_supply >= 0),
-            CHECK (unlock_percent_of_allocation >= 0),
+            CHECK (
+                allocation_total_percent_of_supply >= 0
+                AND allocation_total_percent_of_supply <= 100
+            ),
+            CHECK (
+                unlock_percent_of_allocation >= 0
+                AND unlock_percent_of_allocation <= 100
+            ),
             CHECK (unlock_tokens >= 0)
         )
         """

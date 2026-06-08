@@ -219,7 +219,7 @@ def parse_allocations(
             )
             continue
 
-        seen_dates: set[date] = set()
+        rows_by_date: dict[date, _UnlockRow] = {}
         for batch in batches:
             if not isinstance(batch, dict):
                 continue
@@ -227,12 +227,6 @@ def parse_allocations(
             unlock_pct = _coerce_decimal(batch.get("unlock_percent"))
             if unlock_date is None or unlock_pct is None:
                 continue
-            # De-dupe within the same allocation. CryptoRank occasionally
-            # publishes overlapping monthly + special-event batches on the
-            # same date — pick the first non-zero one and skip the duplicate.
-            if unlock_date in seen_dates:
-                continue
-            seen_dates.add(unlock_date)
 
             # unlock_percent is % of THIS allocation, not % of total supply.
             # Derive absolute SUI: allocation_total * pct / 100. Quantize to
@@ -243,18 +237,27 @@ def parse_allocations(
             is_tge_raw = batch.get("is_tge")
             is_tge = bool(is_tge_raw) if isinstance(is_tge_raw, bool) else False
 
-            rows.append(
-                _UnlockRow(
-                    allocation_name=name,
-                    unlock_date=unlock_date,
-                    allocation_total_tokens=total_tokens,
-                    allocation_total_percent_of_supply=total_pct,
-                    is_tge=is_tge,
-                    unlock_percent_of_allocation=unlock_pct,
-                    unlock_tokens=unlock_tokens,
-                    vesting_type=vesting_type,
-                )
+            candidate = _UnlockRow(
+                allocation_name=name,
+                unlock_date=unlock_date,
+                allocation_total_tokens=total_tokens,
+                allocation_total_percent_of_supply=total_pct,
+                is_tge=is_tge,
+                unlock_percent_of_allocation=unlock_pct,
+                unlock_tokens=unlock_tokens,
+                vesting_type=vesting_type,
             )
+            # De-dupe within the same allocation. CryptoRank occasionally
+            # publishes overlapping monthly + special-event batches on the
+            # same date; preserve the first non-zero row if a placeholder zero
+            # appears before the real unlock.
+            existing = rows_by_date.get(unlock_date)
+            if existing is None or (
+                existing.unlock_percent_of_allocation == Decimal("0")
+                and unlock_pct > Decimal("0")
+            ):
+                rows_by_date[unlock_date] = candidate
+        rows.extend(rows_by_date.values())
     return rows
 
 
@@ -339,12 +342,22 @@ def collect(*, http: HttpClient | None = None) -> int:
 
             unlock_rows = parse_allocations(next_data)
             if not unlock_rows:
-                LOGGER.warning(
-                    "SUI unlocks collector parsed 0 rows — upstream may have "
+                error = (
+                    "SUI unlocks collector parsed 0 rows; upstream may have "
                     "changed the allocation names or gated Community Reserves."
                 )
-                run.add_rows(0)
-                return run.id
+                LOGGER.error(error)
+                db.record_partial_endpoints(
+                    run.id,
+                    [
+                        {
+                            "name": COLLECT_ENDPOINT_LABEL,
+                            "url": CRYPTORANK_SUI_VESTING_URL,
+                            "error": error,
+                        }
+                    ],
+                )
+                raise RuntimeError(error)
 
             rows = [
                 _row_to_dict(

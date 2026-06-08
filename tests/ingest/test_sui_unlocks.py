@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import unittest
+from copy import deepcopy
 from datetime import date
 from decimal import Decimal
+from unittest.mock import patch
 
 from genkei.ingest.sui_unlocks import (
     COLLECT_ENDPOINT_LABEL,
@@ -13,6 +15,7 @@ from genkei.ingest.sui_unlocks import (
     SOURCE_NAME,
     _coerce_decimal,
     _parse_iso_date,
+    collect,
     extract_next_data,
     parse_allocations,
 )
@@ -300,6 +303,39 @@ class ParseAllocationsTests(unittest.TestCase):
             Decimal("0.376"),
         )
 
+    def test_duplicate_date_preserves_first_non_zero_occurrence(self) -> None:
+        """A zero placeholder does not block a later same-date non-zero batch."""
+        payload = deepcopy(SAMPLE_NEXT_DATA)
+        batches = payload["props"]["pageProps"]["vestingInfo"]["allocations"][0]["batches"]
+        batches.insert(
+            3,
+            {
+                "date": "2023-08-01T00:00:00.000Z",
+                "is_tge": False,
+                "unlock_percent": 0,
+            },
+        )
+        batches.insert(
+            4,
+            {
+                "date": "2023-08-01T00:00:00.000Z",
+                "is_tge": False,
+                "unlock_percent": 0.5,
+            },
+        )
+
+        rows = parse_allocations(payload)
+        by_date = {r.unlock_date: r for r in rows}
+
+        self.assertEqual(
+            by_date[date(2023, 8, 1)].unlock_percent_of_allocation,
+            Decimal("0.5"),
+        )
+        self.assertEqual(
+            by_date[date(2023, 8, 1)].unlock_tokens,
+            Decimal("5323979.5450"),
+        )
+
     def test_allocation_totals_denormalized_onto_every_row(self) -> None:
         """allocation_total_tokens and percent ride on every batch row.
 
@@ -335,6 +371,58 @@ class ParseAllocationsTests(unittest.TestCase):
         """No allocations means no rows — not an error."""
         empty = {"props": {"pageProps": {"vestingInfo": {"allocations": []}}}}
         self.assertEqual(parse_allocations(empty), [])
+
+
+class CollectTests(unittest.TestCase):
+    """Collector orchestration paths that are not covered by parser-only tests."""
+
+    def test_zero_parsed_rows_record_partial_and_fail_run(self) -> None:
+        """A valid page with no rows should not count as a successful ingest."""
+
+        class FakeResponse:
+            text = (
+                '<script id="__NEXT_DATA__" type="application/json">'
+                '{"props": {"pageProps": {"vestingInfo": {"allocations": []}}}}'
+                "</script>"
+            )
+
+            def raise_for_status(self) -> None:
+                return None
+
+        class FakeHttp:
+            def get(self, url: str) -> FakeResponse:
+                self.url = url
+                return FakeResponse()
+
+        class FakeRun:
+            id = 99
+
+            def add_rows(self, n: int) -> None:
+                self._added = n
+
+        fake_run = FakeRun()
+        with (
+            patch("genkei.ingest.sui_unlocks.db.ingest_run") as ingest_run_cm,
+            patch("genkei.ingest.sui_unlocks.db.record_partial_endpoints") as partial,
+            patch("genkei.ingest.sui_unlocks.db.store_raw_blob") as store_blob,
+            patch("genkei.ingest.sui_unlocks.db.connection") as connection_cm,
+            patch("genkei.ingest.sui_unlocks.db.bulk_upsert") as bulk_upsert,
+        ):
+            ingest_run_cm.return_value.__enter__.return_value = fake_run
+            ingest_run_cm.return_value.__exit__.return_value = False
+
+            with self.assertRaisesRegex(RuntimeError, "parsed 0 rows"):
+                collect(http=FakeHttp())
+
+        store_blob.assert_called_once()
+        partial_args = partial.call_args.args
+        self.assertEqual(partial_args[0], 99)
+        self.assertEqual(partial_args[1][0]["name"], COLLECT_ENDPOINT_LABEL)
+        self.assertEqual(partial_args[1][0]["url"], CRYPTORANK_SUI_VESTING_URL)
+        self.assertIn("parsed 0 rows", partial_args[1][0]["error"])
+        connection_cm.assert_not_called()
+        bulk_upsert.assert_not_called()
+        self.assertFalse(hasattr(fake_run, "_added"))
 
 
 if __name__ == "__main__":

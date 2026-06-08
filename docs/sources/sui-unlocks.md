@@ -8,7 +8,7 @@
 
 ### Path 1 — DefiLlama `/emissions` and `/emission/{slug}`: **PAID** (HTTP 402)
 
-```
+```bash
 $ curl https://api.llama.fi/emissions
 HTTP 402 — Upgrade to the paid API plan at https://defillama.com/subscription
 $ curl https://api.llama.fi/emission/sui
