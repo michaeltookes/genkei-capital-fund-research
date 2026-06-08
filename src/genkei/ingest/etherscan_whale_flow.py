@@ -3,11 +3,14 @@
 For each curated address in ``watchlist.eth_whale_addresses`` we land one
 row per ``(address, ts)`` per day in ``onchain.eth_whale_flows``:
 
-  - ``balance_eth``               — current Etherscan-reported balance
-  - ``net_flow_eth_24h``          — Σ(incoming) − Σ(outgoing) over the
+  - ``balance_eth``               — current Etherscan-reported balance for
+                                    incremental rows; NULL for historical
+                                    backfill rows because the free balance
+                                    endpoint is latest-only
+  - ``net_flow_eth_24h``          — sum(incoming) - sum(outgoing) over the
                                     24h window ending at snapshot time,
                                     filtered to ``isError=0`` only
-  - ``net_flow_usd_24h``          — net_flow_eth × ETH price at snapshot
+  - ``net_flow_usd_24h``          — net_flow_eth x ETH price at snapshot date
   - ``tx_count_24h``              — non-error tx count touching the
                                     address in the same window
 
@@ -16,14 +19,10 @@ Per the B-106 spec, **ERC-20 transfers are ignored** — we hit the
 The ``account/tokentx`` endpoint would surface ERC-20 movements but
 that's deliberate v2 scope, not v1.
 
-ETH USD pricing pulls the latest price from ``coingecko.market_data``
-(via a single inline SELECT at the top of the run) and applies it
-uniformly to every snapshot row in the run. The snapshot price is
-deliberately *one* number per run — Etherscan publishes per-tx wei
-amounts but not per-tx USD, and the daily aggregate signal is robust to
-the resulting 24h price-drift approximation. Backfill rows born from
-historical txlist queries will use the same single price, which is
-honest about the data's actual provenance.
+ETH USD pricing pulls the nearest known ETH price at or before the
+snapshot timestamp from ``coingecko.market_data``. Etherscan publishes
+per-tx wei amounts but not per-tx USD, so USD flow is still a derived
+convenience; the ETH-denominated flow is the load-bearing signal.
 
 The ETH USD column is NULL when no recent CoinGecko row is available
 (e.g. the coingecko collector hasn't run yet) — the ETH-denominated
@@ -41,9 +40,9 @@ Configuration:
   - Rate limit: free Etherscan tier is 3 req/s. We use 2/s to leave
     headroom for the eth_blockNumber + getblocknobytime probes that
     every run does once up-front.
-  - Per-run API calls: 2 (block-resolution probes) + 2 per address
-    (balance + txlist). For 20 v1 addresses → ~42 calls per run,
-    comfortably under the 100k/day Etherscan free-tier ceiling.
+  - Per-run API calls: 2 block-resolution probes + 1 txlist page per
+    address, plus a balance call per address for today's incremental
+    snapshot. High-activity txlist windows page until complete.
 
 Modes:
   - **incremental** (default) — snapshot every address at "now".
@@ -54,7 +53,7 @@ Modes:
     ``since`` to today; one snapshot per address per day. The 24h
     window for each historical day uses the day's midnight-to-midnight
     range computed against Etherscan's getblocknobytime. Slow — for 20
-    addresses × 365 days, ~14,600 calls + 365 boundary lookups; runs
+    addresses x 365 days, ~14,600 calls + 365 boundary lookups; runs
     in ~3 hours at the 2 req/s throttle.
 """
 
@@ -92,8 +91,7 @@ ETH_DECIMALS = 18
 
 ETHERSCAN_API_KEY_ENV = "ETHERSCAN_API_KEY"
 DEFAULT_RATE_LIMIT = RateLimit.per_second(2)
-TXLIST_PAGE_SIZE = 10_000  # Etherscan caps at 10000; one page covers any
-                            # plausible per-day whale tx count.
+TXLIST_PAGE_SIZE = 10_000  # Etherscan caps at 10000.
 
 LOGGER = logging.getLogger(__name__)
 
@@ -106,7 +104,7 @@ class _Snapshot:
     ts: datetime
     label: str
     category: str
-    balance_eth: Decimal
+    balance_eth: Decimal | None
     balance_usd_at_snapshot: Decimal | None
     net_flow_eth_24h: Decimal
     net_flow_usd_24h: Decimal | None
@@ -167,7 +165,25 @@ def fetch_current_head_block(http: HttpClient, *, api_key: str) -> int:
     raise RuntimeError(f"Etherscan eth_blockNumber non-hex result: {payload!r}")
 
 
-def fetch_balance_wei(http: HttpClient, *, api_key: str, address: str) -> int:
+def _store_raw_blob(
+    *,
+    ingest_run_id: int | None,
+    endpoint_name: str | None,
+    url: str,
+    payload: Any,
+) -> None:
+    if ingest_run_id is not None and endpoint_name is not None:
+        db.store_raw_blob(ingest_run_id, endpoint_name, url, payload)
+
+
+def fetch_balance_wei(
+    http: HttpClient,
+    *,
+    api_key: str,
+    address: str,
+    ingest_run_id: int | None = None,
+    endpoint_name: str | None = None,
+) -> int:
     """Pull a single address's current balance in wei."""
     url = _build_url(
         {
@@ -180,6 +196,12 @@ def fetch_balance_wei(http: HttpClient, *, api_key: str, address: str) -> int:
         }
     )
     payload = http.get_json(url)
+    _store_raw_blob(
+        ingest_run_id=ingest_run_id,
+        endpoint_name=endpoint_name,
+        url=url,
+        payload=payload,
+    )
     if not isinstance(payload, dict):
         raise RuntimeError(f"Etherscan balance malformed: {payload!r}")
     result = payload.get("result")
@@ -195,6 +217,8 @@ def fetch_txlist(
     address: str,
     start_block: int,
     end_block: int,
+    ingest_run_id: int | None = None,
+    endpoint_name_prefix: str | None = None,
 ) -> list[dict[str, Any]]:
     """Pull native-ETH transactions for one address in a block range.
 
@@ -202,39 +226,57 @@ def fetch_txlist(
     is a benign empty case; other error strings raise RuntimeError so a
     real upstream failure doesn't silently land as zero flow.
     """
-    url = _build_url(
-        {
-            "chainid": ETHEREUM_CHAIN_ID,
-            "module": "account",
-            "action": "txlist",
-            "address": address,
-            "startblock": start_block,
-            "endblock": end_block,
-            "page": 1,
-            "offset": TXLIST_PAGE_SIZE,
-            "sort": "asc",
-            "apikey": api_key,
-        }
-    )
-    payload = http.get_json(url)
-    if not isinstance(payload, dict):
-        raise RuntimeError(f"Etherscan txlist malformed: {payload!r}")
-    status = payload.get("status")
-    result = payload.get("result")
-    if isinstance(result, list):
-        return result
-    if status == "0" and isinstance(result, str):
-        if result.lower().startswith("no transactions found"):
-            return []
-        raise RuntimeError(f"Etherscan txlist error: {result}")
-    raise RuntimeError(
-        f"Etherscan txlist unexpected shape: status={status!r}, "
-        f"result={str(result)[:80]!r}"
-    )
+    rows: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        url = _build_url(
+            {
+                "chainid": ETHEREUM_CHAIN_ID,
+                "module": "account",
+                "action": "txlist",
+                "address": address,
+                "startblock": start_block,
+                "endblock": end_block,
+                "page": page,
+                "offset": TXLIST_PAGE_SIZE,
+                "sort": "asc",
+                "apikey": api_key,
+            }
+        )
+        payload = http.get_json(url)
+        endpoint_name = (
+            f"{endpoint_name_prefix}_page_{page}"
+            if endpoint_name_prefix is not None
+            else None
+        )
+        _store_raw_blob(
+            ingest_run_id=ingest_run_id,
+            endpoint_name=endpoint_name,
+            url=url,
+            payload=payload,
+        )
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"Etherscan txlist malformed: {payload!r}")
+        status = payload.get("status")
+        result = payload.get("result")
+        if isinstance(result, list):
+            rows.extend(result)
+            if len(result) < TXLIST_PAGE_SIZE:
+                return rows
+            page += 1
+            continue
+        if status == "0" and isinstance(result, str):
+            if result.lower().startswith("no transactions found"):
+                return rows
+            raise RuntimeError(f"Etherscan txlist error: {result}")
+        raise RuntimeError(
+            f"Etherscan txlist unexpected shape: status={status!r}, "
+            f"result={str(result)[:80]!r}"
+        )
 
 
 def compute_net_flow_and_count(
-    txs: list[dict[str, Any]], *, address: str
+    txs: list[dict[str, Any]], *, address: str, start_ts: int, end_ts: int
 ) -> tuple[int, int]:
     """Sum incoming - outgoing native-ETH wei and count non-error txs.
 
@@ -251,6 +293,12 @@ def compute_net_flow_and_count(
         if not isinstance(tx, dict):
             continue
         if tx.get("isError") == "1":
+            continue
+        ts_raw = tx.get("timeStamp")
+        if not isinstance(ts_raw, str) or not ts_raw.isdigit():
+            continue
+        tx_ts = int(ts_raw)
+        if tx_ts < start_ts or tx_ts >= end_ts:
             continue
         value_raw = tx.get("value")
         if not isinstance(value_raw, str) or not value_raw.lstrip("-").isdigit():
@@ -270,8 +318,8 @@ def compute_net_flow_and_count(
     return net_wei, count
 
 
-def latest_eth_price_usd() -> Decimal | None:
-    """Pull the most recent ETH USD price from coingecko.market_data.
+def eth_price_usd_at(snapshot_ts: datetime) -> Decimal | None:
+    """Pull the latest ETH USD price known at or before ``snapshot_ts``.
 
     Returns None when the coingecko table is empty / unrun — the collector
     still writes ETH-denominated rows with NULL USD columns rather than
@@ -281,7 +329,9 @@ def latest_eth_price_usd() -> Decimal | None:
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT price_usd FROM coingecko.market_data "
-            "WHERE coingecko_id = 'ethereum' ORDER BY ts DESC LIMIT 1"
+            "WHERE coingecko_id = 'ethereum' AND ts <= %s "
+            "ORDER BY ts DESC LIMIT 1",
+            [snapshot_ts.date()],
         )
         row = cur.fetchone()
     if row is None or row[0] is None:
@@ -298,19 +348,21 @@ def build_snapshot(
     *,
     address_entry: EthWhaleAddressEntry,
     ts: datetime,
-    balance_wei: int,
+    balance_wei: int | None,
     net_wei: int,
     tx_count: int,
     eth_price_usd: Decimal | None,
 ) -> _Snapshot:
     """Assemble an _UnlockRow-style snapshot from the raw inputs."""
-    balance_eth = _wei_to_eth(balance_wei)
+    balance_eth = _wei_to_eth(balance_wei) if balance_wei is not None else None
     net_flow_eth = _wei_to_eth(net_wei)
-    if eth_price_usd is not None:
+    if eth_price_usd is not None and balance_eth is not None:
         balance_usd = (balance_eth * eth_price_usd).quantize(Decimal("0.01"))
-        net_flow_usd = (net_flow_eth * eth_price_usd).quantize(Decimal("0.01"))
     else:
         balance_usd = None
+    if eth_price_usd is not None:
+        net_flow_usd = (net_flow_eth * eth_price_usd).quantize(Decimal("0.01"))
+    else:
         net_flow_usd = None
     return _Snapshot(
         address=address_entry.address,
@@ -427,38 +479,37 @@ def collect(
                 run.add_rows(0)
                 return run.id
 
-            eth_price_usd = latest_eth_price_usd()
             total_written = 0
             for snapshot_date in snapshot_days:
                 # 24h window:
                 #   - Historical day (snapshot_date < today): midnight-to-
                 #     midnight UTC, both boundaries resolved via
                 #     getblocknobytime against Etherscan.
-                #   - Today's run (snapshot_date == today): from today's
-                #     UTC midnight to the current head block. The naive
-                #     "today midnight to tomorrow midnight" approach gets
-                #     rejected by Etherscan ("Block timestamp too far in
-                #     the future") since tomorrow-midnight hasn't happened.
-                window_start = _utc_midnight(snapshot_date)
-                ts = window_start  # canonical PK ts; midnight-floored
+                #   - Today's run (snapshot_date == today): the rolling
+                #     24h window ending at wall_now/current head block.
+                ts = _utc_midnight(snapshot_date)  # canonical PK ts
                 is_today = snapshot_date == today
+                window_end = wall_now if is_today else ts + timedelta(days=1)
+                window_start = window_end - timedelta(days=1) if is_today else ts
+                window_start_ts = int(window_start.timestamp())
+                window_end_ts = int(window_end.timestamp())
+                eth_price_usd = eth_price_usd_at(ts)
 
                 try:
                     start_block = fetch_block_by_time(
                         http,
                         api_key=resolved_key,
-                        ts=int(window_start.timestamp()),
+                        ts=window_start_ts,
                     )
                     if is_today:
                         end_block = fetch_current_head_block(
                             http, api_key=resolved_key
                         )
                     else:
-                        window_end = window_start + timedelta(days=1)
                         end_block = fetch_block_by_time(
                             http,
                             api_key=resolved_key,
-                            ts=int(window_end.timestamp()),
+                            ts=window_end_ts,
                         )
                     fetched_at = datetime.now(timezone.utc)
                 except (
@@ -476,15 +527,30 @@ def collect(
                 rows: list[dict[str, Any]] = []
                 for entry in addresses:
                     try:
-                        balance_wei = fetch_balance_wei(
-                            http, api_key=resolved_key, address=entry.address
-                        )
+                        if is_today:
+                            balance_wei: int | None = fetch_balance_wei(
+                                http,
+                                api_key=resolved_key,
+                                address=entry.address,
+                                ingest_run_id=run.id,
+                                endpoint_name=(
+                                    f"balance_{snapshot_date.isoformat()}_"
+                                    f"{entry.address.lower()}"
+                                ),
+                            )
+                        else:
+                            balance_wei = None
                         txs = fetch_txlist(
                             http,
                             api_key=resolved_key,
                             address=entry.address,
                             start_block=start_block,
                             end_block=end_block,
+                            ingest_run_id=run.id,
+                            endpoint_name_prefix=(
+                                f"txlist_{snapshot_date.isoformat()}_"
+                                f"{entry.address.lower()}"
+                            ),
                         )
                     except (
                         httpx.TimeoutException,
@@ -499,7 +565,10 @@ def collect(
                         )
                         continue
                     net_wei, tx_count = compute_net_flow_and_count(
-                        txs, address=entry.address
+                        txs,
+                        address=entry.address,
+                        start_ts=window_start_ts,
+                        end_ts=window_end_ts,
                     )
                     snap = build_snapshot(
                         address_entry=entry,

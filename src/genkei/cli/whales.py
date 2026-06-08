@@ -56,6 +56,10 @@ _CATEGORY_ALIASES: dict[str, str] = {
     "whale": "whale",
 }
 _VALID_CATEGORIES = {"exchange", "custodian", "foundation", "whale"}
+_HORIZON_FOOTER = (
+    "  Horizon: mid-to-long-term | "
+    "sleeve: crypto-core (ETH) + crypto-tactical"
+)
 
 
 def _resolve_category(raw: str) -> str:
@@ -118,10 +122,10 @@ def _query_aggregate(
             "category": cat,
             "day": d.isoformat() if isinstance(d, date) else None,
             "address_count": int(ac) if ac is not None else None,
-            "total_balance_eth": float(tbe) if tbe is not None else None,
-            "total_balance_usd": float(tbu) if tbu is not None else None,
-            "net_flow_eth": float(nfe) if nfe is not None else None,
-            "net_flow_usd": float(nfu) if nfu is not None else None,
+            "total_balance_eth": tbe,
+            "total_balance_usd": tbu,
+            "net_flow_eth": nfe,
+            "net_flow_usd": nfu,
             "tx_count": int(tc) if tc is not None else None,
         }
         for cat, d, ac, tbe, tbu, nfe, nfu, tc in rows
@@ -160,10 +164,10 @@ def _query_per_address(
             "address": address.lower(),
             "label": label,
             "category": category,
-            "balance_eth": float(be) if be is not None else None,
-            "balance_usd_at_snapshot": float(bu) if bu is not None else None,
-            "net_flow_eth_24h": float(nfe) if nfe is not None else None,
-            "net_flow_usd_24h": float(nfu) if nfu is not None else None,
+            "balance_eth": be,
+            "balance_usd_at_snapshot": bu,
+            "net_flow_eth_24h": nfe,
+            "net_flow_usd_24h": nfu,
             "tx_count_24h": int(tc) if tc is not None else None,
         }
         for d, label, category, be, bu, nfe, nfu, tc in rows
@@ -207,7 +211,7 @@ def _format_aggregate_human(
             else f"{'-':>15}"
         )
         nfu_mm = (
-            f"{r['net_flow_usd'] / 1e6:>+17,.1f}"
+            f"{r['net_flow_usd'] / 1_000_000:>+17,.1f}"
             if r["net_flow_usd"] is not None
             else f"{'-':>17}"
         )
@@ -215,13 +219,15 @@ def _format_aggregate_human(
         lines.append(f"  {d:<12} {cat:<11} {ac} {tbe} {nfe} {nfu_mm} {tc}")
     lines.append("")
     lines.append(
-        "  net_flow_eth = Σ(incoming) − Σ(outgoing) over the 24h window per address, "
+        "  net_flow_eth = sum(incoming) - sum(outgoing) over the "
+        "24h window per address, "
         "summed per category."
     )
     lines.append(
         "  Sign convention: exchange inflow = SELL pressure (users sending TO CEX); "
         "custodian inflow = staking commitment; foundation outflow = treasury monetization."
     )
+    lines.append(_HORIZON_FOOTER)
     return "\n".join(lines)
 
 
@@ -255,7 +261,7 @@ def _format_per_address_human(
             else f"{'-':>14}"
         )
         nfu_mm = (
-            f"{r['net_flow_usd_24h'] / 1e6:>+14,.3f}"
+            f"{r['net_flow_usd_24h'] / 1_000_000:>+14,.3f}"
             if r["net_flow_usd_24h"] is not None
             else f"{'-':>14}"
         )
@@ -265,6 +271,8 @@ def _format_per_address_human(
             else f"{'-':>8}"
         )
         lines.append(f"  {d:<12} {be} {nfe} {nfu_mm} {tc}")
+    lines.append("")
+    lines.append(_HORIZON_FOOTER)
     return "\n".join(lines)
 
 

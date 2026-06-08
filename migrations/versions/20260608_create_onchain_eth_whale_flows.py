@@ -2,7 +2,7 @@
 
 The B-106 whale-flow tracker lands one row per ``(address, ts)`` per
 day from Etherscan v2 — balance + 24h net flow + tx count for each
-curated whale address in ``config/watchlists.yml``. See
+curated whale address in ``src/genkei/data/watchlists.yml``. See
 ``docs/sources/eth-whale-addresses.md`` for the curation methodology
 and the four hard limits callers must read alongside the data.
 
@@ -12,13 +12,13 @@ Schema choice: NEW table in the existing ``onchain`` schema, alongside
 whales flowing into exchanges in the same week the ETF net flow turned
 negative?" — don't need cross-schema joins.
 
-Volume estimate: ~20 addresses × 365 days × 5 years = ~36k rows steady-
+Volume estimate: ~20 addresses x 365 days x 5 years = ~36k rows steady-
 state. Plain table; no partitioning or hypertable conversion needed.
 
 ETH amounts stored as ``NUMERIC(38, 18)``:
 - 38 digits total covers any plausible ETH balance (the Beacon Deposit
   Contract is the single largest holder on the network at ~33M ETH =
-  3.3 × 10^7 — far below the column's 10^20 ceiling).
+  3.3 x 10^7 — far below the column's 10^20 ceiling).
 - 18 fractional digits matches ETH's native wei precision so balance
   values round-trip without loss vs. the raw Etherscan response.
 
@@ -61,7 +61,7 @@ def upgrade() -> None:
             ts                         TIMESTAMPTZ    NOT NULL,
             label                      TEXT           NOT NULL,
             category                   TEXT           NOT NULL,
-            balance_eth                NUMERIC(38, 18) NOT NULL,
+            balance_eth                NUMERIC(38, 18),
             balance_usd_at_snapshot    NUMERIC(20, 2),
             net_flow_eth_24h           NUMERIC(38, 18) NOT NULL DEFAULT 0,
             net_flow_usd_24h           NUMERIC(20, 2),

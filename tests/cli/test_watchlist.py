@@ -11,6 +11,7 @@ from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
     CryptoEntry,
     EquityEntry,
+    EthWhaleAddressEntry,
     MacroEntry,
     ProtocolEntry,
     load_watchlist,
@@ -221,6 +222,59 @@ class LoadProtocolsTests(unittest.TestCase):
         wl = load_watchlist(DEFAULT_WATCHLIST_PATH)
         primary = [p for p in wl.protocols if p.tier == "primary"]
         self.assertGreater(len(primary), 0)
+
+
+class LoadEthWhaleAddressesTests(unittest.TestCase):
+    """B-106 — `eth_whale_addresses:` parser pins fail-fast config validation."""
+
+    def _write(self, body: str) -> Path:
+        ctx = TemporaryDirectory()
+        self.addCleanup(ctx.cleanup)
+        tmp = Path(ctx.name)
+        path = tmp / "watchlists.yml"
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_reads_and_normalizes_whale_addresses(self) -> None:
+        path = self._write(
+            "eth_whale_addresses:\n"
+            "  - address: '0xDE0B295669a9FD93d5F28D9Ec85E40f4cb697BAe'\n"
+            "    label: Ethereum Foundation\n"
+            "    category: foundation\n"
+            "    notes: Public label.\n"
+        )
+        wl = load_watchlist(path)
+        self.assertEqual(
+            wl.eth_whale_addresses,
+            [
+                EthWhaleAddressEntry(
+                    address="0xde0b295669a9fd93d5f28d9ec85e40f4cb697bae",
+                    label="Ethereum Foundation",
+                    category="foundation",
+                    notes="Public label.",
+                )
+            ],
+        )
+
+    def test_rejects_non_hex_whale_address(self) -> None:
+        path = self._write(
+            "eth_whale_addresses:\n"
+            "  - address: '0xzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz'\n"
+            "    label: Bad\n"
+            "    category: whale\n"
+        )
+        with self.assertRaisesRegex(ValueError, "Invalid eth_whale_addresses.address"):
+            load_watchlist(path)
+
+    def test_rejects_invalid_whale_category(self) -> None:
+        path = self._write(
+            "eth_whale_addresses:\n"
+            "  - address: '0xde0b295669a9fd93d5f28d9ec85e40f4cb697bae'\n"
+            "    label: Bad\n"
+            "    category: market-maker\n"
+        )
+        with self.assertRaisesRegex(ValueError, "Invalid eth_whale_addresses.category"):
+            load_watchlist(path)
 
 
 if __name__ == "__main__":

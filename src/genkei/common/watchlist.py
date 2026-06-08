@@ -593,30 +593,35 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
         seen_eth_whale_addresses: set[str] = set()
         for entry in eth_whale_root:
             if not isinstance(entry, dict):
-                continue
+                raise ValueError(f"Invalid eth_whale_addresses entry: {entry!r}")
             raw_addr = entry.get("address")
             if not isinstance(raw_addr, str):
-                continue
+                raise ValueError(f"Invalid eth_whale_addresses.address: {raw_addr!r}")
             # Normalize to lowercase + 0x-prefix; Etherscan returns lowercase
             # so storing the canonical lowercase form keeps the (address, ts)
             # PK stable regardless of the YAML author's checksum-case choices.
             addr = raw_addr.strip().lower()
+            try:
+                int(addr[2:], 16)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Invalid eth_whale_addresses.address: {raw_addr!r}"
+                ) from exc
             if not addr.startswith("0x") or len(addr) != 42:
-                # 0x + 40 hex chars; bail on malformed input rather than
-                # silently land a row that no Etherscan call will ever match.
-                continue
+                raise ValueError(f"Invalid eth_whale_addresses.address: {raw_addr!r}")
             if addr in seen_eth_whale_addresses:
                 continue
             seen_eth_whale_addresses.add(addr)
             raw_category = entry.get("category")
             if not isinstance(raw_category, str):
-                continue
+                raise ValueError(
+                    f"Invalid eth_whale_addresses.category {raw_category!r} for {addr}"
+                )
             category = raw_category.strip().lower()
             if category not in ("exchange", "custodian", "foundation", "whale"):
-                # CHECK constraint on onchain.eth_whale_flows mirrors this set;
-                # rejecting at parse time gives a clearer error than letting
-                # the DB raise.
-                continue
+                raise ValueError(
+                    f"Invalid eth_whale_addresses.category {raw_category!r} for {addr}"
+                )
             label = str(entry.get("label") or "").strip() or addr
             eth_whale_addresses.append(
                 EthWhaleAddressEntry(

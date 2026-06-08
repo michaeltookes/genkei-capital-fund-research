@@ -1,6 +1,6 @@
 # ETH whale address curation methodology (B-106)
 
-**Source of truth:** `config/watchlists.yml` → `eth_whale_addresses:` section. Edit there; this doc explains *how* to choose what goes in.
+**Source of truth:** `src/genkei/data/watchlists.yml` → `eth_whale_addresses:` section. Edit there; this doc explains *how* to choose what goes in.
 
 **Context:** B-106 ships a daily-snapshot whale-flow tracker that pulls per-address ETH balance + 24h net flow from Etherscan v2 for a curated list of addresses. The list is the load-bearing decision — get it wrong and the resulting `onchain.eth_whale_flows` table either misses the real signal (whale we should track isn't in the list) or fakes one (random address mislabeled as a whale). This doc records the curation principles so the list stays honest as it grows.
 
@@ -63,17 +63,18 @@ v1 ships with zero direct-whale entries because the provenance bar (publicly-doc
 
 ## Hard limits the data exposes (call them out loudly in any reading)
 
-These are the same limits the B-106 backlog spec called out — they're load-bearing because callers will misread the data without them:
+These limits are load-bearing because callers will misread the data without them:
 
 1. **The address list is necessarily incomplete.** True whales obfuscate via fresh wallets, multi-sig rotations, and chain-bridging. A whale that doesn't appear in our list isn't visible — and the largest whales are typically the ones working hardest to stay hidden. Treat the aggregate as "lower bound on the directional signal", not "this is the full picture".
 2. **Exchange cold-wallet flow reverses the intuitive sign.** CEX cold wallets aggregate many users' deposits — when ETH flows IN, that's users preparing to sell, not the exchange buying. The headline aggregate query should report category-net flow per day, not bundle exchange + foundation into one "whales" number.
 3. **Etherscan rate limits cap address-list size.** Free tier is 3 req/s — at one balance + one txlist call per address per day, we have headroom up to ~500 addresses per daily run. Comfortable for v1's 20 but will need pagination + throttling if the list grows beyond a few hundred.
-4. **24h windows are choppy near boundaries.** A transfer at 23:59:59 UTC vs 00:00:01 UTC lands in different daily rows. Single-day reads at the boundary are noisy; the signal stabilizes when you aggregate over 7d+ windows.
+4. **Single-day reads are noisy.** A transfer at 23:59:59 UTC vs 00:00:01 UTC lands in different daily rows. The collector filters by exact transaction timestamp after resolving boundary blocks, but the signal still stabilizes when you aggregate over 7d+ windows.
+5. **Historical balances are intentionally NULL.** Etherscan's free balance endpoint returns the current balance, not point-in-time historical balances. Backfills therefore populate `net_flow_eth_24h` / `net_flow_usd_24h` from historical txlist windows but leave `balance_eth` / `balance_usd_at_snapshot` empty for historical dates rather than writing today's balance into old rows.
 
 ## How to add an address
 
 1. Confirm it satisfies all four criteria above.
-2. Add an entry under `eth_whale_addresses:` in `config/watchlists.yml`:
+2. Add an entry under `eth_whale_addresses:` in `src/genkei/data/watchlists.yml`:
    ```yaml
    - address: 0x...
      label: Human-readable name
