@@ -320,14 +320,40 @@ def _row_to_dict(
 def _sui_validator_update_cols(
     row: dict[str, Any],
     *,
-    apy_payload: Any,
-    epoch: int,
+    preserve_apy: bool,
 ) -> list[str]:
     """Columns to update on same-epoch conflicts for Sui validator snapshots."""
     excluded = set(_SUI_VALIDATOR_CONFLICT_KEYS)
-    if not _apy_payload_matches_epoch(apy_payload, epoch):
+    if preserve_apy:
         excluded.add("apy")
     return [col for col in row if col not in excluded]
+
+
+def _bulk_upsert_sui_validator_rows(
+    conn: Any,
+    rows: list[dict[str, Any]],
+) -> int:
+    """Upsert validator rows without nulling APY on partial APY payloads."""
+    written = 0
+    rows_with_apy = [row for row in rows if row.get("apy") is not None]
+    rows_without_apy = [row for row in rows if row.get("apy") is None]
+    for batch, preserve_apy in (
+        (rows_with_apy, False),
+        (rows_without_apy, True),
+    ):
+        if not batch:
+            continue
+        written += db.bulk_upsert(
+            conn,
+            "onchain.sui_validators",
+            batch,
+            conflict_keys=_SUI_VALIDATOR_CONFLICT_KEYS,
+            update_cols=_sui_validator_update_cols(
+                batch[0],
+                preserve_apy=preserve_apy,
+            ),
+        )
+    return written
 
 
 def collect(*, http: HttpClient | None = None) -> int:
@@ -335,9 +361,9 @@ def collect(*, http: HttpClient | None = None) -> int:
 
     The public Sui RPC publishes only the current epoch's state — there is
     no ``backfill`` mode at this layer. Re-running within the same epoch is
-    a no-op upsert on the ``(epoch, validator_address)`` PK; once a new
-    epoch begins (~24h cadence) the next run lands one new row per
-    validator.
+    an idempotent upsert on the ``(epoch, validator_address)`` PK. Same-epoch
+    reruns refresh stake/flow data and preserve existing APY values for rows
+    whose current APY signal is missing.
     """
     owns_http = http is None
     if http is None:
@@ -419,17 +445,7 @@ def collect(*, http: HttpClient | None = None) -> int:
                 for r in validator_rows
             ]
             with db.connection() as conn:
-                written = db.bulk_upsert(
-                    conn,
-                    "onchain.sui_validators",
-                    rows,
-                    conflict_keys=_SUI_VALIDATOR_CONFLICT_KEYS,
-                    update_cols=_sui_validator_update_cols(
-                        rows[0],
-                        apy_payload=apy_payload,
-                        epoch=validator_rows[0].epoch,
-                    ),
-                )
+                written = _bulk_upsert_sui_validator_rows(conn, rows)
             run.add_rows(written)
             LOGGER.info(
                 "Sui staking: +%s rows (epoch=%s, %s validators)",

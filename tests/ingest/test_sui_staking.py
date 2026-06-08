@@ -469,6 +469,55 @@ class CollectTests(unittest.TestCase):
         self.assertNotIn("apy", bulk_upsert.call_args.kwargs["update_cols"])
         self.assertEqual(fake_run._added, 2)
 
+    def test_preserves_existing_apy_when_validator_missing_from_apy(self) -> None:
+        """Partial same-epoch APY payloads should preserve omitted validators' APY."""
+        partial_apy_payload = {
+            "epoch": SAMPLE_APY_PAYLOAD["epoch"],
+            "apys": [SAMPLE_APY_PAYLOAD["apys"][0]],
+        }
+
+        def fake_rpc_post(_http: object, method: str, params: object = None) -> object:
+            if method == METHOD_SYSTEM_STATE:
+                return SAMPLE_SYSTEM_STATE
+            if method == METHOD_VALIDATORS_APY:
+                return partial_apy_payload
+            raise AssertionError(f"unexpected method {method!r}")
+
+        class FakeRun:
+            id = 45
+
+            def add_rows(self, n: int) -> None:
+                self._added = n
+
+        fake_run = FakeRun()
+        with (
+            patch("genkei.ingest.sui_staking._rpc_post", side_effect=fake_rpc_post),
+            patch("genkei.ingest.sui_staking.db.ingest_run") as ingest_run_cm,
+            patch("genkei.ingest.sui_staking.db.record_partial_endpoints") as partial,
+            patch("genkei.ingest.sui_staking.db.store_raw_blob") as store_blob,
+            patch("genkei.ingest.sui_staking.db.connection") as connection_cm,
+            patch(
+                "genkei.ingest.sui_staking.db.bulk_upsert", return_value=1
+            ) as bulk_upsert,
+        ):
+            ingest_run_cm.return_value.__enter__.return_value = fake_run
+            ingest_run_cm.return_value.__exit__.return_value = False
+
+            self.assertEqual(collect(http=object()), 45)
+
+        partial.assert_not_called()
+        self.assertEqual(store_blob.call_count, 2)
+        connection_cm.assert_called_once()
+        self.assertEqual(bulk_upsert.call_count, 2)
+        with_apy_call, without_apy_call = bulk_upsert.call_args_list
+        self.assertEqual(len(with_apy_call.args[2]), 1)
+        self.assertTrue(all(row["apy"] is not None for row in with_apy_call.args[2]))
+        self.assertIn("apy", with_apy_call.kwargs["update_cols"])
+        self.assertEqual(len(without_apy_call.args[2]), 1)
+        self.assertTrue(all(row["apy"] is None for row in without_apy_call.args[2]))
+        self.assertNotIn("apy", without_apy_call.kwargs["update_cols"])
+        self.assertEqual(fake_run._added, 2)
+
     def test_records_parse_failures_before_reraising(self) -> None:
         """Malformed system-state shapes are recorded in partial_endpoints."""
         bad_system_state = dict(SAMPLE_SYSTEM_STATE)
