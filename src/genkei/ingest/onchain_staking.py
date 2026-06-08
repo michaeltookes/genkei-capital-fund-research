@@ -86,12 +86,28 @@ COLLECT_ENDPOINT_LABEL = "collect"
 ETHERSCAN_V2_URL = "https://api.etherscan.io/v2/api"
 ETHEREUM_CHAIN_ID = 1
 
-# Chainlink v0.2 Community Staking Pool — the live pool tracked at
-# https://staking.chain.link. Deployment block reference from
-# Etherscan: contract creation Nov 2023.
+# Chainlink v0.2 staking pools — the live system tracked at
+# https://staking.chain.link. Both contracts deployed at block 18572190
+# (2023-11-14); we use 18638000 as a safe lower bound for backfill since
+# events only start landing a few weeks after deployment when the cap-and-
+# intent ramp finished. Both pools emit the same Staked / Unstaked /
+# UnbondingPeriodStarted event signatures (verified live via Etherscan
+# topic-probe 2026-06-07), so DEFAULT_POOLS reuses the existing event
+# constants for both — no parser changes needed for the operator pool.
 CHAINLINK_V02_POOL_ADDRESS = "0xBc10f2E862ED4502144c7d632a3459F49DFCDB5e"
+CHAINLINK_V02_OPERATOR_POOL_ADDRESS = "0xa1d76a7ca72128541e9fcacafbda3a92ef94fdc5"
 CHAINLINK_V02_DEPLOYMENT_BLOCK = 18638000  # ~Nov 2023, safe lower bound
 LINK_DECIMALS = 18  # standard ERC-20
+
+# Chainlink v0.1 Staking contract — legacy pool, still holds 0.46M LINK
+# during unwind as of 2026-06-07. NOT in DEFAULT_POOLS because the v0.1
+# contract emits DIFFERENT event signatures than v0.2 (the v0.2 Staked
+# topic returns 0 results on the v0.1 contract — verified live 2026-06-07).
+# Wiring v0.1 up requires extending PoolConfig with per-pool event-topic
+# overrides and a separate parse path. Filed as a follow-up; the operator
+# + community pools together already reconcile within 3% of DefiLlama's
+# chainlink-staking TVL so v0.1 is not load-bearing for v1.
+CHAINLINK_V01_POOL_ADDRESS = "0x3feB1e09b4bb0E7f0387CeE092a52e85797ab889"
 
 # Event signatures (keccak256 of the canonical event sig) for the
 # Chainlink v0.2 Community Staking Pool. Verified live 2026-05-17 by
@@ -150,7 +166,20 @@ CHAINLINK_V02_POOL = PoolConfig(
     deployment_block=CHAINLINK_V02_DEPLOYMENT_BLOCK,
     token_decimals=LINK_DECIMALS,
 )
-DEFAULT_POOLS: list[PoolConfig] = [CHAINLINK_V02_POOL]
+# Operator-only counterpart to the community pool. Same v0.2 codebase,
+# same event signatures, same deployment block. Holds the node-operator
+# bonded stake — much smaller than the community pool (1.7M LINK vs 40.9M
+# on 2026-06-07) but represents a distinct staker cohort whose flow
+# behavior is operationally different from retail community stakers.
+CHAINLINK_V02_OPERATOR_POOL = PoolConfig(
+    chain="ethereum",
+    chain_id=ETHEREUM_CHAIN_ID,
+    protocol_slug="chainlink-v02-operator",
+    contract_address=CHAINLINK_V02_OPERATOR_POOL_ADDRESS,
+    deployment_block=CHAINLINK_V02_DEPLOYMENT_BLOCK,
+    token_decimals=LINK_DECIMALS,
+)
+DEFAULT_POOLS: list[PoolConfig] = [CHAINLINK_V02_POOL, CHAINLINK_V02_OPERATOR_POOL]
 
 
 def resolve_api_key() -> str | None:
