@@ -173,8 +173,14 @@ def _store_raw_blob(
     payload: Any,
     api_key: str | None = None,
 ) -> None:
+    """Persist one raw blob, redacting the URL API key when present."""
     if ingest_run_id is not None and endpoint_name is not None:
-        db.store_raw_blob(ingest_run_id, endpoint_name, _redact_api_key(url, api_key), payload)
+        db.store_raw_blob(
+            ingest_run_id,
+            endpoint_name,
+            _redact_api_key(url, api_key),
+            payload,
+        )
 
 
 def _redact_api_key(text: str, api_key: str | None) -> str:
@@ -640,6 +646,7 @@ def collect(
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
+    """Parse CLI flags for manual Etherscan whale-flow collection."""
     parser = argparse.ArgumentParser(
         description=(
             "Snapshot ETH whale-address balance + 24h net flow into "
@@ -665,6 +672,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """CLI entry point for ``python -m genkei.ingest.etherscan_whale_flow``."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     args = parse_args(argv if argv is not None else sys.argv[1:])
     run_id = collect(args.config, since=args.since)

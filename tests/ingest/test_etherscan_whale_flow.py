@@ -129,6 +129,7 @@ class ComputeNetFlowTests(unittest.TestCase):
         txs: list[dict[str, object]],
         address: str = WHALE_ADDR,
     ) -> tuple[int, int]:
+        """Run compute_net_flow_and_count with the test timestamp window."""
         return compute_net_flow_and_count(
             txs,
             address=address,
@@ -293,15 +294,22 @@ class ComputeNetFlowTests(unittest.TestCase):
 
 
 class FetchBalanceWeiTests(unittest.TestCase):
+    """Etherscan balance endpoint handling."""
+
     def test_redact_api_key_strips_key_from_url(self) -> None:
+        """The secret API key is never persisted in raw-blob URLs."""
         url = "https://api.etherscan.io/v2/api?module=account&apikey=SECRET"
         redacted = _redact_api_key(url, "SECRET")
         self.assertNotIn("SECRET", redacted)
         self.assertIn("apikey=***", redacted)
 
     def test_stores_raw_blob_when_requested(self) -> None:
+        """Balance fetches store their raw response with a redacted URL."""
         class FakeHttp:
+            """Minimal fake HTTP client capturing the requested URL."""
+
             def get_json(self, url: str) -> object:
+                """Return a successful balance payload."""
                 self.url = url
                 return {"status": "1", "message": "OK", "result": ONE_ETH_WEI}
 
@@ -330,15 +338,22 @@ class FetchBalanceWeiTests(unittest.TestCase):
 
 
 class FetchTxlistTests(unittest.TestCase):
+    """Etherscan txlist endpoint handling."""
+
     def test_paginates_until_short_page_and_stores_each_raw_page(self) -> None:
+        """Full pages are followed until the first short page."""
         first_page = [{"hash": "0x1"}, {"hash": "0x2"}]
         second_page = [{"hash": "0x3"}]
 
         class FakeHttp:
+            """Fake paginated Etherscan client."""
+
             def __init__(self) -> None:
+                """Track URLs requested by the collector."""
                 self.urls: list[str] = []
 
             def get_json(self, url: str) -> object:
+                """Return deterministic payloads based on the page query."""
                 self.urls.append(url)
                 if "page=1" in url:
                     return {"status": "1", "message": "OK", "result": first_page}
@@ -379,10 +394,14 @@ class FetchTxlistTests(unittest.TestCase):
         )
 
     def test_no_transactions_found_after_full_page_returns_accumulated_rows(self) -> None:
+        """A terminal no-transactions page preserves prior accumulated rows."""
         first_page = [{"hash": "0x1"}, {"hash": "0x2"}]
 
         class FakeHttp:
+            """Fake client returning one full page followed by no results."""
+
             def get_json(self, url: str) -> object:
+                """Return page one rows, then Etherscan's empty sentinel."""
                 if "page=1" in url:
                     return {"status": "1", "message": "OK", "result": first_page}
                 return {
@@ -409,7 +428,10 @@ class FetchTxlistTests(unittest.TestCase):
 
 
 class CollectTests(unittest.TestCase):
+    """Run-level failure behavior for the collector."""
+
     def test_fails_when_every_address_fetch_fails(self) -> None:
+        """All-address fetch failure records partial metadata and raises."""
         entry = EthWhaleAddressEntry(
             address=WHALE_ADDR,
             label="Ethereum Foundation",
@@ -418,18 +440,23 @@ class CollectTests(unittest.TestCase):
         )
 
         class FakeRun:
+            """Minimal ingest-run handle used by collect()."""
+
             id = 42
 
             def __init__(self) -> None:
+                """Initialize an in-memory row counter."""
                 self.rows_written = 0
 
             def add_rows(self, n: int) -> None:
+                """Track rows that collect() reports as written."""
                 self.rows_written += n
 
         fake_run = FakeRun()
 
         @contextmanager
         def fake_ingest_run(*args: object, **kwargs: object) -> Iterator[FakeRun]:
+            """Yield the fake run handle from a context-manager wrapper."""
             yield fake_run
 
         with (
@@ -484,6 +511,7 @@ class BuildSnapshotTests(unittest.TestCase):
     """Snapshot assembly: USD columns are derived only when price is known."""
 
     def _entry(self) -> EthWhaleAddressEntry:
+        """Return the canonical test watchlist entry."""
         return EthWhaleAddressEntry(
             address=WHALE_ADDR,
             label="Ethereum Foundation",

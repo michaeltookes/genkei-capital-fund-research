@@ -34,7 +34,10 @@ jobs:
   pipeline:
     name: ETH whale-flow snapshot (Postgres-backed)
     runs-on: [self-hosted, beelink]
-    timeout-minutes: 30
+    # Manual --since backfills can legitimately run for hours at the
+    # Etherscan throttle; use GitHub's per-job maximum so historical
+    # replays are not cancelled halfway through.
+    timeout-minutes: 360
     env:
       GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
       ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
