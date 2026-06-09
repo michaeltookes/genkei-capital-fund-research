@@ -112,7 +112,7 @@ Tracked as backlog items so they don't block forward motion:
 
 ## References
 
-- `docs/backlog.md` — 78 items across 8 phases.
+- `docs/backlog.md` — 43 open items across 8 phases.
 - `docs/resolved.md` — completed milestones.
 - `docs/defillama-mvp.md` / `docs/defillama-daily-review.md` — existing slice's design + review standard.
 - `docs/research/README.md` — investment-research decision log (append-only; `/research` + `/reflect-decisions` skills drive it).
