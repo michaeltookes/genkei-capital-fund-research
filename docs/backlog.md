@@ -206,15 +206,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Full series backfill.
   - Configurable series list in `config/macro_series.yml` or sibling.
 
-### B-033 — GDELT news/event ingester
-- **Status:** open
-- **Priority:** medium
-- **Context:** Global news firehose for topic monitoring + geopolitical risk.
-- **Acceptance criteria:**
-  - Rolling window storage with documented retention (full backfill is huge).
-  - Topic + entity + tone fields preserved.
-  - Per-watchlist filtering option.
-
 ### B-036 — Per-source ingest documentation
 - **Status:** open
 - **Priority:** medium
