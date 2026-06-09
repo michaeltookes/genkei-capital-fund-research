@@ -159,12 +159,17 @@ class AlignSentimentWithReturnsTests(unittest.TestCase):
             negative_mean=None,
         )
 
-    def _ret(self, ts: date, ret: float | None) -> ReturnPoint:
-        return ReturnPoint(ts=ts, asset="AAPL", close=100.0, pct_return=ret)
+    def _ret(
+        self, ts: date, ret: float | None, *, close: float | None = 100.0
+    ) -> ReturnPoint:
+        return ReturnPoint(ts=ts, asset="AAPL", close=close, pct_return=ret)
 
     def test_horizon_1_joins_sentiment_day_to_next_day_return(self) -> None:
         sent = [self._sent(date(2026, 6, 10), 1.5)]
-        rets = [self._ret(date(2026, 6, 11), 0.5)]
+        rets = [
+            self._ret(date(2026, 6, 10), None, close=100.0),
+            self._ret(date(2026, 6, 11), 0.5, close=100.5),
+        ]
         aligned = align_sentiment_with_returns(
             sent, rets, horizon_days=1, min_articles_per_day=1
         )
@@ -175,11 +180,16 @@ class AlignSentimentWithReturnsTests(unittest.TestCase):
 
     def test_horizon_5_joins_sentiment_to_5_day_forward(self) -> None:
         sent = [self._sent(date(2026, 6, 10), 1.5)]
-        rets = [self._ret(date(2026, 6, 15), 2.5)]
+        rets = [
+            self._ret(date(2026, 6, 10), None, close=100.0),
+            self._ret(date(2026, 6, 15), 2.5, close=110.0),
+        ]
         aligned = align_sentiment_with_returns(
             sent, rets, horizon_days=5, min_articles_per_day=1
         )
         self.assertEqual(aligned[0].return_day, date(2026, 6, 15))
+        # Uses cumulative close-to-close return, not the target day's daily return.
+        self.assertAlmostEqual(aligned[0].forward_return_pct, 10.0)
 
     def test_below_min_articles_dropped(self) -> None:
         # Single-article days are noise — drop by default.

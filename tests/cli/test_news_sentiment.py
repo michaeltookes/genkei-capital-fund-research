@@ -216,7 +216,7 @@ class CmdInvocationTests(unittest.TestCase):
                 str(cfg),
             )
         self.assertNotEqual(rc, 0)
-        self.assertIn("--since must be on or before --until", err)
+        self.assertIn("since must be on or before", err)
 
 
 if __name__ == "__main__":

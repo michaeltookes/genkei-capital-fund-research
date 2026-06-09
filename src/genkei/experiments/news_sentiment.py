@@ -1,6 +1,6 @@
 """News sentiment vs forward returns experiment (B-056).
 
-Phase 5 experiment over ``gdelt.gkg`` (B-033) × ``coingecko.market_data``
+Phase 5 experiment over ``gdelt.gkg`` (B-033) x ``coingecko.market_data``
 or ``yahoo.candles``. Tests whether the GDELT GKG tone signal on a
 watchlist asset has any forward-return predictive power at a configurable
 horizon (default 1 day — "next-day" per the original B-056 framing).
@@ -51,7 +51,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Literal
 
@@ -283,10 +283,14 @@ def align_sentiment_with_returns(
       * ``article_count < min_articles_per_day`` (single/sparse-article
         noise filter)
       * ``mean_tone is None`` (no tone signal to correlate against)
-      * The horizon day has no matching return row (calendar gap on
-        return side — common for equities over weekends/holidays)
-      * The matched return is None (e.g. the first row of the return
-        series has no day-over-day denominator)
+      * The sentiment or horizon day has no matching close row (calendar
+        gap on return side — common for equities over weekends/holidays)
+      * Either close is NULL, or the sentiment-day close is zero
+
+    ``compute_daily_returns`` still emits day-over-day returns for
+    diagnostics, but this alignment computes the actual forward return
+    from sentiment-day close to horizon-day close so multi-day horizons
+    measure the requested cumulative outcome.
 
     The dropped-rows count is implicit in ``len(returned) /
     len(sentiment)``; callers wanting verbose diagnostics should
@@ -303,9 +307,17 @@ def align_sentiment_with_returns(
         if s.mean_tone is None or s.article_count < min_articles_per_day:
             continue
         target_day = _add_days(s.ts, horizon_days)
-        r = return_index.get((s.asset, target_day))
-        if r is None or r.pct_return is None:
+        start = return_index.get((s.asset, s.ts))
+        target = return_index.get((s.asset, target_day))
+        if (
+            start is None
+            or target is None
+            or start.close is None
+            or target.close is None
+            or start.close == 0.0
+        ):
             continue
+        forward_return_pct = (target.close - start.close) / start.close * 100.0
         aligned.append(
             AlignedPoint(
                 sentiment_day=s.ts,
@@ -313,7 +325,7 @@ def align_sentiment_with_returns(
                 asset=s.asset,
                 mean_tone=s.mean_tone,
                 article_count=s.article_count,
-                forward_return_pct=r.pct_return,
+                forward_return_pct=forward_return_pct,
             )
         )
     return aligned
@@ -457,8 +469,6 @@ def _quartile_means(
 
 def _add_days(d: date, n: int) -> date:
     """Calendar-day add — equity weekends are handled by the return-side join, not here."""
-    from datetime import timedelta
-
     return d + timedelta(days=n)
 
 
