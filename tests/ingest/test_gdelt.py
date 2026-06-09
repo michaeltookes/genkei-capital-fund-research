@@ -344,20 +344,35 @@ class BuildMatchTermsTests(unittest.TestCase):
         terms = build_match_terms(wl)
         self.assertEqual(terms[0].label, "0001067983")
 
-    def test_dedupes_when_same_name_appears_twice(self) -> None:
-        # Two equity entries with identical name → one term.
+    def test_shared_equity_name_preserves_each_share_class_label(self) -> None:
         wl = _empty_watchlist(
             equities=[
-                EquityEntry(symbol="GOOG", name="Alphabet Inc.", cik="0001652044", tier="primary"),
-                EquityEntry(symbol="GOOGL", name="Alphabet Inc.", cik="0001652044", tier="primary"),
+                EquityEntry(
+                    symbol="GOOG",
+                    name="Alphabet Inc. (Class C)",
+                    cik="0001652044",
+                    tier="primary",
+                ),
+                EquityEntry(
+                    symbol="GOOGL",
+                    name="Alphabet Inc. (Class A)",
+                    cik="0001652044",
+                    tier="primary",
+                ),
             ]
         )
         terms = build_match_terms(wl)
-        self.assertEqual(len(terms), 1)
-        # First-write-wins on the label so multi-class listings collapse
-        # to one term — the alternative would be storing both labels per
-        # hit, which would explode the matched_assets array for no signal.
-        self.assertEqual(terms[0].label, "GOOG")
+        self.assertIn(_MatchTerm(term_lower="alphabet inc.", label="GOOG"), terms)
+        self.assertIn(_MatchTerm(term_lower="alphabet inc.", label="GOOGL"), terms)
+
+        hits = match_article(
+            themes=[],
+            persons=[],
+            organizations=["Alphabet Inc."],
+            document_identifier="",
+            terms=terms,
+        )
+        self.assertEqual(hits, ["GOOG", "GOOGL"])
 
     def test_below_min_term_length_dropped(self) -> None:
         # 3-char name ("Big") is below the 4-char floor.

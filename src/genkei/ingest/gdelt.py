@@ -172,13 +172,14 @@ def _watchlist_name_variants(name: str) -> list[str]:
 def build_match_terms(watchlist: Watchlist) -> list[_MatchTerm]:
     """Compile the terms to match articles against.
 
-    Returns a deduped list, lower-cased + length-filtered. Equity entries
-    contribute company name variants labeled by ticker; crypto entries the coin
-    name labeled by symbol, with short-symbol whole-word fallback; protocols
-    protocol name variants labeled by slug; filers the filer name labeled by
-    CIK.
+    Returns a lower-cased + length-filtered list, deduped by term and label.
+    Equity entries contribute company name variants labeled by ticker; crypto
+    entries the coin name labeled by symbol, with short-symbol whole-word
+    fallback; protocols protocol name variants labeled by slug; filers the
+    filer name labeled by CIK.
     """
-    seen: dict[str, tuple[str, bool]] = {}
+    seen: set[tuple[str, str, bool]] = set()
+    terms: list[_MatchTerm] = []
 
     def add(
         candidate: str,
@@ -188,8 +189,12 @@ def build_match_terms(watchlist: Watchlist) -> list[_MatchTerm]:
         whole_word: bool = False,
     ) -> bool:
         term = candidate.strip().lower()
-        if len(term) >= min_length and term not in seen:
-            seen[term] = label, whole_word
+        key = term, label, whole_word
+        if len(term) >= min_length and key not in seen:
+            seen.add(key)
+            terms.append(
+                _MatchTerm(term_lower=term, label=label, whole_word=whole_word)
+            )
             return True
         return False
 
@@ -204,10 +209,7 @@ def build_match_terms(watchlist: Watchlist) -> list[_MatchTerm]:
             add(variant, entry.slug.lower())
     for entry in watchlist.filers:
         add(entry.name, entry.filer_cik)
-    return [
-        _MatchTerm(term_lower=term, label=label, whole_word=whole_word)
-        for term, (label, whole_word) in seen.items()
-    ]
+    return terms
 
 
 def latest_gkg_timestamp(client: HttpClient) -> datetime:
