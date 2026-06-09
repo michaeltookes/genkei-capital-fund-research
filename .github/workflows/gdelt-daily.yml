@@ -1,0 +1,82 @@
+name: GDELT GKG Daily Snapshot
+
+# B-033 — pulls the last 24h of GDELT GKG 2.0 CSV zips (15-min files;
+# 96/day), filters articles to watchlist matches, writes to gdelt.gkg.
+# Storage deviation from D-005: raw CSV blobs are NOT landed in
+# meta.raw_blobs (volume would be 500MB-1.5GB/day of audit JSON the
+# retention policy would just prune). gdelt.gkg is the system of
+# record; CSVs are publicly re-fetchable from GDELT if replay needed.
+#
+# Cadence: daily at 14:30 UTC, sliding in 30 minutes after the ETH
+# whale-flow snapshot (14:00 UTC) so the runner isn't double-loaded.
+# The 24h window the collect grabs is anchored on GDELT's
+# lastupdate.txt, so cron drift doesn't double-fetch or miss slots.
+#
+# Idempotent: composite PK (published_at, gkg_record_id) means re-runs
+# of the same window upsert cleanly. The collector treats per-slot 404s
+# as benign-empty (GDELT occasionally skips a 15-min slot upstream).
+#
+# Backfill: workflow_dispatch with an optional `since` YYYY-MM-DD input
+# triggers the collector's --backfill mode (clamped server-side at the
+# 365-day retention floor — collector logs a warning if `since` falls
+# outside).
+
+on:
+  schedule:
+    - cron: "30 14 * * *"
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "Optional YYYY-MM-DD lower bound for backfill mode"
+        required: false
+        type: string
+      hours:
+        description: "Incremental window in hours (default 24)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    name: GDELT GKG snapshot (Postgres-backed)
+    runs-on: [self-hosted, beelink]
+    # Backfill at the 2 req/s throttle: 96 files/day x 365 days = 35k
+    # files, ~5 hours wall-clock at the throttle. Use GitHub's per-job
+    # max so a deliberate full-retention-window replay isn't cancelled.
+    timeout-minutes: 360
+    env:
+      GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+
+      - name: Apply database migrations
+        run: alembic upgrade head
+
+      - name: Collect GDELT GKG into gdelt.gkg
+        env:
+          SINCE: ${{ inputs.since || '' }}
+          HOURS: ${{ inputs.hours || '' }}
+        run: |
+          args=()
+          if [ -n "$SINCE" ]; then
+            args+=(--backfill --since "$SINCE")
+          elif [ -n "$HOURS" ]; then
+            args+=(--hours "$HOURS")
+          fi
+          python3 -m genkei.ingest.gdelt "${args[@]}"

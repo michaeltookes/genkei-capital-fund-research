@@ -342,8 +342,9 @@ class ExpectationsRegistryTests(unittest.TestCase):
         # for the cross-source correlation event store; B-107 added
         # ishares for spot crypto ETF daily snapshots; B-088 added
         # sui_staking for per-epoch Sui validator snapshots; B-089
-        # added sui_unlocks for per-batch SUI vesting events). Pin
-        # the current shape so an accidental rename / drop is caught.
+        # added sui_unlocks for per-batch SUI vesting events; B-033
+        # added gdelt for GKG news-firehose snapshots). Pin the
+        # current shape so an accidental rename / drop is caught.
         self.assertEqual(
             set(PRIMARY_TABLES),
             {
@@ -359,6 +360,7 @@ class ExpectationsRegistryTests(unittest.TestCase):
                 "signal_emitter",
                 "cftc",
                 "ishares",
+                "gdelt",
             },
         )
 
@@ -381,6 +383,7 @@ class ExpectationsRegistryTests(unittest.TestCase):
                 "eth_whale_flow",
                 "cftc",
                 "ishares",
+                "gdelt",
                 "signal_emitter",
             },
         )

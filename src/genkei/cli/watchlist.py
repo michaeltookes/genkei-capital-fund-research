@@ -181,6 +181,7 @@ PRIMARY_TABLES: dict[str, list[str]] = {
     "eth_whale_flow": ["onchain.eth_whale_flows"],
     "cftc": ["cftc.cot_reports"],
     "ishares": ["etf.fund_snapshots"],
+    "gdelt": ["gdelt.gkg"],
     # B-090 — derived view, no ingest_runs row (computed live from
     # coingecko.market_data). Intentionally absent from RECURRING_ENDPOINTS
     # so it doesn't surface as MISSING on the recurring-cron half of the
@@ -228,6 +229,12 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
     # JSON fetch parses inline + writes directly to etf.fund_snapshots
     # (no separate normalize step). Daily T+1 cadence.
     "ishares": ["collect"],
+    # B-033 GDELT GKG — incremental daily run pulls the last 24h of
+    # 15-min CSV zips, filters to watchlist matches, writes directly
+    # to gdelt.gkg (no separate normalize step; raw CSV blobs are NOT
+    # landed in meta.raw_blobs per the source-specific storage call
+    # in src/genkei/ingest/gdelt.py).
+    "gdelt": ["collect"],
     # B-064 — one entry per signal emitter that runs on a daily cron.
     # B-093 added crowding; B-094 added eight_k_impact; B-095 added
     # tvl_drawdown (first crypto-side emitter); B-098 added
