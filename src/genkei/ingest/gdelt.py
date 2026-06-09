@@ -133,7 +133,13 @@ class _ParsedRow:
     matched_assets: list[str]
 
 
-def _equity_name_variants(name: str) -> list[str]:
+def _is_distinctive_stripped_name(name: str) -> bool:
+    """Return True when a parenthetical-stripped base is safe to match."""
+    tokens = re.findall(r"[a-z0-9]+", name.lower())
+    return len(tokens) >= 2
+
+
+def _watchlist_name_variants(name: str) -> list[str]:
     """Return display-name variants useful for news organization matching."""
     original = name.strip()
     if not original:
@@ -142,7 +148,7 @@ def _equity_name_variants(name: str) -> list[str]:
     candidates = [original]
     parentheticals = re.findall(r"\(([^()]*)\)", original)
     base = re.sub(r"\s*\([^()]*\)", "", original).strip()
-    if base and base != original:
+    if base and base != original and _is_distinctive_stripped_name(base):
         candidates.append(base)
 
     for content in parentheticals:
@@ -167,10 +173,10 @@ def build_match_terms(watchlist: Watchlist) -> list[_MatchTerm]:
     """Compile the terms to match articles against.
 
     Returns a deduped list, lower-cased + length-filtered. Equity entries
-    contribute the company name labeled by ticker, plus parenthetical-stripped
-    variants for news mentions; crypto entries the coin name labeled by symbol,
-    with short-symbol whole-word fallback; protocols the protocol name labeled
-    by slug; filers the filer name labeled by CIK.
+    contribute company name variants labeled by ticker; crypto entries the coin
+    name labeled by symbol, with short-symbol whole-word fallback; protocols
+    protocol name variants labeled by slug; filers the filer name labeled by
+    CIK.
     """
     seen: dict[str, tuple[str, bool]] = {}
 
@@ -188,13 +194,14 @@ def build_match_terms(watchlist: Watchlist) -> list[_MatchTerm]:
         return False
 
     for entry in watchlist.equities:
-        for variant in _equity_name_variants(entry.name):
+        for variant in _watchlist_name_variants(entry.name):
             add(variant, entry.symbol.upper())
     for entry in watchlist.crypto:
         if not add(entry.name, entry.symbol.upper()):
             add(entry.symbol, entry.symbol.upper(), min_length=3, whole_word=True)
     for entry in watchlist.protocols:
-        add(entry.name, entry.slug.lower())
+        for variant in _watchlist_name_variants(entry.name):
+            add(variant, entry.slug.lower())
     for entry in watchlist.filers:
         add(entry.name, entry.filer_cik)
     return [

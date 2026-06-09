@@ -237,11 +237,19 @@ class BuildMatchTermsTests(unittest.TestCase):
             ]
         )
         terms = build_match_terms(wl)
-        self.assertIn(_MatchTerm(term_lower="strategy", label="MSTR"), terms)
+        self.assertNotIn(_MatchTerm(term_lower="strategy", label="MSTR"), terms)
         self.assertIn(
             _MatchTerm(term_lower="microstrategy incorporated", label="MSTR"),
             terms,
         )
+        generic_hits = match_article(
+            themes=[],
+            persons=[],
+            organizations=[],
+            document_identifier="https://example.com/market-strategy",
+            terms=terms,
+        )
+        self.assertEqual(generic_hits, [])
         hits = match_article(
             themes=[],
             persons=[],
@@ -295,6 +303,33 @@ class BuildMatchTermsTests(unittest.TestCase):
         )
         terms = build_match_terms(wl)
         self.assertEqual(terms[0].label, "aave-v3")
+
+    def test_protocol_parenthetical_adds_base_and_former_name_variants(self) -> None:
+        wl = _empty_watchlist(
+            protocols=[
+                ProtocolEntry(
+                    slug="sky-lending",
+                    name="Sky Lending (formerly MakerDAO)",
+                    category="CDP / Stablecoin Issuer",
+                    tier="primary",
+                )
+            ]
+        )
+        terms = build_match_terms(wl)
+        self.assertIn(
+            _MatchTerm(term_lower="sky lending (formerly makerdao)", label="sky-lending"),
+            terms,
+        )
+        self.assertIn(_MatchTerm(term_lower="sky lending", label="sky-lending"), terms)
+        self.assertIn(_MatchTerm(term_lower="makerdao", label="sky-lending"), terms)
+        hits = match_article(
+            themes=[],
+            persons=[],
+            organizations=["MakerDAO"],
+            document_identifier="",
+            terms=terms,
+        )
+        self.assertEqual(hits, ["sky-lending"])
 
     def test_filer_label_is_cik(self) -> None:
         wl = _empty_watchlist(
