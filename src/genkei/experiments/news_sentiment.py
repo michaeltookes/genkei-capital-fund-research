@@ -255,7 +255,7 @@ def compute_daily_returns(
         )
     out: list[ReturnPoint] = []
     prev_close: float | None = None
-    for d, c in zip(days, closes):
+    for d, c in zip(days, closes):  # noqa: B905 — length guard above
         if c is None or prev_close is None or prev_close == 0.0:
             out.append(
                 ReturnPoint(ts=d, asset=asset, close=c, pct_return=None)
@@ -379,7 +379,7 @@ def _pearson_correlation(xs: list[float], ys: list[float]) -> float | None:
         return None
     mean_x = sum(xs) / n
     mean_y = sum(ys) / n
-    cov = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+    cov = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))  # noqa: B905 — guard above
     var_x = sum((x - mean_x) ** 2 for x in xs)
     var_y = sum((y - mean_y) ** 2 for y in ys)
     denom = math.sqrt(var_x * var_y)

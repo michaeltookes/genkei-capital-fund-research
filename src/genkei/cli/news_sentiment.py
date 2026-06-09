@@ -170,7 +170,8 @@ def _format_human(report: CorrelationReport, *, asset_class: str) -> str:
     if report.status == "insufficient_data":
         lines.append(
             f"  status=insufficient_data "
-            f"(need ≥ {MIN_OBSERVATIONS_FOR_SIGNAL} aligned observations, got {report.n_observations})"
+            f"(need ≥ {MIN_OBSERVATIONS_FOR_SIGNAL} aligned observations, "
+            f"got {report.n_observations})"
         )
         lines.append(
             "  Hint: the GDELT cron started 2026-06-09. "
