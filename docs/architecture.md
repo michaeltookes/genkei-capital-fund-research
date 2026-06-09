@@ -91,8 +91,8 @@ External APIs (DefiLlama, CoinGecko, FRED, SEC EDGAR, Etherscan)
        │   coinbase.*  (Coinbase Exchange public market data)         │
        │   analytics.{crypto_relative_strength,                       │
        │              macro_regime_per_date}  (derived views)         │
-       │   meta.{ingest_runs, raw_blobs,                              │
-       │         signals, signal_events, signal_rules}                │
+       │   meta.{ingest_runs, raw_blobs, signals, signal_events}      │
+       │   signal rules: src/genkei/data/signal_rules.yml             │
        │  Provenance trio on every fact row:                          │
        │   (source_endpoint, fetched_at, ingest_run_id FK)            │
        └─────────────────────────────────────────────────────────────┘
@@ -167,8 +167,7 @@ The normalizer is **data-lake-shaped**, not report-shaped (D-006). Cross-source 
 | **`onchain.sui_unlocks`** | SUI token unlock events for the Community Reserves allocation. Same-day batches aggregated. Remaining 7 paywalled allocations tracked as B-115. | B-089 |
 | **`analytics.macro_regime_per_date`** | Derived view: daily macro-regime label (`risk_on` / `risk_off` / `easing` / `tightening_stress` / `mixed`) per business date from FRED inputs (DGS10, BAMLH0A0HYM2, VIXCLS, DTWEXBGS). Surfaced via `genkei macro-regime`. | B-059 |
 | **`meta.signals`** | Per-asset per-day composite watchlist score with `rubric_version` + per-component breakdown. v1 components per asset class documented in `docs/scoring.md`. | B-065 |
-| **`meta.signal_events`** | Per-source signal-event store fed by `experiments/emitters/*`. Cross-source correlator (B-064) reads this table, applies the rule pack in `data/signal_rules.yml`, and emits signal stacks when ≥ N distinct sources fire inside a window. | B-064 |
-| **`meta.signal_rules`** | Effective rule pack (`rule_id`, `sources`, `weights`, `window`, `min_distinct_sources`, `direction`). Mirrors `src/genkei/data/signal_rules.yml`. | B-064 |
+| **`meta.signal_events`** | Per-source signal-event store fed by `experiments/emitters/*`. Cross-source correlator (B-064) reads this table, applies the file-backed rule pack in `src/genkei/data/signal_rules.yml`, and emits signal stacks when ≥ N distinct sources fire inside a window. | B-064 |
 | **Provenance trio** | Every fact row carries `source_endpoint TEXT NOT NULL`, `fetched_at TIMESTAMPTZ NOT NULL`, `ingest_run_id BIGINT NOT NULL REFERENCES meta.ingest_runs(id)`. | R-021 |
 | **Migration tool** | Alembic, hand-written migrations only (no autogen). Files at `migrations/versions/YYYYMMDD_<slug>.py`. URL from `GENKEI_DATABASE_URL`. 31 applied as of 2026-06-08. | R-008, `docs/storage.md` § B-009 |
 

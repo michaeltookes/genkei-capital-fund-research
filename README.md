@@ -91,7 +91,7 @@ Python 3.10+. See `docs/infrastructure.md` for the homelab Postgres connection s
 | **On-chain (Sui RPC)** | `onchain.sui_validators`, `onchain.sui_unlocks` | Sui validator + staking-flow (B-088); SUI Community Reserves unlock schedule (B-089) |
 | **Coinbase Exchange** | `coinbase.*` | Public CEX market data (B-035 Binance pivot) |
 | **Analytics** | `analytics.*` | Derived views — `crypto_relative_strength` (B-090), `macro_regime_per_date` (B-059) |
-| **Signals engine** | `meta.{signals,signal_events,signal_rules}` | Per-asset composite scores (B-065); cross-source signal-stack store + correlator (B-064) |
+| **Signals engine** | `meta.{signals,signal_events}` + `src/genkei/data/signal_rules.yml` | Per-asset composite scores (B-065); cross-source signal-stack store + file-backed correlator rules (B-064) |
 
 Every fact row carries the provenance trio: `source_endpoint`, `fetched_at`, `ingest_run_id` (FK to `meta.ingest_runs`). See `docs/storage.md` for the schema strategy and `docs/architecture.md` for the per-table reference.
 
@@ -114,11 +114,11 @@ The `genkei` command is the canonical query layer — Bash-composable, `--json` 
 | `genkei revenue-divergence` | Protocol revenue vs token price — price-leads-up / -down / aligned |
 | `genkei relative-strength --ticker SUI --peer SOL` | Crypto asset vs peer return across 7/30/90/180/365d windows (B-090) |
 | `genkei tvl-drawdown` | TVL-drawdown early-warning signal per protocol (B-058) |
-| `genkei stablecoin-flow` | Net stablecoin issuance / burn per chain over a window (B-108) |
-| `genkei etf-flows` | Spot ETF net flow per issuer (B-105 / B-107) |
-| `genkei cot --product BTC` | CFTC Commitments of Traders weekly positioning (B-031) |
+| `genkei stablecoin-flow --chain Ethereum` | Net stablecoin issuance / burn per chain over a window (B-108) |
+| `genkei etf-flows --asset BTC --net-flow` | Spot ETF net flow per issuer (B-105 / B-107) |
+| `genkei cot --market BTC` | CFTC Commitments of Traders weekly positioning (B-031) |
 | `genkei whales --address 0x...` | Top-N ETH whale wallet net flow (B-106) |
-| `genkei signals --ticker AAPL` | Watchlist composite score + per-component breakdown (B-065); cross-source signal stacks (B-064) |
+| `genkei signals --asset AAPL` | Watchlist composite score + per-component breakdown (B-065); cross-source signal stacks (B-064) |
 | `genkei backtest` | Stack-outcome backtest — historical alpha by rule trigger (B-101 / B-100) |
 | `genkei watchlist {list,health,gaps,score}` | Watchlist coverage, source-freshness, gap monitoring, composite scoring |
 | `genkei query "SELECT ..."` | Read-only SQL escape hatch (statement-timeout + row-cap enforced) |
