@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import io
 import json as json_mod
+import re
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -23,6 +24,7 @@ import typer
 from genkei.cli import main
 from genkei.cli.news import (
     ARTICLE_POOL_CAP,
+    HORIZON,
     SAMPLE_URLS_PER_CLUSTER,
     _build_article_query,
     _cluster_articles,
@@ -30,6 +32,8 @@ from genkei.cli.news import (
     _format_clusters_human,
     _resolve_watchlist_label,
 )
+
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 WATCHLIST_YAML = (
     "crypto:\n"
@@ -45,6 +49,10 @@ WATCHLIST_YAML = (
     "      cik: '0000320193'\n"
     "      tier: primary\n"
 )
+
+
+def _strip_ansi(text: str) -> str:
+    return ANSI_RE.sub("", text)
 
 
 def _watchlist_path(case: unittest.TestCase) -> Path:
@@ -142,9 +150,9 @@ class BuildArticleQueryTests(unittest.TestCase):
         self.assertEqual(params[0], "%AI capex%")
         self.assertEqual(params[1], "%AI capex%")
 
-    def test_since_uses_published_at_lower_bound(self) -> None:
+    def test_since_uses_utc_date_lower_bound(self) -> None:
         sql, params = self._build(since=date(2026, 5, 1))
-        self.assertIn("published_at >= %s", sql)
+        self.assertIn("(published_at AT TIME ZONE 'UTC')::date >= %s", sql)
         self.assertEqual(params[0], date(2026, 5, 1))
 
     def test_until_uses_utc_date_upper_bound(self) -> None:
@@ -168,7 +176,7 @@ class BuildArticleQueryTests(unittest.TestCase):
 
     def test_combined_filters_ordered_consistently(self) -> None:
         # Stable param ordering matters for psycopg parameter binding.
-        sql, params = self._build(
+        _sql, params = self._build(
             matched_label="BTC",
             theme="ECON_BITCOIN",
             topic="rally",
@@ -226,6 +234,19 @@ class ClusterArticlesTests(unittest.TestCase):
         # Second-place ties: the 2026-06-09 one comes before 2026-06-08.
         self.assertEqual(clusters[1]["day"], "2026-06-09")
         self.assertEqual(clusters[2]["day"], "2026-06-08")
+
+    def test_groups_offset_aware_timestamps_by_utc_date(self) -> None:
+        articles = [
+            self._article(
+                # Local date is June 8, but the UTC date is June 9.
+                published_at=datetime(
+                    2026, 6, 8, 20, 15, tzinfo=timezone(timedelta(hours=-4))
+                ),
+                document_identifier="https://example.com/utc-midnight",
+            )
+        ]
+        [cluster] = _cluster_articles(articles, limit=10)
+        self.assertEqual(cluster["day"], "2026-06-09")
 
     def test_mean_tone_computed_from_non_null_tones(self) -> None:
         articles = [
@@ -385,6 +406,7 @@ class CmdInvocationTests(unittest.TestCase):
             )
         self.assertEqual(rc, 0)
         payload = json_mod.loads(out)
+        self.assertEqual(payload["horizon"], HORIZON)
         self.assertIn("summary", payload)
         self.assertIn("clusters", payload)
         self.assertEqual(payload["summary"]["ticker"], "AAPL")
@@ -402,13 +424,15 @@ class CmdInvocationTests(unittest.TestCase):
                 "--since", "2026-06-09", "--until", "2026-06-01"
             )
         self.assertNotEqual(rc, 0)
-        self.assertIn("--since must be on or before --until", err)
+        clean_err = _strip_ansi(err)
+        self.assertIn("Invalid value: --since must be on or before --until", clean_err)
 
     def test_tone_min_greater_than_tone_max_rejected(self) -> None:
         with patch("genkei.cli.news._fetch_articles", return_value=[]):
             rc, _out, err = self._invoke("--tone-min", "5", "--tone-max", "-5")
         self.assertNotEqual(rc, 0)
-        self.assertIn("--tone-min must be ≤ --tone-max", err)
+        clean_err = _strip_ansi(err)
+        self.assertIn("Invalid value: --tone-min must be ≤ --tone-max", clean_err)
 
 
 class PoolCapTests(unittest.TestCase):

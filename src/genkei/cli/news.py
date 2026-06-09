@@ -30,7 +30,7 @@ ad-hoc shapes the typed surface doesn't express.
 """
 
 import json
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any, Optional
 
@@ -60,8 +60,9 @@ ARTICLE_POOL_CAP = 2000
 # underlying rows stay queryable via genkei query for ad-hoc inspection.
 SAMPLE_URLS_PER_CLUSTER = 3
 
+HORIZON = "cross-sleeve | sleeve: research/news"
 _HORIZON_FOOTER = (
-    "  Horizon: cross-sleeve | sleeve: research/news (consume alongside prices, filings, on-chain)"
+    f"  Horizon: {HORIZON} (consume alongside prices, filings, on-chain)"
 )
 
 
@@ -153,7 +154,9 @@ def _build_article_query(
         pattern = f"%{topic}%"
         params.extend([pattern, pattern])
     if since is not None:
-        sql += " AND published_at >= %s"
+        # Compare against the UTC date column so session timezone cannot
+        # shift the inclusive lower-bound day.
+        sql += " AND (published_at AT TIME ZONE 'UTC')::date >= %s"
         params.append(since)
     if until is not None:
         # Include the full UTC day for --until — compare against the
@@ -198,6 +201,18 @@ def _fetch_articles(
     ]
 
 
+def _utc_day_key(ts: Optional[datetime]) -> str:
+    """Return the UTC calendar day for a Postgres timestamptz value."""
+    if ts is None:
+        return "unknown"
+    ts = (
+        ts.replace(tzinfo=timezone.utc)
+        if ts.tzinfo is None
+        else ts.astimezone(timezone.utc)
+    )
+    return ts.date().isoformat()
+
+
 def _cluster_articles(
     articles: list[dict[str, Any]], *, limit: int
 ) -> list[dict[str, Any]]:
@@ -214,9 +229,7 @@ def _cluster_articles(
     groups: dict[tuple[str, str], dict[str, Any]] = {}
     for art in articles:
         ts = art["published_at"]
-        # published_at is timestamptz from Postgres — psycopg returns it
-        # as an aware datetime. Bucket by UTC date for the cluster key.
-        day_key = ts.date().isoformat() if ts is not None else "unknown"
+        day_key = _utc_day_key(ts)
         src_key = (art["source_common_name"] or "").lower() or "unknown"
         key = (day_key, src_key)
         bucket = groups.setdefault(
@@ -229,7 +242,6 @@ def _cluster_articles(
                 "tone_n": 0,
                 "matched_assets": set(),
                 "sample_urls": [],
-                "_sort_ts": ts,
             },
         )
         bucket["article_count"] += 1
@@ -264,9 +276,6 @@ def _cluster_articles(
                 "sample_urls": bucket["sample_urls"],
             }
         )
-    clusters.sort(key=lambda c: (-c["article_count"], c["day"]), reverse=False)
-    # The tuple above sorts article_count ASC because we negated it for
-    # the primary key, but day needs DESC. Re-sort explicitly:
     clusters.sort(key=lambda c: (-c["article_count"], -_day_sort_key(c["day"])))
     return clusters[:limit]
 
@@ -439,7 +448,7 @@ def news_cmd(
     if json_out:
         typer.echo(
             json.dumps(
-                {"summary": summary, "clusters": clusters},
+                {"horizon": HORIZON, "summary": summary, "clusters": clusters},
                 indent=2,
                 default=_json_default,
             )
