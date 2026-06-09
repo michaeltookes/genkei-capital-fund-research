@@ -363,19 +363,29 @@ class MatchArticleTests(unittest.TestCase):
 
 
 class FileTimestampsForWindowTests(unittest.TestCase):
-    def test_window_rounds_down_and_excludes_start_slot(self) -> None:
+    def test_window_rounds_down_and_includes_start_slot(self) -> None:
         end = datetime(2026, 6, 9, 12, 7, 30, tzinfo=timezone.utc)
         stamps = file_timestamps_for_window(end, hours=1)
-        # End rounds down to 12:00; 1h back is 11:00 (exclusive).
-        # Expected slots: 11:15, 11:30, 11:45, 12:00 → 4 files.
-        self.assertEqual(len(stamps), 4)
-        self.assertEqual(stamps[0], datetime(2026, 6, 9, 11, 15, tzinfo=timezone.utc))
+        # End rounds down to 12:00; 1h back is 11:00 (inclusive) so
+        # incremental runs overlap by one boundary file instead of leaving gaps.
+        self.assertEqual(len(stamps), 5)
+        self.assertEqual(stamps[0], datetime(2026, 6, 9, 11, 0, tzinfo=timezone.utc))
         self.assertEqual(stamps[-1], datetime(2026, 6, 9, 12, 0, tzinfo=timezone.utc))
 
-    def test_window_24h_yields_96_slots(self) -> None:
+    def test_window_24h_yields_97_slots_with_boundary_overlap(self) -> None:
         end = datetime(2026, 6, 9, 0, 0, tzinfo=timezone.utc)
         stamps = file_timestamps_for_window(end, hours=24)
-        self.assertEqual(len(stamps), 96)
+        self.assertEqual(len(stamps), 97)
+
+    def test_shifted_latest_timestamp_does_not_skip_boundary_file(self) -> None:
+        previous_end = datetime(2026, 6, 8, 14, 15, tzinfo=timezone.utc)
+        next_end = datetime(2026, 6, 9, 14, 30, tzinfo=timezone.utc)
+
+        previous_stamps = file_timestamps_for_window(previous_end, hours=24)
+        next_stamps = file_timestamps_for_window(next_end, hours=24)
+
+        self.assertIn(datetime(2026, 6, 8, 14, 15, tzinfo=timezone.utc), previous_stamps)
+        self.assertIn(datetime(2026, 6, 8, 14, 30, tzinfo=timezone.utc), next_stamps)
 
     def test_zero_or_negative_hours_raises(self) -> None:
         end = datetime(2026, 6, 9, 12, 0, tzinfo=timezone.utc)

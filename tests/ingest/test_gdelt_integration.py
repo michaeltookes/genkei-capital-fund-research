@@ -159,12 +159,9 @@ class GdeltIntegrationTests(unittest.TestCase):
             path.write_text(WATCHLIST, encoding="utf-8")
             transport = httpx.MockTransport(_route)
             with HttpClient("gdelt-test", transport=transport) as http:
-                # hours=0 isn't allowed by the collector — use a tight 15-min
-                # window so file_timestamps_for_window emits exactly the
-                # 00:15 slot we mocked. The 15-min boundary math is:
-                # latest=00:15, hours x 4 slots = ceil(hours) windows back;
-                # 0.25h isn't accepted (int arg), so pass hours=1 and rely on
-                # the mock 404 for the other 3 slots.
+                # hours=0 isn't allowed by the collector, so pass hours=1 and
+                # rely on the mock 404 for the four overlapping slots around
+                # the single 00:15 file this test serves.
                 return ingest.collect(
                     hours=1,
                     watchlist_path=path,

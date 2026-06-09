@@ -186,11 +186,11 @@ def latest_gkg_timestamp(client: HttpClient) -> datetime:
 
 
 def file_timestamps_for_window(end: datetime, *, hours: int) -> list[datetime]:
-    """Generate 15-min file timestamps in ``(end - hours, end]``.
+    """Generate 15-min file timestamps in ``[end - hours, end]``.
 
-    ``end`` is rounded down to the previous 15-min slot. The slot at
-    ``end - hours`` itself is excluded so consecutive ``hours=24`` runs
-    don't double-fetch the same boundary file.
+    ``end`` is rounded down to the previous 15-min slot. The lower boundary is
+    included so incremental runs overlap by one file instead of skipping a file
+    when GDELT's latest timestamp advances by more than exactly ``hours``.
     """
     if hours <= 0:
         raise ValueError(f"hours must be > 0, got {hours}")
@@ -199,7 +199,7 @@ def file_timestamps_for_window(end: datetime, *, hours: int) -> list[datetime]:
     )
     start = end_floor - timedelta(hours=hours)
     out: list[datetime] = []
-    cursor = start + timedelta(minutes=15)
+    cursor = start
     while cursor <= end_floor:
         out.append(cursor)
         cursor += timedelta(minutes=15)
