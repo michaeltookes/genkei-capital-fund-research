@@ -78,14 +78,20 @@ Python 3.10+. See `docs/infrastructure.md` for the homelab Postgres connection s
 
 ## What's in the lake
 
-| Source | Schema | What | Coverage |
-|---|---|---|---|
-| **DeFiLlama** | `defillama.*` | Chain TVL, per-protocol TVL, per-protocol fees + revenue, stablecoin supply per chain, asset prices | 5 hypertables, 8.5y stablecoin history, 7y+ chain TVL |
-| **CoinGecko** | `coingecko.*` | Per-coin metadata + daily OHLC market data | 19 coins (7 crypto-core + 12 protocol tokens via B-091) |
-| **SEC EDGAR** | `sec.*` | Filings index, XBRL company facts, Form 4 insider transactions | 28 watchlist equities; ~192k Form 4 rows; ~442k XBRL facts |
-| **FRED** | `fred.*` | Macro series observations (vintage-aware) | 20 starter series; revision history preserved |
-| **On-chain (Etherscan)** | `onchain.staking_events` | Chainlink v0.2 staking pool flow | Gated on `ETHERSCAN_API_KEY` |
-| **Analytics** | `analytics.crypto_relative_strength` | Derived view: asset vs peer return across 5 windows | 1,900 rows live |
+| Source | Schema | What |
+|---|---|---|
+| **DeFiLlama** | `defillama.*` | Chain TVL, per-protocol TVL, per-protocol fees + revenue, stablecoin supply per chain, asset prices |
+| **CoinGecko** | `coingecko.*` | Per-coin metadata + daily OHLC market data (crypto-core + protocol tokens via B-091) |
+| **Yahoo Finance** | `yahoo.candles` | Equity + benchmark OHLCV (watchlist equities + SPY / QQQ / IWM benchmarks via B-092 / B-102) |
+| **SEC EDGAR** | `sec.*` | Filings index, XBRL company facts, Form 4 insider transactions, Form 13F institutional holdings (B-079 / B-080) |
+| **FRED** | `fred.*` | Macro series observations (vintage-aware) |
+| **CFTC** | `cftc.cot_reports` | Weekly Commitments of Traders by Asset Manager / Leveraged Funds (B-031) |
+| **iShares spot ETFs** | `etf.fund_snapshots` | Daily NAV + shares outstanding for IBIT / ETHA / ETHB (B-105 / B-107) |
+| **On-chain (Etherscan)** | `onchain.staking_events`, `onchain.eth_whale_flows` | Chainlink v0.2 staking flow (B-082 / B-086); top-N ETH whale wallet net flow (B-106) |
+| **On-chain (Sui RPC)** | `onchain.sui_validators`, `onchain.sui_unlocks` | Sui validator + staking-flow (B-088); SUI Community Reserves unlock schedule (B-089) |
+| **Coinbase / Binance** | `coinbase.*`, `binance.*` | Public CEX market data (B-035) |
+| **Analytics** | `analytics.*` | Derived views — `crypto_relative_strength` (B-090), `macro_regime_per_date` (B-059) |
+| **Signals engine** | `meta.{signals,signal_events,signal_rules}` | Per-asset composite scores (B-065); cross-source signal-stack store + correlator (B-064) |
 
 Every fact row carries the provenance trio: `source_endpoint`, `fetched_at`, `ingest_run_id` (FK to `meta.ingest_runs`). See `docs/storage.md` for the schema strategy and `docs/architecture.md` for the per-table reference.
 
@@ -95,15 +101,26 @@ The `genkei` command is the canonical query layer — Bash-composable, `--json` 
 
 | Command | What it answers |
 |---|---|
-| `genkei prices --ticker BTC` | Crypto price + market cap series |
+| `genkei prices --ticker BTC` | Crypto + equity price / market cap series (CoinGecko + Yahoo) |
 | `genkei filings --ticker AAPL` | SEC filings index; `--concept us-gaap:Revenues` for XBRL facts |
 | `genkei tvl --chain Ethereum` | DeFiLlama TVL; `--protocol aave-v3` for per-protocol |
 | `genkei macro --series DGS10` | FRED observation series, vintage-aware (`--as-of YYYY-MM-DD`) |
+| `genkei macro-regime` | Daily macro regime label (risk_on / risk_off / easing / tightening_stress / mixed) — B-059 |
 | `genkei insiders --ticker JPM` | Form 4 transactions, filterable by code / direction / window |
 | `genkei insider-clusters` | Multi-reporter buy/sell clusters within a configurable window |
+| `genkei holdings --ticker NVDA` | Form 13F institutional holdings — quarter-over-quarter position deltas (B-080) |
+| `genkei crowding` | 13F crowding monitor — concentrated institutional positioning by ticker (B-061) |
+| `genkei eight-k-impact` | 8-K filing → price impact event study (B-057) |
 | `genkei revenue-divergence` | Protocol revenue vs token price — price-leads-up / -down / aligned |
-| `genkei relative-strength --ticker SUI --peer SOL` | Asset vs peer return across 7/30/90/180/365 day windows |
-| `genkei watchlist {list,health,gaps}` | Watchlist coverage + source-freshness monitoring |
+| `genkei relative-strength --ticker SUI --peer SOL` | Crypto / equity asset vs peer return across 7/30/90/180/365d windows (B-090 / B-111) |
+| `genkei tvl-drawdown` | TVL-drawdown early-warning signal per protocol (B-058) |
+| `genkei stablecoin-flow` | Net stablecoin issuance / burn per chain over a window (B-108) |
+| `genkei etf-flows` | Spot ETF net flow per issuer (B-105 / B-107) |
+| `genkei cot --product BTC` | CFTC Commitments of Traders weekly positioning (B-031) |
+| `genkei whales --address 0x...` | Top-N ETH whale wallet net flow (B-106) |
+| `genkei signals --ticker AAPL` | Watchlist composite score + per-component breakdown (B-065); cross-source signal stacks (B-064) |
+| `genkei backtest` | Stack-outcome backtest — historical alpha by rule trigger (B-101 / B-100) |
+| `genkei watchlist {list,health,gaps,score}` | Watchlist coverage, source-freshness, gap monitoring, composite scoring |
 | `genkei query "SELECT ..."` | Read-only SQL escape hatch (statement-timeout + row-cap enforced) |
 
 `genkei <cmd> --help` for the full option set per command.
@@ -133,27 +150,37 @@ Every decision file's frontmatter is validated in CI (`tests/test_research_decis
 | Synchronous pairing | Local Claude Code (this repo's CLAUDE.md) | Weekend sessions, ad-hoc research, design work |
 | Async overnight | Mission queue at `missions/pending/` → `run-missions` skill | Long-running tasks that should grind through unattended |
 
-Tests (`python3 -m unittest discover -s tests`) must pass before any push — 599 currently passing, integration tests use `testcontainers[postgres]` so CI exercises real Postgres.
+Tests (`python3 -m unittest discover -s tests`) must pass before any push — ~1,465 currently passing, integration tests use `testcontainers[postgres]` so CI exercises real Postgres. Daily ingest crons + workflow-failure / ingest-staleness monitors live in `.github/workflows/`.
 
 ## Repository layout
 
 ```text
 src/genkei/
-├── common/          db.py / http.py / config.py / watchlist.py — shared primitives
-├── ingest/          one collector per source (defillama, coingecko, sec, fred, sec_form4, onchain_staking)
+├── common/          db.py / http.py / config.py / watchlist.py / schema_drift.py — shared primitives
+├── ingest/          one collector per source — defillama, coingecko, yahoo, sec, sec_form4, sec_form13f,
+│                    fred, cftc, ishares, onchain_staking, etherscan_whale_flow, sui_staking, sui_unlocks,
+│                    coinbase
 ├── normalize/       one normalizer per source — raw blobs → per-source tables
-├── cli/             Typer-based subcommands; one file per command + _helpers / _watchlist
-├── experiments/     Phase 5 detectors (insider_clusters, protocol_revenue, relative_strength)
+├── cli/             Typer-based subcommands; one file per command + _helpers
+├── experiments/     Phase 5 detectors — insider_clusters, protocol_revenue, relative_strength,
+│                    macro_regime, tvl_drawdown, eight_k_impact, crowding_monitor, watchlist_scoring,
+│                    stack_backtest, signal_store, signal_rules, signal_benchmark
+│   └── emitters/    Phase 6 signal emitters — insider_clusters, crowding, eight_k, tvl_drawdown,
+│                    relative_strength (crypto + equity)
 ├── reports/         legacy daily-brief shim (B-025 retired pending)
-└── data/            bundled watchlists.yml (single source of truth)
+└── data/            bundled watchlists.yml + signal_rules.yml (single source of truth)
 
-migrations/versions/ Alembic hand-written migrations (no autogen)
+migrations/versions/ Alembic hand-written migrations (no autogen) — 31 applied
 docs/                architecture.md / storage.md / infrastructure.md / backlog.md / resolved.md
+docs/experiments/    per-experiment design notes (macro-regime, tvl-drawdown, 8k-impact, 13f-crowding,
+                     cross-source-signals, stack-outcome-backtest)
+docs/sources/        per-source notes (eth-whale-addresses, spot-etf-net-flow, sui-unlocks)
+docs/ingesters/      per-ingester notes (coinbase, yahoo)
 docs/research/       decision log + methodology
 prompts/             research-methodology.md + reflect-on-decisions.md
 missions/            pending/ + done/ — async queue
 tests/               unit + testcontainers-backed integration
-.github/workflows/   tests.yml + per-source daily-* workflows
+.github/workflows/   tests.yml + per-source daily-* + workflow-failure-alert + ingest-staleness-check
 ```
 
 ## Conventions
@@ -161,7 +188,7 @@ tests/               unit + testcontainers-backed integration
 - **Tests** — `python3 -m unittest discover -s tests` must pass before any push. Deterministic + offline by default; integration tests opt in via `testcontainers[postgres]`.
 - **Branches** — feature branches, never push to `main`. PRs short: `## Summary` + `## Test plan`.
 - **Commit messages** — explain the *why*, not the *what*. AI co-author trailer on auto-generated commits.
-- **Backlog hygiene** — `docs/backlog.md` (46 open) + `docs/resolved.md` (47 resolved). Use the `update-backlog` skill after meaningful commits.
+- **Backlog hygiene** — `docs/backlog.md` (43 open) + `docs/resolved.md` (78 resolved). Use the `update-backlog` skill after meaningful commits.
 - **Secrets** — never in the repo. `.env` (gitignored) locally, GH Actions secrets for CI.
 - **Raw vendor data** — never committed. Postgres is the system of record.
 - **Decision files** — append-only. Reconsidering a prior call writes a NEW file referencing the old one.

@@ -9,7 +9,7 @@ The point of the bottom half: when context gets cleared, the next session (Claud
 
 **Updating discipline:** any commit that makes a non-obvious choice (a tradeoff with a real alternative) or surfaces a non-obvious surprise (a thing future-you wouldn't predict) appends an entry below in the same commit. If the entry is missing, the commit is incomplete.
 
-**Last updated:** 2026-05-21 (Phase 2: 4/10 done + 3 carve-outs — FRED + SEC EDGAR + CoinGecko + B-079 Form 4 + B-081 DefiLlama protocol TVL + B-082 on-chain staking + B-083 protocol fees. Phase 3: 10/11 done — `prices`, `filings`, `tvl`, `macro`, `watchlist`, `query`, `insiders`, `insider-clusters`, `revenue-divergence`, `relative-strength`, only `news` stubbed. Phase 4 foundation laid (research methodology + decision log + `/research` and `/reflect-decisions` skills). Phase 5: 3/11 done — `insider_clusters`, `protocol_revenue`, `relative_strength`. Phase 6 started — `analytics.crypto_relative_strength` view + `relative-strength` CLI (B-090).)
+**Last updated:** 2026-06-08 (Phase 2 substantially complete — DeFiLlama, FRED, SEC (submissions + XBRL + Form 4 + Form 13F), CoinGecko, Yahoo equities + benchmarks, CFTC COT, iShares spot ETF, on-chain Etherscan staking + whale flow, Sui RPC validators + unlocks, Coinbase / Binance public market data; the per-source doc backfill (B-036) remains the largest open item. Phase 3: 10/11 — only `news` (B-043) stubbed. Phase 4 foundation laid; B-051/052/053 still open. Phase 5: 8 detectors shipped — `insider_clusters`, `protocol_revenue`, `relative_strength`, `macro_regime`, `tvl_drawdown`, `eight_k_impact`, `crowding_monitor`, `watchlist_scoring`. Phase 6 advanced — cross-source signal correlation engine (B-064) with five emitters wired (`insider_clusters`, `crowding`, `eight_k`, `tvl_drawdown`, `relative_strength` × {crypto, equity}); stack-outcome backtest (B-101) + SPY/BTC benchmark adjustment (B-100); `analytics.crypto_relative_strength` + `analytics.macro_regime_per_date` views. Phase 7 in progress — workflow-failure + ingest-staleness alerting (B-071), schema-drift detection (B-072), backup posture (B-070) all shipped.)
 
 > **Read this first if you're new (or future-you after weeks away).** Then dive into the per-component docs at the bottom for depth.
 
@@ -80,12 +80,19 @@ External APIs (DefiLlama, CoinGecko, FRED, SEC EDGAR, Etherscan)
        │   defillama.{chain_tvl, protocol_tvl, protocol_fees,         │
        │              stablecoins, prices, protocols}                 │
        │   coingecko.{coins, market_data}                             │
+       │   yahoo.candles  (equity + benchmark OHLCV)                  │
        │   fred.{series, observations} — vintage-aware                │
        │   sec.{companies, filings, facts, insiders,                  │
-       │        form4_transactions, form4_normalized_filings}         │
-       │   onchain.staking_events                                     │
-       │   analytics.crypto_relative_strength  (derived view, B-090)  │
-       │   meta.{ingest_runs, raw_blobs}                              │
+       │        form4_transactions, form13f_holdings}                 │
+       │   cftc.cot_reports                                           │
+       │   etf.fund_snapshots                                         │
+       │   onchain.{staking_events, eth_whale_flows,                  │
+       │            sui_validators, sui_unlocks}                      │
+       │   coinbase.*, binance.*  (public CEX market data)            │
+       │   analytics.{crypto_relative_strength,                       │
+       │              macro_regime_per_date}  (derived views)         │
+       │   meta.{ingest_runs, raw_blobs,                              │
+       │         signals, signal_events, signal_rules}                │
        │  Provenance trio on every fact row:                          │
        │   (source_endpoint, fetched_at, ingest_run_id FK)            │
        └─────────────────────────────────────────────────────────────┘
@@ -93,18 +100,25 @@ External APIs (DefiLlama, CoinGecko, FRED, SEC EDGAR, Etherscan)
               ┌─────────────────┼─────────────────────┐
               ▼                 ▼                     ▼
    ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────────┐
-   │  genkei CLI      │  │  Experiments     │  │  Agent (Claude Code) │
-   │                  │  │                  │  │                      │
-   │  10 typed cmds + │  │  Pure detectors  │  │  /research walks the │
-   │  SQL escape      │  │  on lake data:   │  │  methodology, lands  │
+   │  genkei CLI      │  │  Experiments +   │  │  Agent (Claude Code) │
+   │                  │  │  signal emitters │  │                      │
+   │  ~22 typed cmds  │  │                  │  │  /research walks the │
+   │  + SQL escape    │  │  Pure detectors: │  │  methodology, lands  │
    │  hatch.          │  │  insider_clusters│  │  a decision file at  │
    │  Bash-composable │  │  protocol_revenue│  │  docs/research/      │
    │  + --json        │  │  relative_strength│ │  decisions/.         │
-   │                  │  │                  │  │                      │
-   │  prices,filings, │  │  Surfaced via    │  │  /reflect-decisions  │
-   │  tvl,macro,      │  │  CLI commands    │  │  closes loop later   │
-   │  insiders,query, │  │  + queryable     │  │  via realized prices │
-   │  watchlist,...   │  │  by other code   │  │                      │
+   │                  │  │  macro_regime    │  │                      │
+   │  prices,filings, │  │  tvl_drawdown    │  │  /reflect-decisions  │
+   │  tvl,macro,      │  │  eight_k_impact  │  │  closes loop later   │
+   │  insiders,       │  │  crowding_monitor│  │  via realized prices │
+   │  holdings,       │  │  watchlist_scoring│ │                      │
+   │  crowding,       │  │  stack_backtest  │  │  Signal stacks via   │
+   │  macro-regime,   │  │                  │  │  meta.signal_events  │
+   │  tvl-drawdown,   │  │  emitters/* feed │  │  inform watchlist    │
+   │  etf-flows,cot,  │  │  meta.signal_*   │  │  scoring + research  │
+   │  signals,        │  │  tables for B-064│  │                      │
+   │  backtest,query, │  │  correlator      │  │                      │
+   │  watchlist,...   │  │                  │  │                      │
    └──────────────────┘  └──────────────────┘  └──────────────────────┘
 ```
 
@@ -144,8 +158,19 @@ The normalizer is **data-lake-shaped**, not report-shaped (D-006). Cross-source 
 | **`sec.facts`** | XBRL fact table, hypertable on `period_end` (30-day chunks), compression on chunks > 30 days old, PK `(cik, concept, unit, period_start, period_end, accession_number)`. Same `(concept, period)` can appear in multiple filings (10-Q + subsequent 10-K); all rows land for query-side filtering. | R-028 |
 | **`coingecko.coins`** | Entity dim for CoinGecko coins, PK `coingecko_id` (e.g. "bitcoin"), holds `symbol` / `name` / `market_cap_rank` / `genesis_date` / categories metadata. | R-029 |
 | **`coingecko.market_data`** | Time-series fact, hypertable on `ts` (30-day chunks, compression > 30 days), PK `(coingecko_id, ts)`. One row per coin per day with `price_usd` / `market_cap_usd` / `volume_usd`. Second crypto price source alongside DeFiLlama — cross-check + market cap + volume that DeFiLlama doesn't expose. | R-029 |
+| **`yahoo.candles`** | Time-series fact, hypertable on `ts`, PK `(ticker, ts)`. Per-equity + per-benchmark daily OHLCV. Watchlist equities + SPY / QQQ / IWM benchmarks share the table; benchmark routing handled at the CLI layer. | B-092, B-102 |
+| **`sec.form13f_holdings`** | Per-filing institutional holdings table. PK `(accession_number, cusip)`. Filer dimension joins through `sec.companies`. Powers `genkei holdings` + the 13F crowding monitor (B-061). | B-080 |
+| **`cftc.cot_reports`** | Weekly CFTC Commitments of Traders by product (BTC / ETH / SPY / etc.) and report category (Asset Manager / Leveraged Funds / Dealer Intermediary). | B-031 |
+| **`etf.fund_snapshots`** | Daily NAV + shares-outstanding + TNA per spot ETF. PK `(fund_ticker, snapshot_date)`. Schema designed to extend cleanly to additional issuers (B-113); 10-Q quarter-end backfill tracked as B-114. | B-105, B-107 |
+| **`onchain.eth_whale_flows`** | Daily ETH net flow per curated whale wallet, plus per-category aggregates. Backed by Etherscan; curated wallet list in `config/watchlists.yml` (methodology in `docs/sources/eth-whale-addresses.md`). | B-106 |
+| **`onchain.sui_validators`** | Sui mainnet validator + staking-flow per epoch (PK `(validator_address, epoch)`). APY preserved per validator across partial reruns. | B-088 |
+| **`onchain.sui_unlocks`** | SUI token unlock events for the Community Reserves allocation. Same-day batches aggregated. Remaining 7 paywalled allocations tracked as B-115. | B-089 |
+| **`analytics.macro_regime_per_date`** | Derived view: daily macro-regime label (`risk_on` / `risk_off` / `easing` / `tightening_stress` / `mixed`) per business date from FRED inputs (DGS10, BAMLH0A0HYM2, VIXCLS, DTWEXBGS). Surfaced via `genkei macro-regime`. | B-059 |
+| **`meta.signals`** | Per-asset per-day composite watchlist score with `rubric_version` + per-component breakdown. v1 components per asset class documented in `docs/scoring.md`. | B-065 |
+| **`meta.signal_events`** | Per-source signal-event store fed by `experiments/emitters/*`. Cross-source correlator (B-064) reads this table, applies the rule pack in `data/signal_rules.yml`, and emits signal stacks when ≥ N distinct sources fire inside a window. | B-064 |
+| **`meta.signal_rules`** | Effective rule pack (`rule_id`, `sources`, `weights`, `window`, `min_distinct_sources`, `direction`). Mirrors `src/genkei/data/signal_rules.yml`. | B-064 |
 | **Provenance trio** | Every fact row carries `source_endpoint TEXT NOT NULL`, `fetched_at TIMESTAMPTZ NOT NULL`, `ingest_run_id BIGINT NOT NULL REFERENCES meta.ingest_runs(id)`. | R-021 |
-| **Migration tool** | Alembic, hand-written migrations only (no autogen). Files at `migrations/versions/YYYYMMDD_<slug>.py`. URL from `GENKEI_DATABASE_URL`. | R-008, `docs/storage.md` § B-009 |
+| **Migration tool** | Alembic, hand-written migrations only (no autogen). Files at `migrations/versions/YYYYMMDD_<slug>.py`. URL from `GENKEI_DATABASE_URL`. 31 applied as of 2026-06-08. | R-008, `docs/storage.md` § B-009 |
 
 ### Code layer (`src/genkei/`)
 
@@ -153,29 +178,59 @@ The normalizer is **data-lake-shaped**, not report-shaped (D-006). Cross-source 
 src/genkei/
 ├── __init__.py
 ├── common/
-│   ├── db.py        — pool, connection(), bulk_upsert, ingest_run() ctx
-│   ├── http.py      — HttpClient with rate limit + retry/backoff + jitter
-│   └── config.py    — stdlib .env loader
-├── ingest/
-│   ├── defillama.py        — DefiLlama collector (daily + --backfill)
-│   ├── fred.py             — FRED collector (vintage-aware, single-mode)
-│   ├── sec.py              — SEC EDGAR submissions + companyfacts (single-mode)
-│   ├── sec_form4.py        — SEC Form 4 XML insider transactions (--backfill)
-│   ├── coingecko.py        — CoinGecko market_chart per coin (daily + Pro --backfill)
-│   └── onchain_staking.py  — Etherscan v2 logs for LINK staking (--backfill)
-├── normalize/              — one normalizer per ingester, raw blobs → tables
+│   ├── db.py            — pool, connection(), bulk_upsert, ingest_run() ctx
+│   ├── http.py          — HttpClient with rate limit + retry/backoff + jitter
+│   ├── config.py        — stdlib .env loader
+│   ├── watchlist.py     — canonical watchlist loader (crypto / equities / macro / protocols / benchmarks)
+│   └── schema_drift.py  — schema-drift detection helpers (B-072)
+├── data/
+│   ├── watchlists.yml   — single source of truth for assets the lake tracks
+│   └── signal_rules.yml — declarative rule pack consumed by the B-064 correlator
+├── ingest/                       — one collector per source
+│   ├── defillama.py              — DefiLlama (daily + --backfill)
+│   ├── fred.py                   — FRED (vintage-aware, single-mode)
+│   ├── sec.py                    — SEC EDGAR submissions + companyfacts
+│   ├── sec_form4.py              — SEC Form 4 insider transactions
+│   ├── sec_form13f.py            — SEC Form 13F institutional holdings (B-080)
+│   ├── coingecko.py              — CoinGecko market_chart (daily + Pro --backfill)
+│   ├── yahoo.py                  — Yahoo equities + benchmarks OHLCV (B-092 / B-102)
+│   ├── cftc.py                   — CFTC Commitments of Traders weekly (B-031)
+│   ├── ishares.py                — iShares spot ETF product-screener (B-105 / B-107)
+│   ├── onchain_staking.py        — Etherscan v2 logs for Chainlink staking (B-082 / B-086)
+│   ├── etherscan_whale_flow.py   — Top-N ETH whale wallet daily net flow (B-106)
+│   ├── sui_staking.py            — Sui mainnet validator + staking flow per epoch (B-088)
+│   ├── sui_unlocks.py            — SUI unlock schedule (Community Reserves, B-089)
+│   └── coinbase.py               — Coinbase public market data (B-035 family)
+├── normalize/                    — one normalizer per ingester, raw blobs → tables
 ├── reports/
-│   └── defillama_daily.py  — legacy markdown brief (retired pending B-025)
+│   └── defillama_daily.py        — legacy markdown brief (retired pending B-025)
 ├── cli/
-│   ├── prices, filings, tvl, macro, watchlist, query  — typed subcommands
-│   ├── insiders, insider-clusters                     — Form 4 surfaces
-│   ├── revenue-divergence (B-062), relative-strength (B-090)  — Phase 6 signals
-│   ├── _helpers.py (json_default, parse_date)         — shared per simplify branch
-│   └── (news still stubbed pending B-043)
-└── experiments/    — pure detectors paired with CLI commands
-    ├── insider_clusters.py  — Form 4 cluster detection (B-060)
-    ├── protocol_revenue.py  — price-vs-fundamentals divergence (B-062)
-    └── relative_strength.py — asset-vs-peer return math (B-090)
+│   ├── prices, filings, tvl, macro, macro-regime, watchlist, query
+│   ├── insiders, insider-clusters, holdings, crowding, eight-k-impact
+│   ├── revenue-divergence, relative-strength, tvl-drawdown
+│   ├── etf-flows, cot, stablecoin-flow, whales
+│   ├── signals (B-064 + B-065), backtest (B-101)
+│   └── _helpers.py (json_default, parse_date)
+└── experiments/                  — pure detectors paired with CLI commands
+    ├── insider_clusters.py       — Form 4 cluster detection (B-060)
+    ├── protocol_revenue.py       — price-vs-fundamentals divergence (B-062)
+    ├── relative_strength.py      — asset-vs-peer return math (B-090)
+    ├── macro_regime.py           — daily macro regime classifier (B-059)
+    ├── tvl_drawdown.py           — TVL drawdown early warning (B-058)
+    ├── eight_k_impact.py         — 8-K filing impact study (B-057)
+    ├── crowding_monitor.py       — 13F crowding monitor (B-061)
+    ├── watchlist_scoring.py      — per-asset composite scoring rubric (B-065)
+    ├── stack_backtest.py         — stack-outcome backtest (B-101)
+    ├── signal_store.py           — meta.signal_events store + correlator (B-064)
+    ├── signal_rules.py           — rule pack loader (data/signal_rules.yml)
+    ├── signal_benchmark.py       — SPY/BTC benchmark adjustment for stack scoring (B-100)
+    └── emitters/                 — adapters from each experiment to meta.signal_events
+        ├── insider_clusters_emitter.py
+        ├── crowding_emitter.py
+        ├── eight_k_emitter.py
+        ├── tvl_drawdown_emitter.py
+        ├── relative_strength_emitter.py            — crypto vs BTC (B-098)
+        └── equity_relative_strength_emitter.py     — equity vs SPY/QQQ (B-111 / B-112)
 ```
 
 | Module | What | Where to learn more |
@@ -197,11 +252,11 @@ src/genkei/
 
 | Piece | What | Where to learn more |
 |---|---|---|
-| **Backlog hygiene** | `docs/backlog.md` (open items, 46 active) + `docs/resolved.md` (completed, 47 entries). Updated via the `update-backlog` skill after meaningful commits. | `docs/backlog.md` |
+| **Backlog hygiene** | `docs/backlog.md` (43 open) + `docs/resolved.md` (78 entries). Updated via the `update-backlog` skill after meaningful commits. | `docs/backlog.md` |
 | **Mission queue** | `missions/pending/` and `missions/done/`. Async / overnight execution loop driven by the `run-missions` skill. | `docs/missions.md`, R-005 |
 | **Test fixture** | `tests/_postgres.py` — singleton TimescaleDB testcontainer; `postgres_required` decorator gracefully skips when Docker absent. `truncate_all()` for cleanup between tests that go through real `db` helpers. | R-016 |
-| **Test counts** | 599 total — most unit + ~25 integration (skip locally when Docker absent; CI runs them all). | R-023 |
-| **CI workflows** | `.github/workflows/tests.yml` (push to main + PRs) and `.github/workflows/defillama-daily.yml` (cron at 10:30 UTC on the self-hosted runner). | R-019, R-020 |
+| **Test counts** | ~1,465 total — most unit + a growing integration tail (skip locally when Docker absent; CI runs them all). | R-023 |
+| **CI workflows** | `tests.yml` (push to main + PRs) plus per-source daily crons on the self-hosted runner: `defillama-daily.yml`, `coingecko-daily.yml`, `fred-daily.yml`, `sec-daily.yml`, `yahoo-daily.yml`, `cftc-weekly.yml`, `ishares-daily.yml`, `sui-staking-daily.yml`, `sui-unlocks-daily.yml`, `etherscan-whales-daily.yml`, `coinbase-daily.yml`. Reliability monitors: `workflow-failure-alert.yml` (B-071) and `ingest-staleness-check.yml` (B-071). | R-019, R-020 |
 | **PR conventions** | Short PRs. `## Summary` + `## Test plan`. No enumerated change lists, no footers. | `CLAUDE.md` |
 
 ---
@@ -289,12 +344,12 @@ Each mission is one markdown file: title, context, checklist of acceptance crite
 |---|---|---|
 | **Phase 0** — Foundation: Postgres + project scaffolding | ✅ complete | All 11 items resolved (R-005 through R-013, R-016, R-019). |
 | **Phase 1** — Refactor DeFiLlama onto Postgres | ✅ effectively complete | 9/9 high-priority items done. Three medium items remain: B-020 (config-driven exclusion keywords) and B-023 (freshness check) are follow-ups when consumers need them; B-025 (daily brief fate) is a deferred decision. |
-| **Phase 2** — Free-data ingesters with backfill | 🟡 in progress | 4/10 done + 4 carve-outs — B-028 FRED, B-027 SEC EDGAR option B, B-034 CoinGecko, B-085 stablecoin sparsity diagnosed; B-079 SEC Form 4, B-081 DefiLlama protocol TVL, B-082 LINK on-chain staking, B-083 DefiLlama protocol fees + revenue. Still open: BEA, Treasury, CFTC, EIA, GDELT, Binance, 13F, and the per-source docs (B-036). |
-| **Phase 3** — Custom CLI | ✅ 10/11 done | `prices`, `filings`, `tvl`, `macro`, `watchlist` (group: list/health/gaps), `insiders`, `insider-clusters`, `revenue-divergence`, `relative-strength`, `query`. Only `news` stubbed pending B-033 GDELT ingester. `--json` on every command for agent consumption. |
-| **Phase 4** — Agent layer | 🟡 foundation laid | `/research` skill walks `prompts/research-methodology.md` and lands decision files in `docs/research/decisions/`; `/reflect-decisions` walks resolved entries. Three decisions on file (LINK, CRM activist, SUI). B-051/052/053 (delivery surface, open-questions log, ingest-health summary) still open. |
-| **Phase 5** — Experiments framework | 🟡 3/11 done | `insider_clusters` (B-060), `protocol_revenue` / `revenue-divergence` (B-062), `relative_strength` (paired with B-090 Phase-6 view). Notebook reproducibility pattern (B-054/055) deferred — CLI + experiments modules have absorbed the experiment shape. |
-| **Phase 6** — Inefficiency-detection signals | 🟡 started | `analytics.crypto_relative_strength` view + `genkei relative-strength` CLI (B-090). Cross-source correlation engine (B-064), scoring rubric (B-065), regime classifier integration (B-066), multi-day trend aggregations (B-067), alert engine (B-068), anomaly detection (B-069) still open. |
-| **Phase 7** — Operations & hardening | 🟡 in progress | B-077 (self-hosted runner) done; B-074 (this doc + README refresh) done; B-070 backups, B-071 alerting, B-072 schema-drift, B-073 secrets, B-075 license audit, B-076 quota tracking still open. |
+| **Phase 2** — Free-data ingesters with backfill | 🟡 substantially complete | Shipped: B-028 FRED, B-027 SEC EDGAR option B, B-034 CoinGecko, B-079 Form 4, B-080 Form 13F, B-081 DefiLlama protocol TVL, B-082 LINK on-chain staking, B-083 DefiLlama protocol fees + revenue, B-035 Binance + Coinbase public market data, B-031 CFTC COT, B-085 stablecoin sparsity diagnosed, B-092 Yahoo equity OHLCV, B-102 SPY/QQQ/IWM benchmarks, B-105 spot ETF activity (Yahoo pivot), B-107 spot ETF true net flow (iShares product-screener), B-106 ETH whale-flow tracker, B-088 Sui validator + staking flow, B-089 SUI Community Reserves unlock schedule, B-086 Chainlink v0.2 staking surface mapped. Still open: BEA (B-029), Treasury Fiscal Data (B-030), EIA (B-032), GDELT (B-033), per-source docs (B-036), oracle market share (B-084 — paid), CME futures OI (B-104 — TOS-blocked), multi-issuer ETF expansion (B-113), 10-Q quarter-end ETF shares (B-114), the 7 paywalled SUI allocations (B-115), Chainlink v0.1 legacy staking pool (B-116). |
+| **Phase 3** — Custom CLI | ✅ 10/11 done | `prices`, `filings`, `tvl`, `macro`, `macro-regime`, `watchlist`, `insiders`, `insider-clusters`, `holdings`, `crowding`, `eight-k-impact`, `revenue-divergence`, `relative-strength`, `tvl-drawdown`, `etf-flows`, `cot`, `stablecoin-flow`, `whales`, `signals`, `backtest`, `query`. Only `news` stubbed pending B-033 GDELT ingester. `--json` on every command for agent consumption. |
+| **Phase 4** — Agent layer | 🟡 foundation laid | `/research` skill walks `prompts/research-methodology.md` and lands decision files in `docs/research/decisions/`; `/reflect-decisions` walks resolved entries. Multiple decisions on file (LINK, CRM activist, SUI position assessment, ETH, SOL). B-051/052/053 (delivery surface, open-questions log, ingest-health summary) still open. |
+| **Phase 5** — Experiments framework | 🟢 8/11 done | `insider_clusters` (B-060), `protocol_revenue` / `revenue-divergence` (B-062), `relative_strength` (B-090), `macro_regime` (B-059), `tvl_drawdown` (B-058), `eight_k_impact` (B-057), `crowding_monitor` (B-061), `watchlist_scoring` (B-065). Notebook reproducibility pattern (B-054/055) deferred — CLI + experiments modules have absorbed the experiment shape. Open: B-056 news-sentiment study (blocked on B-033 GDELT), B-063 experiment template, B-066 regime view exposed via CLI as a query flag. |
+| **Phase 6** — Inefficiency-detection signals | 🟢 substantially advanced | Cross-source correlation engine (B-064) with store + rules + correlator, plus five emitters wired (insider_clusters, crowding, eight_k, tvl_drawdown, relative_strength × {crypto, equity via B-111 / B-112}); `analytics.crypto_relative_strength` (B-090) + `analytics.macro_regime_per_date` (B-059) views. Stack-outcome backtest (B-101) + SPY/BTC benchmark adjustment (B-100). Watchlist scoring rubric (B-065) with `meta.signals` store. Still open: B-066 regime classifier surfaced in `genkei macro --regime`, B-067 multi-day trend Postgres views, B-068 alert engine, B-069 anomaly detection, B-096 macro-regime emitter, B-097 watchlist-scoring emitter, B-099 correlator age-decay weighting. |
+| **Phase 7** — Operations & hardening | 🟢 substantially advanced | B-077 self-hosted runner done; B-074 architecture diagram + README refresh done; B-070 Postgres backup posture documented; B-071 workflow-failure + ingest-staleness alerting shipped (`workflow-failure-alert.yml`, `ingest-staleness-check.yml`); B-072 schema-drift detection shipped (`genkei.common.schema_drift`). Still open: B-073 secrets policy, B-075 license audit, B-076 quota tracking. |
 
 See `docs/backlog.md` for the live list, `docs/resolved.md` for the chronicle.
 
@@ -319,8 +374,21 @@ Tracked as backlog items so they don't block forward motion:
 | `docs/missions.md` | Mission queue format, manual + scheduled invocation, monitoring |
 | `docs/defillama-mvp.md` | DeFiLlama-specific pipeline notes (legacy; predates Postgres refactor) |
 | `docs/defillama-daily-review.md` | Acceptance gates for the legacy markdown brief (relevance pending B-025) |
-| `docs/backlog.md` | Open items, 46 entries across 8 phases |
-| `docs/resolved.md` | Completed milestones, 47 entries with evidence |
+| `docs/backlog.md` | Open items, 43 entries across 8 phases |
+| `docs/resolved.md` | Completed milestones, 78 entries with evidence |
+| `docs/scoring.md` | Watchlist scoring rubric (B-065) — per-asset composite scoring formula + components |
+| `docs/experiments/macro-regime.md` | B-059 design notes — inputs, regime label definitions, view shape |
+| `docs/experiments/tvl-drawdown.md` | B-058 design notes |
+| `docs/experiments/8k-filing-impact.md` | B-057 design notes |
+| `docs/experiments/13f-crowding-monitor.md` | B-061 design notes |
+| `docs/experiments/cross-source-signals.md` | B-064 correlator + rule pack + emitter contract |
+| `docs/experiments/stack-outcome-backtest.md` | B-101 + B-100 backtest harness |
+| `docs/sources/eth-whale-addresses.md` | B-106 ETH whale wallet curation methodology |
+| `docs/sources/spot-etf-net-flow.md` | B-105 / B-107 spot ETF investigation notes |
+| `docs/sources/sui-unlocks.md` | B-089 + B-115 SUI unlock-source survey |
+| `docs/ingesters/coinbase.md` | Coinbase public market data ingester |
+| `docs/ingesters/yahoo.md` | Yahoo equities + benchmarks ingester (B-092 / B-102) |
+| `docs/backups.md` | B-070 Postgres backup posture |
 | `docs/research/README.md` | Investment-research decision log + frontmatter contract |
 | `prompts/research-methodology.md` | The checklist `/research` walks per session |
 | `prompts/reflect-on-decisions.md` | The outcome-pairing cycle `/reflect-decisions` runs |
