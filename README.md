@@ -118,6 +118,7 @@ The `genkei` command is the canonical query layer — Bash-composable, `--json` 
 | `genkei etf-flows --asset BTC --net-flow` | Spot ETF net flow per issuer (B-105 / B-107) |
 | `genkei cot --market BTC` | CFTC Commitments of Traders weekly positioning (B-031) |
 | `genkei whales --address 0x...` | Top-N ETH whale wallet net flow (B-106) |
+| `genkei news --asset BTC --since 2026-05-01` | GDELT GKG article clusters by watchlist asset / theme / topic / tone (B-043) |
 | `genkei watchlist score --ticker AAPL` | Watchlist composite score + per-component breakdown (B-065) |
 | `genkei signals --asset AAPL` | Cross-source signal stacks/events from `meta.signal_events` (B-064) |
 | `genkei backtest` | Stack-outcome backtest — historical alpha by rule trigger (B-101 / B-100) |

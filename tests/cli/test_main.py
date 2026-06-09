@@ -62,15 +62,6 @@ class CliHelpTests(unittest.TestCase):
         for cmd in ["prices", "filings", "tvl", "macro", "news", "watchlist", "query"]:
             self.assertIn(cmd, out)
 
-    def test_stub_subcommand_exits_nonzero_with_backlog_pointer(self) -> None:
-        # `news` is still a stub (B-043) after tvl + watchlist shipped.
-        err = io.StringIO()
-        with redirect_stderr(err):
-            code = main(["news"])
-        self.assertEqual(code, 1)
-        self.assertIn("B-043", err.getvalue())
-        self.assertIn("not yet implemented", err.getvalue())
-
 
 class PricesCommandTests(unittest.TestCase):
     def _watchlist(self, body: str) -> Path:

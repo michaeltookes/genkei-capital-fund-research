@@ -240,14 +240,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
 
 The interface the agent (and human user) uses to query the lake.
 
-### B-043 — Implement `genkei news` subcommand
-- **Status:** open
-- **Priority:** medium
-- **Context:** GDELT topic and date filters.
-- **Acceptance criteria:**
-  - `genkei news --topic "AI capex" --since 2024-01-01`.
-  - Cluster output with representative URLs.
-
 ### B-046 — CLI session caching
 - **Status:** open
 - **Priority:** low

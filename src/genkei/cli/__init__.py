@@ -23,7 +23,7 @@ Subcommand surface (B-037):
 - ``genkei filings``   SEC EDGAR filings + XBRL facts         [B-040 ✓]
 - ``genkei tvl``       DeFiLlama chain + protocol TVL         [B-041 ✓]
 - ``genkei macro``     FRED macro series                      [B-042 ✓]
-- ``genkei news``      GDELT news / events                    [B-043, stub]
+- ``genkei news``      GDELT news / events                    [B-043 ✓]
 - ``genkei watchlist`` Watchlist coverage / health            [B-044 ✓]
 - ``genkei query``     SQL escape hatch                       [B-045 ✓]
 - ``genkei insiders``  SEC Form 4 insider transactions        [B-079 ✓]
@@ -64,6 +64,7 @@ from genkei.cli import (
     insiders,
     macro,
     macro_regime,
+    news,
     prices,
     query,
     relative_strength,
@@ -181,7 +182,10 @@ def _stub(group_name: str, item: str) -> typer.Typer:
     return sub
 
 
-app.add_typer(_stub("news", "B-043"), name="news")
+app.command(
+    "news",
+    help="GDELT GKG article clusters — filter by watchlist asset / theme / topic / tone.",
+)(news.news_cmd)
 
 
 def main(argv: list[str] | None = None) -> int:
