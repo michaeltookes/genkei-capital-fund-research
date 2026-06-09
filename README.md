@@ -89,7 +89,7 @@ Python 3.10+. See `docs/infrastructure.md` for the homelab Postgres connection s
 | **iShares spot ETFs** | `etf.fund_snapshots` | Daily NAV + shares outstanding for IBIT / ETHA / ETHB (B-105 / B-107) |
 | **On-chain (Etherscan)** | `onchain.staking_events`, `onchain.eth_whale_flows` | Chainlink v0.2 staking flow (B-082 / B-086); top-N ETH whale wallet net flow (B-106) |
 | **On-chain (Sui RPC)** | `onchain.sui_validators`, `onchain.sui_unlocks` | Sui validator + staking-flow (B-088); SUI Community Reserves unlock schedule (B-089) |
-| **Coinbase / Binance** | `coinbase.*`, `binance.*` | Public CEX market data (B-035) |
+| **Coinbase Exchange** | `coinbase.*` | Public CEX market data (B-035 Binance pivot) |
 | **Analytics** | `analytics.*` | Derived views — `crypto_relative_strength` (B-090), `macro_regime_per_date` (B-059) |
 | **Signals engine** | `meta.{signals,signal_events,signal_rules}` | Per-asset composite scores (B-065); cross-source signal-stack store + correlator (B-064) |
 
@@ -108,11 +108,11 @@ The `genkei` command is the canonical query layer — Bash-composable, `--json` 
 | `genkei macro-regime` | Daily macro regime label (risk_on / risk_off / easing / tightening_stress / mixed) — B-059 |
 | `genkei insiders --ticker JPM` | Form 4 transactions, filterable by code / direction / window |
 | `genkei insider-clusters` | Multi-reporter buy/sell clusters within a configurable window |
-| `genkei holdings --ticker NVDA` | Form 13F institutional holdings — quarter-over-quarter position deltas (B-080) |
+| `genkei holdings --filer "Berkshire Hathaway Inc"` | Form 13F institutional holdings — quarter-over-quarter position deltas (B-080) |
 | `genkei crowding` | 13F crowding monitor — concentrated institutional positioning by ticker (B-061) |
 | `genkei eight-k-impact` | 8-K filing → price impact event study (B-057) |
 | `genkei revenue-divergence` | Protocol revenue vs token price — price-leads-up / -down / aligned |
-| `genkei relative-strength --ticker SUI --peer SOL` | Crypto / equity asset vs peer return across 7/30/90/180/365d windows (B-090 / B-111) |
+| `genkei relative-strength --ticker SUI --peer SOL` | Crypto asset vs peer return across 7/30/90/180/365d windows (B-090) |
 | `genkei tvl-drawdown` | TVL-drawdown early-warning signal per protocol (B-058) |
 | `genkei stablecoin-flow` | Net stablecoin issuance / burn per chain over a window (B-108) |
 | `genkei etf-flows` | Spot ETF net flow per issuer (B-105 / B-107) |
