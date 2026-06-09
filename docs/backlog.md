@@ -310,14 +310,6 @@ First-class — the *point* of having the data lake.
   - Helper module with `get_session()` / `read_sql_df(...)`.
   - One example notebook using it cleanly.
 
-### B-056 — Experiment: news sentiment vs next-day returns
-- **Status:** open
-- **Priority:** medium
-- **Context:** Classic study using GDELT + prices.
-- **Acceptance criteria:**
-  - Notebook produces correlation table + a chart.
-  - Reproducible from snapshot IDs.
-
 ### B-063 — Experiment template + cookiecutter
 - **Status:** open
 - **Priority:** low
