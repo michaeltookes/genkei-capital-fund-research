@@ -20,7 +20,7 @@ multi-month GDELT backfill seeds the lake first.
 """
 
 import json
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Annotated, Any, Optional
 
@@ -116,12 +116,17 @@ def _compute_report(
     # than here so a future cross-asset mode can re-use the math
     # without re-shaping.
     sentiment_pts = aggregate_daily_sentiment(articles)
+    # The article window ends at --until, but forward-return alignment
+    # needs horizon-day prices after that date for the final sentiment rows.
+    price_until = (
+        until + timedelta(days=horizon_days) if until is not None else None
+    )
     returns = load_price_returns(
         asset=asset_label,
         asset_class=asset_class,  # type: ignore[arg-type]
         coingecko_id=coingecko_id,
         since=since,
-        until=until,
+        until=price_until,
     )
     aligned = align_sentiment_with_returns(
         sentiment_pts,

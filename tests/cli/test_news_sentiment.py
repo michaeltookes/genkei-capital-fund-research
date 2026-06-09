@@ -17,7 +17,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from genkei.cli import main
-from genkei.cli.news_sentiment import _resolve_asset_or_exit
+from genkei.cli.news_sentiment import _compute_report, _resolve_asset_or_exit
 from genkei.experiments.news_sentiment import (
     MIN_OBSERVATIONS_FOR_SIGNAL,
     ArticleRow,
@@ -199,6 +199,32 @@ class CmdInvocationTests(unittest.TestCase):
         for key in ("quartile", "n", "mean_tone", "mean_forward_return_pct"):
             self.assertIn(key, q1)
 
+    def test_compute_report_extends_price_until_by_horizon(self) -> None:
+        with (
+            patch(
+                "genkei.cli.news_sentiment.load_articles_for_asset",
+                return_value=[],
+            ) as load_articles,
+            patch(
+                "genkei.cli.news_sentiment.load_price_returns",
+                return_value=[],
+            ) as load_prices,
+        ):
+            _compute_report(
+                asset_label="BTC",
+                asset_class="crypto",
+                coingecko_id="bitcoin",
+                since=date(2026, 6, 1),
+                until=date(2026, 6, 30),
+                horizon_days=5,
+                min_articles_per_day=1,
+            )
+        load_articles.assert_called_once_with(
+            "BTC", since=date(2026, 6, 1), until=date(2026, 6, 30)
+        )
+        self.assertEqual(load_prices.call_args.kwargs["since"], date(2026, 6, 1))
+        self.assertEqual(load_prices.call_args.kwargs["until"], date(2026, 7, 5))
+
     def test_since_after_until_rejected(self) -> None:
         cfg = _watchlist_path(self)
         with (
@@ -214,7 +240,7 @@ class CmdInvocationTests(unittest.TestCase):
                 "2026-06-01",
                 "--config",
                 str(cfg),
-        )
+            )
         self.assertNotEqual(rc, 0)
         self.assertIn("must be on or before", err)
 
