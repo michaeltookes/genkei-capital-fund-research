@@ -44,6 +44,8 @@ Subcommand surface (B-037):
 - ``genkei stablecoin-flow``
                         Cross-chain stablecoin supply trajectory [B-108 ✓]
 - ``genkei whales``    ETH whale-address daily flow (per category) [B-106 ✓]
+- ``genkei news-sentiment``
+                        News tone vs forward returns — correlation     [B-056 ✓]
 """
 
 from __future__ import annotations
@@ -65,6 +67,7 @@ from genkei.cli import (
     macro,
     macro_regime,
     news,
+    news_sentiment,
     prices,
     query,
     relative_strength,
@@ -186,6 +189,10 @@ app.command(
     "news",
     help="GDELT GKG article clusters — filter by watchlist asset / theme / topic / tone.",
 )(news.news_cmd)
+app.command(
+    "news-sentiment",
+    help="News sentiment vs forward returns — Pearson/Spearman + per-quartile breakdown (B-056).",
+)(news_sentiment.news_sentiment_cmd)
 
 
 def main(argv: list[str] | None = None) -> int:
