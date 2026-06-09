@@ -12,8 +12,9 @@ from __future__ import annotations
 import io
 import unittest
 import zipfile
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from unittest.mock import patch
 
 from genkei.common.watchlist import (
     CryptoEntry,
@@ -28,13 +29,16 @@ from genkei.ingest.gdelt import (
     MAX_BACKFILL_DAYS,
     MIN_TERM_LENGTH,
     _decompress_csv,
+    _fetch_and_parse,
     _MatchTerm,
     _parse_locations,
     _parse_persons_orgs,
     _parse_published_at,
     _parse_themes,
     _parse_tone,
+    _raw_blob_endpoint_name,
     build_match_terms,
+    collect_backfill,
     file_timestamps_for_date_range,
     file_timestamps_for_window,
     latest_gkg_timestamp,
@@ -165,6 +169,13 @@ class ParseLocationsTests(unittest.TestCase):
         self.assertIsNone(result[0]["lat"])
         self.assertIsNone(result[0]["lon"])
 
+    def test_malformed_lon_preserves_valid_lat(self) -> None:
+        raw = "1#Mars#XX##34.31#xx#FID-MARS"
+        result = _parse_locations(raw)
+        assert result is not None
+        self.assertEqual(result[0]["lat"], 34.31)
+        self.assertIsNone(result[0]["lon"])
+
 
 class PublishedAtTests(unittest.TestCase):
     def test_canonical_v2_date(self) -> None:
@@ -208,6 +219,20 @@ class BuildMatchTermsTests(unittest.TestCase):
         )
         terms = build_match_terms(wl)
         self.assertEqual(terms[0].label, "BTC")
+
+    def test_short_crypto_name_falls_back_to_symbol(self) -> None:
+        wl = _empty_watchlist(
+            crypto=[
+                CryptoEntry(
+                    symbol="SUI",
+                    name="Sui",
+                    coingecko_id="sui",
+                    tier="primary",
+                )
+            ]
+        )
+        terms = build_match_terms(wl)
+        self.assertEqual(terms, [_MatchTerm(term_lower="sui", label="SUI")])
 
     def test_protocol_label_is_slug(self) -> None:
         wl = _empty_watchlist(
@@ -366,9 +391,9 @@ class FileTimestampsForDateRangeTests(unittest.TestCase):
             since=date(2026, 6, 1), until=date(2026, 6, 1)
         )
         self.assertEqual(len(stamps), 96)
-        # First slot is 00:15 UTC, last is 24:00 (= next day midnight).
-        self.assertEqual(stamps[0], datetime(2026, 6, 1, 0, 15, tzinfo=timezone.utc))
-        self.assertEqual(stamps[-1], datetime(2026, 6, 2, 0, 0, tzinfo=timezone.utc))
+        # Whole-day backfills cover the requested UTC day only.
+        self.assertEqual(stamps[0], datetime(2026, 6, 1, 0, 0, tzinfo=timezone.utc))
+        self.assertEqual(stamps[-1], datetime(2026, 6, 1, 23, 45, tzinfo=timezone.utc))
 
     def test_multi_day_range_concatenates(self) -> None:
         stamps = file_timestamps_for_date_range(
@@ -412,11 +437,11 @@ class LatestGkgTimestampTests(unittest.TestCase):
     def test_picks_gkg_url_among_three_lines(self) -> None:
         text = (
             "100000\tmd5export\t"
-            "http://data.gdeltproject.org/gdeltv2/20260609001500.export.CSV.zip\n"
+            "https://data.gdeltproject.org/gdeltv2/20260609001500.export.CSV.zip\n"
             "200000\tmd5mentions\t"
-            "http://data.gdeltproject.org/gdeltv2/20260609001500.mentions.CSV.zip\n"
+            "https://data.gdeltproject.org/gdeltv2/20260609001500.mentions.CSV.zip\n"
             "300000\tmd5gkg\t"
-            "http://data.gdeltproject.org/gdeltv2/20260609001500.gkg.csv.zip\n"
+            "https://data.gdeltproject.org/gdeltv2/20260609001500.gkg.csv.zip\n"
         )
         client = self._FakeClient(text)
         ts = latest_gkg_timestamp(client)  # type: ignore[arg-type]
@@ -442,6 +467,117 @@ class DecompressCsvTests(unittest.TestCase):
             zf.writestr("notes.txt", "not a csv")
         with self.assertRaises(RuntimeError):
             _decompress_csv(buf.getvalue())
+
+
+class FetchAndParseTests(unittest.TestCase):
+    """Raw-blob persistence/replay around one fetched GKG file."""
+
+    class _FakeResponse:
+        def __init__(self, content: bytes, status_code: int = 200) -> None:
+            self.content = content
+            self.status_code = status_code
+
+        def raise_for_status(self) -> None:
+            if self.status_code >= 400:
+                raise RuntimeError(f"HTTP {self.status_code}")
+
+    class _FakeClient:
+        def __init__(self, response: FetchAndParseTests._FakeResponse) -> None:
+            self.response = response
+            self.urls: list[str] = []
+
+        def get(self, url: str):  # noqa: ANN001 — fake client
+            self.urls.append(url)
+            return self.response
+
+    def _zip(self, text: str) -> bytes:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("20260609000000.gkg.csv", text)
+        return buf.getvalue()
+
+    def _matched_csv(self) -> str:
+        cells = [
+            "20260609000000-0",
+            "20260609000000",
+            "1",
+            "example.com",
+            "https://example.com/apple",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "Apple Inc.",
+            "",
+            "0,0,0,0,0,0,1",
+        ]
+        return "\t".join(cells) + "\n"
+
+    def test_fetched_csv_lands_in_raw_blobs_before_parse(self) -> None:
+        csv_text = self._matched_csv()
+        ts = datetime(2026, 6, 9, 0, 0, tzinfo=timezone.utc)
+        client = self._FakeClient(self._FakeResponse(self._zip(csv_text)))
+
+        with (
+            patch("genkei.ingest.gdelt._cached_raw_blob", return_value=None),
+            patch("genkei.ingest.gdelt.db.store_raw_blob") as store,
+        ):
+            rows = _fetch_and_parse(
+                client,
+                ts,
+                [_MatchTerm(term_lower="apple inc.", label="AAPL")],
+                ingest_run_id=42,
+            )
+
+        self.assertEqual(len(rows), 1)
+        store.assert_called_once_with(
+            42,
+            _raw_blob_endpoint_name(ts),
+            f"{GDELT_BASE_URL}/20260609000000.gkg.csv.zip",
+            {"csv": csv_text},
+        )
+
+    def test_cached_raw_blob_is_copied_and_reparsed_without_http(self) -> None:
+        csv_text = self._matched_csv()
+        ts = datetime(2026, 6, 9, 0, 0, tzinfo=timezone.utc)
+        fetched_at = datetime(2026, 6, 9, 0, 1, tzinfo=timezone.utc)
+        payload = {"csv": csv_text}
+        client = self._FakeClient(self._FakeResponse(b"unused"))
+
+        with (
+            patch(
+                "genkei.ingest.gdelt._cached_raw_blob",
+                return_value=(
+                    csv_text,
+                    "https://cached.example/file.zip",
+                    payload,
+                    fetched_at,
+                ),
+            ),
+            patch("genkei.ingest.gdelt.db.copy_raw_blob_for_run") as copy_blob,
+            patch("genkei.ingest.gdelt.db.store_raw_blob") as store_blob,
+        ):
+            rows = _fetch_and_parse(
+                client,
+                ts,
+                [_MatchTerm(term_lower="apple inc.", label="AAPL")],
+                ingest_run_id=43,
+            )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(client.urls, [])
+        copy_blob.assert_called_once_with(
+            43,
+            _raw_blob_endpoint_name(ts),
+            "https://cached.example/file.zip",
+            payload,
+            fetched_at,
+        )
+        store_blob.assert_not_called()
 
 
 class ParseCsvRowsTests(unittest.TestCase):
@@ -545,6 +681,13 @@ class RetentionConstantTests(unittest.TestCase):
         # collector caps backfill at a different number, retention will
         # silently prune historical rows the user thought they'd ingested.
         self.assertEqual(MAX_BACKFILL_DAYS, 365)
+
+
+class CollectBackfillValidationTests(unittest.TestCase):
+    def test_future_until_raises_before_fetching(self) -> None:
+        tomorrow = datetime.now(timezone.utc).date() + timedelta(days=1)
+        with self.assertRaisesRegex(ValueError, "cannot be in the future"):
+            collect_backfill(since=tomorrow, until=tomorrow)
 
 
 if __name__ == "__main__":

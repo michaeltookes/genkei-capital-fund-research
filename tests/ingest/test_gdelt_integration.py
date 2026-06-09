@@ -109,7 +109,7 @@ def _build_gkg_csv_zip() -> bytes:
 
 def _build_lastupdate_response(ts: str = "20260609001500") -> str:
     """Three canonical lastupdate.txt lines."""
-    base = "http://data.gdeltproject.org/gdeltv2"
+    base = "https://data.gdeltproject.org/gdeltv2"
     return (
         f"100\tabc\t{base}/{ts}.export.CSV.zip\n"
         f"200\tdef\t{base}/{ts}.mentions.CSV.zip\n"

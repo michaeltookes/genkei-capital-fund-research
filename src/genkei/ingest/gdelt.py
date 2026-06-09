@@ -1,17 +1,15 @@
 """GDELT 2.0 GKG news/event ingester (B-033).
 
 Fetches the firehose GKG (Global Knowledge Graph) CSV files at
-``http://data.gdeltproject.org/gdeltv2/<YYYYMMDDHHMMSS>.gkg.csv.zip``
+``https://data.gdeltproject.org/gdeltv2/<YYYYMMDDHHMMSS>.gkg.csv.zip``
 (published every 15 min, 96 files/day), parses the V2.1 tab-separated
 rows, filters to articles mentioning any watchlist asset, and bulk-
 upserts into ``gdelt.gkg``.
 
-Storage deviation from D-005 — we do NOT land raw GKG CSV blobs in
-``meta.raw_blobs``. Each 15-min CSV is 5-15MB compressed, and the
-firehose publishes 96 files/day; storing them would add 500MB-1.5GB/day
-of audit JSON we'd then have to retention-prune. The filtered
-``gdelt.gkg`` rows are the system of record; the original CSVs are
-publicly re-fetchable from GDELT via the URL pattern encoded here.
+Each fetched 15-min CSV lands in ``meta.raw_blobs`` as ``{"csv": ...}``
+before parsing. Backfill re-runs first check prior raw blobs by
+timestamp endpoint, copy any cached blob into the current ingest run,
+and parse the cached CSV without re-fetching the same public URL.
 
 Watchlist filter:
 - An article is kept iff at least one watchlist asset name matches
@@ -66,7 +64,7 @@ SOURCE_NAME = "gdelt"
 COLLECT_ENDPOINT = "collect"
 BACKFILL_ENDPOINT = "backfill"
 
-GDELT_BASE_URL = "http://data.gdeltproject.org/gdeltv2"
+GDELT_BASE_URL = "https://data.gdeltproject.org/gdeltv2"
 LASTUPDATE_URL = f"{GDELT_BASE_URL}/lastupdate.txt"
 GDELT_RATE_LIMIT = RateLimit.per_second(2)
 GDELT_USER_AGENT = "genkei/0.1 (+gdelt; research-desk)"
@@ -143,15 +141,18 @@ def build_match_terms(watchlist: Watchlist) -> list[_MatchTerm]:
     """
     seen: dict[str, str] = {}
 
-    def add(candidate: str, label: str) -> None:
+    def add(candidate: str, label: str, *, min_length: int = MIN_TERM_LENGTH) -> bool:
         term = candidate.strip().lower()
-        if len(term) >= MIN_TERM_LENGTH and term not in seen:
+        if len(term) >= min_length and term not in seen:
             seen[term] = label
+            return True
+        return False
 
     for entry in watchlist.equities:
         add(entry.name, entry.symbol.upper())
     for entry in watchlist.crypto:
-        add(entry.name, entry.symbol.upper())
+        if not add(entry.name, entry.symbol.upper()):
+            add(entry.symbol, entry.symbol.upper(), min_length=3)
     for entry in watchlist.protocols:
         add(entry.name, entry.slug.lower())
     for entry in watchlist.filers:
@@ -215,8 +216,8 @@ def file_timestamps_for_date_range(
     day = since
     while day <= until:
         anchor = datetime.combine(day, time.min, tzinfo=timezone.utc)
-        for i in range(96):  # 24 hours × 4 slots
-            out.append(anchor + timedelta(minutes=15 * (i + 1)))
+        for i in range(96):  # 24 hours x 4 slots
+            out.append(anchor + timedelta(minutes=15 * i))
         day += timedelta(days=1)
     return out
 
@@ -304,9 +305,12 @@ def _parse_locations(raw: str) -> list[dict[str, Any]] | None:
             loc_type = None
         try:
             lat = float(parts[4]) if parts[4] else None
+        except ValueError:
+            lat = None
+        try:
             lon = float(parts[5]) if parts[5] else None
         except ValueError:
-            lat = lon = None
+            lon = None
         records.append(
             {
                 "type": loc_type,
@@ -454,8 +458,41 @@ def _decompress_csv(payload: bytes) -> str:
             return fh.read().decode("utf-8", errors="replace")
 
 
+def _raw_blob_endpoint_name(ts: datetime) -> str:
+    """Stable raw-blob endpoint name for one GDELT GKG timestamp."""
+    return f"gkg_{ts.strftime('%Y%m%d%H%M%S')}"
+
+
+def _cached_raw_blob(
+    endpoint_name: str,
+) -> tuple[str, str, dict[str, Any], datetime] | None:
+    """Return the newest cached GDELT CSV raw blob for ``endpoint_name``."""
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT url, payload, fetched_at FROM meta.raw_blobs "
+            "WHERE endpoint_name = %s ORDER BY fetched_at DESC LIMIT 1",
+            [endpoint_name],
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+
+    url, payload, fetched_at = row
+    if not isinstance(payload, dict) or not isinstance(payload.get("csv"), str):
+        LOGGER.warning(
+            "GDELT cached raw blob %s has unexpected payload shape; refetching",
+            endpoint_name,
+        )
+        return None
+    return payload["csv"], url, payload, fetched_at
+
+
 def _fetch_and_parse(
-    client: HttpClient, ts: datetime, terms: list[_MatchTerm]
+    client: HttpClient,
+    ts: datetime,
+    terms: list[_MatchTerm],
+    *,
+    ingest_run_id: int,
 ) -> list[_ParsedRow]:
     """Fetch one 15-min GKG CSV and return its matched rows.
 
@@ -464,12 +501,22 @@ def _fetch_and_parse(
     window) and the next slot picks back up. Re-running won't help.
     """
     url = url_for_timestamp(ts)
+    endpoint_name = _raw_blob_endpoint_name(ts)
+    cached = _cached_raw_blob(endpoint_name)
+    if cached is not None:
+        csv_text, cached_url, payload, fetched_at = cached
+        db.copy_raw_blob_for_run(
+            ingest_run_id, endpoint_name, cached_url, payload, fetched_at
+        )
+        return list(parse_csv_rows(csv_text, terms))
+
     response = client.get(url)
     if response.status_code == 404:
         LOGGER.debug("GDELT %s not published (404)", url)
         return []
     response.raise_for_status()
     csv_text = _decompress_csv(response.content)
+    db.store_raw_blob(ingest_run_id, endpoint_name, url, {"csv": csv_text})
     return list(parse_csv_rows(csv_text, terms))
 
 
@@ -504,7 +551,9 @@ def _run_ingest(
     with db.ingest_run(SOURCE_NAME, endpoint=endpoint, metadata=metadata) as run:
         LOGGER.info("GDELT %s: fetching %d files", endpoint, len(stamps))
         for ts in stamps:
-            parsed_rows = _fetch_and_parse(client, ts, terms)
+            parsed_rows = _fetch_and_parse(
+                client, ts, terms, ingest_run_id=run.id
+            )
             if not parsed_rows:
                 continue
             rows = [
@@ -570,6 +619,10 @@ def collect_backfill(
     """
     today = datetime.now(timezone.utc).date()
     until = until or today
+    if until > today:
+        raise ValueError(
+            f"until ({until}) cannot be in the future; latest allowed date is {today}"
+        )
     floor = today - timedelta(days=MAX_BACKFILL_DAYS - 1)
     effective_since = max(since, floor)
     if effective_since != since:

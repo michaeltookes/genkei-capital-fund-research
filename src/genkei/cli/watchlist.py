@@ -231,9 +231,7 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
     "ishares": ["collect"],
     # B-033 GDELT GKG — incremental daily run pulls the last 24h of
     # 15-min CSV zips, filters to watchlist matches, writes directly
-    # to gdelt.gkg (no separate normalize step; raw CSV blobs are NOT
-    # landed in meta.raw_blobs per the source-specific storage call
-    # in src/genkei/ingest/gdelt.py).
+    # to gdelt.gkg, and stores raw CSV blobs for replay/cache.
     "gdelt": ["collect"],
     # B-064 — one entry per signal emitter that runs on a daily cron.
     # B-093 added crowding; B-094 added eight_k_impact; B-095 added

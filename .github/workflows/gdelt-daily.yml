@@ -2,10 +2,9 @@ name: GDELT GKG Daily Snapshot
 
 # B-033 — pulls the last 24h of GDELT GKG 2.0 CSV zips (15-min files;
 # 96/day), filters articles to watchlist matches, writes to gdelt.gkg.
-# Storage deviation from D-005: raw CSV blobs are NOT landed in
-# meta.raw_blobs (volume would be 500MB-1.5GB/day of audit JSON the
-# retention policy would just prune). gdelt.gkg is the system of
-# record; CSVs are publicly re-fetchable from GDELT if replay needed.
+# Each fetched CSV lands in meta.raw_blobs before parsing. Re-runs can
+# copy cached blobs into the current ingest run instead of re-fetching
+# the same public GDELT URL.
 #
 # Cadence: daily at 14:30 UTC, sliding in 30 minutes after the ETH
 # whale-flow snapshot (14:00 UTC) so the runner isn't double-loaded.
@@ -27,11 +26,11 @@ on:
   workflow_dispatch:
     inputs:
       since:
-        description: "Optional YYYY-MM-DD lower bound for backfill mode"
+        description: "Optional YYYY-MM-DD lower bound for backfill mode (takes precedence over hours if both provided)"
         required: false
         type: string
       hours:
-        description: "Incremental window in hours (default 24)"
+        description: "Incremental window in hours (default 24, ignored if since is provided)"
         required: false
         type: string
 

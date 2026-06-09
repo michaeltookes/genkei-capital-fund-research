@@ -3,7 +3,7 @@
 GDELT 2.0 GKG (Global Knowledge Graph) is the firehose of news articles
 tagged with themes, entities, locations, and tone. CSV files are published
 every 15 min (96/day) at
-``http://data.gdeltproject.org/gdeltv2/<YYYYMMDDHHMMSS>.gkg.csv.zip``.
+``https://data.gdeltproject.org/gdeltv2/<YYYYMMDDHHMMSS>.gkg.csv.zip``.
 
 Volume context:
 - Each 15-min CSV is ~5-15MB compressed, hundreds of thousands of rows
