@@ -133,14 +133,44 @@ class _ParsedRow:
     matched_assets: list[str]
 
 
+def _equity_name_variants(name: str) -> list[str]:
+    """Return display-name variants useful for news organization matching."""
+    original = name.strip()
+    if not original:
+        return []
+
+    candidates = [original]
+    parentheticals = re.findall(r"\(([^()]*)\)", original)
+    base = re.sub(r"\s*\([^()]*\)", "", original).strip()
+    if base and base != original:
+        candidates.append(base)
+
+    for content in parentheticals:
+        content = content.strip()
+        prefix = "formerly "
+        if content.lower().startswith(prefix):
+            former_name = content[len(prefix):].strip()
+            if former_name:
+                candidates.append(former_name)
+
+    variants: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = candidate.lower()
+        if key not in seen:
+            variants.append(candidate)
+            seen.add(key)
+    return variants
+
+
 def build_match_terms(watchlist: Watchlist) -> list[_MatchTerm]:
     """Compile the terms to match articles against.
 
     Returns a deduped list, lower-cased + length-filtered. Equity entries
-    contribute the company name labeled by ticker; crypto entries the
-    coin name labeled by symbol, with short-symbol whole-word fallback;
-    protocols the protocol name labeled by slug; filers the filer name labeled
-    by CIK.
+    contribute the company name labeled by ticker, plus parenthetical-stripped
+    variants for news mentions; crypto entries the coin name labeled by symbol,
+    with short-symbol whole-word fallback; protocols the protocol name labeled
+    by slug; filers the filer name labeled by CIK.
     """
     seen: dict[str, tuple[str, bool]] = {}
 
@@ -158,7 +188,8 @@ def build_match_terms(watchlist: Watchlist) -> list[_MatchTerm]:
         return False
 
     for entry in watchlist.equities:
-        add(entry.name, entry.symbol.upper())
+        for variant in _equity_name_variants(entry.name):
+            add(variant, entry.symbol.upper())
     for entry in watchlist.crypto:
         if not add(entry.name, entry.symbol.upper()):
             add(entry.symbol, entry.symbol.upper(), min_length=3, whole_word=True)

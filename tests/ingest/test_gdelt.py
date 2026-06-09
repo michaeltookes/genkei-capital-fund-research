@@ -206,6 +206,51 @@ class BuildMatchTermsTests(unittest.TestCase):
         # Label is upper-cased ticker.
         self.assertEqual(terms[0].label, "AAPL")
 
+    def test_equity_parenthetical_suffix_adds_base_name_variant(self) -> None:
+        wl = _empty_watchlist(
+            equities=[
+                EquityEntry(
+                    symbol="GOOG",
+                    name="Alphabet Inc. (Class C)",
+                    cik="0001652044",
+                    tier="primary",
+                )
+            ]
+        )
+        terms = build_match_terms(wl)
+        self.assertIn(
+            _MatchTerm(term_lower="alphabet inc. (class c)", label="GOOG"),
+            terms,
+        )
+        self.assertIn(_MatchTerm(term_lower="alphabet inc.", label="GOOG"), terms)
+        self.assertNotIn(_MatchTerm(term_lower="class c", label="GOOG"), terms)
+
+    def test_equity_former_name_parenthetical_adds_former_name_variant(self) -> None:
+        wl = _empty_watchlist(
+            equities=[
+                EquityEntry(
+                    symbol="MSTR",
+                    name="Strategy (formerly MicroStrategy Incorporated)",
+                    cik="0001050446",
+                    tier="primary",
+                )
+            ]
+        )
+        terms = build_match_terms(wl)
+        self.assertIn(_MatchTerm(term_lower="strategy", label="MSTR"), terms)
+        self.assertIn(
+            _MatchTerm(term_lower="microstrategy incorporated", label="MSTR"),
+            terms,
+        )
+        hits = match_article(
+            themes=[],
+            persons=[],
+            organizations=["MicroStrategy Incorporated"],
+            document_identifier="",
+            terms=terms,
+        )
+        self.assertEqual(hits, ["MSTR"])
+
     def test_crypto_name_promoted_to_term_labeled_by_symbol(self) -> None:
         wl = _empty_watchlist(
             crypto=[
