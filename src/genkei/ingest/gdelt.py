@@ -37,6 +37,7 @@ import csv
 import io
 import json
 import logging
+import re
 import sys
 import zipfile
 from collections.abc import Iterator
@@ -103,6 +104,7 @@ class _MatchTerm:
 
     term_lower: str
     label: str
+    whole_word: bool = False
 
 
 @dataclass(frozen=True)
@@ -132,19 +134,26 @@ class _ParsedRow:
 
 
 def build_match_terms(watchlist: Watchlist) -> list[_MatchTerm]:
-    """Compile the substring terms to match articles against.
+    """Compile the terms to match articles against.
 
     Returns a deduped list, lower-cased + length-filtered. Equity entries
     contribute the company name labeled by ticker; crypto entries the
-    coin name labeled by symbol; protocols the protocol name labeled by
-    slug; filers the filer name labeled by CIK.
+    coin name labeled by symbol, with short-symbol whole-word fallback;
+    protocols the protocol name labeled by slug; filers the filer name labeled
+    by CIK.
     """
-    seen: dict[str, str] = {}
+    seen: dict[str, tuple[str, bool]] = {}
 
-    def add(candidate: str, label: str, *, min_length: int = MIN_TERM_LENGTH) -> bool:
+    def add(
+        candidate: str,
+        label: str,
+        *,
+        min_length: int = MIN_TERM_LENGTH,
+        whole_word: bool = False,
+    ) -> bool:
         term = candidate.strip().lower()
         if len(term) >= min_length and term not in seen:
-            seen[term] = label
+            seen[term] = label, whole_word
             return True
         return False
 
@@ -152,12 +161,15 @@ def build_match_terms(watchlist: Watchlist) -> list[_MatchTerm]:
         add(entry.name, entry.symbol.upper())
     for entry in watchlist.crypto:
         if not add(entry.name, entry.symbol.upper()):
-            add(entry.symbol, entry.symbol.upper(), min_length=3)
+            add(entry.symbol, entry.symbol.upper(), min_length=3, whole_word=True)
     for entry in watchlist.protocols:
         add(entry.name, entry.slug.lower())
     for entry in watchlist.filers:
         add(entry.name, entry.filer_cik)
-    return [_MatchTerm(term_lower=k, label=v) for k, v in seen.items()]
+    return [
+        _MatchTerm(term_lower=term, label=label, whole_word=whole_word)
+        for term, (label, whole_word) in seen.items()
+    ]
 
 
 def latest_gkg_timestamp(client: HttpClient) -> datetime:
@@ -342,10 +354,12 @@ def match_article(
 ) -> list[str]:
     """Return the asset labels matched by an article.
 
-    Substring match (case-insensitive) over the concatenated themes /
-    persons / organizations / document_identifier text. Sorted for
-    determinism — tests rely on the order, and the array index column
-    stays stable across re-upserts of the same row.
+    Case-insensitive match over the concatenated themes / persons /
+    organizations / document_identifier text. Most watchlist names use
+    substring matching; short crypto-symbol fallback terms require a standalone
+    word match to avoid hits inside unrelated words and URLs. Results are
+    sorted for determinism so the array index column stays stable across
+    re-upserts of the same row.
     """
     haystack = " | ".join(
         [
@@ -359,8 +373,13 @@ def match_article(
         return []
     hits: set[str] = set()
     for term in terms:
-        if term.term_lower in haystack:
-            hits.add(term.label)
+        if term.whole_word:
+            pattern = rf"(?<![a-z0-9]){re.escape(term.term_lower)}(?![a-z0-9])"
+            if not re.search(pattern, haystack):
+                continue
+        elif term.term_lower not in haystack:
+            continue
+        hits.add(term.label)
     return sorted(hits)
 
 

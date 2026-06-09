@@ -232,7 +232,10 @@ class BuildMatchTermsTests(unittest.TestCase):
             ]
         )
         terms = build_match_terms(wl)
-        self.assertEqual(terms, [_MatchTerm(term_lower="sui", label="SUI")])
+        self.assertEqual(
+            terms,
+            [_MatchTerm(term_lower="sui", label="SUI", whole_word=True)],
+        )
 
     def test_protocol_label_is_slug(self) -> None:
         wl = _empty_watchlist(
@@ -358,6 +361,26 @@ class MatchArticleTests(unittest.TestCase):
             organizations=[],
             document_identifier="",
             terms=self._terms(),
+        )
+        self.assertEqual(hits, [])
+
+    def test_whole_word_symbol_matches_delimited_token(self) -> None:
+        hits = match_article(
+            themes=["CRYPTO_SUI_MARKET"],
+            persons=[],
+            organizations=[],
+            document_identifier="https://example.com/sui-news",
+            terms=[_MatchTerm(term_lower="sui", label="SUI", whole_word=True)],
+        )
+        self.assertEqual(hits, ["SUI"])
+
+    def test_whole_word_symbol_does_not_match_inside_words(self) -> None:
+        hits = match_article(
+            themes=["LEGAL_LAWSUIT"],
+            persons=[],
+            organizations=[],
+            document_identifier="https://example.com/pursuit-of-alpha",
+            terms=[_MatchTerm(term_lower="sui", label="SUI", whole_word=True)],
         )
         self.assertEqual(hits, [])
 
