@@ -161,7 +161,7 @@ def normalize_table(
         return [], []
 
     # Build per-line series + per-(line, ts) observation rows.
-    observed_lines: set[int] = set()
+    accepted_lines: set[int] = set()
     series_by_line: dict[int, JsonObject] = {}
     observations_by_key: dict[tuple[int, datetime], JsonObject] = {}
 
@@ -173,7 +173,6 @@ def normalize_table(
             line_number = int(line_raw)
         except (TypeError, ValueError):
             continue
-        observed_lines.add(line_number)
         if line_number not in watched_lines:
             continue
 
@@ -194,6 +193,7 @@ def normalize_table(
             )
             continue
 
+        accepted_lines.add(line_number)
         series_id = f"{table_id}:{line_number}:{frequency}"
 
         # series row (one per line, last-seen wins for metadata fields).
@@ -223,7 +223,7 @@ def normalize_table(
             "ingest_run_id": ingest_run_id,
         }
 
-    missing_lines = watched_lines - observed_lines
+    missing_lines = watched_lines - accepted_lines
     if missing_lines:
         missing = ", ".join(str(line) for line in sorted(missing_lines))
         raise ValueError(

@@ -315,7 +315,8 @@ class NormalizeTableTests(unittest.TestCase):
 
     def test_frequency_mismatch_drops_row(self) -> None:
         # If we asked BEA for 'Q' and a row parses as 'A', it'd violate
-        # the PK invariant — drop with a warning.
+        # the PK invariant — drop with a warning, then fail because the
+        # configured watched line produced no usable row.
         payload = self._payload(
             [
                 {
@@ -325,8 +326,28 @@ class NormalizeTableTests(unittest.TestCase):
                 }
             ]
         )
-        _, observations = self._call(payload, frequency="Q")
-        self.assertEqual(observations, [])
+        with self.assertRaisesRegex(
+            ValueError,
+            r"BEA response for T10101 Q missing watched line\(s\): 1",
+        ):
+            self._call(payload, frequency="Q")
+
+    def test_unparseable_watched_line_period_raises(self) -> None:
+        payload = self._payload(
+            [
+                {
+                    "LineNumber": "1",
+                    "TimePeriod": "FY2024",
+                    "DataValue": "3.4",
+                }
+            ]
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"BEA response for T10101 Q missing watched line\(s\): 1",
+        ):
+            self._call(payload, frequency="Q")
 
     def test_malformed_payload_returns_empty(self) -> None:
         # Defensive — error envelopes should return (), not crash.
