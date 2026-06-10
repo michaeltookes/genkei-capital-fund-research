@@ -279,11 +279,11 @@ def _is_bea_error_envelope(payload: Any) -> bool:
     if "Error" in bea:
         return True
     results = bea.get("Results")
-    if results is None:
+    if not isinstance(results, dict):
         return True
-    # BEA sometimes nests Error inside Results
-    # ({"Results": {"Error": {...}}}). Handle that shape too.
-    return isinstance(results, dict) and "Error" in results
+    if "Error" in results:
+        return True
+    return not isinstance(results.get("Data"), list)
 
 
 def _extract_bea_error(payload: Any) -> str:

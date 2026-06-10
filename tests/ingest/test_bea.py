@@ -191,6 +191,18 @@ class IsBeaErrorEnvelopeTests(unittest.TestCase):
         payload = {"BEAAPI": {"Request": {}}}
         self.assertTrue(_is_bea_error_envelope(payload))
 
+    def test_results_without_data_is_error(self) -> None:
+        payload = {"BEAAPI": {"Results": {"Statistic": "GDP"}}}
+        self.assertTrue(_is_bea_error_envelope(payload))
+
+    def test_results_with_non_list_data_is_error(self) -> None:
+        payload = {"BEAAPI": {"Results": {"Data": {"LineNumber": "1"}}}}
+        self.assertTrue(_is_bea_error_envelope(payload))
+
+    def test_empty_data_array_is_not_error(self) -> None:
+        payload = {"BEAAPI": {"Results": {"Data": []}}}
+        self.assertFalse(_is_bea_error_envelope(payload))
+
     def test_non_dict_payload_is_error(self) -> None:
         # Defensive — a stringified response from a bad JSON parse
         # shouldn't crash; treat as error.

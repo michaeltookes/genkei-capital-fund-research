@@ -303,7 +303,7 @@ class NormalizeTableTests(unittest.TestCase):
                 }
             ]
         )
-        series, observations = self._call(
+        _series, observations = self._call(
             payload,
             table_id="T70100",
             frequency="A",
