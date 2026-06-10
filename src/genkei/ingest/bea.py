@@ -57,11 +57,7 @@ import httpx
 
 from genkei.common import db
 from genkei.common.http import HttpClient, RateLimit
-from genkei.common.watchlist import (
-    DEFAULT_WATCHLIST_PATH,
-    BeaSeriesEntry,
-    load_watchlist,
-)
+from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist
 
 SOURCE_NAME = "bea"
 COLLECT_ENDPOINT_LABEL = "collect"
@@ -287,9 +283,7 @@ def _is_bea_error_envelope(payload: Any) -> bool:
         return True
     # BEA sometimes nests Error inside Results
     # ({"Results": {"Error": {...}}}). Handle that shape too.
-    if isinstance(results, dict) and "Error" in results:
-        return True
-    return False
+    return isinstance(results, dict) and "Error" in results
 
 
 def _extract_bea_error(payload: Any) -> str:
