@@ -930,3 +930,68 @@ eth_whale_addresses:
   # whale — intentionally empty in v1 (the provenance bar is high; adding
   # these is the natural v2 expansion if a research session names a
   # specific holder we want to track). See docs/sources/eth-whale-addresses.md.
+
+# BEA NIPA lines (B-029) — real-economy companion to FRED's
+# rates/credit/vol/FX coverage. v1 ships a 10-line curated set covering
+# growth (GDP, GDP per capita), income (personal income, savings rate),
+# spending (PCE), inflation (PCE headline + PCE core — Fed's preferred
+# gauge), and earnings (corporate profits). Other 12 BEA datasets
+# (Regional, ITA, FixedAssets, MNE, ...) are deferred — every macro
+# signal we'd actually want lives in NIPA.
+#
+# Schema: series_id is the composite "<TABLE_ID>:<LINE_NUMBER>" key.
+# frequency 'Q' (quarterly) is the v1 cadence — most NIPA tables ship
+# both Q and A, but Q is what regime classifiers + research sessions
+# consume. Adding 'A' rows for the same line is fine; the PK includes
+# frequency so both can coexist.
+bea:
+  - table_id: T10101
+    line_number: 1
+    name: Real GDP — % change from preceding period (SAAR)
+    frequency: Q
+    rationale: Headline growth pulse; the primary regime-classifier growth input.
+  - table_id: T10105
+    line_number: 1
+    name: GDP — current dollars (SAAR)
+    frequency: Q
+    rationale: Nominal GDP for level-relative comparisons (debt/GDP, etc.).
+  - table_id: T20100
+    line_number: 1
+    name: Personal Income
+    frequency: Q
+    rationale: Aggregate household earnings; consumer-side growth driver.
+  - table_id: T20100
+    line_number: 35
+    name: Personal Saving as % of Disposable Personal Income
+    frequency: Q
+    rationale: Households' dry powder; key consumption-deceleration signal.
+  - table_id: T20100
+    line_number: 24
+    name: Personal Consumption Expenditures (PCE) — total
+    frequency: Q
+    rationale: ~70% of US GDP; the spending-side growth read.
+  - table_id: T20302
+    line_number: 1
+    name: Real PCE — % change from preceding period (SAAR)
+    frequency: Q
+    rationale: Real-spending growth; consumer-side recession signal.
+  - table_id: T11400
+    line_number: 4
+    name: Corporate Profits with IVA + CCAdj
+    frequency: Q
+    rationale: Aggregate equity-market fundamental; earnings momentum input.
+  - table_id: T20804
+    line_number: 1
+    name: PCE Price Index (headline) — % change
+    frequency: Q
+    rationale: Fed's headline inflation gauge.
+  - table_id: T20804
+    line_number: 25
+    name: PCE Price Index excluding Food and Energy (core) — % change
+    frequency: Q
+    rationale: Fed's preferred inflation gauge — the policy-pivot signal.
+  - table_id: T70100
+    line_number: 5
+    name: Real GDP per capita
+    frequency: A
+    rationale: Long-run productivity / standard-of-living proxy; annual cadence.
