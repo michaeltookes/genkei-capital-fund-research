@@ -9,8 +9,8 @@ B-028 normalizer).
 every line on the table (~30-100 rows per table). The watchlist (per
 B-029's design call) curates 10 specific lines across 6 tables; the
 normalizer reads the watchlist + filters the parse output down to the
-watched ``(table_id, line_number)`` pairs. Lines outside the watchlist
-are dropped without warning — they're useful for future watchlist
+watched ``(table_id, line_number, frequency)`` tuples. Lines outside the
+watchlist are dropped without warning — they're useful for future watchlist
 expansions but pollute the lake at the v1 scope.
 
 **Vintage** — latest-only (NOT vintage-aware). ``bea.observations`` PK
@@ -191,7 +191,7 @@ def normalize_table(
             )
             continue
 
-        series_id = f"{table_id}:{line_number}"
+        series_id = f"{table_id}:{line_number}:{frequency}"
 
         # series row (one per line, last-seen wins for metadata fields).
         # All rows in a single table-response share the line's metadata

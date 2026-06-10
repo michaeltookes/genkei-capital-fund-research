@@ -180,7 +180,7 @@ class NormalizeTableTests(unittest.TestCase):
         )
         series, observations = self._call(payload)
         self.assertEqual(len(series), 1)
-        self.assertEqual(series[0]["series_id"], "T10101:1")
+        self.assertEqual(series[0]["series_id"], "T10101:1:Q")
         self.assertEqual(series[0]["table_id"], "T10101")
         self.assertEqual(series[0]["line_number"], 1)
         self.assertEqual(series[0]["line_description"], "Gross domestic product")
@@ -189,10 +189,45 @@ class NormalizeTableTests(unittest.TestCase):
 
         self.assertEqual(len(observations), 1)
         obs = observations[0]
-        self.assertEqual(obs["series_id"], "T10101:1")
+        self.assertEqual(obs["series_id"], "T10101:1:Q")
         self.assertEqual(obs["ts"], datetime(2024, 1, 1, tzinfo=timezone.utc))
         self.assertEqual(obs["value"], 3.4)
         self.assertEqual(obs["ingest_run_id"], 42)
+
+    def test_same_line_different_frequency_uses_distinct_series_id(self) -> None:
+        quarterly_series, quarterly_observations = self._call(
+            self._payload(
+                [
+                    {
+                        "LineNumber": "1",
+                        "TimePeriod": "2024Q1",
+                        "DataValue": "3.4",
+                    }
+                ]
+            ),
+            table_id="T10101",
+            frequency="Q",
+            watched_lines={1},
+        )
+        annual_series, annual_observations = self._call(
+            self._payload(
+                [
+                    {
+                        "LineNumber": "1",
+                        "TimePeriod": "2024",
+                        "DataValue": "2.9",
+                    }
+                ]
+            ),
+            table_id="T10101",
+            frequency="A",
+            watched_lines={1},
+        )
+
+        self.assertEqual(quarterly_series[0]["series_id"], "T10101:1:Q")
+        self.assertEqual(quarterly_observations[0]["series_id"], "T10101:1:Q")
+        self.assertEqual(annual_series[0]["series_id"], "T10101:1:A")
+        self.assertEqual(annual_observations[0]["series_id"], "T10101:1:A")
 
     def test_line_outside_watchlist_dropped(self) -> None:
         # T10101 has 50+ lines; the watchlist filter must drop them.

@@ -939,11 +939,11 @@ eth_whale_addresses:
 # (Regional, ITA, FixedAssets, MNE, ...) are deferred — every macro
 # signal we'd actually want lives in NIPA.
 #
-# Schema: series_id is the composite "<TABLE_ID>:<LINE_NUMBER>" key.
+# Schema: series_id is the composite "<TABLE_ID>:<LINE_NUMBER>:<FREQUENCY>" key.
 # frequency 'Q' (quarterly) is the v1 cadence — most NIPA tables ship
 # both Q and A, but Q is what regime classifiers + research sessions
-# consume. Adding 'A' rows for the same line is fine; the PK includes
-# frequency so both can coexist.
+# consume. Adding 'A' rows for the same line is fine; series_id includes
+# frequency so both can coexist without metadata clobbering.
 bea:
   - table_id: T10101
     line_number: 1

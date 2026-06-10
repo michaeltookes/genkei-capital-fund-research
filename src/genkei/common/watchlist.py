@@ -72,9 +72,10 @@ class MacroEntry:
 class BeaSeriesEntry:
     """A BEA NIPA line we want as a macro time-series target (B-029).
 
-    ``series_id`` is the canonical composite key ``<table_id>:<line_number>``
-    (e.g. ``T10101:1`` for Real GDP % change). It's also the PK in
-    ``bea.series`` / ``bea.observations``.
+    ``series_id`` is the canonical composite key
+    ``<table_id>:<line_number>:<frequency>`` (e.g. ``T10101:1:Q`` for
+    Real GDP % change). It's also the PK in ``bea.series`` /
+    ``bea.observations``.
 
     ``frequency`` is the BEA-side cadence we want this line at: ``Q``
     (quarterly), ``A`` (annual), or ``M`` (monthly — only a few NIPA
@@ -96,7 +97,7 @@ class BeaSeriesEntry:
 
     @property
     def series_id(self) -> str:
-        return f"{self.table_id}:{self.line_number}"
+        return f"{self.table_id}:{self.line_number}:{self.frequency}"
 
 
 @dataclass(frozen=True)
@@ -271,7 +272,7 @@ class Watchlist:
         return None
 
     def find_bea(self, series_id: str) -> BeaSeriesEntry | None:
-        """Lookup a BEA series by composite ``<table_id>:<line_number>`` id."""
+        """Lookup a BEA series by ``<table_id>:<line_number>:<frequency>`` id."""
         upper = series_id.strip().upper()
         for entry in self.bea:
             if entry.series_id.upper() == upper:

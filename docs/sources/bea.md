@@ -17,8 +17,8 @@ curated to fill the three dimensions FRED can't reach:
 | **Inflation** | PCE Price Index headline (T20804:1), PCE Core ex F&E (T20804:25) — Fed's preferred gauge | Q |
 | **Earnings** | Corporate Profits with IVA+CCAdj (T11400:4) | Q |
 
-`series_id` is the composite `<table_id>:<line_number>` key (e.g.
-`T10101:1` for "Real GDP, % change SAAR, line 1"). The full curated
+`series_id` is the composite `<table_id>:<line_number>:<frequency>` key
+(e.g. `T10101:1:Q` for "Real GDP, % change SAAR, line 1"). The full curated
 list lives in `src/genkei/data/watchlists.yml` under the `bea:` section.
 
 ## Datasets NOT covered (deferred)
@@ -86,13 +86,15 @@ Reopen as separate backlog items if/when research demands them.
 
 | Table | Purpose | PK |
 |---|---|---|
-| `bea.series` | Entity dim — line description, units, frequency, note refs | `series_id` |
+| `bea.series` | Entity dim — line description, units, frequency, note refs | `series_id` (`<table_id>:<line_number>:<frequency>`) |
 | `bea.observations` | Time-series fact, hypertable on `ts`, 90-day chunks, compression > 30d | `(series_id, ts, frequency)` |
 
 **Frequency in the PK** is load-bearing. BEA returns the same NIPA line
 at quarterly *and* annual cadences depending on the request — both are
 research-useful (quarterly for high-frequency signals, annual for the
-chart-friendly long view). The frequency column lets both coexist.
+chart-friendly long view). The frequency is also part of `series_id`, so
+cadence-specific series metadata cannot overwrite another cadence for the
+same NIPA table line.
 
 ## v1 limitations (worth knowing before relying on the data)
 
@@ -149,7 +151,7 @@ genkei query --sql "
   SELECT b.series_id, s.line_description, b.ts, b.value
   FROM bea.observations b
   JOIN bea.series s USING (series_id)
-  WHERE b.series_id = 'T20804:25'
+  WHERE b.series_id = 'T20804:25:Q'
   ORDER BY b.ts DESC LIMIT 4
 "
 ```

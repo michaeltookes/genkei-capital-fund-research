@@ -23,16 +23,18 @@ chart-friendly long view) and we want to keep both without one
 clobbering the other. ``frequency`` is one of ``Q`` / ``A`` / ``M``
 matching BEA's own labels.
 
-**``series_id`` shape** — composite text key ``<table_id>:<line_number>``
-(e.g. ``T10101:1`` for "Real GDP, % change SAAR, line 1"). BEA series
-are scoped per-table, so the table id + line id is the natural unique
-key. Bare line numbers are not globally unique and bare table ids
-don't identify a single line.
+**``series_id`` shape** — composite text key
+``<table_id>:<line_number>:<frequency>`` (e.g. ``T10101:1:Q`` for
+"Real GDP, % change SAAR, line 1" at quarterly cadence). BEA lines are
+scoped per-table and per-requested cadence, so the table id + line id +
+frequency is the natural unique key. Bare line numbers are not globally
+unique, bare table ids don't identify a single line, and the same line
+can be fetched at multiple cadences.
 
 Tables:
-  - bea.series       entity dim, PK series_id (TEXT). Holds the
-                     human-readable description + units + frequency
-                     pulled from BEA's response metadata.
+  - bea.series       entity dim, PK series_id (TEXT, includes frequency).
+                     Holds the human-readable description + units +
+                     frequency pulled from BEA's response metadata.
   - bea.observations time-series fact, hypertable on ts, PK
                      (series_id, ts, frequency). 90-day chunk
                      interval matches fred.observations — NIPA series
