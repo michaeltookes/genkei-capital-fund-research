@@ -182,6 +182,7 @@ PRIMARY_TABLES: dict[str, list[str]] = {
     "cftc": ["cftc.cot_reports"],
     "ishares": ["etf.fund_snapshots"],
     "gdelt": ["gdelt.gkg"],
+    "bea": ["bea.observations"],
     # B-090 — derived view, no ingest_runs row (computed live from
     # coingecko.market_data). Intentionally absent from RECURRING_ENDPOINTS
     # so it doesn't surface as MISSING on the recurring-cron half of the
@@ -233,6 +234,12 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
     # 15-min CSV zips, filters to watchlist matches, writes directly
     # to gdelt.gkg, and stores raw CSV blobs for replay/cache.
     "gdelt": ["collect"],
+    # B-029 BEA NIPA — collect lands one raw blob per (table, frequency)
+    # pair; normalize parses each blob + filters to watched lines +
+    # upserts into bea.series / bea.observations. Daily cadence matches
+    # FRED even though BEA publishes on a quarterly release schedule —
+    # the latest-only schema upserts cleanly on no-change days.
+    "bea": ["collect", "normalize"],
     # B-064 — one entry per signal emitter that runs on a daily cron.
     # B-093 added crowding; B-094 added eight_k_impact; B-095 added
     # tvl_drawdown (first crypto-side emitter); B-098 added

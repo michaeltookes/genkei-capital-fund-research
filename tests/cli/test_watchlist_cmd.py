@@ -361,6 +361,7 @@ class ExpectationsRegistryTests(unittest.TestCase):
                 "cftc",
                 "ishares",
                 "gdelt",
+                "bea",
             },
         )
 
@@ -384,6 +385,7 @@ class ExpectationsRegistryTests(unittest.TestCase):
                 "cftc",
                 "ishares",
                 "gdelt",
+                "bea",
                 "signal_emitter",
             },
         )

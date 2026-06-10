@@ -1,0 +1,61 @@
+name: BEA Daily Macro
+
+# B-029 — pulls BEA NIPA tables (GDP, personal income, PCE/PCE-core
+# inflation, corporate profits, savings rate) once a day on the
+# self-hosted Beelink runner. Daily polling is overkill — BEA releases
+# on a quarterly schedule (advance estimate ~30d after quarter end,
+# second/third estimates ~60/90d) — but matches FRED's "just upsert
+# every day, the schema is idempotent" pattern. 11:30 UTC slots in 30
+# min after the FRED-daily cron to spread the runner's morning load.
+
+on:
+  schedule:
+    - cron: "30 11 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    name: BEA collect + normalize (Postgres-backed)
+    runs-on: [self-hosted, beelink]
+    timeout-minutes: 15
+    env:
+      GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+      BEA_API_KEY: ${{ secrets.BEA_API_KEY }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+
+      - name: Apply database migrations
+        run: alembic upgrade head
+
+      - name: Collect BEA NIPA tables into meta.raw_blobs
+        id: collect
+        run: |
+          output="$(python3 -m genkei.ingest.bea)"
+          echo "$output"
+          # Parse "BEA collect: meta.ingest_runs id=NNN" — same convention
+          # as the FRED workflow above so the workflow logs stay greppable.
+          run_id_line="$(printf '%s\n' "$output" | grep 'ingest_runs id=' | tail -n 1 || true)"
+          source_run_id="${run_id_line##*=}"
+          if [ -z "$source_run_id" ] || [ "$source_run_id" = "$run_id_line" ]; then
+            echo "Could not parse BEA collector run id from output: $output" >&2
+            exit 1
+          fi
+          echo "source_run_id=$source_run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Normalize raw payloads into bea.* tables
+        run: python3 -m genkei.normalize.bea --source-run-id "${{ steps.collect.outputs.source_run_id }}"
