@@ -255,6 +255,28 @@ class NormalizeTableTests(unittest.TestCase):
         self.assertEqual(len(observations), 1)
         self.assertEqual(observations[0]["value"], 3.4)
 
+    def test_missing_watched_line_raises(self) -> None:
+        payload = self._payload(
+            [
+                {
+                    "LineNumber": "2",
+                    "TimePeriod": "2024Q1",
+                    "DataValue": "1.2",
+                },
+                {
+                    "LineNumber": "37",
+                    "TimePeriod": "2024Q1",
+                    "DataValue": "0.5",
+                },
+            ]
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"BEA response for T10101 Q missing watched line\(s\): 1",
+        ):
+            self._call(payload, watched_lines={1})
+
     def test_missing_value_lands_null(self) -> None:
         # Withheld values come through as None in the value column —
         # the row still exists so consumers know BEA *had* a row.

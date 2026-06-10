@@ -11,7 +11,8 @@ B-029's design call) curates 10 specific lines across 6 tables; the
 normalizer reads the watchlist + filters the parse output down to the
 watched ``(table_id, line_number, frequency)`` tuples. Lines outside the
 watchlist are dropped without warning — they're useful for future watchlist
-expansions but pollute the lake at the v1 scope.
+expansions but pollute the lake at the v1 scope. Missing watched lines
+raise, because that points to a BEA contract change or watchlist typo.
 
 **Vintage** — latest-only (NOT vintage-aware). ``bea.observations`` PK
 is ``(series_id, ts, frequency)`` with no vintage column; re-running
@@ -160,6 +161,7 @@ def normalize_table(
         return [], []
 
     # Build per-line series + per-(line, ts) observation rows.
+    observed_lines: set[int] = set()
     series_by_line: dict[int, JsonObject] = {}
     observations_by_key: dict[tuple[int, datetime], JsonObject] = {}
 
@@ -171,6 +173,7 @@ def normalize_table(
             line_number = int(line_raw)
         except (TypeError, ValueError):
             continue
+        observed_lines.add(line_number)
         if line_number not in watched_lines:
             continue
 
@@ -219,6 +222,13 @@ def normalize_table(
             "fetched_at": fetched_at,
             "ingest_run_id": ingest_run_id,
         }
+
+    missing_lines = watched_lines - observed_lines
+    if missing_lines:
+        missing = ", ".join(str(line) for line in sorted(missing_lines))
+        raise ValueError(
+            f"BEA response for {table_id} {frequency} missing watched line(s): {missing}"
+        )
 
     return list(series_by_line.values()), list(observations_by_key.values())
 
