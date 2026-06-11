@@ -21,7 +21,9 @@ No auth, no API key, no documented rate limit — we use 2 req/s as
 the polite default. The JSON envelope is ``{"data": [...], "meta":
 {...}, "links": {...}}``. Pagination via ``page[number]`` + ``page[size]``
 up to 10,000 rows per page; the collector loops every page until
-``meta.total-pages`` is reached.
+``meta.total-pages`` is reached. Multi-row-per-date endpoints include
+endpoint-specific tie-breaker fields in ``sort`` so page boundaries are
+stable.
 
 **Fetch shape** — one URL family per unique endpoint, NOT per series.
 Multiple watchlist series can share an endpoint (e.g. the three
@@ -69,6 +71,17 @@ BLOB_PREFIX = "treasury_"
 PAGE_SIZE = 10000
 MAX_PAGES = 200  # 2M rows safety ceiling — current v1 endpoints peak at ~5 pages.
 
+# Multi-row-per-period endpoints need a stable tie-breaker before pagination.
+# Otherwise rows sharing the same record_date can move across page boundaries.
+ENDPOINT_SORT_TIE_BREAKERS: dict[str, tuple[str, ...]] = {
+    "/v1/accounting/dts/operating_cash_balance": ("account_type",),
+    "/v2/accounting/od/interest_expense": ("expense_catg_desc",),
+    "/v2/accounting/od/avg_interest_rates": (
+        "security_type_desc",
+        "security_desc",
+    ),
+}
+
 # Treasury Fiscal Data publishes no documented rate limit. 2 req/s is
 # the polite default we use for any "be reasonable" free API. The
 # whole watchlist (4 endpoints × a handful of pages each) finishes in
@@ -81,6 +94,16 @@ LOGGER = logging.getLogger(__name__)
 def _blob_slug_part(value: str) -> str:
     """Normalize endpoint/date-field text for raw blob endpoint names."""
     return value.strip("/").strip().replace("/", "_").replace(" ", "_").lower()
+
+
+def _sort_fields(target: EndpointTarget) -> tuple[str, ...]:
+    """Return deterministic sort fields for one Treasury endpoint target."""
+    endpoint = f"/{target.endpoint.strip('/')}"
+    fields = [target.date_field]
+    for field in ENDPOINT_SORT_TIE_BREAKERS.get(endpoint, ()):
+        if field not in fields:
+            fields.append(field)
+    return tuple(fields)
 
 
 @dataclass(frozen=True)
@@ -148,13 +171,14 @@ def build_page_url(
 ) -> str:
     """Build one paginated request URL for a Treasury Fiscal Data endpoint.
 
-    Sort ascending on the target's ``date_field`` so combined payloads
-    are deterministic across runs (oldest → newest). ``urlencode`` keeps
-    the param order stable so two consecutive runs produce identical
-    first-page URLs in ``meta.raw_blobs.url``.
+    Sort ascending on the target's ``date_field`` plus endpoint-specific
+    tie-breakers for multi-row-per-date endpoints, so page boundaries
+    cannot skip or duplicate tied rows. ``urlencode`` keeps the param
+    order stable so two consecutive runs produce identical first-page
+    URLs in ``meta.raw_blobs.url``.
     """
     params = [
-        ("sort", target.date_field),
+        ("sort", ",".join(_sort_fields(target))),
         ("page[size]", str(page_size)),
         ("page[number]", str(page_number)),
         ("format", "json"),

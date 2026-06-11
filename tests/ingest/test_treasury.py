@@ -172,6 +172,38 @@ class BuildPageUrlTests(unittest.TestCase):
         self.assertNotEqual(first, second)
         self.assertIn("page%5Bnumber%5D=2", second)
 
+    def test_multi_row_endpoints_include_stable_sort_tie_breakers(self) -> None:
+        cases = [
+            (
+                EndpointTarget(
+                    endpoint="/v1/accounting/dts/operating_cash_balance",
+                    date_field="record_date",
+                ),
+                "sort=record_date%2Caccount_type",
+            ),
+            (
+                EndpointTarget(
+                    endpoint="/v2/accounting/od/interest_expense",
+                    date_field="record_date",
+                ),
+                "sort=record_date%2Cexpense_catg_desc",
+            ),
+            (
+                EndpointTarget(
+                    endpoint="/v2/accounting/od/avg_interest_rates",
+                    date_field="record_date",
+                ),
+                "sort=record_date%2Csecurity_type_desc%2Csecurity_desc",
+            ),
+        ]
+
+        for target, expected_sort in cases:
+            with self.subTest(endpoint=target.endpoint):
+                self.assertIn(
+                    expected_sort,
+                    build_page_url(target, page_number=1),
+                )
+
 
 class ExtractTotalPagesTests(unittest.TestCase):
     def test_extracts_integer_total_pages(self) -> None:
@@ -243,6 +275,29 @@ class FetchAllPagesTests(unittest.TestCase):
         self.assertEqual(combined["meta"]["total-count"], 3)
         self.assertEqual(combined["meta"]["total-pages"], 1)
         self.assertEqual(len(stub.calls), 2)
+
+    def test_uses_stable_sort_fields_for_every_page_request(self) -> None:
+        target = EndpointTarget(
+            endpoint="/v2/accounting/od/avg_interest_rates",
+            date_field="record_date",
+        )
+        page1 = {
+            "data": [{"record_date": "2024-01-01"}],
+            "meta": {"count": 1, "total-count": 2, "total-pages": 2},
+        }
+        page2 = {
+            "data": [{"record_date": "2024-01-02"}],
+            "meta": {"count": 1, "total-count": 2, "total-pages": 2},
+        }
+        stub = _StubHttp([page1, page2])
+
+        _fetch_all_pages(target, stub)
+
+        for call in stub.calls:
+            self.assertIn(
+                "sort=record_date%2Csecurity_type_desc%2Csecurity_desc",
+                call,
+            )
 
     def test_short_page_terminates_loop(self) -> None:
         # When total-pages is missing, a sub-PAGE_SIZE page signals the

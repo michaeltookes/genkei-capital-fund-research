@@ -74,7 +74,10 @@ lives in `src/genkei/data/watchlists.yml` under the `treasury:` section.
 - **Pagination**: standard `page[number]` + `page[size]` (max 10,000).
   The collector loops every page using the response's `meta.total-pages`
   as the loop bound. ~30 years × daily debt_to_penny = ~3 pages at
-  `page[size]=10000`.
+  `page[size]=10000`. Requests sort by `record_date` plus endpoint-specific
+  row keys for multi-row endpoints (`account_type`, `expense_catg_desc`,
+  or `security_type_desc` + `security_desc`) so equal-date rows cannot
+  move across page boundaries between page requests.
 - **Response envelope**:
   ```json
   {
