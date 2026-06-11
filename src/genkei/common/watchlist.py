@@ -231,7 +231,7 @@ class TreasurySeriesEntry:
     row, and an optional ``row_filter`` for endpoints that return
     multiple rows per record_date (e.g. ``operating_cash_balance``
     returns one row per ``account_type``; the watchlist filter picks
-    the specific account whose ``close_today_bal`` we want).
+    the specific account/value field we want).
 
     ``date_field`` defaults to ``record_date`` — every Fiscal Data
     endpoint we use in v1 publishes the period under that field. It's

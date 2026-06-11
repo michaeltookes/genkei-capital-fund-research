@@ -42,7 +42,7 @@ treasury:
   - series_id: TGA_CLOSING_BAL
     name: TGA closing balance
     endpoint: /v1/accounting/dts/operating_cash_balance
-    value_field: close_today_bal
+    value_field: open_today_bal
     frequency: D
     row_filter:
       account_type: Treasury General Account (TGA) Closing Balance
@@ -262,7 +262,7 @@ def _tga_entry() -> TreasurySeriesEntry:
         series_id="TGA_CLOSING_BAL",
         name="TGA closing balance",
         endpoint="/v1/accounting/dts/operating_cash_balance",
-        value_field="close_today_bal",
+        value_field="open_today_bal",
         frequency="D",
         row_filter={
             "account_type": "Treasury General Account (TGA) Closing Balance"
@@ -353,17 +353,18 @@ class NormalizeEndpointTests(unittest.TestCase):
                 {
                     "record_date": "2024-06-10",
                     "account_type": "Federal Reserve Account",
-                    "close_today_bal": "999",
+                    "open_today_bal": "999",
                 },
                 {
                     "record_date": "2024-06-10",
                     "account_type": "Treasury General Account (TGA) Closing Balance",
-                    "close_today_bal": "5,000",
+                    "open_today_bal": "5,000",
+                    "close_today_bal": "null",
                 },
                 {
                     "record_date": "2024-06-10",
                     "account_type": "Some other TGA descriptor",
-                    "close_today_bal": "12345",
+                    "open_today_bal": "12345",
                 },
             ]
         )
@@ -437,7 +438,7 @@ class NormalizeEndpointTests(unittest.TestCase):
                 {
                     "record_date": "2024-06-10",
                     "account_type": "Wrong descriptor",
-                    "close_today_bal": "1",
+                    "open_today_bal": "1",
                 }
             ]
         )

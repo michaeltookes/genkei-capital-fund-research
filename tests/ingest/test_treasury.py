@@ -43,7 +43,7 @@ treasury:
   - series_id: TGA_CLOSING_BAL
     name: TGA closing balance
     endpoint: /v1/accounting/dts/operating_cash_balance
-    value_field: close_today_bal
+    value_field: open_today_bal
     frequency: D
     row_filter:
       account_type: Treasury General Account (TGA) Closing Balance
