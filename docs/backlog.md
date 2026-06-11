@@ -117,16 +117,6 @@ Migrate the existing MVP into the new foundation; it becomes the canonical patte
 
 One backlog item per source. Each follows the DeFiLlama-refactored pattern: collect → land in Postgres → normalize → tests → backfill mode.
 
-### B-030 — Treasury Fiscal Data ingester
-- **Status:** open
-- **Priority:** medium
-- **Context:** Debt issuance, auctions, Treasury cash balance, interest costs.
-- **Acceptance criteria:**
-  - Free public API; no key required.
-  - Backfill where exposed.
-  - Daily refresh schedule.
-
-
 ### B-104 — CME BTC + ETH futures daily OI + volume ingester
 - **Status:** blocked
 - **Priority:** deferred (was high)
