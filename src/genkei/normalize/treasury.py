@@ -156,8 +156,11 @@ def normalize_endpoint(
 
     Returns rows for the *watched* series only. Within a blob, multiple
     series may share the same endpoint — each is filtered independently
-    and produces its own ``(series_id, ts)`` observations. Per-(series,
-    ts) dedup: by default the last matching row wins (rare; Treasury
+    and produces its own ``(series_id, ts)`` observations. Every watched
+    series must match the endpoint's latest parseable period; this keeps
+    forward-looking source contract drift from being hidden by older
+    historical matches in the same full-history blob. Per-(series, ts)
+    dedup: by default the last matching row wins (rare; Treasury
     occasionally publishes intraday updates that get superseded by the
     same blob). Series with ``aggregate="sum"`` instead add all matching
     numeric values for the same period.
@@ -182,6 +185,19 @@ def normalize_endpoint(
     accepted: set[str] = set()
     series_by_id: dict[str, JsonObject] = {}
     observations_by_key: dict[tuple[str, datetime], JsonObject] = {}
+    latest_ts_by_field: dict[str, datetime] = {}
+    date_fields = {entry.date_field for entry in series}
+
+    for raw_row in data:
+        if not isinstance(raw_row, dict):
+            continue
+        for date_field in date_fields:
+            ts = parse_record_date(raw_row.get(date_field))
+            if ts is None:
+                continue
+            current = latest_ts_by_field.get(date_field)
+            if current is None or ts > current:
+                latest_ts_by_field[date_field] = ts
 
     for raw_row in data:
         if not isinstance(raw_row, dict):
@@ -244,6 +260,21 @@ def normalize_endpoint(
         raise ValueError(
             f"Treasury response for endpoint(s) {endpoints} matched no rows "
             f"for series: {names}"
+        )
+
+    missing_latest = []
+    for entry in series:
+        latest_ts = latest_ts_by_field.get(entry.date_field)
+        if latest_ts is None:
+            continue
+        if (entry.series_id, latest_ts) not in observations_by_key:
+            missing_latest.append(f"{entry.series_id} at {latest_ts.date().isoformat()}")
+    if missing_latest:
+        names = ", ".join(sorted(missing_latest))
+        endpoints = ", ".join(sorted({e.endpoint for e in series}))
+        raise ValueError(
+            f"Treasury response for endpoint(s) {endpoints} matched no latest-period "
+            f"rows for series: {names}"
         )
 
     return list(series_by_id.values()), list(observations_by_key.values())

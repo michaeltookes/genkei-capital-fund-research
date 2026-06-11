@@ -395,6 +395,30 @@ class NormalizeEndpointTests(unittest.TestCase):
             },
         )
 
+    def test_filtered_series_must_match_latest_period(self) -> None:
+        # A historical match is not enough: if Treasury changes the
+        # descriptor on the latest records, the current series would go stale.
+        payload = self._payload(
+            [
+                {
+                    "record_date": "2024-06-10",
+                    "account_type": "Treasury General Account (TGA) Closing Balance",
+                    "open_today_bal": "5,000",
+                },
+                {
+                    "record_date": "2024-06-11",
+                    "account_type": "Treasury General Account Closing Balance",
+                    "open_today_bal": "6,000",
+                },
+            ]
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"matched no latest-period rows.*TGA_CLOSING_BAL at 2024-06-11",
+        ):
+            self._call(payload, series=[_tga_entry()])
+
     def test_sum_aggregate_combines_matching_rows_per_period(self) -> None:
         # interest_expense publishes line items, not a total row. The
         # watched total series sums all source rows for each month.
