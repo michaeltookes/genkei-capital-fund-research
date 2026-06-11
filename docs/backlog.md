@@ -117,15 +117,6 @@ Migrate the existing MVP into the new foundation; it becomes the canonical patte
 
 One backlog item per source. Each follows the DeFiLlama-refactored pattern: collect → land in Postgres → normalize → tests → backfill mode.
 
-### B-029 — BEA ingester
-- **Status:** open
-- **Priority:** medium
-- **Context:** GDP, personal income, industry data, regional accounts.
-- **Acceptance criteria:**
-  - API key in secrets.
-  - Backfill full available history.
-  - Documented dataset coverage in `docs/sources/bea.md`.
-
 ### B-030 — Treasury Fiscal Data ingester
 - **Status:** open
 - **Priority:** medium

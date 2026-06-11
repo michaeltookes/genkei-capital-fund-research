@@ -69,6 +69,38 @@ class MacroEntry:
 
 
 @dataclass(frozen=True)
+class BeaSeriesEntry:
+    """A BEA NIPA line we want as a macro time-series target (B-029).
+
+    ``series_id`` is the canonical composite key
+    ``<table_id>:<line_number>:<frequency>`` (e.g. ``T10101:1:Q`` for
+    Real GDP % change). It's also the PK in ``bea.series`` /
+    ``bea.observations``.
+
+    ``frequency`` is the BEA-side cadence we want this line at: ``Q``
+    (quarterly), ``A`` (annual), or ``M`` (monthly — only a few NIPA
+    lines support this). BEA returns the same line at different
+    cadences depending on the request, so a watchlist entry binds the
+    pair we actually pull.
+
+    ``rationale`` mirrors ``MacroEntry`` — a one-line "why is this in
+    the lake?" that surfaces in research sessions.
+    """
+
+    table_id: str
+    line_number: int
+    name: str
+    frequency: str  # 'Q' | 'A' | 'M'
+    tier: str = "primary"
+    sleeve: str = "cross-sleeve"
+    rationale: str | None = None
+
+    @property
+    def series_id(self) -> str:
+        return f"{self.table_id}:{self.line_number}:{self.frequency}"
+
+
+@dataclass(frozen=True)
 class ProtocolEntry:
     """A DefiLlama protocol slug we want per-protocol TVL history for (B-081).
 
@@ -203,6 +235,7 @@ class Watchlist:
     eth_whale_addresses: list[EthWhaleAddressEntry] = dataclasses.field(
         default_factory=list
     )
+    bea: list[BeaSeriesEntry] = dataclasses.field(default_factory=list)
 
     def find_crypto(self, symbol: str) -> CryptoEntry | None:
         """Lookup a crypto entry by symbol (case-insensitive)."""
@@ -235,6 +268,14 @@ class Watchlist:
         lower = series_id.lower()
         for entry in self.macro:
             if entry.series_id.lower() == lower:
+                return entry
+        return None
+
+    def find_bea(self, series_id: str) -> BeaSeriesEntry | None:
+        """Lookup a BEA series by ``<table_id>:<line_number>:<frequency>`` id."""
+        upper = series_id.strip().upper()
+        for entry in self.bea:
+            if entry.series_id.upper() == upper:
                 return entry
         return None
 
@@ -632,6 +673,46 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                 )
             )
 
+    bea: list[BeaSeriesEntry] = []
+    bea_root = data.get("bea", [])
+    if isinstance(bea_root, list):
+        seen_bea_keys: set[str] = set()
+        for entry in bea_root:
+            if not isinstance(entry, dict):
+                continue
+            table_id = entry.get("table_id")
+            raw_line = entry.get("line_number")
+            if not isinstance(table_id, str) or not table_id.strip():
+                continue
+            try:
+                line_number = int(raw_line)
+            except (TypeError, ValueError):
+                continue
+            if line_number < 0:
+                continue
+            frequency_raw = entry.get("frequency", "Q")
+            if not isinstance(frequency_raw, str):
+                continue
+            frequency = frequency_raw.strip().upper()
+            if frequency not in ("Q", "A", "M"):
+                continue
+            normalized_table = table_id.strip().upper()
+            key = f"{normalized_table}:{line_number}:{frequency}"
+            if key in seen_bea_keys:
+                continue
+            seen_bea_keys.add(key)
+            bea.append(
+                BeaSeriesEntry(
+                    table_id=normalized_table,
+                    line_number=line_number,
+                    name=str(entry.get("name") or ""),
+                    frequency=frequency,
+                    tier=str(entry.get("tier") or "primary"),
+                    sleeve=str(entry.get("sleeve") or "cross-sleeve"),
+                    rationale=_optional_string(entry.get("rationale")),
+                )
+            )
+
     return Watchlist(
         crypto=crypto,
         equities=equities,
@@ -642,6 +723,7 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
         cot_markets=cot_markets,
         etf_tickers=etf_tickers,
         eth_whale_addresses=eth_whale_addresses,
+        bea=bea,
     )
 
 
