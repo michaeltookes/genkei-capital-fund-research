@@ -11,15 +11,15 @@ its Fiscal Data endpoint + date-field tuple. The normalizer reads the
 watchlist, indexes every series by that tuple, and for each blob picks
 out the watched series + their (value_field, row_filter) projection.
 
-**Watchlist filter at parse time** — Treasury endpoints return many
+**Watchlist filter/aggregate at parse time** — Treasury endpoints return many
 fields per row and may include many rows per ``record_date`` (e.g.
 ``operating_cash_balance`` returns 25+ rows per day, one per
 account_type). The watchlist curates the specific (value_field +
-row_filter) tuples we care about; the normalizer applies the filter
-and extracts one observation per series per matching row. Watchlist
-series with no matching rows in a blob raise — that points to a
-Treasury contract change (renamed account_type, dropped column) or a
-watchlist typo. Catching it loud is the point.
+row_filter) tuples we care about; the normalizer applies the filter,
+optionally sums multi-line endpoints, and extracts one observation per
+series per period. Watchlist series with no matching rows in a blob
+raise — that points to a Treasury contract change (renamed account_type,
+dropped column) or a watchlist typo. Catching it loud is the point.
 
 **Vintage** — latest-only (NOT vintage-aware). ``treasury.observations``
 PK is ``(series_id, ts)``; re-running this normalizer upserts new
@@ -157,8 +157,10 @@ def normalize_endpoint(
     Returns rows for the *watched* series only. Within a blob, multiple
     series may share the same endpoint — each is filtered independently
     and produces its own ``(series_id, ts)`` observations. Per-(series,
-    ts) dedup: the last matching row wins (rare; Treasury occasionally
-    publishes intraday updates that get superseded by the same blob).
+    ts) dedup: by default the last matching row wins (rare; Treasury
+    occasionally publishes intraday updates that get superseded by the
+    same blob). Series with ``aggregate="sum"`` instead add all matching
+    numeric values for the same period.
     """
     if not isinstance(payload, dict):
         raise ValueError(
@@ -170,6 +172,12 @@ def normalize_endpoint(
             f"Treasury payload for endpoint {source_endpoint} has invalid/missing "
             "`data` list."
         )
+    unsupported_aggregates = sorted(
+        {entry.aggregate for entry in series if entry.aggregate not in (None, "sum")}
+    )
+    if unsupported_aggregates:
+        names = ", ".join(str(value) for value in unsupported_aggregates)
+        raise ValueError(f"Unsupported Treasury aggregate mode(s): {names}")
 
     accepted: set[str] = set()
     series_by_id: dict[str, JsonObject] = {}
@@ -211,7 +219,16 @@ def normalize_endpoint(
                 "fetched_at": fetched_at,
                 "ingest_run_id": ingest_run_id,
             }
-            observations_by_key[(entry.series_id, ts)] = {
+            observation_key = (entry.series_id, ts)
+            observation = observations_by_key.get(observation_key)
+            if entry.aggregate == "sum" and observation is not None:
+                if value is not None:
+                    if observation["value"] is None:
+                        observation["value"] = value
+                    else:
+                        observation["value"] += value
+                continue
+            observations_by_key[observation_key] = {
                 "series_id": entry.series_id,
                 "ts": ts,
                 "value": value,

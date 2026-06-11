@@ -270,6 +270,18 @@ def _tga_entry() -> TreasurySeriesEntry:
     )
 
 
+def _interest_expense_entry() -> TreasurySeriesEntry:
+    return TreasurySeriesEntry(
+        series_id="TOTAL_INTEREST_EXPENSE_MTD",
+        name="Monthly total interest expense",
+        endpoint="/v2/accounting/od/interest_expense",
+        value_field="month_expense_amt",
+        frequency="M",
+        aggregate="sum",
+        units="USD",
+    )
+
+
 class NormalizeEndpointTests(unittest.TestCase):
     def _call(
         self,
@@ -382,6 +394,65 @@ class NormalizeEndpointTests(unittest.TestCase):
                 "account_type": "Treasury General Account (TGA) Closing Balance"
             },
         )
+
+    def test_sum_aggregate_combines_matching_rows_per_period(self) -> None:
+        # interest_expense publishes line items, not a total row. The
+        # watched total series sums all source rows for each month.
+        payload = self._payload(
+            [
+                {
+                    "record_date": "2026-05-31",
+                    "expense_catg_desc": "INTEREST EXPENSE ON PUBLIC ISSUES",
+                    "src_line_nbr": "1",
+                    "month_expense_amt": "10.25",
+                },
+                {
+                    "record_date": "2026-05-31",
+                    "expense_catg_desc": "INTEREST EXPENSE ON GOVT ACCOUNT SERIES",
+                    "src_line_nbr": "30",
+                    "month_expense_amt": "2.75",
+                },
+                {
+                    "record_date": "2026-06-30",
+                    "expense_catg_desc": "INTEREST EXPENSE ON PUBLIC ISSUES",
+                    "src_line_nbr": "1",
+                    "month_expense_amt": "4",
+                },
+            ]
+        )
+        series_rows, observations = self._call(
+            payload, series=[_interest_expense_entry()]
+        )
+        self.assertEqual(len(series_rows), 1)
+        self.assertEqual(len(observations), 2)
+        by_ts = {obs["ts"]: obs for obs in observations}
+        self.assertEqual(
+            by_ts[datetime(2026, 5, 31, tzinfo=timezone.utc)]["value"],
+            13.0,
+        )
+        self.assertEqual(
+            by_ts[datetime(2026, 6, 30, tzinfo=timezone.utc)]["value"],
+            4.0,
+        )
+
+    def test_sum_aggregate_skips_null_components(self) -> None:
+        payload = self._payload(
+            [
+                {
+                    "record_date": "2026-05-31",
+                    "month_expense_amt": "null",
+                },
+                {
+                    "record_date": "2026-05-31",
+                    "month_expense_amt": "7",
+                },
+            ]
+        )
+        _, observations = self._call(
+            payload, series=[_interest_expense_entry()]
+        )
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(observations[0]["value"], 7.0)
 
     def test_missing_value_lands_null(self) -> None:
         payload = self._payload(

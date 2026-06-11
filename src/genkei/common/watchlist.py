@@ -233,6 +233,10 @@ class TreasurySeriesEntry:
     returns one row per ``account_type``; the watchlist filter picks
     the specific account/value field we want).
 
+    ``aggregate`` is intentionally narrow: ``sum`` means combine all
+    matching rows for one ``(series_id, ts)`` observation. Leave unset
+    for the normal "last matching row wins" dedupe behavior.
+
     ``date_field`` defaults to ``record_date`` — every Fiscal Data
     endpoint we use in v1 publishes the period under that field. It's
     kept explicit so future endpoints with non-standard date fields
@@ -252,6 +256,7 @@ class TreasurySeriesEntry:
     frequency: str  # 'D' | 'W' | 'M' | 'Q' | 'A'
     date_field: str = "record_date"
     row_filter: Mapping[str, str] = dataclasses.field(default_factory=dict)
+    aggregate: Literal["sum"] | None = None
     units: str | None = None
     rationale: str | None = None
 
@@ -800,6 +805,15 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                     if isinstance(value, bool) or value is None:
                         continue
                     row_filter[key] = str(value)
+            raw_aggregate = entry.get("aggregate")
+            aggregate: Literal["sum"] | None = None
+            if raw_aggregate is not None:
+                if not isinstance(raw_aggregate, str):
+                    continue
+                normalized_aggregate = raw_aggregate.strip().lower()
+                if normalized_aggregate != "sum":
+                    continue
+                aggregate = "sum"
             seen_treasury_ids.add(series_id)
             treasury.append(
                 TreasurySeriesEntry(
@@ -810,6 +824,7 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                     frequency=frequency,
                     date_field=date_field,
                     row_filter=row_filter,
+                    aggregate=aggregate,
                     units=_optional_string(entry.get("units")),
                     rationale=_optional_string(entry.get("rationale")),
                 )

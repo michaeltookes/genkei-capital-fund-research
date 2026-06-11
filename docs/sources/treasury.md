@@ -22,8 +22,10 @@ load-bearing fiscal dimensions:
 
 `series_id` is a friendly TEXT key chosen in the watchlist (e.g.
 `TOTAL_PUBLIC_DEBT`). Each entry binds a specific endpoint +
-`value_field` + optional `row_filter` projection. The full curated list
-lives in `src/genkei/data/watchlists.yml` under the `treasury:` section.
+`value_field` + optional `row_filter` projection. Multi-line endpoints
+can opt into `aggregate: sum` when the source publishes components but
+no total row. The full curated list lives in
+`src/genkei/data/watchlists.yml` under the `treasury:` section.
 
 ### Why these series
 
@@ -36,8 +38,11 @@ lives in `src/genkei/data/watchlists.yml` under the `treasury:` section.
   (bullish liquidity); a refill drains it (bearish). v1 covers ~April
   2022 onward due to the DTS reporting-format change; pre-2022 backfill
   deferred to v2.
-- **`TOTAL_INTEREST_EXPENSE_MTD`** — actual monthly debt-service cost.
-  Rises mechanically as the average rate × debt level grows.
+- **`TOTAL_INTEREST_EXPENSE_MTD`** — actual monthly debt-service cost,
+  summed across the Fiscal Data `interest_expense` public-issue and
+  government-account-series line items because the endpoint does not
+  publish a separate total row. Rises mechanically as the average rate ×
+  debt level grows.
 - **`AVG_RATE_TOTAL_INTEREST_BEARING`** — blended cost-of-debt across the
   whole federal-debt stack. The summary number.
 - **`AVG_RATE_MARKETABLE_BILLS`** / **`NOTES`** / **`BONDS`** — per-class
@@ -122,6 +127,8 @@ lives in `src/genkei/data/watchlists.yml` under the `treasury:` section.
 glance which row of a multi-row endpoint a series projects from (e.g.
 `TGA_CLOSING_BAL` selects the row where
 `account_type = "Treasury General Account (TGA) Closing Balance"`).
+Series that aggregate multiple rows, such as `TOTAL_INTEREST_EXPENSE_MTD`,
+leave `row_filter` empty and declare `aggregate: sum` in the watchlist.
 
 **`frequency` is NOT in the PK** (unlike BEA's `(series_id, ts, frequency)`).
 Each Treasury series is locked to one cadence by construction —

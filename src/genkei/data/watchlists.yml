@@ -1036,16 +1036,15 @@ treasury:
     row_filter:
       account_type: Treasury General Account (TGA) Closing Balance
     rationale: TGA cash level — load-bearing liquidity signal (drain = liquidity flood; refill = drain). v1 covers ~April 2022 onward due to DTS format change.
-  # interest_expense — monthly interest expense on the public debt.
+  # interest_expense — monthly total interest expense on the public debt.
   - series_id: TOTAL_INTEREST_EXPENSE_MTD
-    name: Monthly interest expense on public debt
+    name: Monthly total interest expense on public debt
     endpoint: /v2/accounting/od/interest_expense
     value_field: month_expense_amt
     frequency: M
+    aggregate: sum
     units: USD
-    row_filter:
-      expense_catg_desc: INTEREST EXPENSE ON PUBLIC ISSUES
-    rationale: Monthly debt-service cost; rises mechanically as average rate × debt level grows. Key fiscal-headwind signal.
+    rationale: Monthly total debt-service cost, summed across Fiscal Data public-issue and government-account-series line items. Key fiscal-headwind signal.
   # avg_interest_rates — monthly weighted-average yield per security class.
   - series_id: AVG_RATE_TOTAL_INTEREST_BEARING
     name: Avg interest rate — total interest-bearing debt
