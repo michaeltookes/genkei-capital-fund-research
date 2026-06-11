@@ -1,0 +1,72 @@
+name: EIA Daily Energy Data
+
+# B-032 — pulls EIA Open Data v2 (oil/gas/power: WTI/Brent spot,
+# weekly crude/gasoline/distillate/SPR inventories, monthly US crude
+# production, Henry Hub spot, Lower-48 gas storage, US gas production,
+# US net electricity generation) once a day on the self-hosted Beelink
+# runner. Most series publish on weekly (Wed inventories, Thu gas
+# storage) or monthly schedules; daily spot prices refresh every
+# business day. The latest-only schema upserts cleanly on no-change
+# days, so a daily cron matches the source without redundant work.
+# 12:30 UTC slots in 30 min after Treasury's daily run so the macro
+# pulls (FRED → BEA → Treasury → EIA) stay sequential on the runner.
+
+on:
+  schedule:
+    - cron: "30 12 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    name: EIA collect + normalize (Postgres-backed)
+    runs-on: [self-hosted, beelink]
+    timeout-minutes: 20
+    env:
+      GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+      EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+
+      - name: Apply database migrations
+        run: alembic upgrade head
+
+      - name: Collect EIA series into meta.raw_blobs
+        id: collect
+        run: |
+          output="$(python3 -m genkei.ingest.eia)"
+          echo "$output"
+          # Parse "EIA collect: meta.ingest_runs id=NNN" — same convention
+          # as FRED / BEA / Treasury so workflow logs stay greppable.
+          run_id_line="$(printf '%s\n' "$output" | grep 'ingest_runs id=' | tail -n 1 || true)"
+          source_run_id="${run_id_line##*=}"
+          if [ -z "$source_run_id" ] || [ "$source_run_id" = "$run_id_line" ]; then
+            echo "Could not parse EIA collector run id from output: $output" >&2
+            exit 1
+          fi
+          if ! printf '%s' "$source_run_id" | grep -Eq '^[0-9]+$'; then
+            echo "Parsed EIA collector run id is not numeric: $source_run_id" >&2
+            exit 1
+          fi
+          echo "source_run_id=$source_run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Normalize raw payloads into eia.* tables
+        env:
+          SOURCE_RUN_ID: ${{ steps.collect.outputs.source_run_id }}
+        run: python3 -m genkei.normalize.eia --source-run-id "$SOURCE_RUN_ID"
