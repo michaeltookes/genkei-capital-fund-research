@@ -9,13 +9,41 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime, timezone
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from genkei.normalize.bea import (
+    _expected_blob_endpoints,
     _parse_note_refs,
+    _validate_blob_coverage,
+    _validate_source_run_row,
+    normalize,
     normalize_table,
     parse_bea_value,
     parse_time_period,
 )
+
+WATCHLIST_YAML = """\
+bea:
+  - table_id: T10101
+    line_number: 1
+    name: Real GDP
+    frequency: Q
+  - table_id: T70100
+    line_number: 5
+    name: Real GDP per capita
+    frequency: A
+"""
+
+
+def _watchlist_path(case: unittest.TestCase) -> Path:
+    ctx = TemporaryDirectory()
+    case.addCleanup(ctx.cleanup)
+    tmp = Path(ctx.name)
+    path = tmp / "watchlists.yml"
+    path.write_text(WATCHLIST_YAML, encoding="utf-8")
+    return path
 
 
 class ParseBeaValueTests(unittest.TestCase):
@@ -126,6 +154,84 @@ class ParseNoteRefsTests(unittest.TestCase):
         self.assertEqual(
             _parse_note_refs(" A , B , C "), ["A", "B", "C"]
         )
+
+
+class SourceRunValidationTests(unittest.TestCase):
+    def test_accepts_successful_bea_collect_run(self) -> None:
+        _validate_source_run_row(123, ("bea", "collect", "success", {}))
+
+    def test_rejects_missing_source_run(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "No BEA collector run"):
+            _validate_source_run_row(123, None)
+
+    def test_rejects_wrong_source_or_endpoint(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "not a BEA collect run"):
+            _validate_source_run_row(123, ("fred", "collect", "success", {}))
+        with self.assertRaisesRegex(SystemExit, "not a BEA collect run"):
+            _validate_source_run_row(123, ("bea", "normalize", "success", {}))
+
+    def test_rejects_failed_source_run(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "not successful"):
+            _validate_source_run_row(123, ("bea", "collect", "failed", {}))
+
+    def test_rejects_partial_endpoint_metadata(self) -> None:
+        metadata = {"partial_endpoints": [{"name": "bea_t70100_a"}]}
+        with self.assertRaisesRegex(SystemExit, "bea_t70100_a"):
+            _validate_source_run_row(123, ("bea", "collect", "success", metadata))
+
+
+class BlobCoverageTests(unittest.TestCase):
+    def test_expected_blob_endpoints_from_watchlist_index(self) -> None:
+        watched_index = {("t10101", "q"): {1}, ("t70100", "a"): {5}}
+        self.assertEqual(
+            _expected_blob_endpoints(watched_index),
+            {"bea_t10101_q", "bea_t70100_a"},
+        )
+
+    def test_rejects_missing_expected_blob_endpoint(self) -> None:
+        now = datetime(2024, 4, 25, 12, tzinfo=timezone.utc)
+        blobs = {"bea_t10101_q": ("url", {}, now)}
+
+        with self.assertRaisesRegex(SystemExit, "bea_t70100_a"):
+            _validate_blob_coverage(
+                123,
+                blobs,
+                {"bea_t10101_q", "bea_t70100_a"},
+            )
+
+
+class NormalizeRunTests(unittest.TestCase):
+    def test_rejects_failed_source_run_before_fetching_blobs(self) -> None:
+        with (
+            patch(
+                "genkei.normalize.bea.validate_source_run",
+                side_effect=SystemExit("failed source"),
+            ) as validate,
+            patch("genkei.normalize.bea.fetch_raw_blobs") as fetch_blobs,
+            patch("genkei.normalize.bea.db.ingest_run") as ingest_run,
+            self.assertRaisesRegex(SystemExit, "failed source"),
+        ):
+            normalize(source_run_id=123, config_path=_watchlist_path(self))
+
+        validate.assert_called_once_with(123)
+        fetch_blobs.assert_not_called()
+        ingest_run.assert_not_called()
+
+    def test_rejects_incomplete_source_run_before_opening_normalize_run(self) -> None:
+        now = datetime(2024, 4, 25, 12, tzinfo=timezone.utc)
+        with (
+            patch("genkei.normalize.bea.validate_source_run") as validate,
+            patch(
+                "genkei.normalize.bea.fetch_raw_blobs",
+                return_value={"bea_t10101_q": ("url", {}, now)},
+            ),
+            patch("genkei.normalize.bea.db.ingest_run") as ingest_run,
+            self.assertRaisesRegex(SystemExit, "bea_t70100_a"),
+        ):
+            normalize(source_run_id=123, config_path=_watchlist_path(self))
+
+        validate.assert_called_once_with(123)
+        ingest_run.assert_not_called()
 
 
 class NormalizeTableTests(unittest.TestCase):

@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from collections.abc import Mapping
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -50,6 +51,7 @@ COLLECT_ENDPOINT_LABEL = "collect"
 BLOB_PREFIX = "bea_"
 RawBlob = tuple[str, Any, datetime]
 JsonObject = dict[str, Any]
+SourceRunRow = tuple[Any, Any, Any, Any]
 LOGGER = logging.getLogger(__name__)
 
 
@@ -287,6 +289,62 @@ def fetch_raw_blobs(source_run_id: int) -> dict[str, RawBlob]:
     }
 
 
+def validate_source_run(source_run_id: int) -> None:
+    """Fail unless ``source_run_id`` points at a complete BEA collect run."""
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT source, endpoint, status, metadata "
+            "FROM meta.ingest_runs WHERE id = %s",
+            [source_run_id],
+        )
+        row = cur.fetchone()
+    _validate_source_run_row(source_run_id, row)
+
+
+def _validate_source_run_row(
+    source_run_id: int,
+    row: SourceRunRow | None,
+) -> None:
+    if row is None:
+        raise SystemExit(f"No BEA collector run found for ingest_run_id={source_run_id}.")
+
+    source, endpoint, status, metadata = row
+    if source != SOURCE_NAME or endpoint != COLLECT_ENDPOINT_LABEL:
+        raise SystemExit(
+            f"ingest_run_id={source_run_id} is not a BEA collect run "
+            f"(source={source!r}, endpoint={endpoint!r})."
+        )
+    if status != "success":
+        raise SystemExit(
+            f"BEA source run {source_run_id} is not successful "
+            f"(status={status!r})."
+        )
+
+    partial_names = _partial_endpoint_names(metadata)
+    if partial_names:
+        names = ", ".join(partial_names)
+        raise SystemExit(
+            f"BEA source run {source_run_id} has partial endpoint failure(s): {names}"
+        )
+
+
+def _partial_endpoint_names(metadata: Any) -> list[str]:
+    if not isinstance(metadata, dict):
+        return []
+    partial = metadata.get("partial_endpoints")
+    if not isinstance(partial, list):
+        return []
+
+    names: list[str] = []
+    for item in partial:
+        if isinstance(item, dict):
+            name = item.get("name")
+            names.append(str(name) if name else "<unknown>")
+        else:
+            names.append(str(item))
+    return names
+
+
 def _build_watched_lines_index(config_path) -> dict[tuple[str, str], set[int]]:
     """Map ``(table_id_lower, frequency_lower)`` → set of watched line numbers.
 
@@ -302,6 +360,28 @@ def _build_watched_lines_index(config_path) -> dict[tuple[str, str], set[int]]:
     return out
 
 
+def _expected_blob_endpoints(
+    watched_index: Mapping[tuple[str, str], set[int]],
+) -> set[str]:
+    return {
+        f"{BLOB_PREFIX}{table_part}_{freq_part}"
+        for table_part, freq_part in watched_index
+    }
+
+
+def _validate_blob_coverage(
+    source_run_id: int,
+    blobs: Mapping[str, RawBlob],
+    expected_endpoints: set[str],
+) -> None:
+    missing = expected_endpoints - set(blobs)
+    if missing:
+        names = ", ".join(sorted(missing))
+        raise SystemExit(
+            f"BEA source run {source_run_id} missing raw blob endpoint(s): {names}"
+        )
+
+
 def normalize(
     *,
     source_run_id: int | None = None,
@@ -310,8 +390,13 @@ def normalize(
     """Run the BEA normalizer once and return the normalizer run id."""
     if source_run_id is None:
         source_run_id = latest_collector_run_id()
-    blobs = fetch_raw_blobs(source_run_id)
+    validate_source_run(source_run_id)
     watched_index = _build_watched_lines_index(config_path)
+    if not watched_index:
+        raise SystemExit("watchlists.yml is missing a `bea:` section or it is empty.")
+    expected_endpoints = _expected_blob_endpoints(watched_index)
+    blobs = fetch_raw_blobs(source_run_id)
+    _validate_blob_coverage(source_run_id, blobs, expected_endpoints)
 
     with db.ingest_run(
         SOURCE_NAME,
