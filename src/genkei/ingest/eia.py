@@ -68,7 +68,6 @@ from genkei.common import db
 from genkei.common.http import HttpClient, RateLimit
 from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
-    EiaSeriesEntry,
     load_watchlist,
 )
 
