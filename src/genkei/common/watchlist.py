@@ -222,6 +222,49 @@ class EthWhaleAddressEntry:
 
 
 @dataclass(frozen=True)
+class EiaSeriesEntry:
+    """An EIA Open Data v2 series we want as an energy time-series target (B-032).
+
+    Each entry binds a friendly ``series_id`` (e.g. ``WTI_SPOT``,
+    ``CRUDE_INV_EXSPR``, ``HH_SPOT``) to one EIA v2 ``route`` plus the
+    ``facets`` that select this specific series within that route.
+
+    EIA v2 organizes data by route (``petroleum/stoc/wstk``,
+    ``natural-gas/stor/wkly``, ``electricity/electric-power-operational-data``)
+    and exposes per-route facet filters. Most legacy time series live under
+    a ``series`` facet (e.g. ``WCESTUS1`` for weekly US ex-SPR crude
+    inventories). Some routes — notably electricity — require multiple
+    facet keys (``fueltype`` + ``location`` + ``sectorid``) to pin a
+    single conceptual series. ``facets`` carries whatever (key, value)
+    pairs the route requires.
+
+    ``data_field`` is the EIA v2 column we extract per row. Most series
+    use ``value``; electricity operational data uses ``generation``;
+    other routes may use ``price``, ``stocks``, etc.
+
+    ``date_field`` defaults to ``period`` — every EIA v2 route returns
+    the period under that field. It's explicit so future routes with
+    non-standard date fields can override.
+
+    ``frequency`` is the cadence of this series at the source: ``D``
+    (daily), ``W`` (weekly), ``M`` (monthly), ``Q`` (quarterly), or
+    ``A`` (annual). EIA accepts these as the ``frequency`` query param.
+    Locked per series — same underlying series at a different cadence
+    would be a separate watchlist entry with a distinct ``series_id``.
+    """
+
+    series_id: str
+    name: str
+    route: str
+    frequency: str  # 'D' | 'W' | 'M' | 'Q' | 'A'
+    data_field: str = "value"
+    date_field: str = "period"
+    facets: Mapping[str, str] = dataclasses.field(default_factory=dict)
+    units: str | None = None
+    rationale: str | None = None
+
+
+@dataclass(frozen=True)
 class TreasurySeriesEntry:
     """A Treasury Fiscal Data series we want as a public-debt / cash / cost-
     of-debt time-series target (B-030).
@@ -278,6 +321,7 @@ class Watchlist:
     )
     bea: list[BeaSeriesEntry] = dataclasses.field(default_factory=list)
     treasury: list[TreasurySeriesEntry] = dataclasses.field(default_factory=list)
+    eia: list[EiaSeriesEntry] = dataclasses.field(default_factory=list)
 
     def find_crypto(self, symbol: str) -> CryptoEntry | None:
         """Lookup a crypto entry by symbol (case-insensitive)."""
@@ -327,6 +371,16 @@ class Watchlist:
             return None
         upper = series_id.strip().upper()
         for entry in self.treasury:
+            if entry.series_id.upper() == upper:
+                return entry
+        return None
+
+    def find_eia(self, series_id: str) -> EiaSeriesEntry | None:
+        """Lookup an EIA series by friendly id (case-insensitive)."""
+        if not series_id:
+            return None
+        upper = series_id.strip().upper()
+        for entry in self.eia:
             if entry.series_id.upper() == upper:
                 return entry
         return None
@@ -830,6 +884,64 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                 )
             )
 
+    eia: list[EiaSeriesEntry] = []
+    eia_root = data.get("eia", [])
+    if isinstance(eia_root, list):
+        seen_eia_ids: set[str] = set()
+        for entry in eia_root:
+            if not isinstance(entry, dict):
+                continue
+            raw_id = entry.get("series_id")
+            if not isinstance(raw_id, str) or not raw_id.strip():
+                continue
+            series_id = raw_id.strip().upper()
+            if series_id in seen_eia_ids:
+                continue
+            route = entry.get("route")
+            if not isinstance(route, str) or not route.strip():
+                continue
+            frequency_raw = entry.get("frequency", "D")
+            if not isinstance(frequency_raw, str):
+                continue
+            frequency = frequency_raw.strip().upper()
+            if frequency not in ("D", "W", "M", "Q", "A"):
+                continue
+            data_field_raw = entry.get("data_field", "value")
+            data_field = (
+                data_field_raw.strip()
+                if isinstance(data_field_raw, str) and data_field_raw.strip()
+                else "value"
+            )
+            date_field_raw = entry.get("date_field", "period")
+            date_field = (
+                date_field_raw.strip()
+                if isinstance(date_field_raw, str) and date_field_raw.strip()
+                else "period"
+            )
+            raw_facets = entry.get("facets", {})
+            facets: dict[str, str] = {}
+            if isinstance(raw_facets, dict):
+                for key, value in raw_facets.items():
+                    if not isinstance(key, str) or not key:
+                        continue
+                    if isinstance(value, bool) or value is None:
+                        continue
+                    facets[key] = str(value)
+            seen_eia_ids.add(series_id)
+            eia.append(
+                EiaSeriesEntry(
+                    series_id=series_id,
+                    name=str(entry.get("name") or ""),
+                    route=route.strip(),
+                    frequency=frequency,
+                    data_field=data_field,
+                    date_field=date_field,
+                    facets=facets,
+                    units=_optional_string(entry.get("units")),
+                    rationale=_optional_string(entry.get("rationale")),
+                )
+            )
+
     return Watchlist(
         crypto=crypto,
         equities=equities,
@@ -842,6 +954,7 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
         eth_whale_addresses=eth_whale_addresses,
         bea=bea,
         treasury=treasury,
+        eia=eia,
     )
 
 
