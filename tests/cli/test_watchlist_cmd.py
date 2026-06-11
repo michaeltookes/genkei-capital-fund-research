@@ -363,6 +363,7 @@ class ExpectationsRegistryTests(unittest.TestCase):
                 "gdelt",
                 "bea",
                 "treasury",
+                "eia",
             },
         )
 
@@ -388,6 +389,7 @@ class ExpectationsRegistryTests(unittest.TestCase):
                 "gdelt",
                 "bea",
                 "treasury",
+                "eia",
                 "signal_emitter",
             },
         )

@@ -184,6 +184,7 @@ PRIMARY_TABLES: dict[str, list[str]] = {
     "gdelt": ["gdelt.gkg"],
     "bea": ["bea.observations"],
     "treasury": ["treasury.observations"],
+    "eia": ["eia.observations"],
     # B-090 — derived view, no ingest_runs row (computed live from
     # coingecko.market_data). Intentionally absent from RECURRING_ENDPOINTS
     # so it doesn't surface as MISSING on the recurring-cron half of the
@@ -249,6 +250,15 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
     # cadence — debt_to_penny + operating_cash_balance refresh daily;
     # the monthly endpoints upsert cleanly on no-change days.
     "treasury": ["collect", "normalize"],
+    # B-032 EIA Open Data v2 — collect lands one raw blob per series
+    # (oil/gas/power, 11 series across petroleum, natural gas, and
+    # electricity) covering a 10y window via paginated facet queries;
+    # normalize projects each blob into eia.observations using the
+    # entry's data_field + per-frequency period parser. Daily cadence —
+    # daily spot prices refresh every business day; weekly inventories
+    # publish Wednesdays; monthly production / generation upsert cleanly
+    # on no-change days.
+    "eia": ["collect", "normalize"],
     # B-064 — one entry per signal emitter that runs on a daily cron.
     # B-093 added crowding; B-094 added eight_k_impact; B-095 added
     # tvl_drawdown (first crypto-side emitter); B-098 added
