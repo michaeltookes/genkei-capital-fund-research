@@ -47,6 +47,8 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from psycopg.types.json import Jsonb
+
 from genkei.common import db
 from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
@@ -199,7 +201,9 @@ def normalize_endpoint(
                 "endpoint": entry.endpoint,
                 "value_field": entry.value_field,
                 "date_field": entry.date_field,
-                "row_filter": dict(entry.row_filter) if entry.row_filter else None,
+                "row_filter": Jsonb(dict(entry.row_filter))
+                if entry.row_filter
+                else None,
                 "units": entry.units,
                 "frequency": entry.frequency,
                 "rationale": entry.rationale,

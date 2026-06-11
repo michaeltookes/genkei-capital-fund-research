@@ -374,9 +374,9 @@ class NormalizeEndpointTests(unittest.TestCase):
         self.assertEqual(len(observations), 1)
         self.assertEqual(observations[0]["series_id"], "TGA_CLOSING_BAL")
         self.assertEqual(observations[0]["value"], 5000.0)
-        # JSONB row_filter persisted on series row.
+        # JSONB row_filter is wrapped so psycopg can adapt it during bulk_upsert.
         self.assertEqual(
-            series_rows[0]["row_filter"],
+            series_rows[0]["row_filter"].obj,
             {
                 "account_type": "Treasury General Account (TGA) Closing Balance"
             },
