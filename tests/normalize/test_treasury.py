@@ -12,9 +12,8 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
-from unittest.mock import patch
 
-from genkei.common.watchlist import TreasurySeriesEntry, load_watchlist
+from genkei.common.watchlist import TreasurySeriesEntry
 from genkei.normalize.treasury import (
     _endpoint_to_blob_name,
     _series_by_endpoint,
@@ -457,9 +456,18 @@ class NormalizeEndpointTests(unittest.TestCase):
         # crash; the empty result triggers the missing-series raise
         # via the orchestrator. Calling normalize_endpoint directly,
         # without series, the empty branch returns ([], []).
-        self.assertEqual(normalize_endpoint("not a dict", series=[], source_endpoint="x", ingest_run_id=1, fetched_at=datetime(2026, 1, 1, tzinfo=timezone.utc)), ([], []))
-        self.assertEqual(normalize_endpoint({}, series=[], source_endpoint="x", ingest_run_id=1, fetched_at=datetime(2026, 1, 1, tzinfo=timezone.utc)), ([], []))
-        self.assertEqual(normalize_endpoint({"data": "not a list"}, series=[], source_endpoint="x", ingest_run_id=1, fetched_at=datetime(2026, 1, 1, tzinfo=timezone.utc)), ([], []))
+        ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        kwargs = {
+            "series": [],
+            "source_endpoint": "x",
+            "ingest_run_id": 1,
+            "fetched_at": ts,
+        }
+        self.assertEqual(normalize_endpoint("not a dict", **kwargs), ([], []))
+        self.assertEqual(normalize_endpoint({}, **kwargs), ([], []))
+        self.assertEqual(
+            normalize_endpoint({"data": "not a list"}, **kwargs), ([], [])
+        )
 
 
 # ---------------------------------------------------------------------------
