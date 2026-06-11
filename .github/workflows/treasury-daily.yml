@@ -1,0 +1,70 @@
+name: Treasury Daily Fiscal Data
+
+# B-030 — pulls Treasury Fiscal Data (debt outstanding, TGA cash
+# balance, monthly interest expense, weighted-avg cost of debt) once
+# a day on the self-hosted Beelink runner. Treasury publishes
+# debt_to_penny and operating_cash_balance daily and the monthly
+# endpoints upsert cleanly on no-change days, so a daily cron matches
+# the source. 12:00 UTC slots in 30 min after BEA's daily run so the
+# three free-API macro pulls (FRED → BEA → Treasury) don't stack on
+# the runner's morning slot.
+
+on:
+  schedule:
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    name: Treasury collect + normalize (Postgres-backed)
+    runs-on: [self-hosted, beelink]
+    timeout-minutes: 15
+    env:
+      GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+
+      - name: Apply database migrations
+        run: alembic upgrade head
+
+      - name: Collect Treasury Fiscal Data into meta.raw_blobs
+        id: collect
+        run: |
+          output="$(python3 -m genkei.ingest.treasury)"
+          echo "$output"
+          # Parse "Treasury collect: meta.ingest_runs id=NNN" — same
+          # convention as the FRED + BEA workflows so workflow logs
+          # stay greppable.
+          run_id_line="$(printf '%s\n' "$output" | grep 'ingest_runs id=' | tail -n 1 || true)"
+          source_run_id="${run_id_line##*=}"
+          if [ -z "$source_run_id" ] || [ "$source_run_id" = "$run_id_line" ]; then
+            echo "Could not parse Treasury collector run id from output: $output" >&2
+            exit 1
+          fi
+          if ! printf '%s' "$source_run_id" | grep -Eq '^[0-9]+$'; then
+            echo "Parsed Treasury collector run id is not numeric: $source_run_id" >&2
+            exit 1
+          fi
+          echo "source_run_id=$source_run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Normalize raw payloads into treasury.* tables
+        env:
+          SOURCE_RUN_ID: ${{ steps.collect.outputs.source_run_id }}
+        run: python3 -m genkei.normalize.treasury --source-run-id "$SOURCE_RUN_ID"

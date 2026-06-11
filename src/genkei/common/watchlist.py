@@ -9,6 +9,7 @@ subcommands both read from here so a fix propagates to every reader.
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -221,6 +222,46 @@ class EthWhaleAddressEntry:
 
 
 @dataclass(frozen=True)
+class TreasurySeriesEntry:
+    """A Treasury Fiscal Data series we want as a public-debt / cash / cost-
+    of-debt time-series target (B-030).
+
+    Each entry binds a friendly ``series_id`` (e.g. ``TOTAL_PUBLIC_DEBT``)
+    to one Fiscal Data API endpoint, one ``value_field`` to extract per
+    row, and an optional ``row_filter`` for endpoints that return
+    multiple rows per record_date (e.g. ``operating_cash_balance``
+    returns one row per ``account_type``; the watchlist filter picks
+    the specific account/value field we want).
+
+    ``aggregate`` is intentionally narrow: ``sum`` means combine all
+    matching rows for one ``(series_id, ts)`` observation. Leave unset
+    for the normal "last matching row wins" dedupe behavior.
+
+    ``date_field`` defaults to ``record_date`` — every Fiscal Data
+    endpoint we use in v1 publishes the period under that field. It's
+    kept explicit so future endpoints with non-standard date fields
+    can override.
+
+    ``frequency`` is the cadence of this series at the source: ``D``
+    (daily), ``W`` (weekly), ``M`` (monthly), ``Q`` (quarterly), or
+    ``A`` (annual). Locked per series — same underlying line at a
+    different cadence would be a separate watchlist entry with a
+    distinct ``series_id``.
+    """
+
+    series_id: str
+    name: str
+    endpoint: str
+    value_field: str
+    frequency: str  # 'D' | 'W' | 'M' | 'Q' | 'A'
+    date_field: str = "record_date"
+    row_filter: Mapping[str, str] = dataclasses.field(default_factory=dict)
+    aggregate: Literal["sum"] | None = None
+    units: str | None = None
+    rationale: str | None = None
+
+
+@dataclass(frozen=True)
 class Watchlist:
     """Typed watchlist data with convenience lookups by source identifier."""
 
@@ -236,6 +277,7 @@ class Watchlist:
         default_factory=list
     )
     bea: list[BeaSeriesEntry] = dataclasses.field(default_factory=list)
+    treasury: list[TreasurySeriesEntry] = dataclasses.field(default_factory=list)
 
     def find_crypto(self, symbol: str) -> CryptoEntry | None:
         """Lookup a crypto entry by symbol (case-insensitive)."""
@@ -275,6 +317,16 @@ class Watchlist:
         """Lookup a BEA series by ``<table_id>:<line_number>:<frequency>`` id."""
         upper = series_id.strip().upper()
         for entry in self.bea:
+            if entry.series_id.upper() == upper:
+                return entry
+        return None
+
+    def find_treasury(self, series_id: str) -> TreasurySeriesEntry | None:
+        """Lookup a Treasury series by friendly id (case-insensitive)."""
+        if not series_id:
+            return None
+        upper = series_id.strip().upper()
+        for entry in self.treasury:
             if entry.series_id.upper() == upper:
                 return entry
         return None
@@ -713,6 +765,71 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                 )
             )
 
+    treasury: list[TreasurySeriesEntry] = []
+    treasury_root = data.get("treasury", [])
+    if isinstance(treasury_root, list):
+        seen_treasury_ids: set[str] = set()
+        for entry in treasury_root:
+            if not isinstance(entry, dict):
+                continue
+            raw_id = entry.get("series_id")
+            if not isinstance(raw_id, str) or not raw_id.strip():
+                continue
+            series_id = raw_id.strip().upper()
+            if series_id in seen_treasury_ids:
+                continue
+            endpoint = entry.get("endpoint")
+            value_field = entry.get("value_field")
+            if not isinstance(endpoint, str) or not endpoint.strip():
+                continue
+            if not isinstance(value_field, str) or not value_field.strip():
+                continue
+            frequency_raw = entry.get("frequency", "D")
+            if not isinstance(frequency_raw, str):
+                continue
+            frequency = frequency_raw.strip().upper()
+            if frequency not in ("D", "W", "M", "Q", "A"):
+                continue
+            date_field_raw = entry.get("date_field", "record_date")
+            date_field = (
+                date_field_raw.strip()
+                if isinstance(date_field_raw, str) and date_field_raw.strip()
+                else "record_date"
+            )
+            raw_filter = entry.get("row_filter", {})
+            row_filter: dict[str, str] = {}
+            if isinstance(raw_filter, dict):
+                for key, value in raw_filter.items():
+                    if not isinstance(key, str) or not key:
+                        continue
+                    if isinstance(value, bool) or value is None:
+                        continue
+                    row_filter[key] = str(value)
+            raw_aggregate = entry.get("aggregate")
+            aggregate: Literal["sum"] | None = None
+            if raw_aggregate is not None:
+                if not isinstance(raw_aggregate, str):
+                    continue
+                normalized_aggregate = raw_aggregate.strip().lower()
+                if normalized_aggregate != "sum":
+                    continue
+                aggregate = "sum"
+            seen_treasury_ids.add(series_id)
+            treasury.append(
+                TreasurySeriesEntry(
+                    series_id=series_id,
+                    name=str(entry.get("name") or ""),
+                    endpoint=endpoint.strip(),
+                    value_field=value_field.strip(),
+                    frequency=frequency,
+                    date_field=date_field,
+                    row_filter=row_filter,
+                    aggregate=aggregate,
+                    units=_optional_string(entry.get("units")),
+                    rationale=_optional_string(entry.get("rationale")),
+                )
+            )
+
     return Watchlist(
         crypto=crypto,
         equities=equities,
@@ -724,6 +841,7 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
         etf_tickers=etf_tickers,
         eth_whale_addresses=eth_whale_addresses,
         bea=bea,
+        treasury=treasury,
     )
 
 

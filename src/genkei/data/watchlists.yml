@@ -995,3 +995,94 @@ bea:
     name: Real GDP per capita
     frequency: A
     rationale: Long-run productivity / standard-of-living proxy; annual cadence.
+
+# Treasury Fiscal Data — public-debt, Treasury cash, and cost-of-debt
+# series from api.fiscaldata.treasury.gov. v1 curates 9 series across
+# 4 endpoints; auctions are deferred (event-shaped, separate schema).
+# See docs/sources/treasury.md.
+treasury:
+  # debt_to_penny — daily total US public debt (one row per record_date)
+  - series_id: TOTAL_PUBLIC_DEBT
+    name: Total Public Debt Outstanding
+    endpoint: /v2/accounting/od/debt_to_penny
+    value_field: tot_pub_debt_out_amt
+    frequency: D
+    units: USD
+    rationale: Daily headline US national debt; the load-bearing fiscal-stance level.
+  - series_id: DEBT_HELD_PUBLIC
+    name: Debt Held by the Public
+    endpoint: /v2/accounting/od/debt_to_penny
+    value_field: debt_held_public_amt
+    frequency: D
+    units: USD
+    rationale: Market-held debt only (excludes intragovernmental); the supply markets actually price.
+  - series_id: INTRAGOV_HOLDINGS
+    name: Intragovernmental Holdings
+    endpoint: /v2/accounting/od/debt_to_penny
+    value_field: intragov_hold_amt
+    frequency: D
+    units: USD
+    rationale: SS trust funds + similar non-market holdings; subtract from total to recover public-held.
+  # operating_cash_balance — daily Treasury General Account balance.
+  # Multiple account_type rows per record_date; row_filter selects the
+  # canonical TGA closing-balance row. v1 covers ~April 2022 forward
+  # due to DTS reporting-format change; pre-2022 backfill deferred to v2.
+  - series_id: TGA_CLOSING_BAL
+    name: Treasury General Account — closing balance
+    endpoint: /v1/accounting/dts/operating_cash_balance
+    value_field: open_today_bal
+    frequency: D
+    units: USD_MILLIONS
+    row_filter:
+      account_type: Treasury General Account (TGA) Closing Balance
+    rationale: TGA cash level — load-bearing liquidity signal (drain = liquidity flood; refill = drain). v1 covers ~April 2022 onward due to DTS format change.
+  # interest_expense — monthly total interest expense on the public debt.
+  - series_id: TOTAL_INTEREST_EXPENSE_MTD
+    name: Monthly total interest expense on public debt
+    endpoint: /v2/accounting/od/interest_expense
+    value_field: month_expense_amt
+    frequency: M
+    aggregate: sum
+    units: USD
+    rationale: Monthly total debt-service cost, summed across Fiscal Data public-issue and government-account-series line items. Key fiscal-headwind signal.
+  # avg_interest_rates — monthly weighted-average yield per security class.
+  - series_id: AVG_RATE_TOTAL_INTEREST_BEARING
+    name: Avg interest rate — total interest-bearing debt
+    endpoint: /v2/accounting/od/avg_interest_rates
+    value_field: avg_interest_rate_amt
+    frequency: M
+    units: PERCENT
+    row_filter:
+      security_type_desc: Interest-bearing Debt
+      security_desc: Total Interest-bearing Debt
+    rationale: Blended cost-of-debt across the whole federal-debt stack. The summary number.
+  - series_id: AVG_RATE_MARKETABLE_BILLS
+    name: Avg interest rate — Treasury Bills
+    endpoint: /v2/accounting/od/avg_interest_rates
+    value_field: avg_interest_rate_amt
+    frequency: M
+    units: PERCENT
+    row_filter:
+      security_type_desc: Marketable
+      security_desc: Treasury Bills
+    rationale: Front-end Treasury cost; tracks the policy rate closely.
+  - series_id: AVG_RATE_MARKETABLE_NOTES
+    name: Avg interest rate — Treasury Notes
+    endpoint: /v2/accounting/od/avg_interest_rates
+    value_field: avg_interest_rate_amt
+    frequency: M
+    units: PERCENT
+    row_filter:
+      security_type_desc: Marketable
+      security_desc: Treasury Notes
+    rationale: Belly Treasury cost; refinances dominate near-term funding pressure.
+  - series_id: AVG_RATE_MARKETABLE_BONDS
+    name: Avg interest rate — Treasury Bonds
+    endpoint: /v2/accounting/od/avg_interest_rates
+    value_field: avg_interest_rate_amt
+    frequency: M
+    units: PERCENT
+    row_filter:
+      security_type_desc: Marketable
+      security_desc: Treasury Bonds
+    rationale: Long-end Treasury cost; the term-premium-driven rate the duration-sensitive sleeves track.

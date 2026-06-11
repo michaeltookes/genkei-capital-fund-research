@@ -17,6 +17,7 @@ from genkei.common.watchlist import (
     BenchmarkEntry,
     CotMarketEntry,
     EtfTickerEntry,
+    TreasurySeriesEntry,
     load_watchlist,
 )
 
@@ -225,6 +226,25 @@ etf_tickers:
     issuer: BlackRock
 """
 
+TREASURY_YAML = """\
+version: 1
+treasury:
+  - series_id: TOTAL_INTEREST_EXPENSE_MTD
+    name: Monthly total interest expense
+    endpoint: /v2/accounting/od/interest_expense
+    value_field: month_expense_amt
+    frequency: M
+    aggregate: sum
+    units: USD
+  - series_id: TGA_CLOSING_BAL
+    name: TGA closing balance
+    endpoint: /v1/accounting/dts/operating_cash_balance
+    value_field: open_today_bal
+    frequency: D
+    row_filter:
+      account_type: Treasury General Account (TGA) Closing Balance
+"""
+
 
 class EtfTickersParserTests(unittest.TestCase):
     """Pin the etf_tickers loader path (B-105)."""
@@ -360,6 +380,55 @@ class EtfTickersParserTests(unittest.TestCase):
         self.assertIsNotNone(ethb)
         self.assertEqual(ethb.issuer, "BlackRock")
         self.assertEqual(ethb.launch_date, "2026-03-12")
+
+
+class TreasuryParserTests(unittest.TestCase):
+    """Pin Treasury watchlist parsing for row filters and aggregate totals."""
+
+    def test_parses_sum_aggregate(self) -> None:
+        w = _load(TREASURY_YAML)
+        interest = w.find_treasury("total_interest_expense_mtd")
+        self.assertIsNotNone(interest)
+        self.assertIsInstance(interest, TreasurySeriesEntry)
+        self.assertEqual(interest.aggregate, "sum")
+        self.assertEqual(interest.row_filter, {})
+
+    def test_row_filter_series_keeps_default_aggregate(self) -> None:
+        w = _load(TREASURY_YAML)
+        tga = w.find_treasury("TGA_CLOSING_BAL")
+        self.assertIsNotNone(tga)
+        self.assertIsNone(tga.aggregate)
+        self.assertEqual(
+            tga.row_filter,
+            {"account_type": "Treasury General Account (TGA) Closing Balance"},
+        )
+
+    def test_unknown_aggregate_drops_row(self) -> None:
+        body = (
+            "version: 1\n"
+            "treasury:\n"
+            "  - series_id: BAD_AGG\n"
+            "    name: bad\n"
+            "    endpoint: /v2/accounting/od/interest_expense\n"
+            "    value_field: month_expense_amt\n"
+            "    frequency: M\n"
+            "    aggregate: average\n"
+            "  - series_id: GOOD_AGG\n"
+            "    name: good\n"
+            "    endpoint: /v2/accounting/od/interest_expense\n"
+            "    value_field: month_expense_amt\n"
+            "    frequency: M\n"
+            "    aggregate: sum\n"
+        )
+        w = _load(body)
+        self.assertEqual([entry.series_id for entry in w.treasury], ["GOOD_AGG"])
+
+    def test_packaged_interest_expense_is_total_aggregate(self) -> None:
+        w = load_watchlist(DEFAULT_WATCHLIST_PATH)
+        interest = w.find_treasury("TOTAL_INTEREST_EXPENSE_MTD")
+        self.assertIsNotNone(interest)
+        self.assertEqual(interest.aggregate, "sum")
+        self.assertEqual(interest.row_filter, {})
 
 
 if __name__ == "__main__":
