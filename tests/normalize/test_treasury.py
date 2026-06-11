@@ -397,6 +397,22 @@ class NormalizeEndpointTests(unittest.TestCase):
         for obs in observations:
             self.assertIsNone(obs["value"])
 
+    def test_missing_value_field_raises(self) -> None:
+        payload = self._payload(
+            [
+                {
+                    "record_date": "2024-06-10",
+                    "tot_pub_debt_out_amt": "1",
+                }
+            ]
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"missing value field 'debt_held_public_amt'.*DEBT_HELD_PUBLIC",
+        ):
+            self._call(payload)
+
     def test_unparseable_date_drops_row(self) -> None:
         payload = self._payload(
             [
@@ -451,11 +467,8 @@ class NormalizeEndpointTests(unittest.TestCase):
         for obs in observations:
             self.assertEqual(obs["value"], 2.0)
 
-    def test_malformed_payload_returns_empty(self) -> None:
-        # Defensive — non-dict payloads / missing data block don't
-        # crash; the empty result triggers the missing-series raise
-        # via the orchestrator. Calling normalize_endpoint directly,
-        # without series, the empty branch returns ([], []).
+    def test_malformed_payload_raises(self) -> None:
+        # Malformed raw blobs are source contract failures, not empty results.
         ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
         kwargs = {
             "series": [],
@@ -463,11 +476,12 @@ class NormalizeEndpointTests(unittest.TestCase):
             "ingest_run_id": 1,
             "fetched_at": ts,
         }
-        self.assertEqual(normalize_endpoint("not a dict", **kwargs), ([], []))
-        self.assertEqual(normalize_endpoint({}, **kwargs), ([], []))
-        self.assertEqual(
-            normalize_endpoint({"data": "not a list"}, **kwargs), ([], [])
-        )
+        with self.assertRaisesRegex(ValueError, "not a JSON object"):
+            normalize_endpoint("not a dict", **kwargs)
+        with self.assertRaisesRegex(ValueError, "invalid/missing `data` list"):
+            normalize_endpoint({}, **kwargs)
+        with self.assertRaisesRegex(ValueError, "invalid/missing `data` list"):
+            normalize_endpoint({"data": "not a list"}, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -481,11 +495,15 @@ class EndpointToBlobNameTests(unittest.TestCase):
         # so the dispatch loop finds the blob it expects.
         self.assertEqual(
             _endpoint_to_blob_name("/v2/accounting/od/debt_to_penny"),
-            "treasury_v2_accounting_od_debt_to_penny",
+            "treasury_v2_accounting_od_debt_to_penny__record_date",
         )
         self.assertEqual(
             _endpoint_to_blob_name("/v1/accounting/dts/operating_cash_balance"),
-            "treasury_v1_accounting_dts_operating_cash_balance",
+            "treasury_v1_accounting_dts_operating_cash_balance__record_date",
+        )
+        self.assertEqual(
+            _endpoint_to_blob_name("/v2/accounting/foo", "reporting_date"),
+            "treasury_v2_accounting_foo__reporting_date",
         )
 
 
@@ -493,12 +511,18 @@ class SeriesByEndpointTests(unittest.TestCase):
     def test_groups_shared_endpoint(self) -> None:
         path = _watchlist_path(self)
         grouped = _series_by_endpoint(path)
-        self.assertEqual(set(grouped.keys()), {
-            "/v2/accounting/od/debt_to_penny",
-            "/v1/accounting/dts/operating_cash_balance",
-        })
         self.assertEqual(
-            sorted(e.series_id for e in grouped["/v2/accounting/od/debt_to_penny"]),
+            set(grouped.keys()),
+            {
+                ("/v2/accounting/od/debt_to_penny", "record_date"),
+                ("/v1/accounting/dts/operating_cash_balance", "record_date"),
+            },
+        )
+        self.assertEqual(
+            sorted(
+                e.series_id
+                for e in grouped[("/v2/accounting/od/debt_to_penny", "record_date")]
+            ),
             ["DEBT_HELD_PUBLIC", "TOTAL_PUBLIC_DEBT"],
         )
 

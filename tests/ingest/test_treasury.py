@@ -84,7 +84,7 @@ class EndpointTargetTests(unittest.TestCase):
             date_field="record_date",
         )
         self.assertEqual(
-            target.blob_endpoint, "treasury_v2_accounting_od_debt_to_penny"
+            target.blob_endpoint, "treasury_v2_accounting_od_debt_to_penny__record_date"
         )
 
     def test_blob_endpoint_handles_v1_dts_path(self) -> None:
@@ -94,7 +94,7 @@ class EndpointTargetTests(unittest.TestCase):
         )
         self.assertEqual(
             target.blob_endpoint,
-            "treasury_v1_accounting_dts_operating_cash_balance",
+            "treasury_v1_accounting_dts_operating_cash_balance__record_date",
         )
 
     def test_blob_endpoint_lowercases_uppercase_paths(self) -> None:
@@ -104,7 +104,14 @@ class EndpointTargetTests(unittest.TestCase):
         target = EndpointTarget(
             endpoint="/V2/Accounting/Foo", date_field="record_date"
         )
-        self.assertEqual(target.blob_endpoint, "treasury_v2_accounting_foo")
+        self.assertEqual(target.blob_endpoint, "treasury_v2_accounting_foo__record_date")
+
+    def test_blob_endpoint_includes_date_field(self) -> None:
+        first = EndpointTarget(endpoint="/v2/accounting/foo", date_field="record_date")
+        second = EndpointTarget(endpoint="/v2/accounting/foo", date_field="reporting_date")
+
+        self.assertNotEqual(first.blob_endpoint, second.blob_endpoint)
+        self.assertEqual(second.blob_endpoint, "treasury_v2_accounting_foo__reporting_date")
 
 
 class LoadTargetsTests(unittest.TestCase):

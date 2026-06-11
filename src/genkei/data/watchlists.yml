@@ -997,7 +997,7 @@ bea:
     rationale: Long-run productivity / standard-of-living proxy; annual cadence.
 
 # Treasury Fiscal Data — public-debt, Treasury cash, and cost-of-debt
-# series from api.fiscaldata.treasury.gov. v1 curates 8 series across
+# series from api.fiscaldata.treasury.gov. v1 curates 9 series across
 # 4 endpoints; auctions are deferred (event-shaped, separate schema).
 # See docs/sources/treasury.md.
 treasury:

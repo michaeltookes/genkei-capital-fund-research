@@ -102,6 +102,7 @@ def upgrade() -> None:
             source_endpoint TEXT        NOT NULL,
             fetched_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
             ingest_run_id   BIGINT      NOT NULL REFERENCES meta.ingest_runs(id),
+            FOREIGN KEY (series_id) REFERENCES treasury.series(series_id),
             PRIMARY KEY (series_id, ts)
         )
         """

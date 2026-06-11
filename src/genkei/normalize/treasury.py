@@ -6,10 +6,10 @@ collector run whose blobs were processed (same audit pattern as FRED's
 B-028 and BEA's B-029 normalizers).
 
 **Per-blob dispatch** — each blob's ``endpoint_name`` (e.g.
-``treasury_v2_accounting_od_debt_to_penny``) reverse-maps to its
-Fiscal Data endpoint path. The normalizer reads the watchlist, indexes
-every series by its endpoint, and for each blob picks out the watched
-series + their (value_field, row_filter) projection.
+``treasury_v2_accounting_od_debt_to_penny__record_date``) reverse-maps to
+its Fiscal Data endpoint + date-field tuple. The normalizer reads the
+watchlist, indexes every series by that tuple, and for each blob picks
+out the watched series + their (value_field, row_filter) projection.
 
 **Watchlist filter at parse time** — Treasury endpoints return many
 fields per row and may include many rows per ``record_date`` (e.g.
@@ -53,6 +53,7 @@ from genkei.common.watchlist import (
     TreasurySeriesEntry,
     load_watchlist,
 )
+from genkei.ingest.treasury import _blob_slug_part
 
 SOURCE_NAME = "treasury"
 NORMALIZE_ENDPOINT_LABEL = "normalize"
@@ -158,10 +159,15 @@ def normalize_endpoint(
     publishes intraday updates that get superseded by the same blob).
     """
     if not isinstance(payload, dict):
-        return [], []
+        raise ValueError(
+            f"Treasury payload for endpoint {source_endpoint} is not a JSON object."
+        )
     data = payload.get("data")
     if not isinstance(data, list):
-        return [], []
+        raise ValueError(
+            f"Treasury payload for endpoint {source_endpoint} has invalid/missing "
+            "`data` list."
+        )
 
     accepted: set[str] = set()
     series_by_id: dict[str, JsonObject] = {}
@@ -178,7 +184,12 @@ def normalize_endpoint(
             ts = parse_record_date(raw_row.get(entry.date_field))
             if ts is None:
                 continue
-            raw_value = raw_row.get(entry.value_field)
+            if entry.value_field not in raw_row:
+                raise ValueError(
+                    f"Treasury response for {entry.endpoint} is missing value field "
+                    f"{entry.value_field!r} for series {entry.series_id}."
+                )
+            raw_value = raw_row[entry.value_field]
             value = parse_value(raw_value)
 
             accepted.add(entry.series_id)
@@ -316,26 +327,26 @@ def _partial_endpoint_names(metadata: Any) -> list[str]:
 
 def _series_by_endpoint(
     config_path: Path | str,
-) -> dict[str, list[TreasurySeriesEntry]]:
-    """Group watchlist series by endpoint path.
+) -> dict[tuple[str, str], list[TreasurySeriesEntry]]:
+    """Group watchlist series by endpoint path and date field.
 
-    Returns ``{endpoint: [TreasurySeriesEntry, ...]}`` for use by the
-    per-blob dispatch loop. The endpoint key matches
-    ``TreasurySeriesEntry.endpoint`` verbatim, with a parallel
-    ``blob_endpoint`` lookup constructed at validation time.
+    Returns ``{(endpoint, date_field): [TreasurySeriesEntry, ...]}`` for use by
+    the per-blob dispatch loop. The tuple mirrors the collector's target key so
+    distinct pulls from the same endpoint cannot overwrite each other.
     """
     resolved = config_path if isinstance(config_path, Path) else Path(config_path)
     watchlist = load_watchlist(resolved)
-    out: dict[str, list[TreasurySeriesEntry]] = {}
+    out: dict[tuple[str, str], list[TreasurySeriesEntry]] = {}
     for entry in watchlist.treasury:
-        out.setdefault(entry.endpoint, []).append(entry)
+        out.setdefault((entry.endpoint, entry.date_field), []).append(entry)
     return out
 
 
-def _endpoint_to_blob_name(endpoint: str) -> str:
+def _endpoint_to_blob_name(endpoint: str, date_field: str = "record_date") -> str:
     """Mirror ``ingest.treasury.EndpointTarget.blob_endpoint`` slug logic."""
-    slug = endpoint.strip("/").replace("/", "_").lower()
-    return f"{BLOB_PREFIX}{slug}"
+    endpoint_slug = _blob_slug_part(endpoint)
+    date_slug = _blob_slug_part(date_field)
+    return f"{BLOB_PREFIX}{endpoint_slug}__{date_slug}"
 
 
 def _validate_blob_coverage(
@@ -367,7 +378,8 @@ def normalize(
             "watchlists.yml is missing a `treasury:` section or it is empty."
         )
     expected_blob_endpoints = {
-        _endpoint_to_blob_name(endpoint) for endpoint in grouped
+        _endpoint_to_blob_name(endpoint, date_field)
+        for endpoint, date_field in grouped
     }
     blobs = fetch_raw_blobs(source_run_id)
     _validate_blob_coverage(source_run_id, blobs, expected_blob_endpoints)
@@ -379,19 +391,20 @@ def normalize(
     ) as run:
         series_rows: list[JsonObject] = []
         observation_rows: list[JsonObject] = []
-        blob_endpoint_to_endpoint = {
-            _endpoint_to_blob_name(endpoint): endpoint for endpoint in grouped
+        blob_endpoint_to_target = {
+            _endpoint_to_blob_name(endpoint, date_field): (endpoint, date_field)
+            for endpoint, date_field in grouped
         }
 
         for endpoint_name, (url, payload, fetched_at) in blobs.items():
-            endpoint = blob_endpoint_to_endpoint.get(endpoint_name)
-            if endpoint is None:
+            target = blob_endpoint_to_target.get(endpoint_name)
+            if target is None:
                 LOGGER.debug(
                     "Treasury normalizer skipping unrecognized blob: %s",
                     endpoint_name,
                 )
                 continue
-            series_for_endpoint = grouped[endpoint]
+            series_for_endpoint = grouped[target]
             endpoint_series, endpoint_observations = normalize_endpoint(
                 payload,
                 series=series_for_endpoint,

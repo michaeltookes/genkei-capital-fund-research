@@ -78,6 +78,11 @@ DEFAULT_RATE_LIMIT = RateLimit.per_second(2)
 LOGGER = logging.getLogger(__name__)
 
 
+def _blob_slug_part(value: str) -> str:
+    """Normalize endpoint/date-field text for raw blob endpoint names."""
+    return value.strip("/").strip().replace("/", "_").replace(" ", "_").lower()
+
+
 @dataclass(frozen=True)
 class EndpointTarget:
     """One Treasury Fiscal Data endpoint we fetch in a single API call.
@@ -99,8 +104,9 @@ class EndpointTarget:
         (endpoint, date_field) tuple maps to a unique, filesystem-safe
         identifier that the normalizer can reverse-map back.
         """
-        slug = self.endpoint.strip("/").replace("/", "_").lower()
-        return f"{BLOB_PREFIX}{slug}"
+        endpoint_slug = _blob_slug_part(self.endpoint)
+        date_slug = _blob_slug_part(self.date_field)
+        return f"{BLOB_PREFIX}{endpoint_slug}__{date_slug}"
 
 
 def load_targets(path: Path = DEFAULT_WATCHLIST_PATH) -> list[EndpointTarget]:
