@@ -178,15 +178,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Unit tests cover the new allocation parser.
   - Update the SUI 2026-05-20 research decision file's Backlog implications note to mark the gap fully closed.
 
-### B-032 — EIA energy data ingester
-- **Status:** open
-- **Priority:** medium
-- **Context:** Oil inventories, natural gas storage, electricity demand — useful for energy-sector context.
-- **Acceptance criteria:**
-  - API key (free).
-  - Full series backfill.
-  - Configurable series list in `config/macro_series.yml` or sibling.
-
 ### B-036 — Per-source ingest documentation
 - **Status:** open
 - **Priority:** medium
