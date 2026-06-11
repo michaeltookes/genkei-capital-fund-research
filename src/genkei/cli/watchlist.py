@@ -183,6 +183,7 @@ PRIMARY_TABLES: dict[str, list[str]] = {
     "ishares": ["etf.fund_snapshots"],
     "gdelt": ["gdelt.gkg"],
     "bea": ["bea.observations"],
+    "treasury": ["treasury.observations"],
     # B-090 — derived view, no ingest_runs row (computed live from
     # coingecko.market_data). Intentionally absent from RECURRING_ENDPOINTS
     # so it doesn't surface as MISSING on the recurring-cron half of the
@@ -240,6 +241,14 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
     # FRED even though BEA publishes on a quarterly release schedule —
     # the latest-only schema upserts cleanly on no-change days.
     "bea": ["collect", "normalize"],
+    # B-030 Treasury Fiscal Data — collect lands one raw blob per
+    # endpoint (debt_to_penny, operating_cash_balance, interest_expense,
+    # avg_interest_rates) covering full history via paginated GETs;
+    # normalize parses each blob + applies the watchlist row_filter +
+    # upserts into treasury.series / treasury.observations. Daily
+    # cadence — debt_to_penny + operating_cash_balance refresh daily;
+    # the monthly endpoints upsert cleanly on no-change days.
+    "treasury": ["collect", "normalize"],
     # B-064 — one entry per signal emitter that runs on a daily cron.
     # B-093 added crowding; B-094 added eight_k_impact; B-095 added
     # tvl_drawdown (first crypto-side emitter); B-098 added
