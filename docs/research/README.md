@@ -42,6 +42,25 @@ Every decision file's frontmatter MUST have these keys (validated in CI by `test
 
 Add optional keys freely (`tags`, `related`, etc.). The contract is the minimum.
 
+> **Date-valued keys must be date-only.** `tests/test_research_decisions.py` rejects any frontmatter value that parses to a `datetime` rather than a `date`. So a key like `trigger_fired_at` must be written `YYYY-MM-DD` (e.g. `2026-06-02`), never a full timestamp — PyYAML parses the bare date to `datetime.date` (passes) but a `…T00:00:00Z` string to `datetime.datetime` (fails).
+
+## Supersession and trigger-fire (early resolution)
+
+A decision normally resolves at its horizon. Two events resolve it *early*, and both must be recorded in frontmatter so `/reflect-decisions` doesn't leave the old call leaking into the pending queue forever (it skips `resolved`/`deferred`, but a superseded decision left `pending` keeps getting re-queued — a real failure mode found during the B-118 dry run, where the 2026-05-20 SUI decision was superseded but still `pending`).
+
+**Supersession** — a newer decision replaces an older one's call before the older one's horizon:
+
+- The **new** decision carries `supersedes: <old-slug>` in frontmatter; `/research` must emit this key whenever it writes a replacement decision.
+- The **old** decision flips to `status: resolved`, gains `superseded_by: <new-slug>`, and gets a short `## Outcome` note pointing forward (no alpha computed — the call was carried forward, not graded). This mirrors how the 2025-12-05 CRM decision was closed by the 2026-06-05 SaaS-sector decision.
+
+**Trigger-fire** — a `trigger_reassessment` condition is observed *before* horizon, prompting a fresh decision rather than waiting it out:
+
+- Add `trigger_fired_at: YYYY-MM-DD` (date-only) to the old decision recording when the condition tripped.
+- File a new decision for the action taken; link the two (`supersedes:`/`superseded_by:` if it replaces the call, or `related:` if it merely refines it).
+- `/reflect-decisions` excludes a decision whose trigger fired before horizon from *horizon* outcome-pairing — the trigger path already handled it — and resolves it with a forward-link instead of grading it on a benchmark it was never held to.
+
+The two often co-occur: the 2026-05-20 SUI decision's bearish trigger fired on 2026-06-02 (a −20.7% move), and the 2026-06-02 rotation decision both records that fire and supersedes it.
+
 ## Keeping prompts in sync with the CLI
 
 The methodology prompts ARE the researcher's program — a stale claim in them produces wrong behavior in every future session, silently. (Real example: after B-092 shipped equity prices, the reflect prompt still said "equity prices aren't ingested," which would have terminally `deferred` every equity decision out of the reflection cycle.)

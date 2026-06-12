@@ -16,7 +16,9 @@ Loaded automatically by the `/reflect-decisions` skill. Run manually to start; w
 - `months` → 6 months (~180 days)
 - `years` → 12 months (~365 days)
 
-A decision is **eligible for reflection** when `today - date >= horizon_days`. Skip decisions where the trigger-condition has already fired (those should have been re-evaluated at trigger time, not at horizon time).
+A decision is **eligible for reflection** when `today - date >= horizon_days`.
+
+**Early resolution beats the horizon math.** A decision that was superseded (frontmatter `superseded_by` set) or whose trigger fired before horizon (`trigger_fired_at` / `trigger_fired: true`) resolves *now*, with a forward-link to the successor decision rather than a benchmark-paired outcome — see `docs/research/README.md` → "Supersession and trigger-fire". Don't grade it on a benchmark it was never held to, and don't leave it `pending` (a superseded decision left pending re-queues every run — the exact bug the B-118 dry run caught on the 2026-05-20 SUI decision). Resolve it with a short note and count it as batch work to summarize and commit, even if no horizon-eligible decisions remain.
 
 ---
 
@@ -25,13 +27,14 @@ A decision is **eligible for reflection** when `today - date >= horizon_days`. S
 Walk `docs/research/decisions/*.md`. For each file:
 
 1. Parse the YAML frontmatter (between the `---` fences).
-2. Skip if `status: resolved` already (already reflected).
+2. Skip if `status: resolved` or `status: deferred` (terminal — already handled).
 3. Skip the template file `_template.md` and `README.md`.
-4. Compute `elapsed_days = (today - frontmatter.date).days`.
-5. Skip if `elapsed_days < horizon_days` per the mapping above.
-6. Add the rest to the to-reflect queue.
+4. **Early-resolution check:** if `superseded_by` is set OR `trigger_fired_at` / `trigger_fired: true` is present — and the file is still `pending` — resolve it now (see "Early resolution beats the horizon math" above), add it to the `early_resolved` list for the batch summary/commit, and skip remaining steps for this file.
+5. Compute `elapsed_days = (today - frontmatter.date).days`.
+6. Skip if `elapsed_days < horizon_days` per the mapping above.
+7. Add the rest to the to-reflect queue.
 
-If the queue is empty, report "no decisions past their horizon" and stop.
+If the queue is empty and `early_resolved` is empty, report "no decisions past their horizon" and stop. If `early_resolved` has entries, skip realized-data pulling and benchmark math, then continue to the summary/commit path so those resolved files are persisted.
 
 ---
 
@@ -42,8 +45,9 @@ For each queued decision, pull the price series from the decision date through t
 ### Equity decisions (`sleeve: equity-core` or any equity ticker)
 
 - Asset: `genkei prices --ticker <TICKER> --since <decision_date> --until <today> --json` — equity tickers route to `yahoo.candles` automatically (B-092). The `price_usd` field is the split/dividend-adjusted close, which is the right input for the return calc.
+- **Cohort / sector assets** (`asset: "equity-core: SaaS sector (CRM + NOW + …)"`, `asset: "cohort: VEEV vs CRM"`) aren't tickers. Reflect against the **named primary anchor** the decision's Frame calls out (e.g. CRM for the SaaS thesis), and say in the outcome which ticker stood in for the cohort. If the subject has no price series at all (e.g. VEEV is not a watchlist equity, so its pull is empty), defer — see below.
 - Benchmark: SPY, pulled the same way (benchmarks live in the watchlist and route to Yahoo per B-102).
-- If a pull errors or returns empty (source outage, delisted ticker), mark the decision `status: deferred` with a note naming the gap — never fabricate. The reflection cycle should still RUN — the failure mode of skipping reflection is worse than the failure mode of incomplete reflection.
+- If a pull errors or returns empty (source outage, delisted ticker, un-ingested name), mark the decision `status: deferred` with a note naming the gap — never fabricate. The reflection cycle should still RUN — the failure mode of skipping reflection is worse than the failure mode of incomplete reflection.
 
 ### Crypto decisions (`asset: BTC|ETH|SOL|LINK|SUI|PYTH|RENDER` or `sleeve: crypto-*`)
 
@@ -93,6 +97,45 @@ Then flip `status: pending` → `status: resolved` in the frontmatter, save, and
 - **Don't rewrite the original conclusion.** The whole point is to compare what you said then against what happened. Editing the original undermines the audit trail.
 - **Be specific about which signal led you astray** (or which one carried the call). "Insider buys were the decisive signal" or "I overweighted macro vs the bottoms-up case." Vague reflections won't help future decisions.
 - **Track confidence calibration over time.** If you're consistently `confidence: high` and getting only 50% calls right, you're over-confident; flag it. The reflections are your record-keeping, not just per-decision notes.
+
+### Worked examples
+
+Real blocks produced during the B-118 dry run (2026-06-12), pulling live prices via `genkei prices`. Horizons were treated as elapsed to exercise the machinery — none of these decisions is naturally past horizon yet, so these illustrate the *shape*, not final resolutions.
+
+**Resolved (crypto, alpha vs BTC)** — 2026-05-17 LINK, low-confidence hold:
+
+```markdown
+## Outcome
+
+- **Resolved:** 2026-06-12 (dry-run exercise; real horizon is years)
+- **Asset return:** −20.1% over 26 days (LINK 9.82 → 7.84)
+- **Benchmark return (BTC):** −19.3% (BTC 78,493 → 63,337)
+- **Alpha:** −0.8pp (in-line — LINK fell with the whole crypto tape, not idiosyncratically)
+- **Trigger-condition status:** not fired (no 15pp underperformance vs ETH; ETH TVL above $35B)
+- **Reflection:** Over this window LINK was pure beta to BTC — the structural oracle-share thesis hadn't begun to play out, which is consistent with the low confidence the call carried. Nothing to recalibrate yet; the real test is whether LINK diverges from BTC over the year, and a 26-day −0.8pp alpha is noise. Takeaway: low-confidence crypto-core calls need the full horizon — short-window alpha says nothing.
+```
+
+**Deferred (no price series for the subject)** — 2026-06-11 VEEV vs CRM:
+
+```markdown
+## Outcome
+
+- **Status:** deferred (required data unavailable)
+- **Resolved:** — (deferred 2026-06-12)
+- **Reason:** The decision's primary subject is VEEV, which is not a watchlist equity and has no rows in `yahoo.candles` — `genkei prices --ticker VEEV` returns empty. The CRM leg is available, but the call is fundamentally about VEEV vs CRM, so a one-legged alpha would misrepresent it. Filed as a backlog item to add VEEV to the watchlist; re-reflect once it ingests.
+- **Reflection:** (none — no realized data to reflect on. Deferral is honest record-keeping, not a graded outcome.)
+```
+
+**Early-resolved (supersession + trigger-fire)** — 2026-05-20 SUI, superseded by the 2026-06-02 rotation:
+
+```markdown
+## Outcome
+
+- **Resolved:** 2026-06-12 (early — superseded, not horizon-paired)
+- **Superseded by:** 2026-06-02-sui-rotation-into-eth-sol
+- **Trigger fired:** 2026-06-02 (SUI −20.7% post-decision; bear thesis accelerated, not stabilized)
+- **Reflection:** The bearish call was right and the trigger caught it fast — the successor decision carries the action (deepen the trim). No benchmark alpha is computed here because the position was rotated via the successor, not held to this decision's horizon. Takeaway: when a trigger fires this cleanly, file the successor promptly and resolve the parent — don't let it linger pending.
+```
 
 ---
 

@@ -39,17 +39,18 @@ After the methodology is complete:
 
 1. Pick a filename: `docs/research/decisions/<YYYY-MM-DD>-<short-topic-slug>.md`. Date is the session date (or the date of the event the decision is *about* if it's an event-driven entry — be consistent within a session).
 2. Copy `docs/research/decisions/_template.md` as the starting structure.
-3. Fill in the frontmatter (date, asset, sleeve, horizon, confidence, status: pending, trigger_reassessment). All keys are required — `tests/test_research_decisions.py` validates this in CI.
+3. Fill in the frontmatter (date, asset, sleeve, horizon, confidence, status: pending, trigger_reassessment). All keys are required — `tests/test_research_decisions.py` validates this in CI. If this decision replaces an older logged decision, also add `supersedes: <old-slug>`; use `related` only for contextual links that do not replace the prior call.
 4. Fill in the body — Frame → Macro context → Fundamentals → Flow & positioning → Phase A (case for + against) → Phase B (counter-thesis) → Conclusion. Use the methodology's prompts as section headers.
 5. Leave the `## Outcome (filled in by /reflect-decisions)` section in place but unmodified.
-6. **Run `python3 -m unittest discover -s tests`** to confirm the frontmatter validator + the rest of the test suite still pass.
-7. **Commit** the new file with subject `Research decision: <topic>` and a 1-2 line body explaining the conclusion + horizon. Push.
+6. If this decision supersedes an older one, update the old decision in the same commit: flip `status` to `resolved`, add `superseded_by: <new-slug>` (and `trigger_fired_at: YYYY-MM-DD` if this was an action-on-trigger replacement), and replace its pending Outcome placeholder with a short forward-link note. Do not edit the old file's Frame, analysis, conclusion, or original `date`.
+7. **Run `python3 -m unittest discover -s tests`** to confirm the frontmatter validator + the rest of the test suite still pass.
+8. **Commit** the new file and any superseded-file update with subject `Research decision: <topic>` and a 1-2 line body explaining the conclusion + horizon. Push.
 
 ## Constraints
 
 - **No write actions on the data lake.** All queries go through the CLI which routes through `genkei query`'s read-only path (or the typed subcommands which never write).
-- **Never overwrite an existing decision file.** If reconsidering a prior decision, write a NEW file dated today that explicitly references and supersedes the older one (`related: - decision: <slug>` in frontmatter; explain in the Frame section).
-- **Don't fabricate signal.** If a query returns empty / NULL / suspect data, say so in the section rather than skipping over it. The audit trail's value is honest record of what was knowable at the time.
+- **Do not rewrite existing decision analysis.** If reconsidering a prior decision, write a NEW file dated today. If the new call replaces the old one, add `supersedes: <old-slug>` to the new file and perform the required old-file close-out in the same commit: set `status: resolved`, add `superseded_by: <new-slug>`, optionally add the trigger date, and write the forward-link `## Outcome` note. If the new file only cites or refines the old decision without replacing it, use `related: - decision: <slug>` instead.
+- **Don't fabricate signal.** If a query returns empty / NULL / suspect data, say so in the section rather than skipping over it. Do not invent a supersession, trigger-fire, or successor link just to close an old file. The audit trail's value is honest record of what was knowable at the time.
 - **One decision per session.** If the question splits into sub-questions, log them as separate decision files. Keeps the reflection cycle clean.
 
 ## When the user asks a question that doesn't warrant a decision file
@@ -66,4 +67,4 @@ This skill kicks off a session and writes a decision file. It does NOT:
 
 - Run the reflection cycle (`/reflect-decisions` does that).
 - Execute trades (that's a different system entirely).
-- Modify past decision files (`/reflect-decisions` is the only thing that touches resolved entries).
+- Modify past decision files except for the narrow supersession close-out described above; `/reflect-decisions` owns all other resolution edits.
