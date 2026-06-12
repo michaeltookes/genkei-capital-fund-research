@@ -42,6 +42,18 @@ Every decision file's frontmatter MUST have these keys (validated in CI by `test
 
 Add optional keys freely (`tags`, `related`, etc.). The contract is the minimum.
 
+## Keeping prompts in sync with the CLI
+
+The methodology prompts ARE the researcher's program — a stale claim in them produces wrong behavior in every future session, silently. (Real example: after B-092 shipped equity prices, the reflect prompt still said "equity prices aren't ingested," which would have terminally `deferred` every equity decision out of the reflection cycle.)
+
+**When a PR ships a new `genkei` subcommand, retires one, or flips a table EMPTY → populated, that PR must also grep the agent-facing docs for claims it invalidates:**
+
+```bash
+grep -rn "<command-or-table-name>" prompts/ .claude/skills/
+```
+
+Files to check: `prompts/research-methodology.md`, `prompts/reflect-on-decisions.md`, `.claude/skills/research/SKILL.md`, `.claude/skills/reflect-decisions/SKILL.md`. Phrases like "not yet ingested", "no typed surface yet", "currently EMPTY" are dated the moment they're written — qualify them with the backlog item that will obsolete them, and remove them when it ships.
+
 ## Why this exists
 
 CLAUDE.md frames this project as a queryable data lake powering four use cases — the fourth (on-demand AI researcher) only pays off if the research it produces is *durable*. The decision log + reflection cycle is what makes it durable: every decision becomes data the next decision draws on. Pattern recognition over our own track record is the only path to spotting systematic biases (over-confidence on one sleeve, under-weighting macro, etc.).
