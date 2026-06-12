@@ -5,6 +5,7 @@ sleeve: equity-core
 horizon: years
 confidence: medium
 status: resolved
+superseded_by: 2026-06-05-saas-sector-thesis-vs-ai-disruption
 trigger_reassessment: "CRM revenue YoY < 5% for two consecutive quarters OR ValueAct files SC 13D/A reducing position OR insider sell cluster ≥3 reporters within 14d"
 related:
   - decision: insider-cluster-signal-baseline

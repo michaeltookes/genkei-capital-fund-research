@@ -5,6 +5,7 @@ sleeve: equity-core
 horizon: months
 confidence: medium
 status: pending
+supersedes: 2025-12-05-valueact-crm-buy-cluster
 trigger_reassessment: "CRM revenue YoY < 5% for two consecutive quarters [bear escalation] OR CRM operating income contracts YoY for two quarters [bear escalation] OR NOW posts >25% YoY revenue growth in next 10-Q [bull confirmation for sector] OR insider sell cluster ≥3 reporters within 14d on any of CRM/NOW/ADBE [bear escalation] OR a flagship enterprise customer (top-20) publicly migrates off Salesforce / ServiceNow / Workday for AI-native replacement by 2026-12-31 [thesis-breaking event] OR ValueAct files SC 13D/A reducing CRM position [activist exit on flagship name]"
 related:
   - decision: 2025-12-05-valueact-crm-buy-cluster

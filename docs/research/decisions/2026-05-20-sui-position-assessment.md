@@ -4,7 +4,9 @@ asset: SUI
 sleeve: crypto-tactical
 horizon: months
 confidence: medium
-status: pending
+status: resolved
+superseded_by: 2026-06-02-sui-rotation-into-eth-sol
+trigger_fired_at: 2026-06-02
 trigger_reassessment: "SUI lags SOL by another 15-25pp over 3 months OR Sui chain TVL breaks below $500M OR Sui chain TVL recovers above $800M OR SUIG insider open-market buy cluster ≥2 reporters at sub-$2 within 6 months"
 related:
   - decision: 2026-05-17-link-position-assessment
@@ -157,6 +159,9 @@ Macro pulled today (`genkei macro --series ...`); FRED collector failed in the l
 
 ---
 
-## Outcome (filled in by /reflect-decisions)
+## Outcome
 
-(reserved — pending; will resolve at 2026-11-20 or earlier on trigger)
+- **Resolved:** 2026-06-12 (early — superseded, not horizon-paired)
+- **Superseded by:** 2026-06-02-sui-rotation-into-eth-sol
+- **Trigger fired:** 2026-06-02 — SUI fell −20.7% in the 12 days after this decision ($1.05 → $0.83), the bearish trigger ("SUI lags SOL / TVL breaks below $500M") confirming rather than mean-reverting. The 2026-06-02 rotation session is the action-on-trigger entry (deepen the trim into ETH + SOL).
+- **Reflection:** The bearish read was right and the trigger caught it fast — credit to pairing the price-weakness signal with the TVL-erosion signal rather than waiting for the months horizon. No benchmark alpha is computed here because the position was rotated via the successor decision, not held to this call's horizon. Takeaway for crypto-tactical: when a trigger fires this cleanly, file the successor and resolve the parent in the same motion — the B-118 dry run found this one still sitting `pending` three weeks later because no tooling step flipped it.
