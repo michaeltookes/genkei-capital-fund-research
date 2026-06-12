@@ -96,10 +96,10 @@ Before consuming COT-driven positioning signals:
 4. **No partial-endpoint failures** — `metadata.partial_endpoints` is
    empty for the latest run.
 5. **TFF + Disaggregated correctly differentiated** — `trader_category`
-   under TFF includes `Asset_Manager_Inst`, `Lev_Money` etc.;
-   Disaggregated includes `Managed_Money`, `Swap_Dealer` etc. A row
-   tagged TFF but carrying Disaggregated categories signals a parser
-   regression.
+   stores normalized labels. TFF includes `asset_manager`,
+   `leveraged_funds`, etc.; Disaggregated includes `managed_money`,
+   `swap_dealer`, etc. A row tagged TFF but carrying Disaggregated
+   categories signals a parser regression.
 
 ## Follow-ups
 

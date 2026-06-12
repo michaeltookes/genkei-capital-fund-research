@@ -41,7 +41,8 @@ to by name.
 Column highlights: `matched_assets TEXT[]` (canonical watchlist labels
 the record matched — PK CHECK constraint requires non-empty),
 `themes TEXT[]`, `persons TEXT[]`, `organizations TEXT[]`,
-`locations TEXT[]`, `document_identifier`, `tone NUMERIC`,
+`locations JSONB` (parsed GKG location objects), `document_identifier`,
+`tone NUMERIC`,
 `source_common_name`.
 
 ## v1 limitations & known issues

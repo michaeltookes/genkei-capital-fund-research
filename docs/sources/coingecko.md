@@ -43,8 +43,8 @@ on the CoinGecko side don't break ingestion.
   Hypertable on `ts`, 30-day chunks, compressed > 30d, segmentby
   `coingecko_id`.
 
-Columns include `price_usd`, `market_cap_usd`, `total_volume_usd`,
-and CoinGecko's per-day return / market-cap percentile metadata.
+Columns include `price_usd`, `market_cap_usd`, `volume_usd`,
+`source_endpoint`, `fetched_at`, and `ingest_run_id`.
 
 ## v1 limitations & known issues
 
