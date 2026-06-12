@@ -100,7 +100,8 @@ Before consuming a FRED-driven brief or regime call:
 3. **Latest observation per series within expected staleness** — daily
    series (e.g. `DGS10`) lag ≤ 3 calendar days; weekly series (e.g.
    `ICSA`) lag ≤ 10 days; monthly series (e.g. `UNRATE`, `CPIAUCSL`)
-   lag ≤ 60 days. Anything longer triggers manual investigation.
+   lag ≤ 60 days; quarterly series (e.g. `GDPC1`) lag ≤ 120 days.
+   Anything longer triggers manual investigation.
 4. **No partial-endpoint failures** —
    `meta.ingest_runs.metadata.partial_endpoints` is empty for the latest run.
 5. **`realtime_start` column populated** — every observation row carries

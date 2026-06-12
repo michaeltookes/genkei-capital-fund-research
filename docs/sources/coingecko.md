@@ -4,9 +4,9 @@ CoinGecko's public API provides per-coin metadata and daily
 price / market-cap / volume history for every watchlist crypto.
 **Tier-dependent backfill** — the Demo tier ships rolling 365-day
 history; the Pro tier opens bounded date-range queries and is the
-backfill path. Designed to skip gracefully when no key is configured
-(D-020 plumbing) so the workflow stays green even when CoinGecko is
-intentionally inactive.
+backfill path. Daily mode can run without a key against CoinGecko's
+public host, but at a much lower rate limit; deep backfill still
+requires a Pro key.
 
 ## Coverage v1
 
@@ -28,9 +28,9 @@ on the CoinGecko side don't break ingestion.
 - **Pro tier** — base URL `https://pro-api.coingecko.com/api/v3`,
   header `x-cg-pro-api-key: <key>`, opens
   `/coins/{id}/market_chart/range` for bounded date queries.
-- **Keyless** — public host, ~5 req/min, daily metadata only. The
-  collector skips quietly (graceful-skip per D-020) if
-  `COINGECKO_API_KEY` is unset.
+- **Keyless** — public host, ~5 req/min, no auth header. Daily metadata
+  and rolling market-chart fetches still run live when
+  `COINGECKO_API_KEY` is unset; Pro backfill is rejected without a key.
 - **Endpoints used** — `/coins/{id}` (metadata),
   `/coins/{id}/market_chart` (rolling 365d, Demo / Pro), and
   `/coins/{id}/market_chart/range` (bounded ranges, Pro only).
@@ -51,17 +51,19 @@ and CoinGecko's per-day return / market-cap percentile metadata.
 - **Demo tier 365-day ceiling** — `/coins/{id}/market_chart` returns
   exactly the rolling last 365 days. Backfill beyond that requires
   Pro tier + `/market_chart/range`.
-- **Graceful-skip when keyless** — production behavior if
-  `COINGECKO_API_KEY` is missing: log a single warning, emit a 0-row
-  `meta.ingest_runs` row, exit success. This keeps the daily workflow
-  from failing CI when the key is intentionally rotated or absent.
+- **Keyless still fetches live** — if `COINGECKO_API_KEY` is missing,
+  the collector logs a warning, records `metadata.authenticated=false`,
+  uses the public host at `KEYLESS_RATE_LIMIT` (~5 req/min), and fetches
+  daily metadata + rolling market charts. It is slower, not a 0-row skip.
 - **API key never on the wire log** — keys land in the request header,
   not the URL. The collector double-checks by redacting any incidental
   key occurrence in error messages before they hit the partial-endpoint
   log.
-- **No retry on 429** — Demo tier intermittently rate-limits even within
-  documented bounds. Collector relies on `HttpClient`'s default retry
-  policy (exponential backoff up to 3 tries).
+- **429 retry behavior** — Demo/keyless tiers can rate-limit even within
+  documented bounds. The collector uses `HttpClient`'s default
+  `RetryPolicy`: status 429 is retryable, `Retry-After` is honored when
+  present, and exponential backoff + jitter runs up to 4 attempts
+  (~3 retries).
 
 ## How it runs
 
@@ -83,7 +85,8 @@ Before consuming CoinGecko-derived signals:
 
 1. **Freshness** — `meta.ingest_runs.finished_at` for the latest
    `(coingecko, collect)` and `(coingecko, normalize)` rows is within
-   36 hours (or a recent skip is documented in `metadata.skip_reason`).
+   36 hours. Keyless runs should still produce rows; check
+   `metadata.authenticated=false` when diagnosing slower public-mode runs.
 2. **Every watchlist coin covered** — distinct `coingecko_id` count in
    `coingecko.market_data` matches `len(watchlist.crypto) +
    count(watchlist.protocols with coingecko_id)`.
@@ -91,9 +94,10 @@ Before consuming CoinGecko-derived signals:
    daily; gaps >3 days indicate a coin renamed / delisted / API drift.
 4. **No partial-endpoint failures** — per-coin fetches captured in
    `metadata.partial_endpoints` are empty.
-5. **Skip reason documented** — if the latest run is a 0-row skip
-   (keyless mode), the `(coingecko, skip)` `meta.ingest_runs` row's
-   `metadata.skip_reason` is `keyless` or `intentional`.
+5. **Auth mode explicit** — latest collect metadata records
+   `authenticated` and `api_tier`. `authenticated=false` means the run
+   used public keyless mode; it should not be treated as an intentional
+   skip.
 
 ## Follow-ups
 

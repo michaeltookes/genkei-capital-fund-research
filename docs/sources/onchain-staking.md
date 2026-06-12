@@ -48,9 +48,10 @@ v0.1 legacy `Staking` contract — different event sigs, deferred.
   compressed > 30d.
 
 Generic-by-design columns: `protocol_slug` (chainlink-v02 etc.),
-`chain` (ethereum etc.), `pool_address`, `event_type`, `staker`,
-`amount` (NUMERIC; LINK stored as 18-decimal raw, not divided), plus
-event-specific decoded fields in `event_data JSONB`.
+`chain` (ethereum etc.), `contract_address`, `event_type`, `staker`,
+`amount_token` (NUMERIC; LINK amount decimal-corrected from the
+18-decimal log value), `amount_usd` (nullable until a price join fills
+it), plus event-specific decoded fields.
 
 ## v1 limitations & known issues
 
@@ -71,9 +72,10 @@ event-specific decoded fields in `event_data JSONB`.
 - **Single-stage** — no separate normalizer; events parse inline +
   upsert directly. `meta.raw_blobs` stores the JSON page payloads for
   replay.
-- **`amount` stored as 18-decimal raw** — querying LINK amounts requires
-  `amount / 1e18`. Column type NUMERIC(40, 0) to handle the raw
-  representation.
+- **`amount_token` stored in LINK units** — the collector decodes the
+  first event-data word and divides by 10^18 before writing. Query
+  formulas should use `amount_token` directly with an `event_type`
+  `CASE`, without an extra `/ 1e18` conversion.
 - **v0.1 legacy pool not covered (B-116)** — 0.46M LINK still staked
   there (~3% of total). Different event topic shape; requires per-
   pool topic override and event-data parser.
@@ -97,25 +99,27 @@ natural future surface.
 
 Before consuming staking-event signals:
 
-1. **Coverage band** — `SELECT MIN(block_timestamp), MAX(block_timestamp)
-   FROM onchain.staking_events WHERE protocol_slug = 'chainlink-v02'`
-   covers v0.2 deployment forward; gaps in block numbers signal a
-   failed backfill chunk.
-2. **PK uniqueness** — `(tx_hash, log_index)` is unique per row; the
-   PK enforces it but a `SELECT COUNT(*) - COUNT(DISTINCT (tx_hash,
-   log_index))` returning > 0 signals corruption.
+1. **Coverage band** — `SELECT MIN(block_number), MAX(block_number),
+   MIN(block_timestamp), MAX(block_timestamp) FROM
+   onchain.staking_events WHERE protocol_slug = 'chainlink-v02'`
+   covers v0.2 deployment forward; missing block ranges signal a failed
+   backfill chunk.
+2. **PK uniqueness** — `(tx_hash, log_index, block_timestamp)` is the
+   declared PK; `SELECT COUNT(*) - COUNT(DISTINCT (tx_hash, log_index,
+   block_timestamp))` returning > 0 signals corruption.
 3. **Event-type coverage** — `SELECT DISTINCT event_type FROM
    onchain.staking_events WHERE protocol_slug = 'chainlink-v02'`
    matches the v0.2 sig set (Staked / Unstaked / UnbondingPeriodStarted
    / OperatorRemoved / Slashed). New event types signal an upstream
    contract upgrade.
-4. **TVL reconciliation** — `SUM(amount_signed) / 1e18 × LINK_price`
-   from `onchain.staking_events` per pool should reconcile **within
-   ~10%** to DefiLlama's `chainlink-staking` TVL row. >10% drift
-   investigated.
+4. **TVL reconciliation** — `SUM(CASE WHEN event_type = 'staked' THEN
+   amount_token WHEN event_type = 'unstaked' THEN -amount_token ELSE 0
+   END) × LINK_price` from `onchain.staking_events` per pool should
+   reconcile **within ~10%** to DefiLlama's `chainlink-staking` TVL row.
+   >10% drift investigated.
 5. **Graceful-skip documented** — if the latest run skipped due to
-   missing `ETHERSCAN_API_KEY`, `meta.ingest_runs.metadata.skip_reason`
-   reads `keyless` or `intentional`.
+   missing `ETHERSCAN_API_KEY`, `meta.ingest_runs.metadata.has_api_key`
+   is `false` and rows written is zero.
 
 ## Follow-ups
 

@@ -75,10 +75,10 @@ Transaction codes (canonical single-letter SEC codes, stored as TEXT):
 
 ## How it runs
 
-- **No dedicated cron** — runs are research-triggered today. Backfill
-  is one-shot; daily incremental can be added when insider-flow
-  signal demand justifies it (B-061 / insider-clusters research
-  scope).
+- **Daily workflow** — `.github/workflows/sec-daily.yml`, cron
+  `30 11 * * *` (11:30 UTC). Form 4 collect + normalize runs after the
+  parent SEC normalize step so new `sec.filings` rows are visible before
+  the Form 4 collector selects uncached accessions.
 - **Manual run** — `python -m genkei.ingest.sec_form4` (incremental,
   200 newest) or `--backfill` (no limit).
 
@@ -96,7 +96,7 @@ Before consuming Form 4 signals:
 1. **Upstream freshness** — `sec.filings` has at least one row dated
    within 36 hours; without it, this ingester has nothing to discover.
 2. **`sec.form4_normalized_filings` keeping up** — running
-   `SELECT COUNT(*) FROM sec.filings WHERE form IN ('4', '4/A')` minus
+   `SELECT COUNT(*) FROM sec.filings WHERE form_type IN ('4', '4/A')` minus
    `SELECT COUNT(*) FROM sec.form4_normalized_filings` should trend
    toward zero. A growing backlog signals the daily run isn't budget-
    sized for incoming volume.
@@ -112,8 +112,6 @@ Before consuming Form 4 signals:
 
 ## Follow-ups
 
-- **Daily cron** — wire a daily incremental run once insider-flow
-  signal demand justifies the steady-state token spend.
 - **Form 3 / Form 5 coverage** — both use the same XML shape with
   minor schema variations.
 - **Cluster-detection emitter** — `genkei insider-clusters` already

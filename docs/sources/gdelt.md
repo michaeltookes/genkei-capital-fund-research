@@ -13,9 +13,11 @@ Every 15-minute GKG CSV from GDELT, filtered to articles whose themes,
 persons, or organizations match any watchlist asset (equities + crypto
 + protocols + 13F filers, case-insensitive substring, 4-char minimum).
 
-The match-term set is computed at collect time from
-`load_watchlist().*.name` fields. FRED series IDs are intentionally
-excluded — they're not entities news articles refer to by name.
+The match-term set is computed at collect time from watchlist names,
+but `matched_assets` stores canonical labels: equity / crypto tickers
+(e.g. `AAPL`, `BTC`), protocol slugs, and filer CIKs. FRED series IDs
+are intentionally excluded — they're not entities news articles refer
+to by name.
 
 ## Endpoint contract
 
@@ -36,8 +38,8 @@ excluded — they're not entities news articles refer to by name.
   Hypertable on `published_at`, 7-day chunks, compressed > 30d,
   **365-day retention policy** (server-side mirror).
 
-Column highlights: `matched_assets TEXT[]` (the asset name(s) the
-record matched — PK CHECK constraint requires non-empty),
+Column highlights: `matched_assets TEXT[]` (canonical watchlist labels
+the record matched — PK CHECK constraint requires non-empty),
 `themes TEXT[]`, `persons TEXT[]`, `organizations TEXT[]`,
 `locations TEXT[]`, `document_identifier`, `tone NUMERIC`,
 `source_common_name`.
@@ -74,9 +76,9 @@ record matched — PK CHECK constraint requires non-empty),
 
 ## Query path
 
-`genkei query` over `gdelt.gkg`. Asset-name overlap searches
-(`'AAPL' = ANY(matched_assets)`) are the canonical join key to the
-rest of the lake.
+`genkei query` over `gdelt.gkg`. Canonical-label overlap searches
+(`'AAPL' = ANY(matched_assets)`) are the join key to the rest of the
+lake.
 
 ## Acceptance gates
 

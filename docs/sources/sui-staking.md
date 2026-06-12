@@ -38,7 +38,8 @@ alongside, deduped on `validator_address`.
 
 - `onchain.sui_validators` — fact, PK `(epoch, validator_address)`.
   Plain table — Sui's epoch cadence is ~24h and ~129 validators →
-  ~47k rows/year, no hypertable needed.
+  ~47k rows/year, no hypertable needed. `epoch_start_ts` is the
+  timestamp to use for charting and `--since` filters.
 
 Stake amounts stored as **MIST** (Sui atomic unit, 1 SUI = 10⁹ MIST),
 not converted to SUI at write time. Column type `NUMERIC(40, 0)` to
@@ -79,9 +80,9 @@ overflow `BIGINT`.
 
 `genkei query` over `onchain.sui_validators`. A typed `genkei sui
 --validator <address> --since 2024-01-01` is a natural future
-addition; the column shape (`epoch`-keyed rather than `ts`-keyed)
-means most queries want a join against
-`(epoch, MIN(snapshot_taken_at))` for time-series rendering.
+addition; it should filter on `epoch_start_ts` and order by `(epoch,
+validator_address)` because the table is epoch-keyed rather than
+`ts`-keyed.
 
 ## Acceptance gates
 

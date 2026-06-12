@@ -1,9 +1,9 @@
 # SEC EDGAR ingester (B-027)
 
 SEC EDGAR is the **regulatory disclosure spine** of the equity side of
-the lake. v1 covers the two endpoints every other SEC ingester
-(Form 4 — B-079, Form 13F — B-080) builds on top of: the per-issuer
-submissions index and the XBRL company-facts dataset.
+the lake. v1 covers the two endpoints downstream issuer-level SEC
+ingesters build on top of: the per-issuer submissions index and the
+XBRL company-facts dataset.
 
 ## Coverage v1
 
@@ -17,9 +17,11 @@ For every equity in the watchlist with a non-null `cik`:
   with unit, period start/end, and accession.
 
 Form 4 (insider transactions) lives in its own ingester (see
-`docs/sources/sec-form4.md`); Form 13F (institutional holdings) lives
-in another (`docs/sources/sec-form13f.md`). Both consume `sec.filings`
-as the discovery index.
+`docs/sources/sec-form4.md`) and consumes `sec.filings` as its
+discovery index. Form 13F (institutional holdings) lives in another
+(`docs/sources/sec-form13f.md`) and reads the watchlist `filers:`
+universe directly from SEC submissions indexes because 13F filers are
+investment managers, not necessarily issuer CIKs in `sec.filings`.
 
 ## Endpoint contract
 
@@ -38,7 +40,9 @@ as the discovery index.
 ## Schema
 
 - `sec.companies` — entity dim, PK `cik`. Issuer metadata
-  (name, ticker, sic, fiscal year end).
+  (name, ticker, sic, fiscal year end). CUSIPs are not stored here;
+  13F CUSIP scoping lives in the watchlist's sparse equity `cusip:`
+  fields.
 - `sec.filings` — fact, PK `accession_number`. One row per filing:
   form type, filing date, primary document, period of report.
   Discovery index for every downstream SEC ingester.

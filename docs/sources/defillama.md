@@ -40,6 +40,8 @@ stablecoins are global (every chain / every stablecoin DeFiLlama exposes).
   to UTC midnight (post-20260604 dedup migration).
 - `defillama.protocol_tvl` — time-series fact, PK `(slug, chain, ts)`.
 - `defillama.protocol_fees` — time-series fact, PK `(slug, ts)`.
+  Carries both `fees_usd` and `revenue_usd` from the protocol fees /
+  revenue blobs.
 - `defillama.stablecoins` — time-series fact, PK `(asset_id, chain, ts)`.
 - `defillama.prices` — time-series fact, PK `(asset_key, ts)`.
 

@@ -60,10 +60,11 @@ Steady state: ~150k holding rows across ~1k filings.
   thousands of dollars per SEC convention. The normalizer multiplies
   by 1000 so the column unit is unambiguous USD; documented on the
   column.
-- **CUSIP join key** — the natural join from `sec.form13f_holdings`
-  to `sec.companies` is CUSIP, but `sec.companies.cusip` is sparse
-  (only populated when explicitly added to the watchlist). Holdings
-  for non-watchlist issuers carry CUSIP + issuer name only.
+- **CUSIP join key** — `sec.form13f_holdings.cusip` joins to the
+  watchlist's sparse equity `cusip:` fields via `find_equity_by_cusip`
+  / crowding helpers, not to `sec.companies` (that table is CIK-keyed
+  and has no `cusip` column). Holdings for non-watchlist issuers carry
+  CUSIP + issuer name only.
 - **Two-phase fetch** — Phase A failure (submissions index) is hard
   (no filings to process). Phase B failure (per-filing XML) is soft
   (continue, log to `partial_endpoints`).
@@ -80,9 +81,10 @@ Steady state: ~150k holding rows across ~1k filings.
 
 ## How it runs
 
-- **No dedicated cron** — research-triggered today. The quarterly
-  cadence + 45-day reporting window means daily runs would be largely
-  no-op. Wire when crowding-analysis (B-061) demand justifies it.
+- **Daily workflow** — `.github/workflows/sec-daily.yml`, cron
+  `30 11 * * *` (11:30 UTC). The 13F collect + normalize steps run after
+  the parent SEC and Form 4 steps; default incremental mode caps Phase B
+  at 50 uncached holdings-bearing filings.
 - **Manual run** — `python -m genkei.ingest.sec_form13f`
   (incremental, 50 newest) or `--backfill` (no limit).
 
@@ -101,10 +103,10 @@ Before consuming Form 13F signals:
    the latest `(sec_form13f, collect)` row records every watchlist
    filer's submissions index fetch.
 2. **`sec.form13f_normalized_filings` keeping up** —
-   `SELECT COUNT(*) FROM sec.form13f_filings WHERE form_type IN
-   ('13F-HR', '13F-HR/A')` minus
-   `SELECT COUNT(*) FROM sec.form13f_normalized_filings WHERE
-   form_type IN (…)` trends toward zero.
+   `SELECT COUNT(*) FROM sec.form13f_filings f WHERE f.form_type IN
+   ('13F-HR', '13F-HR/A') AND NOT EXISTS (SELECT 1 FROM
+   sec.form13f_normalized_filings n WHERE n.accession_number =
+   f.accession_number)` trends toward zero.
 3. **No filer dominating the partial-endpoint log** — Phase B soft
    failures on one filer accounting for >50% of failures signals a
    filer-specific index-shape drift.
@@ -113,15 +115,16 @@ Before consuming Form 13F signals:
    publicly-stated AAPL position size (×1000 conversion catches the
    common bug if it ever silently drops).
 5. **Notice-only filings marked processed** — `SELECT COUNT(*) FROM
-   sec.form13f_filings WHERE form_type LIKE '13F-NT%'` should match
-   `sec.form13f_normalized_filings` for the same filings (no XML
-   fetch but marker present).
+   sec.form13f_filings f LEFT JOIN sec.form13f_normalized_filings n
+   USING (accession_number) WHERE f.form_type LIKE '13F-NT%' AND
+   n.accession_number IS NULL` returns zero (no XML fetch but marker
+   present).
 
 ## Follow-ups
 
-- **Daily cron** — wire when crowding research demand justifies it.
-- **CUSIP join expansion** — backfill `sec.companies.cusip` for the
-  full watchlist so 13F holdings join cleanly to ticker / sector.
+- **CUSIP coverage expansion** — keep the watchlist's sparse `cusip:`
+  fields filled for equities that should participate in 13F crowding
+  queries and emitters.
 - **Materialized "current positions" view** — `(filer_cik, cusip)` →
   `MAX(period_of_report)` projection so queries don't need the
   per-query subquery.
