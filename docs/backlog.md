@@ -394,17 +394,7 @@ Reliability work that grows in importance as more sources go live.
 
 ## Epic E-001 — 2026-06-12 codebase-review findings
 
-A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the engineering layers in good shape but the research loop operationally unproven and its instructions drifted behind the shipped code. Six items, ordered by leverage. B-117 (resolved 2026-06-12, see `docs/resolved.md`) and B-118 protect the integrity of the decision/reflection loop and should land before the first real reflection cycle; the rest harden ops and code quality.
-
-### B-118 — Dry-run the reflection cycle + trigger-fire convention
-- **Status:** open
-- **Priority:** high
-- **Context:** Nine decisions logged, zero machine reflections — the first decision isn't horizon-eligible until ~2026-12. The loop is the calibration engine and has never executed; the one `resolved` decision (2025-12-05 CRM) was closed by a hand-written supersession note in a format the skill doesn't expect. The skill also checks `trigger_fired_at`, but no decision file populates it — the CRM→SaaS-sector supersession is exactly the event that field was designed for. B-117 landed 2026-06-12 (prompts now match the shipped CLI), so this is unblocked — the dry run will exercise the corrected equity path.
-- **Acceptance criteria:**
-  - One `/reflect-decisions` dry run executed on a throwaway branch with temporarily lowered horizon thresholds; bugs/gaps found are filed or fixed.
-  - The first real outcome block (even from the dry run) added to `prompts/reflect-on-decisions.md` as a worked example, including what a deferred outcome looks like.
-  - Trigger-fire convention documented in `docs/research/README.md`: `trigger_fired_at: YYYY-MM-DD` in frontmatter when a trigger condition fires, plus a `related:` link from the superseding decision to the superseded one.
-  - CRM decision file's frontmatter retro-fitted to record the 2026-06-05 supersession under that convention.
+A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the engineering layers in good shape but the research loop operationally unproven and its instructions drifted behind the shipped code. Six items, ordered by leverage. B-117 and B-118 (both resolved 2026-06-12, see `docs/resolved.md`) protected the integrity of the decision/reflection loop before the first real reflection cycle; the rest harden ops and code quality. The B-118 dry run also spun off B-123 (VEEV ingest) and B-124 (yahoo magnitude audit), below.
 
 ### B-119 — Close the silent-staleness windows in ingest ops
 - **Status:** open
