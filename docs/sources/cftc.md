@@ -41,9 +41,9 @@ which schema to interpret it against.
   `(report_date, market_code, trader_category)`. Plain table
   (~80k rows steady-state, no need for a hypertable).
 
-Column highlights: `long_positions`, `short_positions`, `spreading`
-(all `BIGINT` — whole contracts), `report_type` (`tff` or
-`disaggregated`), `notes` (CFTC's per-row commentary text).
+Column highlights: `long_positions`, `short_positions`,
+`spreading_positions` (all `BIGINT` — whole contracts), `report_type`
+(`tff` or `disaggregated`), plus provenance columns.
 
 ## v1 limitations & known issues
 
@@ -78,8 +78,8 @@ Column highlights: `long_positions`, `short_positions`, `spreading`
 ## Query path
 
 `genkei cot --market BTC --since 2024-01-01` is the typed entry point.
-`--report-type tff` filters explicitly when the same symbol appears in
-multiple formats.
+Use `--trader-category leveraged_funds` for category slices, or
+`--list-markets` to inspect each configured market's `report_type`.
 
 ## Acceptance gates
 

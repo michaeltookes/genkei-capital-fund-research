@@ -13,7 +13,7 @@ remains the canonical pattern every subsequent collector follows
 | **Chain TVL** | `/v2/chains` + `/v2/historicalChainTvl/{chain}` | Daily | `defillama.chain_tvl` |
 | **Protocol metadata** | `/protocols` | Daily | `defillama.protocols` |
 | **Per-protocol TVL** | `/protocol/{slug}` | Daily / backfill | `defillama.protocol_tvl` |
-| **Protocol fees / revenue** | derived from `/protocol/{slug}` | Daily / backfill | `defillama.protocol_fees` |
+| **Protocol fees / revenue** | `/summary/fees/{slug}?dataType=dailyFees` + `dailyRevenue` | Daily full-history refresh | `defillama.protocol_fees` |
 | **Stablecoin supply** | `/stablecoins` + `/stablecoin/{id}` | Daily / backfill | `defillama.stablecoins` |
 | **Asset prices** | `/prices/current/{ids}` + `/coins/prices/historical/{ts}/{ids}` | Daily / backfill | `defillama.prices` |
 
@@ -79,8 +79,9 @@ Hypertables on `ts` where time-series, 30-day chunks, compressed > 30d.
 - **Backfill** — manual `python -m genkei.ingest.defillama --backfill
   --since 2024-01-01 --endpoint protocols` (or `prices` /
   `stablecoins`; repeat the flag for multiple families, or omit it for
-  all). `protocols` lands per-protocol TVL + fees / revenue history,
-  `prices` lands historical price blobs, and `stablecoins` lands
+  all). `protocols` lands per-protocol TVL history only; fees / revenue
+  history lands from the daily collector's protocol fees and revenue
+  blobs. `prices` lands historical price blobs, and `stablecoins` lands
   stablecoin supply history. Chain TVL history is not a backfill selector
   because the daily collector already pulls full per-chain history.
 

@@ -45,8 +45,9 @@ Steady state: ~150k holding rows across ~1k filings.
 - `sec.filers` — entity dim, PK `filer_cik`. Zero-padded 10-char CIK
   matching the watchlist normalization.
 - `sec.form13f_filings` — fact, PK `accession_number`. One row per
-  13F filing (filer, period_of_report, form_type, total_value,
-  total_holdings_count).
+  13F filing metadata row (filer, period_of_report, form_type,
+  accepted_at, primary_document, other_managers). Filing-level aggregate
+  value and holding count are computed from `sec.form13f_holdings`.
 - `sec.form13f_holdings` — fact, PK `(accession_number, holding_idx)`.
   One row per holding within a filing: issuer name, CUSIP,
   `value_usd` (NUMERIC, dollars after ×1000 conversion at normalize
