@@ -92,10 +92,11 @@ Steady state: ~150k holding rows across ~1k filings.
 
 ## Query path
 
-`genkei query` over `sec.form13f_*`. A typed
-`genkei filings --filer "Berkshire Hathaway" --form 13F-HR` resolves
-to `sec.form13f_filings`. Crowding analysis queries (B-061) join
-`form13f_holdings` against the watchlist via CUSIP.
+`genkei query` over `sec.form13f_*` is the working inspection path
+today. `genkei filings` is issuer-ticker-only (`sec.filings` /
+`sec.facts`) and does not expose 13F filer queries yet. Crowding
+analysis queries (B-061) join `form13f_holdings` against the watchlist
+via CUSIP.
 
 ## Acceptance gates
 

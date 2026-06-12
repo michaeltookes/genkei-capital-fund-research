@@ -54,10 +54,11 @@ Hypertables on `ts` where time-series, 30-day chunks, compressed > 30d.
   protocol_fees originally carried sub-day precision which corrupted the
   PK uniqueness guarantee. The 20260604 migration normalized those tables
   and the collector now day-aligns on write.
-- **Backfill is per-entity, not global** — `--backfill --since YYYY-MM-DD
-  --endpoint <name>` pulls one entity at a time. Suitable for occasional
-  catch-ups; not for daily incremental refresh (the default daily run
-  already does that via `--endpoint daily`).
+- **Backfill is per endpoint family, not global** — `--backfill --since
+  YYYY-MM-DD` supports repeatable `--endpoint prices`, `--endpoint
+  protocols`, and `--endpoint stablecoins` filters. Omit `--endpoint` to
+  run all three. Daily incremental refresh is the default mode with no
+  `--backfill` / `--endpoint` flags.
 - **Bitcoin ecosystem labelling** — DeFiLlama categorizes generic CEX +
   custodial BTC exposure under "Bitcoin", which pollutes any Bitcoin-
   ecosystem TVL aggregation. The downstream daily-brief logic and the
@@ -76,8 +77,12 @@ Hypertables on `ts` where time-series, 30-day chunks, compressed > 30d.
   the printed `ingest_runs id`, and passes it as `--source-run-id` to
   `python -m genkei.normalize.defillama`.
 - **Backfill** — manual `python -m genkei.ingest.defillama --backfill
-  --since 2024-01-01 --endpoint protocol_tvl` (or `chain_tvl_history`,
-  `stablecoin_history`, `prices_historical`).
+  --since 2024-01-01 --endpoint protocols` (or `prices` /
+  `stablecoins`; repeat the flag for multiple families, or omit it for
+  all). `protocols` lands per-protocol TVL + fees / revenue history,
+  `prices` lands historical price blobs, and `stablecoins` lands
+  stablecoin supply history. Chain TVL history is not a backfill selector
+  because the daily collector already pulls full per-chain history.
 
 ## Query path
 

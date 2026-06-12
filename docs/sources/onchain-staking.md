@@ -83,10 +83,11 @@ it), plus event-specific decoded fields.
 ## How it runs
 
 - **Manual / on-demand** —
-  `python -m genkei.ingest.onchain_staking --backfill --from-block 16083969`
-  for an initial backfill from v0.2 deployment, then
-  `python -m genkei.ingest.onchain_staking` (no flag) for incremental
-  resume-from-highest-stored-block.
+  `python -m genkei.ingest.onchain_staking --backfill` for an initial
+  backfill from each configured pool's deployment block, then `python -m
+  genkei.ingest.onchain_staking` (no flag) for incremental
+  resume-from-highest-stored-block. There is no per-run lower-bound
+  override today; deployment blocks live in the collector config.
 - **No GH Actions workflow** today; wire when demand justifies.
 
 ## Query path
