@@ -39,7 +39,7 @@ After the methodology is complete:
 
 1. Pick a filename: `docs/research/decisions/<YYYY-MM-DD>-<short-topic-slug>.md`. Date is the session date (or the date of the event the decision is *about* if it's an event-driven entry — be consistent within a session).
 2. Copy `docs/research/decisions/_template.md` as the starting structure.
-3. Fill in the frontmatter (date, asset, sleeve, horizon, confidence, status: pending, trigger_reassessment). All keys are required — `tests/test_research_decisions.py` validates this in CI.
+3. Fill in the frontmatter (date, asset, sleeve, horizon, confidence, status: pending, trigger_reassessment). All keys are required — `tests/test_research_decisions.py` validates this in CI. If this decision replaces an older logged decision, also add `supersedes: <old-slug>`; use `related` only for contextual links that do not replace the prior call.
 4. Fill in the body — Frame → Macro context → Fundamentals → Flow & positioning → Phase A (case for + against) → Phase B (counter-thesis) → Conclusion. Use the methodology's prompts as section headers.
 5. Leave the `## Outcome (filled in by /reflect-decisions)` section in place but unmodified.
 6. **Run `python3 -m unittest discover -s tests`** to confirm the frontmatter validator + the rest of the test suite still pass.
@@ -48,7 +48,7 @@ After the methodology is complete:
 ## Constraints
 
 - **No write actions on the data lake.** All queries go through the CLI which routes through `genkei query`'s read-only path (or the typed subcommands which never write).
-- **Never overwrite an existing decision file.** If reconsidering a prior decision, write a NEW file dated today that explicitly references and supersedes the older one (`related: - decision: <slug>` in frontmatter; explain in the Frame section).
+- **Never overwrite an existing decision file.** If reconsidering a prior decision, write a NEW file dated today. If the new call replaces the old one, add `supersedes: <old-slug>` in frontmatter and explain the replacement in the Frame section. If it only cites or refines the old decision without replacing it, use `related: - decision: <slug>` instead.
 - **Don't fabricate signal.** If a query returns empty / NULL / suspect data, say so in the section rather than skipping over it. The audit trail's value is honest record of what was knowable at the time.
 - **One decision per session.** If the question splits into sub-questions, log them as separate decision files. Keeps the reflection cycle clean.
 
