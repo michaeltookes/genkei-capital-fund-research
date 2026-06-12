@@ -391,3 +391,66 @@ Reliability work that grows in importance as more sources go live.
 - **Acceptance criteria:**
   - Per-source quota tracked in `meta.api_usage`.
   - CLI + dashboard query.
+
+## Epic E-001 — 2026-06-12 codebase-review findings
+
+A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the engineering layers in good shape but the research loop operationally unproven and its instructions drifted behind the shipped code. Six items, ordered by leverage. B-117 and B-118 protect the integrity of the decision/reflection loop and should land before the first real reflection cycle; the rest harden ops and code quality.
+
+### B-117 — Sync prompts/skills with shipped CLI surfaces
+- **Status:** open
+- **Priority:** high
+- **Context:** The methodology prompts are the agent's *program*, and they're stale in ways that produce wrong behavior, not just friction. Verified during the review: `prompts/reflect-on-decisions.md` (lines 44–45) and `.claude/skills/reflect-decisions/SKILL.md` (line 35) still instruct the agent to mark every equity decision `status: deferred` because "equity prices aren't ingested" — but B-092 shipped `yahoo.candles` and `genkei prices --ticker AAPL` works. `deferred` is a terminal status in the skill, so a reflection run today would silently drop the equity-core decisions (CRM, VEEV, SaaS-sector) from outcome-pairing. Same class of drift: `prompts/research-methodology.md` says stablecoin supply has "no typed surface yet" (`genkei stablecoin-flow` shipped 2026-06-07, B-108) and never mentions `genkei macro-regime` (B-059) as the regime shortcut, so sessions re-derive the regime by hand.
+- **Acceptance criteria:**
+  - `prompts/reflect-on-decisions.md` + `.claude/skills/reflect-decisions/SKILL.md`: equity decisions reflect against `yahoo.candles` prices with SPY as benchmark; the defer-equities instruction is removed.
+  - `prompts/research-methodology.md`: references `genkei macro-regime` in the macro section and `genkei stablecoin-flow` in flow/positioning; the protocol-TVL EMPTY note gains a workaround (`genkei query`) or explicit skip guidance.
+  - `.claude/skills/research/SKILL.md` pre-flight mentions the same shortcuts.
+  - Process guard documented (in this file or `docs/research/README.md`): when a CLI surface ships, grep `prompts/` and `.claude/skills/` for claims it invalidates as part of the PR.
+
+### B-118 — Dry-run the reflection cycle + trigger-fire convention
+- **Status:** open
+- **Priority:** high
+- **Context:** Nine decisions logged, zero machine reflections — the first decision isn't horizon-eligible until ~2026-12. The loop is the calibration engine and has never executed; the one `resolved` decision (2025-12-05 CRM) was closed by a hand-written supersession note in a format the skill doesn't expect. The skill also checks `trigger_fired_at`, but no decision file populates it — the CRM→SaaS-sector supersession is exactly the event that field was designed for. Depends on B-117 landing first (otherwise the dry run exercises the stale defer-equities path).
+- **Acceptance criteria:**
+  - One `/reflect-decisions` dry run executed on a throwaway branch with temporarily lowered horizon thresholds; bugs/gaps found are filed or fixed.
+  - The first real outcome block (even from the dry run) added to `prompts/reflect-on-decisions.md` as a worked example, including what a deferred outcome looks like.
+  - Trigger-fire convention documented in `docs/research/README.md`: `trigger_fired_at: YYYY-MM-DD` in frontmatter when a trigger condition fires, plus a `related:` link from the superseding decision to the superseded one.
+  - CRM decision file's frontmatter retro-fitted to record the 2026-06-05 supersession under that convention.
+
+### B-119 — Close the silent-staleness windows in ingest ops
+- **Status:** open
+- **Priority:** medium
+- **Context:** B-071's staleness check is good defense-in-depth, but three gaps remain: (a) alerts land only as GitHub issues — visible only when someone looks; (b) nothing alerts if scheduled workflows simply don't run (Beelink runner down for two days → lake quietly stale, downstream research poisoned) — the staleness check itself runs on the same runner; (c) failed daily ingests get no retry, so a single transient API flake costs a full day of data until the next cron. Overlaps B-023 (CLI freshness warning) and B-068 (alert engine) but is narrower and earlier: push notification + runner-independence + retry.
+- **Acceptance criteria:**
+  - Staleness-check and workflow-failure alerts also push to a real-time channel (Discord/ntfy/email — pick one, document in `docs/infrastructure.md`).
+  - A "no `ingest_run` rows for any source in 48h" check runs on **GitHub-hosted** compute so it survives homelab downtime.
+  - Daily ingest workflows gain a retry-on-failure step (one templated pattern applied across the ~14 ingest workflows).
+  - Long-timeout jobs (gdelt 360m, etherscan-whales 360m) get per-step timeouts or heartbeat logging so a hang is distinguishable from slow progress.
+
+### B-120 — Promote backlog items into the mission queue
+- **Status:** open
+- **Priority:** medium
+- **Context:** The mission queue (B-078) is fully built, tested, and documented — and has processed exactly one mission ever, while 40+ items sit in this backlog. Overnight-autonomous mode is idle capacity. This item is the process kick: pick the highest-leverage open items, write them as mission files, and run the queue.
+- **Acceptance criteria:**
+  - 3–5 open backlog items promoted to `missions/pending/` using `missions/_template.md` (candidates: B-117, B-053, B-047, B-064 emitter follow-ups).
+  - One full `/run-missions` pass executed; completed missions land in `missions/done/` with checklists marked.
+  - Friction or spec gaps found in the mission format fed back into `docs/missions.md`.
+
+### B-121 — Code-quality pass: hoist duplicated patterns, surface silent failures
+- **Status:** open
+- **Priority:** medium
+- **Context:** Four findings from the source/test review, none urgent but all compounding. (1) The watchlist-loader pattern (`load_coins` / `load_equities` / `load_series` / `load_products` / `load_filers` / EIA / BEA) is on its ~sixth near-copy — CLAUDE.md says hoist at the third. (2) `normalize/defillama.py` is the largest tangle: ~8 endpoint types dispatched by string-prefix matching in one module. (3) `except Exception: pass` blocks in coercion helpers (`ingest/ishares.py:110,118,129`, `ingest/sui_staking.py:164`, `ingest/sui_unlocks.py:138`) swallow unexpected failures with no log line — in unattended daily ingest that's the difference between noticing bad data and not. (4) The 11 Postgres integration test classes duplicate identical pool setup, and the `--backfill` paths — the recovery mechanism when ingest breaks — have no automated coverage.
+- **Acceptance criteria:**
+  - `common/watchlist.py` gains a generic `load_watchlist_entries(...)` (entries getter + dedup key); the per-ingester loaders delegate to it.
+  - `normalize/defillama.py` split into a `normalize/defillama/` package with a dispatch table and per-endpoint modules.
+  - Silent `except Exception` coercion blocks log a `WARNING` on non-ValueError failures.
+  - A shared `PostgresTestCase` base class replaces the duplicated integration-test setup; at least one ingester's `--backfill` path gains an automated test.
+  - Date-range chunking (`coinbase._chunk_windows` + the coingecko inline copy) hoisted to `common/`.
+
+### B-122 — Resolve the output-channel decision before more emitters land
+- **Status:** open
+- **Priority:** medium
+- **Context:** `reports/` is empty and B-001/B-051 (brief delivery) are still open. Consistent with "the lake is the asset," but it means the decision log is the *only* durable research output — if the reflection loop is miscalibrated (see B-117/B-118), no second artifact catches it. Phase 6 emitters are starting to produce signals with nowhere defined to land, and CLAUDE.md requires every signal output to carry a horizon tag. This item escalates B-051 from "decide someday" to "decide before the next emitter ships" — even a minimal decision ("reports/ in-repo, weekly cadence") suffices.
+- **Acceptance criteria:**
+  - B-051's decision recorded (surface + cadence + failure-mode behavior), and B-001/B-002/B-025 closed or rescoped accordingly.
+  - Signal/brief outputs carry the horizon tag convention from CLAUDE.md.
+  - First artifact actually lands in the chosen surface as proof of the path.
