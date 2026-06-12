@@ -230,7 +230,7 @@ class EiaSeriesEntry:
     ``facets`` that select this specific series within that route.
 
     EIA v2 organizes data by route (``petroleum/stoc/wstk``,
-    ``natural-gas/stor/wkly``, ``electricity/electricity-power-operational-data``)
+    ``natural-gas/stor/wkly``, ``electricity/electric-power-operational-data``)
     and exposes per-route facet filters. Most legacy time series live under
     a ``series`` facet (e.g. ``WCESTUS1`` for weekly US ex-SPR crude
     inventories). Some routes — notably electricity — require multiple

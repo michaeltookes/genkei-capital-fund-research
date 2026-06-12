@@ -40,7 +40,7 @@ eia:
       series: WCESTUS1
   - series_id: ELEC_NET_GEN_US
     name: US net electricity generation
-    route: electricity/electricity-power-operational-data
+    route: electricity/electric-power-operational-data
     frequency: M
     data_field: generation
     facets:
@@ -317,7 +317,7 @@ class NormalizeSeriesTests(unittest.TestCase):
             payload,
             entry=_entry(
                 series_id="ELEC_NET_GEN_US",
-                route="electricity/electricity-power-operational-data",
+                route="electricity/electric-power-operational-data",
                 frequency="M",
                 data_field="generation",
                 facets={"fueltype": "ALL", "location": "US", "sectorid": "99"},

@@ -1182,7 +1182,7 @@ eia:
   # Electricity — monthly net generation
   - series_id: ELEC_NET_GEN_US
     name: Monthly US net electricity generation, all sectors, all fuels
-    route: electricity/electricity-power-operational-data
+    route: electricity/electric-power-operational-data
     frequency: M
     data_field: generation
     facets:

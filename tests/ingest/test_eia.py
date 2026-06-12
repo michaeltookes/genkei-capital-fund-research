@@ -46,7 +46,7 @@ eia:
       series: RBRTE
   - series_id: ELEC_NET_GEN_US
     name: US net electricity generation
-    route: electricity/electricity-power-operational-data
+    route: electricity/electric-power-operational-data
     frequency: M
     data_field: generation
     facets:
@@ -200,14 +200,14 @@ class BuildPageUrlTests(unittest.TestCase):
     def test_multi_facet_route_emits_each_facet(self) -> None:
         target = self._target(
             series_id="ELEC_NET_GEN_US",
-            route="electricity/electricity-power-operational-data",
+            route="electricity/electric-power-operational-data",
             frequency="M",
             data_field="generation",
             facets={"fueltype": "ALL", "location": "US", "sectorid": "99"},
         )
         url = build_page_url(target, api_key="KEY", start="2016-06-11")
         self.assertIn(
-            f"{EIA_BASE_URL}/electricity/electricity-power-operational-data/data/",
+            f"{EIA_BASE_URL}/electricity/electric-power-operational-data/data/",
             url,
         )
         self.assertIn("facets%5Bfueltype%5D%5B%5D=ALL", url)
