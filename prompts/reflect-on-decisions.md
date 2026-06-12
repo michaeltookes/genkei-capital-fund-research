@@ -41,8 +41,9 @@ For each queued decision, pull the price series from the decision date through t
 
 ### Equity decisions (`sleeve: equity-core` or any equity ticker)
 
-- Asset: not yet ingested in this repo — `coingecko.market_data` is crypto-only and `sec.facts` has financial data, not market prices. Until an equity price feed lands, mark equity decisions as `status: deferred` with a note explaining the missing source. The reflection cycle should still RUN — the failure mode of skipping reflection is worse than the failure mode of incomplete reflection.
-- Benchmark: SPY. Same missing-source caveat applies until an equity feed exists.
+- Asset: `genkei prices --ticker <TICKER> --since <decision_date> --until <today> --json` — equity tickers route to `yahoo.candles` automatically (B-092). The `price_usd` field is the split/dividend-adjusted close, which is the right input for the return calc.
+- Benchmark: SPY, pulled the same way (benchmarks live in the watchlist and route to Yahoo per B-102).
+- If a pull errors or returns empty (source outage, delisted ticker), mark the decision `status: deferred` with a note naming the gap — never fabricate. The reflection cycle should still RUN — the failure mode of skipping reflection is worse than the failure mode of incomplete reflection.
 
 ### Crypto decisions (`asset: BTC|ETH|SOL|LINK|SUI|PYTH|RENDER` or `sleeve: crypto-*`)
 
@@ -112,7 +113,7 @@ Write the result to `docs/research/aggregate-YYYY-MM-DD.md` and link from `docs/
 
 - `/reflect-decisions` — runs this prompt against current `docs/research/decisions/`. Manual today; wire to `/schedule` weekly (or after each new decision lands) once you've exercised the cycle enough to trust the output.
 - `/research <question>` — the methodology prompt; loads the most recent 5-10 reflections into context so new sessions are informed by past calibration data.
-- `genkei prices --ticker <X> --since YYYY-MM-DD --until YYYY-MM-DD --json` — the workhorse query for outcome pulls. JSON shape feeds directly into the alpha calc.
+- `genkei prices --ticker <X> --since YYYY-MM-DD --until YYYY-MM-DD --json` — the workhorse query for outcome pulls, for both crypto (CoinGecko/Coinbase) and equities (Yahoo). JSON shape feeds directly into the alpha calc; `price_usd` is already adjusted for equities.
 
 ## What this prompt is NOT
 

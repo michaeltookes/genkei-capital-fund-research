@@ -394,22 +394,12 @@ Reliability work that grows in importance as more sources go live.
 
 ## Epic E-001 — 2026-06-12 codebase-review findings
 
-A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the engineering layers in good shape but the research loop operationally unproven and its instructions drifted behind the shipped code. Six items, ordered by leverage. B-117 and B-118 protect the integrity of the decision/reflection loop and should land before the first real reflection cycle; the rest harden ops and code quality.
-
-### B-117 — Sync prompts/skills with shipped CLI surfaces
-- **Status:** open
-- **Priority:** high
-- **Context:** The methodology prompts are the agent's *program*, and they're stale in ways that produce wrong behavior, not just friction. Verified during the review: `prompts/reflect-on-decisions.md` (lines 44–45) and `.claude/skills/reflect-decisions/SKILL.md` (line 35) still instruct the agent to mark every equity decision `status: deferred` because "equity prices aren't ingested" — but B-092 shipped `yahoo.candles` and `genkei prices --ticker AAPL` works. `deferred` is a terminal status in the skill, so a reflection run today would silently drop the equity-core decisions (CRM, VEEV, SaaS-sector) from outcome-pairing. Same class of drift: `prompts/research-methodology.md` says stablecoin supply has "no typed surface yet" (`genkei stablecoin-flow` shipped 2026-06-07, B-108) and never mentions `genkei macro-regime` (B-059) as the regime shortcut, so sessions re-derive the regime by hand.
-- **Acceptance criteria:**
-  - `prompts/reflect-on-decisions.md` + `.claude/skills/reflect-decisions/SKILL.md`: equity decisions reflect against `yahoo.candles` prices with SPY as benchmark; the defer-equities instruction is removed.
-  - `prompts/research-methodology.md`: references `genkei macro-regime` in the macro section and `genkei stablecoin-flow` in flow/positioning; the protocol-TVL EMPTY note gains a workaround (`genkei query`) or explicit skip guidance.
-  - `.claude/skills/research/SKILL.md` pre-flight mentions the same shortcuts.
-  - Process guard documented (in this file or `docs/research/README.md`): when a CLI surface ships, grep `prompts/` and `.claude/skills/` for claims it invalidates as part of the PR.
+A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the engineering layers in good shape but the research loop operationally unproven and its instructions drifted behind the shipped code. Six items, ordered by leverage. B-117 (resolved 2026-06-12, see `docs/resolved.md`) and B-118 protect the integrity of the decision/reflection loop and should land before the first real reflection cycle; the rest harden ops and code quality.
 
 ### B-118 — Dry-run the reflection cycle + trigger-fire convention
 - **Status:** open
 - **Priority:** high
-- **Context:** Nine decisions logged, zero machine reflections — the first decision isn't horizon-eligible until ~2026-12. The loop is the calibration engine and has never executed; the one `resolved` decision (2025-12-05 CRM) was closed by a hand-written supersession note in a format the skill doesn't expect. The skill also checks `trigger_fired_at`, but no decision file populates it — the CRM→SaaS-sector supersession is exactly the event that field was designed for. Depends on B-117 landing first (otherwise the dry run exercises the stale defer-equities path).
+- **Context:** Nine decisions logged, zero machine reflections — the first decision isn't horizon-eligible until ~2026-12. The loop is the calibration engine and has never executed; the one `resolved` decision (2025-12-05 CRM) was closed by a hand-written supersession note in a format the skill doesn't expect. The skill also checks `trigger_fired_at`, but no decision file populates it — the CRM→SaaS-sector supersession is exactly the event that field was designed for. B-117 landed 2026-06-12 (prompts now match the shipped CLI), so this is unblocked — the dry run will exercise the corrected equity path.
 - **Acceptance criteria:**
   - One `/reflect-decisions` dry run executed on a throwaway branch with temporarily lowered horizon thresholds; bugs/gaps found are filed or fixed.
   - The first real outcome block (even from the dry run) added to `prompts/reflect-on-decisions.md` as a worked example, including what a deferred outcome looks like.
