@@ -11,8 +11,8 @@ impossible without an indexer-side API.
 Every active Sui mainnet validator (~129 as of 2026-06). Per-epoch
 snapshot rows capturing:
 
-- `staking_pool_sui_balance` (current stake, MIST)
-- `pending_stake` / `pending_total_sui_withdraw`
+- `stake_amount_mist` (current stake, MIST)
+- `pending_stake_mist` / `pending_withdraw_mist`
 - `voting_power`
 - `commission_rate`
 - `apy`
@@ -60,8 +60,8 @@ overflow `BIGINT`.
   mid-epoch transitions. Future improvement: trigger on
   epoch-change event instead of fixed cron.
 - **Stake amounts in MIST, not SUI** — querying balance requires
-  `amount / 1e9`. Documented on the column to avoid the "why is this
-  10⁹× the expected number?" surprise.
+  `stake_amount_mist / 1e9`. Documented on the column to avoid the
+  "why is this 10⁹× the expected number?" surprise.
 - **No operator-level drill-down** — pending flows + commission live
   at the validator level today. Operator → validator → delegator
   hierarchy is collapsed.
@@ -97,7 +97,7 @@ Before consuming Sui staking signals:
 3. **APY populated** — every row carries a non-null APY (the join to
    `suix_getValidatorsApy` is complete). Null APYs indicate the
    second RPC call failed silently.
-4. **Stake delta sanity** — `SUM(staking_pool_sui_balance)` epoch
+4. **Stake delta sanity** — `SUM(stake_amount_mist)` epoch
    over epoch should drift smoothly (< 5% delta) absent a major
    protocol event. Sudden jumps signal a parsing regression or
    genuine market event worth investigating.

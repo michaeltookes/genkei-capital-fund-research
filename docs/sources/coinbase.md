@@ -4,7 +4,7 @@ Daily OHLCV candles for every watchlist crypto with a Coinbase product
 ID. B-035 originally targeted Binance; pivoted to Coinbase Exchange in
 2026 after `api.binance.com` enforced a US geo-block on the
 GH-Actions hosted runner. Coinbase is US-accessible, keyless, and
-covers all seven watchlist coins (BTC, ETH, SOL, LINK, SUI, PYTH, DOGE).
+covers all seven watchlist coins (BTC, ETH, SOL, LINK, SUI, PYTH, RENDER).
 
 ## Coverage v1
 
@@ -19,7 +19,7 @@ Per-product daily candles for each watchlist entry carrying a non-null
 | LINK-USD | 2019-06-26 |
 | SUI-USD | 2023-05-04 |
 | PYTH-USD | 2023-11-22 |
-| DOGE-USD | 2021-06-03 |
+| RENDER-USD | 2024-02-14 |
 
 Any coin without a `coinbase_product` (set in `src/genkei/data/watchlists.yml`)
 is silently skipped with a logged note — keeps daily runs clean while
@@ -44,10 +44,10 @@ the watchlist is incomplete.
 - `coinbase.candles` — time-series fact, PK `(product, ts)`. Hypertable
   on `ts`, 30-day chunks, compressed > 30d, segmentby `product`.
 
-Columns: `open`, `high`, `low`, `close` (all NUMERIC), `volume`
-(NUMERIC; native unit varies by product). Stored without adjustment —
-Coinbase candles are spot-price, no split / dividend / fee adjustment
-to apply.
+Columns: `open`, `high`, `low`, `close` (all NUMERIC), `volume_base`
+(NUMERIC; base-asset units for the product). Stored without adjustment —
+Coinbase candles are spot-price, no split / dividend / fee adjustment to
+apply.
 
 ## v1 limitations & known issues
 
