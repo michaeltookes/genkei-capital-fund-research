@@ -10,7 +10,7 @@ Runs the outcome-pairing cycle defined in `prompts/reflect-on-decisions.md`. Tur
 ## Pre-flight
 
 1. **Read `prompts/reflect-on-decisions.md`** in full. That prompt is the source of truth for *what* the reflection does, including the elapsed-time mapping per horizon, the alpha computation, and the "what makes a good 2-3 sentence reflection" rules.
-2. **Verify the data lake is healthy**: `genkei watchlist health`. If `coingecko.market_data` is EMPTY / STALE, crypto outcome pulls will fail; if equity price feed isn't yet ingested, equity decisions get deferred (per the prompt). Either way, sanity-check before computing alpha.
+2. **Verify the data lake is healthy**: `genkei watchlist health`. If `coingecko.market_data` is EMPTY / STALE, crypto outcome pulls will fail; if `yahoo.candles` is EMPTY / STALE, equity outcome pulls will fail. Sanity-check both before computing alpha.
 3. **Confirm a clean working tree** (`git status`). The cycle commits one batch of updates; mixing with in-progress work risks a confusing commit.
 
 ## Walk the decisions
@@ -32,11 +32,12 @@ For each decision in the queue:
 
 1. **Pull realized prices** per the prompt's instructions:
    - Crypto decisions: `genkei prices --ticker <ASSET> --since <date> --until <today> --json`. Same for BTC benchmark.
-   - Equity decisions: equity price feed isn't yet ingested (see B-029-B-036 backlog items for the source backlog). Mark `status: deferred` with a clear note explaining the missing-source — DO NOT fabricate outcome data. The reflection still runs, just with the deferred status.
+   - Equity decisions: same command — equity tickers route to `yahoo.candles` (B-092), and `price_usd` is the split/dividend-adjusted close, the right input for the return calc. Benchmark is SPY, pulled the same way.
    - Macro decisions: pull the relevant `genkei macro --series … --since <date> --until <today>` series. Compare actual trajectory vs the regime call qualitatively.
+   - Any sleeve: if a pull errors or returns empty, mark `status: deferred` with a clear note naming the gap — DO NOT fabricate outcome data. The reflection still runs, just with the deferred status.
 2. **Compute alpha** per the prompt (asset return − benchmark return; annualize if horizon > 1y).
 3. **Write the `## Outcome` block** in the decision file, replacing the `(reserved — pending)` placeholder. Include resolution date, asset return, benchmark return, alpha, trigger-condition status, and a 2-3 sentence reflection.
-4. **Flip the frontmatter `status`** from `pending` → `resolved` (or `deferred` if equity-price-feed missing).
+4. **Flip the frontmatter `status`** from `pending` → `resolved` (or `deferred` if required data was genuinely unavailable).
 5. **Update the frontmatter `date`** — no. The original date is the decision date; resolution is a property of the outcome block. Don't overwrite the original date.
 
 ## Reflection content guidelines (from the prompt)
