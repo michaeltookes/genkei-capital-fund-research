@@ -18,13 +18,13 @@ Runs the outcome-pairing cycle defined in `prompts/reflect-on-decisions.md`. Tur
 Walk `docs/research/decisions/*.md` (excluding `_template.md` and `README.md`):
 
 1. Parse YAML frontmatter (between `---` fences). Skip files with terminal statuses: `resolved` (already reflected) and `deferred` (explicitly postponed because required data was unavailable). Note both counts in the run summary.
-2. **Early-resolution check (before the horizon math).** If the decision was superseded or its trigger fired before horizon, it resolves *now* with a forward-link, not by benchmark pairing (see `docs/research/README.md` → "Supersession and trigger-fire"). Specifically, if `frontmatter.superseded_by` is set, OR `frontmatter.trigger_fired: true`, OR a date such as `frontmatter.trigger_fired_at` is on or before `frontmatter.date + horizon_days` — and the file is still `pending` — flip it to `resolved`, write a short `## Outcome` note pointing at the superseding/successor decision (no alpha; it was carried forward, not graded), and move on. Do NOT queue it for outcome pairing. Note these as "early-resolved (supersession/trigger)" in the run summary. This catches the failure mode where a superseded decision sits `pending` and re-queues every run.
+2. **Early-resolution check (before the horizon math).** If the decision was superseded or its trigger fired before horizon, it resolves *now* with a forward-link, not by benchmark pairing (see `docs/research/README.md` → "Supersession and trigger-fire"). Specifically, if `frontmatter.superseded_by` is set, OR `frontmatter.trigger_fired: true`, OR a date such as `frontmatter.trigger_fired_at` is on or before `frontmatter.date + horizon_days` — and the file is still `pending` — flip it to `resolved`, write a short `## Outcome` note pointing at the superseding/successor decision (no alpha; it was carried forward, not graded), and add it to an `early_resolved` list for the batch summary/commit. Do NOT queue it for outcome pairing. Note these as "early-resolved (supersession/trigger)" in the run summary. This catches the failure mode where a superseded decision sits `pending` and re-queues every run.
 3. Compute `elapsed_days = (today - frontmatter.date).days`.
 4. Apply horizon mapping from the prompt: `weeks` → 28d, `months` → 180d, `years` → 365d.
 5. If `elapsed_days < horizon_days`, skip — not yet eligible for reflection. Note in the run summary.
 6. If `elapsed_days >= horizon_days`, queue for outcome pairing.
 
-If the eligible queue is empty, report "no decisions past their horizon" and stop. Don't make commits in this case.
+If the eligible queue is empty and `early_resolved` is empty, report "no decisions past their horizon" and stop. Don't make commits in this case. If `early_resolved` has entries, skip outcome pairing but continue to the summary/test/commit path; those file edits are work done for this reflection batch.
 
 ## Outcome pairing (per queued decision)
 
@@ -54,10 +54,10 @@ Good reflection: "Insider-cluster signal carried this; macro turned hostile mid-
 
 ## Commit + push
 
-After processing the queue:
+After processing the queue and any early-resolved decisions:
 
 1. Run `python3 -m unittest discover -s tests` before committing — the frontmatter validator should still pass since you've only flipped status + added body content; if it fails, something went wrong with the YAML edit.
-2. **One commit per run** is the convention. Subject: `Reflect on N decisions (resolved: X, deferred: Y)`. Body: short summary of which decisions were touched.
+2. **One commit per run** is the convention. Subject: `Reflect on N decisions (resolved: X, deferred: Y)`. Body: short summary of which decisions were touched, including any early-resolved supersession/trigger files. Early-resolved-only runs still get committed.
 3. Push.
 
 ## Aggregate snapshot (optional)

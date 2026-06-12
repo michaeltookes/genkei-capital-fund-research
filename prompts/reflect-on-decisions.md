@@ -18,7 +18,7 @@ Loaded automatically by the `/reflect-decisions` skill. Run manually to start; w
 
 A decision is **eligible for reflection** when `today - date >= horizon_days`.
 
-**Early resolution beats the horizon math.** A decision that was superseded (frontmatter `superseded_by` set) or whose trigger fired before horizon (`trigger_fired_at` / `trigger_fired: true`) resolves *now*, with a forward-link to the successor decision rather than a benchmark-paired outcome — see `docs/research/README.md` → "Supersession and trigger-fire". Don't grade it on a benchmark it was never held to, and don't leave it `pending` (a superseded decision left pending re-queues every run — the exact bug the B-118 dry run caught on the 2026-05-20 SUI decision). Resolve it with a short note and move on.
+**Early resolution beats the horizon math.** A decision that was superseded (frontmatter `superseded_by` set) or whose trigger fired before horizon (`trigger_fired_at` / `trigger_fired: true`) resolves *now*, with a forward-link to the successor decision rather than a benchmark-paired outcome — see `docs/research/README.md` → "Supersession and trigger-fire". Don't grade it on a benchmark it was never held to, and don't leave it `pending` (a superseded decision left pending re-queues every run — the exact bug the B-118 dry run caught on the 2026-05-20 SUI decision). Resolve it with a short note and count it as batch work to summarize and commit, even if no horizon-eligible decisions remain.
 
 ---
 
@@ -27,13 +27,14 @@ A decision is **eligible for reflection** when `today - date >= horizon_days`.
 Walk `docs/research/decisions/*.md`. For each file:
 
 1. Parse the YAML frontmatter (between the `---` fences).
-2. Skip if `status: resolved` already (already reflected).
+2. Skip if `status: resolved` or `status: deferred` (terminal — already handled).
 3. Skip the template file `_template.md` and `README.md`.
-4. Compute `elapsed_days = (today - frontmatter.date).days`.
-5. Skip if `elapsed_days < horizon_days` per the mapping above.
-6. Add the rest to the to-reflect queue.
+4. **Early-resolution check:** if `superseded_by` is set OR `trigger_fired_at` / `trigger_fired: true` is present — and the file is still `pending` — resolve it now (see "Early resolution beats the horizon math" above), add it to the `early_resolved` list for the batch summary/commit, and skip remaining steps for this file.
+5. Compute `elapsed_days = (today - frontmatter.date).days`.
+6. Skip if `elapsed_days < horizon_days` per the mapping above.
+7. Add the rest to the to-reflect queue.
 
-If the queue is empty, report "no decisions past their horizon" and stop.
+If the queue is empty and `early_resolved` is empty, report "no decisions past their horizon" and stop. If `early_resolved` has entries, skip realized-data pulling and benchmark math, then continue to the summary/commit path so those resolved files are persisted.
 
 ---
 
