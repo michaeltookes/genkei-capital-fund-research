@@ -40,6 +40,8 @@ genkei macro --series DTWEXBGS --since YYYY-01-01  # USD strength (crypto + EM e
 genkei macro --series BAMLH0A0HYM2 --since YYYY-01-01  # HY credit spread (risk-on/off)
 ```
 
+**Start with the classifier, then drill into series.** `genkei macro-regime` (B-059) collapses the series above into a risk-on / risk-off / mixed call for the latest day; `--since/--until` gives the trajectory and `--summary` the regime distribution over a range. Use it as the opening read, then pull 2-4 raw series to understand *why* the regime is what it is — the per-series queries are where the nuance lives.
+
 **Pick 2-4 of these as relevant for your question.** If you're researching crypto, USD index + HY spread matter more than the curve. If you're researching a bank stock, the curve is the whole story.
 
 **Use vintage-awareness when timing matters.** `genkei macro --series GDPC1 --as-of 2024-06-15` answers "what did we believe about Q1 GDP on 2024-06-15" — critical for back-testing or for reading old decisions in context.
@@ -58,12 +60,14 @@ Split by sleeve. Always pull the data; don't paraphrase from memory.
 - **Revenue + earnings trajectory:** `genkei filings --ticker AAPL --concept us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax --unit USD --since 2020-01-01`. Plot the trajectory in your head. Is it accelerating, decelerating, or seasonal?
 - **Margin trajectory:** Query `us-gaap:GrossProfit` / `us-gaap:OperatingIncomeLoss` / `us-gaap:NetIncomeLoss` over the same window.
 - **Balance sheet:** Cash + debt → `us-gaap:CashAndCashEquivalentsAtCarryingValue`, `us-gaap:LongTermDebt`. Net cash position is the Buffett-mentality covering-expenses screen.
+- **Price history:** `genkei prices --ticker AAPL --since 2024-01-01` — equity tickers route to `yahoo.candles` (B-092); `price_usd` is the adjusted close.
 
 ### Crypto (`genkei tvl`, `genkei prices`)
 
 - **Chain TVL trajectory:** `genkei tvl --chain Ethereum --since 2024-01-01`. Same for Solana, Bitcoin, Sui per asset relevance.
 - **Asset price + market cap:** `genkei prices --ticker BTC --since 2024-01-01`. Note 30-day and 90-day momentum.
-- **Per-protocol TVL** (when `defillama.protocol_tvl` populates — currently EMPTY; check `genkei watchlist health`).
+- **Per-protocol TVL:** `genkei tvl --protocol aave-v3 --since 2024-01-01` — populated for the watchlist `protocols:` slugs (oracle / lending / DEX / liquid-staking / CDP categories; B-081). For protocols outside the watchlist, `defillama.protocol_tvl` won't have rows — extend the watchlist or note the gap rather than substituting chain TVL.
+- **Protocol fees + revenue:** `defillama.protocol_fees` (B-083) carries daily `fees_usd` / `revenue_usd` per watchlist slug — no typed surface yet, query via `genkei query`. `genkei revenue-divergence` (B-062) flags protocol-revenue vs token-price divergence for watchlist protocols with a token mapping.
 
 ---
 
@@ -79,8 +83,8 @@ The "who's positioning" angle. This is where insider data + on-chain data + stab
 
 ### Cross-source positioning (when relevant)
 
-- **Stablecoin supply** (`defillama.stablecoins`): proxy for "dry powder on-chain." Query via `genkei query` — no typed surface yet.
-- **DeFiLlama protocol TVL drawdown** (when populated): one of the four edge types — TVL drawdowns precede rotations.
+- **Stablecoin supply** (proxy for "dry powder on-chain"): `genkei stablecoin-flow --chain Ethereum --since 2024-01-01` for one chain's trajectory, `--all-chains` for the comparative snapshot + rotation signal, `--by-stablecoin` for the per-asset (USDT/USDC/DAI) split (B-108).
+- **TVL drawdown signal:** `genkei tvl-drawdown [--chain Ethereum]` (B-058) — runs the chain-level drawdown classifier on each (chain, native token) watchlist pair; TVL drawdowns precede rotations (one of the four edge types). For protocol-level drawdowns, pull `genkei tvl --protocol <slug>` and eyeball the trajectory.
 
 ---
 
@@ -160,6 +164,10 @@ The body is what you wrote during the methodology. The footer is a placeholder f
 - `/research <question>` — loads this methodology + the last 5–10 reflections, runs the session against your question. Use this rather than freelancing.
 - `/reflect-decisions` — runs the reflection cycle against decisions past their horizon. Manually trigger periodically (weekly to start), wire to `/schedule` when comfortable.
 - `genkei watchlist health` — sanity-check the data lake before relying on a query result. If a source is STALE or EMPTY, your conclusions may be drawing on stale data.
+- `genkei macro-regime` — one-shot risk-on/risk-off/mixed classifier over the macro series; the opening read for section 1.
+- `genkei stablecoin-flow` / `genkei tvl-drawdown` / `genkei revenue-divergence` — typed surfaces for the flow & positioning checks in sections 2–3; prefer them over re-deriving via `genkei query`.
+
+**Keep this document in sync with the CLI.** When a new `genkei` subcommand ships (or a table flips EMPTY → populated), update the sections above in the same PR — stale claims here propagate into every future session. See `docs/research/README.md` for the sync checklist.
 
 ## What this methodology is NOT
 

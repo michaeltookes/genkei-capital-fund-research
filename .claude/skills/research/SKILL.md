@@ -23,11 +23,14 @@ Walk the methodology in `prompts/research-methodology.md` section-by-section aga
 
 Concrete CLI surface you'll use most:
 
-- `genkei macro --series … --since …` (regime context)
+- `genkei macro-regime` (one-shot risk-on/risk-off/mixed call — the opening macro read)
+- `genkei macro --series … --since …` (raw series behind the regime call)
 - `genkei filings --ticker … --concept …` (equity fundamentals)
-- `genkei tvl --chain … --since …` (crypto TVL trajectory)
-- `genkei prices --ticker … --since …` (crypto/equity price; note: equity prices not yet ingested)
+- `genkei tvl --chain … --since …` and `genkei tvl --protocol <slug> …` (chain + watchlist-protocol TVL)
+- `genkei prices --ticker … --since …` (crypto via CoinGecko/Coinbase + equities via Yahoo, B-092)
 - `genkei insiders --ticker …` and `genkei insider-clusters` (insider flow)
+- `genkei stablecoin-flow --chain … | --all-chains` (on-chain dry powder + rotation, B-108)
+- `genkei tvl-drawdown` / `genkei revenue-divergence` (signal experiments as typed surfaces)
 - `genkei query "<sql>"` (escape hatch for anything the typed surface doesn't cover)
 
 ## Land the decision file
