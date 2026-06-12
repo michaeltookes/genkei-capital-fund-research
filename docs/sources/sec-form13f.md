@@ -51,8 +51,10 @@ Steady state: ~150k holding rows across ~1k filings.
   One row per holding within a filing: issuer name, CUSIP,
   `value_usd` (NUMERIC, dollars after ×1000 conversion at normalize
   time), shares, put/call/sh class, voting authority breakdown.
-- `sec.form13f_normalized_filings` — marker tracking already-parsed
-  accessions.
+- `sec.form13f_normalized_filings` — accession-only marker tracking
+  already-parsed filings (`accession_number`, `normalized_at`,
+  `ingest_run_id`). Form-type-specific backlog gates filter
+  `sec.form13f_filings` and join / anti-join this marker table.
 
 ## v1 limitations & known issues
 
