@@ -50,7 +50,7 @@ After the methodology is complete:
 
 - **No write actions on the data lake.** All queries go through the CLI which routes through `genkei query`'s read-only path (or the typed subcommands which never write).
 - **Do not rewrite existing decision analysis.** If reconsidering a prior decision, write a NEW file dated today. If the new call replaces the old one, add `supersedes: <old-slug>` to the new file and perform the required old-file close-out in the same commit: set `status: resolved`, add `superseded_by: <new-slug>`, optionally add the trigger date, and write the forward-link `## Outcome` note. If the new file only cites or refines the old decision without replacing it, use `related: - decision: <slug>` instead.
-- **Don't fabricate signal.** If a query returns empty / NULL / suspect data, say so in the section rather than skipping over it. The audit trail's value is honest record of what was knowable at the time.
+- **Don't fabricate signal.** If a query returns empty / NULL / suspect data, say so in the section rather than skipping over it. Do not invent a supersession, trigger-fire, or successor link just to close an old file. The audit trail's value is honest record of what was knowable at the time.
 - **One decision per session.** If the question splits into sub-questions, log them as separate decision files. Keeps the reflection cycle clean.
 
 ## When the user asks a question that doesn't warrant a decision file
