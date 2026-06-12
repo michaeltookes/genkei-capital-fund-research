@@ -18,9 +18,9 @@ Runs the outcome-pairing cycle defined in `prompts/reflect-on-decisions.md`. Tur
 Walk `docs/research/decisions/*.md` (excluding `_template.md` and `README.md`):
 
 1. Parse YAML frontmatter (between `---` fences). Skip files with terminal statuses: `resolved` (already reflected) and `deferred` (explicitly postponed because required data was unavailable). Note both counts in the run summary.
-2. Compute `elapsed_days = (today - frontmatter.date).days`.
-3. Apply horizon mapping from the prompt: `weeks` → 28d, `months` → 180d, `years` → 365d.
-4. Check trigger metadata if present. If `frontmatter.trigger_fired: true`, or a trigger timestamp such as `frontmatter.trigger_fired_at` / `frontmatter.triggers.triggered_timestamp` is on or before `frontmatter.date + horizon_days`, exclude the decision from outcome pairing; it should be re-evaluated via the trigger path, not the horizon path. Note trigger exclusions in the run summary.
+2. **Early-resolution check (before the horizon math).** If the decision was superseded or its trigger fired before horizon, it resolves *now* with a forward-link, not by benchmark pairing (see `docs/research/README.md` → "Supersession and trigger-fire"). Specifically, if `frontmatter.superseded_by` is set, OR `frontmatter.trigger_fired: true`, OR a date such as `frontmatter.trigger_fired_at` is on or before `frontmatter.date + horizon_days` — and the file is still `pending` — flip it to `resolved`, write a short `## Outcome` note pointing at the superseding/successor decision (no alpha; it was carried forward, not graded), and move on. Do NOT queue it for outcome pairing. Note these as "early-resolved (supersession/trigger)" in the run summary. This catches the failure mode where a superseded decision sits `pending` and re-queues every run.
+3. Compute `elapsed_days = (today - frontmatter.date).days`.
+4. Apply horizon mapping from the prompt: `weeks` → 28d, `months` → 180d, `years` → 365d.
 5. If `elapsed_days < horizon_days`, skip — not yet eligible for reflection. Note in the run summary.
 6. If `elapsed_days >= horizon_days`, queue for outcome pairing.
 
@@ -30,15 +30,16 @@ If the eligible queue is empty, report "no decisions past their horizon" and sto
 
 For each decision in the queue:
 
-1. **Pull realized prices** per the prompt's instructions:
+1. **Resolve the `asset` to a price series first.** A clean ticker (`LINK`, `CRM`) pulls directly. A cohort/sector label (`"equity-core: SaaS sector (CRM + NOW + …)"`, `"cohort: VEEV vs CRM"`) is NOT a valid `--ticker` — reflect it against its **named primary anchor** (the decision's Frame names the anchor, e.g. CRM for the SaaS thesis) and note in the outcome that the cohort was represented by that anchor. If the anchor or subject has no price series at all (e.g. VEEV is not yet a watchlist equity, so `genkei prices --ticker VEEV` returns empty), defer — see the deferred path below.
+2. **Pull realized prices** per the prompt's instructions:
    - Crypto decisions: `genkei prices --ticker <ASSET> --since <date> --until <today> --json`. Same for BTC benchmark.
    - Equity decisions: same command — equity tickers route to `yahoo.candles` (B-092), and `price_usd` is the split/dividend-adjusted close, the right input for the return calc. Benchmark is SPY, pulled the same way.
    - Macro decisions: pull the relevant `genkei macro --series … --since <date> --until <today>` series. Compare actual trajectory vs the regime call qualitatively.
    - Any sleeve: if a pull errors or returns empty, mark `status: deferred` with a clear note naming the gap — DO NOT fabricate outcome data. The reflection still runs, just with the deferred status.
-2. **Compute alpha** per the prompt (asset return − benchmark return; annualize if horizon > 1y).
-3. **Write the `## Outcome` block** in the decision file, replacing the `(reserved — pending)` placeholder. Include resolution date, asset return, benchmark return, alpha, trigger-condition status, and a 2-3 sentence reflection.
-4. **Flip the frontmatter `status`** from `pending` → `resolved` (or `deferred` if required data was genuinely unavailable).
-5. **Update the frontmatter `date`** — no. The original date is the decision date; resolution is a property of the outcome block. Don't overwrite the original date.
+3. **Compute alpha** per the prompt (asset return − benchmark return; annualize if horizon > 1y).
+4. **Write the `## Outcome` block** in the decision file, replacing the `(reserved — pending)` placeholder. Include resolution date, asset return, benchmark return, alpha, trigger-condition status, and a 2-3 sentence reflection.
+5. **Flip the frontmatter `status`** from `pending` → `resolved` (or `deferred` if required data was genuinely unavailable).
+6. **Update the frontmatter `date`** — no. The original date is the decision date; resolution is a property of the outcome block. Don't overwrite the original date.
 
 ## Reflection content guidelines (from the prompt)
 
