@@ -50,7 +50,7 @@ A decision normally resolves at its horizon. Two events resolve it *early*, and 
 
 **Supersession** — a newer decision replaces an older one's call before the older one's horizon:
 
-- The **new** decision carries `supersedes: <old-slug>` in frontmatter.
+- The **new** decision carries `supersedes: <old-slug>` in frontmatter; `/research` must emit this key whenever it writes a replacement decision.
 - The **old** decision flips to `status: resolved`, gains `superseded_by: <new-slug>`, and gets a short `## Outcome` note pointing forward (no alpha computed — the call was carried forward, not graded). This mirrors how the 2025-12-05 CRM decision was closed by the 2026-06-05 SaaS-sector decision.
 
 **Trigger-fire** — a `trigger_reassessment` condition is observed *before* horizon, prompting a fresh decision rather than waiting it out:
