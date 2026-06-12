@@ -924,12 +924,21 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
             if not isinstance(raw_facets, dict):
                 continue
             facets: dict[str, str] = {}
+            invalid_facets = False
             for key, value in raw_facets.items():
-                if not isinstance(key, str) or not key:
-                    continue
+                if not isinstance(key, str) or not key.strip():
+                    invalid_facets = True
+                    break
                 if isinstance(value, bool) or value is None:
-                    continue
-                facets[key] = str(value)
+                    invalid_facets = True
+                    break
+                text = str(value).strip()
+                if not text:
+                    invalid_facets = True
+                    break
+                facets[key.strip()] = text
+            if invalid_facets:
+                continue
             seen_eia_ids.add(series_id)
             eia.append(
                 EiaSeriesEntry(

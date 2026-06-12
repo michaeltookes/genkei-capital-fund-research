@@ -530,17 +530,17 @@ class GapsQueryTests(unittest.TestCase):
         path = _watchlist_path(self)
         wl = watchlist_mod.load_watchlist(path)
         now = datetime.now(timezone.utc)
-        fetch_values = [
-            now - timedelta(hours=1),
-            now.date(),
-            now - timedelta(hours=3),
-            now - timedelta(hours=4),
-        ]
+        fetch_values = {
+            "bitcoin": now - timedelta(hours=1),
+            "0000320193": now.date(),
+            "DGS10": now - timedelta(hours=3),
+            "WTI_SPOT": now - timedelta(hours=4),
+        }
         executed_params = []
 
         class FakeCursor:
             def __init__(self):
-                self._values = list(fetch_values)
+                self._last_param = None
 
             def __enter__(self):
                 return self
@@ -550,9 +550,10 @@ class GapsQueryTests(unittest.TestCase):
 
             def execute(self, query, params=None):  # noqa: ANN001, ARG002
                 executed_params.append(params)
+                self._last_param = params[0] if params else None
 
             def fetchone(self):
-                return [self._values.pop(0)]
+                return [fetch_values[self._last_param]]
 
         class FakeConn:
             def __enter__(self):
