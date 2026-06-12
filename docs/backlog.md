@@ -178,14 +178,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Unit tests cover the new allocation parser.
   - Update the SUI 2026-05-20 research decision file's Backlog implications note to mark the gap fully closed.
 
-### B-036 — Per-source ingest documentation
-- **Status:** open
-- **Priority:** medium
-- **Context:** Each source gets its own doc explaining endpoints, schema mapping, freshness expectations, known quirks.
-- **Acceptance criteria:**
-  - `docs/sources/<name>.md` for every ingester (DeFiLlama first as the template).
-  - Acceptance gates included (mirroring `docs/defillama-daily-review.md` pattern).
-
 ### B-084 — Oracle market-share data source (likely paid)
 - **Status:** open
 - **Priority:** low
