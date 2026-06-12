@@ -50,12 +50,12 @@ from typing import Any
 from psycopg.types.json import Jsonb
 
 from genkei.common import db
+from genkei.common.slugs import blob_slug_part as _blob_slug_part
 from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
     TreasurySeriesEntry,
     load_watchlist,
 )
-from genkei.ingest.treasury import _blob_slug_part
 
 SOURCE_NAME = "treasury"
 NORMALIZE_ENDPOINT_LABEL = "normalize"

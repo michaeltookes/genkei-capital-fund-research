@@ -62,6 +62,7 @@ import httpx
 
 from genkei.common import db
 from genkei.common.http import HttpClient, RateLimit
+from genkei.common.slugs import blob_slug_part as _blob_slug_part
 from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist
 
 SOURCE_NAME = "treasury"
@@ -89,11 +90,6 @@ ENDPOINT_SORT_TIE_BREAKERS: dict[str, tuple[str, ...]] = {
 DEFAULT_RATE_LIMIT = RateLimit.per_second(2)
 
 LOGGER = logging.getLogger(__name__)
-
-
-def _blob_slug_part(value: str) -> str:
-    """Normalize endpoint/date-field text for raw blob endpoint names."""
-    return value.strip("/").strip().replace("/", "_").replace(" ", "_").lower()
 
 
 def _sort_fields(target: EndpointTarget) -> tuple[str, ...]:

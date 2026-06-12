@@ -16,6 +16,7 @@ from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
     BenchmarkEntry,
     CotMarketEntry,
+    EiaSeriesEntry,
     EtfTickerEntry,
     TreasurySeriesEntry,
     load_watchlist,
@@ -429,6 +430,31 @@ class TreasuryParserTests(unittest.TestCase):
         self.assertIsNotNone(interest)
         self.assertEqual(interest.aggregate, "sum")
         self.assertEqual(interest.row_filter, {})
+
+
+class EiaParserTests(unittest.TestCase):
+    """Pin EIA watchlist parsing for facet validation."""
+
+    def test_rejects_malformed_facets(self) -> None:
+        body = (
+            "version: 1\n"
+            "eia:\n"
+            "  - series_id: BAD_FACETS\n"
+            "    name: bad\n"
+            "    route: petroleum/pri/spt\n"
+            "    frequency: D\n"
+            "    facets:\n"
+            "      - series\n"
+            "  - series_id: WTI_SPOT\n"
+            "    name: good\n"
+            "    route: petroleum/pri/spt\n"
+            "    frequency: D\n"
+            "    facets:\n"
+            "      series: RWTC\n"
+        )
+        w = _load(body)
+        self.assertEqual([entry.series_id for entry in w.eia], ["WTI_SPOT"])
+        self.assertIsInstance(w.eia[0], EiaSeriesEntry)
 
 
 if __name__ == "__main__":

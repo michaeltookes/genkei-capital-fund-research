@@ -679,6 +679,27 @@ def _query_asset_gaps(wl: Watchlist) -> list[dict[str, Any]]:
                     "age_hours": round(age_h, 1) if age_h is not None else None,
                 }
             )
+        # EIA energy series -> eia.observations keyed by series_id
+        eia_table = PRIMARY_TABLES["eia"][0]
+        for entry in wl.eia:
+            cur.execute(
+                sql.SQL("SELECT max(ts) FROM {} WHERE series_id = %s").format(
+                    _table_identifier(eia_table)
+                ),
+                [entry.series_id],
+            )
+            last_ts = cur.fetchone()[0]
+            age_h = (now - last_ts).total_seconds() / 3600 if last_ts else None
+            out.append(
+                {
+                    "sleeve": "energy",
+                    "asset": entry.series_id,
+                    "key": entry.series_id,
+                    "source": eia_table,
+                    "last_ts": last_ts.isoformat() if last_ts else None,
+                    "age_hours": round(age_h, 1) if age_h is not None else None,
+                }
+            )
     return out
 
 

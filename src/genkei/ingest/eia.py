@@ -66,6 +66,7 @@ import httpx
 
 from genkei.common import db
 from genkei.common.http import HttpClient, RateLimit
+from genkei.common.slugs import blob_slug_part as _blob_slug_part
 from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
     load_watchlist,
@@ -85,11 +86,6 @@ DEFAULT_BACKFILL_DAYS = 365 * 10  # 10y default, matches Treasury + BEA.
 DEFAULT_RATE_LIMIT = RateLimit.per_second(2)
 
 LOGGER = logging.getLogger(__name__)
-
-
-def _blob_slug_part(value: str) -> str:
-    """Normalize route / series text for raw blob endpoint names."""
-    return value.strip("/").strip().replace("/", "_").replace(" ", "_").lower()
 
 
 @dataclass(frozen=True)
@@ -115,7 +111,7 @@ class SeriesTarget:
         own row in ``meta.raw_blobs`` and lets the normalizer pick the
         right watchlist entry without round-tripping the facet dict.
         """
-        return f"{BLOB_PREFIX}{self.series_id.lower()}"
+        return f"{BLOB_PREFIX}{_blob_slug_part(self.series_id)}"
 
 
 def load_targets(path: Path = DEFAULT_WATCHLIST_PATH) -> list[SeriesTarget]:
@@ -426,7 +422,10 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
         run_id = collect(config_path=args.config, start=args.start)
-    except SystemExit:
+    except SystemExit as exc:
+        if args.json:
+            print(json.dumps({"ok": False, "error": str(exc)}))
+            return 1
         raise
     except Exception as exc:
         LOGGER.exception("EIA collect failed")

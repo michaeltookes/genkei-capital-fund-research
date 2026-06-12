@@ -50,14 +50,11 @@ jobs:
       - name: Collect EIA series into meta.raw_blobs
         id: collect
         run: |
-          output="$(python3 -m genkei.ingest.eia)"
+          output="$(python3 -m genkei.ingest.eia --json)"
           echo "$output"
-          # Parse "EIA collect: meta.ingest_runs id=NNN" — same convention
-          # as FRED / BEA / Treasury so workflow logs stay greppable.
-          run_id_line="$(printf '%s\n' "$output" | grep 'ingest_runs id=' | tail -n 1 || true)"
-          source_run_id="${run_id_line##*=}"
-          if [ -z "$source_run_id" ] || [ "$source_run_id" = "$run_id_line" ]; then
-            echo "Could not parse EIA collector run id from output: $output" >&2
+          source_run_id="$(printf '%s\n' "$output" | jq -er 'if .ok == true and (.ingest_run_id | type == "number") then .ingest_run_id else empty end' || true)"
+          if [ -z "$source_run_id" ]; then
+            echo "Could not parse EIA collector run id from JSON output: $output" >&2
             exit 1
           fi
           if ! printf '%s' "$source_run_id" | grep -Eq '^[0-9]+$'; then

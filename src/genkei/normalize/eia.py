@@ -41,6 +41,7 @@ from typing import Any
 from psycopg.types.json import Jsonb
 
 from genkei.common import db
+from genkei.common.slugs import blob_slug_part as _blob_slug_part
 from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
     EiaSeriesEntry,
@@ -140,11 +141,6 @@ def _ts(d: date) -> datetime:
     return datetime.combine(d, datetime.min.time(), tzinfo=timezone.utc)
 
 
-def _blob_slug_part(value: str) -> str:
-    """Mirror ``ingest.eia._blob_slug_part`` (kept inline to dodge cycle risk)."""
-    return value.strip("/").strip().replace("/", "_").replace(" ", "_").lower()
-
-
 # ---------------------------------------------------------------------------
 # Per-series normalizer
 # ---------------------------------------------------------------------------
@@ -195,9 +191,13 @@ def normalize_series(
                 f"EIA response for series {entry.series_id} is missing data field "
                 f"{entry.data_field!r} (route {entry.route})."
             )
-        ts = parse_period(raw_row.get(entry.date_field), frequency=entry.frequency)
+        raw_period = raw_row.get(entry.date_field)
+        ts = parse_period(raw_period, frequency=entry.frequency)
         if ts is None:
-            continue
+            raise ValueError(
+                f"EIA response for series {entry.series_id} has invalid "
+                f"{entry.date_field!r} value {raw_period!r} (route {entry.route})."
+            )
         matched_rows += 1
         observations_by_ts[ts] = {
             "series_id": entry.series_id,
@@ -349,7 +349,7 @@ def _series_by_blob_name(
 
 def _series_blob_name(series_id: str) -> str:
     """Mirror ``SeriesTarget.blob_endpoint`` slug logic."""
-    return f"{BLOB_PREFIX}{series_id.lower()}"
+    return f"{BLOB_PREFIX}{_blob_slug_part(series_id)}"
 
 
 def _validate_blob_coverage(

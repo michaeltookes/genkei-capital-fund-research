@@ -25,7 +25,7 @@ US energy markets:
 | **Natural gas** | `HH_SPOT` | `natural-gas/pri/fut` | Daily | USD/MMBtu |
 |  | `NG_STORAGE_L48` | `natural-gas/stor/wkly` | Weekly | BCF |
 |  | `NG_MARKETED_PROD_US` | `natural-gas/prod/sum` | Monthly | MMcf |
-| **Electricity** | `ELEC_NET_GEN_US` | `electricity/electric-power-operational-data` | Monthly | thousand MWh |
+| **Electricity** | `ELEC_NET_GEN_US` | `electricity/electricity-power-operational-data` | Monthly | thousand MWh |
 
 `series_id` is a friendly TEXT key curated in the watchlist. Each
 entry binds a `route` + `facets` filter + `data_field` projection.
@@ -82,7 +82,7 @@ the `eia:` section.
 
 - **Base URL** — `https://api.eia.gov/v2`.
 - **Route** — slash-delimited path (e.g. `petroleum/stoc/wstk`,
-  `natural-gas/stor/wkly`, `electricity/electric-power-operational-data`).
+  `natural-gas/stor/wkly`, `electricity/electricity-power-operational-data`).
   Always followed by `/data/` in the request.
 - **Auth** — free API key in the `api_key` query param. Register at
   <https://www.eia.gov/opendata/register.php>. Set `EIA_API_KEY` in

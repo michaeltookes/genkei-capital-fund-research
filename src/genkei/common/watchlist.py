@@ -230,7 +230,7 @@ class EiaSeriesEntry:
     ``facets`` that select this specific series within that route.
 
     EIA v2 organizes data by route (``petroleum/stoc/wstk``,
-    ``natural-gas/stor/wkly``, ``electricity/electric-power-operational-data``)
+    ``natural-gas/stor/wkly``, ``electricity/electricity-power-operational-data``)
     and exposes per-route facet filters. Most legacy time series live under
     a ``series`` facet (e.g. ``WCESTUS1`` for weekly US ex-SPR crude
     inventories). Some routes — notably electricity — require multiple
@@ -919,14 +919,17 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                 else "period"
             )
             raw_facets = entry.get("facets", {})
+            if raw_facets is None:
+                raw_facets = {}
+            if not isinstance(raw_facets, dict):
+                continue
             facets: dict[str, str] = {}
-            if isinstance(raw_facets, dict):
-                for key, value in raw_facets.items():
-                    if not isinstance(key, str) or not key:
-                        continue
-                    if isinstance(value, bool) or value is None:
-                        continue
-                    facets[key] = str(value)
+            for key, value in raw_facets.items():
+                if not isinstance(key, str) or not key:
+                    continue
+                if isinstance(value, bool) or value is None:
+                    continue
+                facets[key] = str(value)
             seen_eia_ids.add(series_id)
             eia.append(
                 EiaSeriesEntry(

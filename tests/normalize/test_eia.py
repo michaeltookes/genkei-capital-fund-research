@@ -40,7 +40,7 @@ eia:
       series: WCESTUS1
   - series_id: ELEC_NET_GEN_US
     name: US net electricity generation
-    route: electricity/electric-power-operational-data
+    route: electricity/electricity-power-operational-data
     frequency: M
     data_field: generation
     facets:
@@ -317,7 +317,7 @@ class NormalizeSeriesTests(unittest.TestCase):
             payload,
             entry=_entry(
                 series_id="ELEC_NET_GEN_US",
-                route="electricity/electric-power-operational-data",
+                route="electricity/electricity-power-operational-data",
                 frequency="M",
                 data_field="generation",
                 facets={"fueltype": "ALL", "location": "US", "sectorid": "99"},
@@ -351,6 +351,17 @@ class NormalizeSeriesTests(unittest.TestCase):
         # If EIA renames the data column we want to know immediately.
         payload = _payload([{"period": "2024-06-11", "series": "RWTC"}])
         with self.assertRaisesRegex(ValueError, "missing data field"):
+            normalize_series(
+                payload,
+                entry=_entry(),
+                source_endpoint="...",
+                ingest_run_id=1,
+                fetched_at=datetime.now(timezone.utc),
+            )
+
+    def test_invalid_period_for_matching_row_raises(self) -> None:
+        payload = _payload([{"period": "not-a-date", "value": 79.9, "series": "RWTC"}])
+        with self.assertRaisesRegex(ValueError, "invalid 'period' value 'not-a-date'"):
             normalize_series(
                 payload,
                 entry=_entry(),

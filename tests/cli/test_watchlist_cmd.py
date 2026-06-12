@@ -22,6 +22,7 @@ from genkei.cli.watchlist import (
     _format_health_human,
     _format_list_human,
     _health_status_tag,
+    _query_asset_gaps,
     _query_source_health,
 )
 from genkei.common.schema_drift import DriftIssue
@@ -41,7 +42,14 @@ def _watchlist_path(case: unittest.TestCase) -> Path:
         "    - symbol: AAPL\n      name: Apple Inc.\n      cik: \"0000320193\"\n"
         "    - symbol: NOCIK\n      name: Nocik Co.\n"
         "macro_series:\n"
-        "  - id: DGS10\n    name: 10Y Treasury\n",
+        "  - id: DGS10\n    name: 10Y Treasury\n"
+        "eia:\n"
+        "  - series_id: WTI_SPOT\n"
+        "    name: Cushing OK WTI spot\n"
+        "    route: petroleum/pri/spt\n"
+        "    frequency: D\n"
+        "    facets:\n"
+        "      series: RWTC\n",
         encoding="utf-8",
     )
     return path
@@ -400,7 +408,7 @@ class ExpectationsRegistryTests(unittest.TestCase):
                 continue
             self.assertIn("collect", eps, f"{source} missing collect")
         # The classic raw-blob + normalize ingesters still report both:
-        for source in ("defillama", "fred", "sec", "coingecko"):
+        for source in ("defillama", "fred", "sec", "coingecko", "eia"):
             self.assertIn(
                 "normalize",
                 RECURRING_ENDPOINTS[source],
@@ -515,6 +523,54 @@ class GapsFormatTests(unittest.TestCase):
         self.assertIn("GAP", out)
         self.assertIn("OK", out)
         self.assertIn("3 assets, 1 GAP, 1 NONE", out)
+
+
+class GapsQueryTests(unittest.TestCase):
+    def test_query_asset_gaps_includes_eia_series(self) -> None:
+        path = _watchlist_path(self)
+        wl = watchlist_mod.load_watchlist(path)
+        now = datetime.now(timezone.utc)
+        fetch_values = [
+            now - timedelta(hours=1),
+            now.date(),
+            now - timedelta(hours=3),
+            now - timedelta(hours=4),
+        ]
+        executed_params = []
+
+        class FakeCursor:
+            def __init__(self):
+                self._values = list(fetch_values)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, query, params=None):  # noqa: ANN001, ARG002
+                executed_params.append(params)
+
+            def fetchone(self):
+                return [self._values.pop(0)]
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def cursor(self):
+                return FakeCursor()
+
+        with patch("genkei.cli.watchlist.db.connection", return_value=FakeConn()):
+            rows = _query_asset_gaps(wl)
+
+        eia_rows = [row for row in rows if row["source"] == "eia.observations"]
+        self.assertEqual(len(eia_rows), 1)
+        self.assertEqual(eia_rows[0]["asset"], "WTI_SPOT")
+        self.assertIn(["WTI_SPOT"], executed_params)
 
 
 class GapsCommandTests(unittest.TestCase):
