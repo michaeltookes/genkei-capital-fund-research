@@ -444,3 +444,22 @@ A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the e
   - B-051's decision recorded (surface + cadence + failure-mode behavior), and B-001/B-002/B-025 closed or rescoped accordingly.
   - Signal/brief outputs carry the horizon tag convention from CLAUDE.md.
   - First artifact actually lands in the chosen surface as proof of the path.
+
+### B-123 — Ingest VEEV into the equity watchlist
+- **Status:** open
+- **Priority:** medium
+- **Context:** Surfaced by the B-118 reflection dry run. The 2026-06-11 `veeva-vs-salesforce-split-aftermath` decision's primary subject is VEEV, but VEEV is **not** a watchlist equity and has no rows in `yahoo.candles` — `genkei prices --ticker VEEV` returns empty, so the decision can only ever be `deferred` at reflection time (it's the worked deferred-outcome example in `prompts/reflect-on-decisions.md`). A logged, horizon-bearing decision with no price series for its subject is a dead reflection. CRM/NOW/ADBE/WDAY/SNOW are all already ingested; VEEV is the one named comparator missing.
+- **Acceptance criteria:**
+  - VEEV added to the `equities:` section of `src/genkei/data/watchlists.yml` with correct `cik` / `cusip` / `sector` / `tier` / `sleeve` (life-sciences SaaS, equity-core).
+  - Yahoo backfill run lands VEEV history in `yahoo.candles`; `genkei prices --ticker VEEV` returns a series.
+  - `genkei watchlist health` surfaces VEEV like the other equities.
+  - Re-reflect the 2026-06-11 decision once data exists (flip it off `deferred`).
+
+### B-124 — Audit yahoo.candles price magnitudes against external references
+- **Status:** open
+- **Priority:** low
+- **Context:** Surfaced by the B-118 dry run. `yahoo.candles` carries NOW (ServiceNow) at ~$101–118 across 2026, where the real-world security trades ~10× higher (~$1,000); the IPO-date row (2012-06-29) matches ServiceNow exactly, so it's the right instrument at the wrong magnitude. The 2026-06-05 SaaS decision already consumed the low number ($117.90), so it's internally consistent within the lake — and crucially, **reflection alpha is return-based, so a constant scaling offset cancels and does not corrupt outcomes** (this is why it's low priority, not blocking). But it could mislead any absolute-price logic (valuation screens, position sizing, alert thresholds). Worth a one-pass audit comparing a handful of watchlist equities' latest `adj_close` to a known external reference to confirm whether the Yahoo ingester is mis-scaling a subset (split-adjustment bug?) or this is isolated.
+- **Acceptance criteria:**
+  - Spot-check latest `adj_close` for ~5–10 watchlist equities (incl. NOW) against an external reference; record findings in `docs/sources/yahoo.md`.
+  - If a systematic mis-scaling is found, root-cause it in `src/genkei/ingest/yahoo.py` / `normalize/yahoo.py` and re-backfill the affected tickers.
+  - If isolated to NOW, document the discrepancy and decide keep-as-is vs re-pull.
