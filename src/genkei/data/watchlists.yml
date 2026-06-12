@@ -1086,3 +1086,108 @@ treasury:
       security_type_desc: Marketable
       security_desc: Treasury Bonds
     rationale: Long-end Treasury cost; the term-premium-driven rate the duration-sensitive sleeves track.
+
+# EIA Open Data v2 — energy series (oil, natural gas, electricity) from
+# api.eia.gov/v2. v1 curates 11 core series across petroleum (spot
+# prices + weekly inventories + monthly crude production), natural gas
+# (Henry Hub spot, Lower-48 working storage, marketed production), and
+# electricity (US net generation). Free API key required —
+# EIA_API_KEY env var (register at https://www.eia.gov/opendata/register.php).
+# See docs/sources/eia.md.
+eia:
+  # Petroleum spot prices — daily
+  - series_id: WTI_SPOT
+    name: Cushing OK WTI spot price (FOB)
+    route: petroleum/pri/spt
+    frequency: D
+    facets:
+      series: RWTC
+    units: USD_PER_BARREL
+    rationale: Front-month WTI benchmark — the load-bearing US crude price signal.
+  - series_id: BRENT_SPOT
+    name: Europe Brent spot price (FOB)
+    route: petroleum/pri/spt
+    frequency: D
+    facets:
+      series: RBRTE
+    units: USD_PER_BARREL
+    rationale: Global crude benchmark; WTI-Brent spread informs US export/import dynamics.
+  # Petroleum stocks — weekly
+  - series_id: CRUDE_INV_EXSPR
+    name: Weekly US commercial crude oil stocks (excluding SPR)
+    route: petroleum/stoc/wstk
+    frequency: W
+    facets:
+      series: WCESTUS1
+    units: THOUSAND_BARRELS
+    rationale: Weekly EIA inventory report headline — single biggest scheduled oil-market event each week.
+  - series_id: GASOLINE_INV
+    name: Weekly US total gasoline stocks
+    route: petroleum/stoc/wstk
+    frequency: W
+    facets:
+      series: WGTSTUS1
+    units: THOUSAND_BARRELS
+    rationale: Gasoline-side demand proxy; key seasonal driver of WTI through summer driving season.
+  - series_id: DISTILLATE_INV
+    name: Weekly US total distillate (diesel + heating oil) stocks
+    route: petroleum/stoc/wstk
+    frequency: W
+    facets:
+      series: WDISTUS1
+    units: THOUSAND_BARRELS
+    rationale: Distillate-side industrial-demand proxy; winter heating + freight signal.
+  - series_id: SPR_CRUDE
+    name: Weekly US Strategic Petroleum Reserve crude stocks
+    route: petroleum/stoc/wstk
+    frequency: W
+    facets:
+      series: WCSSTUS1
+    units: THOUSAND_BARRELS
+    rationale: SPR drawdowns / refills are an explicit policy lever on oil supply.
+  # Petroleum production — monthly
+  - series_id: CRUDE_PRODUCTION_US
+    name: Monthly US field production of crude oil
+    route: petroleum/crd/crpdn
+    frequency: M
+    facets:
+      series: MCRFPUS2
+    units: THOUSAND_BARRELS_PER_DAY
+    rationale: US shale-production trajectory; structural-supply pivot relative to OPEC.
+  # Natural gas — Henry Hub spot + storage + production
+  - series_id: HH_SPOT
+    name: Henry Hub natural gas spot price (daily)
+    route: natural-gas/pri/fut
+    frequency: D
+    facets:
+      series: RNGWHHD
+    units: USD_PER_MMBTU
+    rationale: US natural-gas benchmark; weather-sensitive and the dominant power-burn cost signal.
+  - series_id: NG_STORAGE_L48
+    name: Weekly working natural gas in underground storage, Lower 48
+    route: natural-gas/stor/wkly
+    frequency: W
+    facets:
+      series: NW2_EPG0_SWO_R48_BCF
+    units: BCF
+    rationale: Weekly EIA-914 nat-gas storage report — analog of crude inventory for gas markets.
+  - series_id: NG_MARKETED_PROD_US
+    name: Monthly US natural gas marketed production
+    route: natural-gas/prod/sum
+    frequency: M
+    facets:
+      series: N9050US2
+    units: MILLION_CUBIC_FEET
+    rationale: Structural US gas supply; associated gas from shale oil rigs and dedicated dry-gas basins.
+  # Electricity — monthly net generation
+  - series_id: ELEC_NET_GEN_US
+    name: Monthly US net electricity generation, all sectors, all fuels
+    route: electricity/electric-power-operational-data
+    frequency: M
+    data_field: generation
+    facets:
+      fueltype: ALL
+      location: US
+      sectorid: '99'
+    units: THOUSAND_MWH
+    rationale: Headline US electricity demand proxy (net generation = generation - intra-sector losses); macro real-economy signal.

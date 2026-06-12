@@ -184,6 +184,7 @@ PRIMARY_TABLES: dict[str, list[str]] = {
     "gdelt": ["gdelt.gkg"],
     "bea": ["bea.observations"],
     "treasury": ["treasury.observations"],
+    "eia": ["eia.observations"],
     # B-090 — derived view, no ingest_runs row (computed live from
     # coingecko.market_data). Intentionally absent from RECURRING_ENDPOINTS
     # so it doesn't surface as MISSING on the recurring-cron half of the
@@ -249,6 +250,15 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
     # cadence — debt_to_penny + operating_cash_balance refresh daily;
     # the monthly endpoints upsert cleanly on no-change days.
     "treasury": ["collect", "normalize"],
+    # B-032 EIA Open Data v2 — collect lands one raw blob per series
+    # (oil/gas/power, 11 series across petroleum, natural gas, and
+    # electricity) covering a 10y window via paginated facet queries;
+    # normalize projects each blob into eia.observations using the
+    # entry's data_field + per-frequency period parser. Daily cadence —
+    # daily spot prices refresh every business day; weekly inventories
+    # publish Wednesdays; monthly production / generation upsert cleanly
+    # on no-change days.
+    "eia": ["collect", "normalize"],
     # B-064 — one entry per signal emitter that runs on a daily cron.
     # B-093 added crowding; B-094 added eight_k_impact; B-095 added
     # tvl_drawdown (first crypto-side emitter); B-098 added
@@ -665,6 +675,27 @@ def _query_asset_gaps(wl: Watchlist) -> list[dict[str, Any]]:
                     "asset": m.series_id,
                     "key": m.series_id,
                     "source": "fred.observations",
+                    "last_ts": last_ts.isoformat() if last_ts else None,
+                    "age_hours": round(age_h, 1) if age_h is not None else None,
+                }
+            )
+        # EIA energy series -> eia.observations keyed by series_id
+        eia_table = PRIMARY_TABLES["eia"][0]
+        for entry in wl.eia:
+            cur.execute(
+                sql.SQL("SELECT max(ts) FROM {} WHERE series_id = %s").format(
+                    _table_identifier(eia_table)
+                ),
+                [entry.series_id],
+            )
+            last_ts = cur.fetchone()[0]
+            age_h = (now - last_ts).total_seconds() / 3600 if last_ts else None
+            out.append(
+                {
+                    "sleeve": "energy",
+                    "asset": entry.series_id,
+                    "key": entry.series_id,
+                    "source": eia_table,
                     "last_ts": last_ts.isoformat() if last_ts else None,
                     "age_hours": round(age_h, 1) if age_h is not None else None,
                 }
