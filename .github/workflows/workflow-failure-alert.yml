@@ -17,6 +17,11 @@ name: Workflow Failure Alert
 
 on:
   workflow_run:
+    # Every scheduled ingest workflow + CI + the two health checks. This
+    # list previously covered only 6 of the 14 ingest workflows, so
+    # failures in BEA / EIA / CFTC / Etherscan / GDELT / iShares /
+    # Sui-staking / Sui-unlocks / Treasury were silent (B-119). Keep it in
+    # sync when a new ingest workflow lands.
     workflows:
       - "Tests"
       - "DeFiLlama Daily Brief"
@@ -24,8 +29,18 @@ on:
       - "Coinbase Daily OHLCV"
       - "Yahoo Daily Equity OHLCV"
       - "FRED Daily Macro"
+      - "BEA Daily Macro"
+      - "Treasury Daily Fiscal Data"
+      - "EIA Daily Energy Data"
       - "SEC EDGAR Daily"
+      - "CFTC Weekly COT"
+      - "GDELT GKG Daily Snapshot"
+      - "iShares Daily ETF Snapshots"
+      - "Etherscan Whale-Flow Daily Snapshot"
+      - "Sui Staking Daily Snapshot"
+      - "SUI Unlocks Daily Snapshot"
       - "Ingest Staleness Check"
+      - "Ingest Heartbeat"
     types: [completed]
 
 permissions:
@@ -40,6 +55,11 @@ jobs:
     timeout-minutes: 5
 
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
       - name: Open or update failure issue
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -91,3 +111,14 @@ jobs:
           new ones."
               echo "Opened new failure issue for ${WORKFLOW_NAME}."
           fi
+
+      - name: Ping Discord
+        uses: ./.github/actions/discord-notify
+        with:
+          webhook_url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          title: "🔴 ${{ github.event.workflow_run.name }} — ${{ github.event.workflow_run.conclusion }}"
+          description: |
+            Workflow **${{ github.event.workflow_run.name }}** completed with **${{ github.event.workflow_run.conclusion }}** on `${{ github.event.workflow_run.head_branch }}`.
+            A GitHub issue was opened or updated with the details.
+          url: ${{ github.event.workflow_run.html_url }}
+          color: "15158332"
