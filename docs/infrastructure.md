@@ -154,6 +154,29 @@ docker volume rm genkei_runner_data   # only if you're sure
 
 GitHub will mark the runner `Offline` after a few minutes; you can delete it from Settings → Actions → Runners once it's no longer needed.
 
+## Monitoring & alerting
+
+The lake is fed by 14 scheduled ingest workflows. Three workflows watch for it going stale, layered so each covers a window the others can't (B-071, B-119):
+
+| Workflow | Runs on | Catches | Channel |
+|---|---|---|---|
+| `workflow-failure-alert.yml` | GitHub-hosted (`workflow_run`) | A watched workflow that *ran and failed/timed out* | GitHub issue + Discord |
+| `ingest-staleness-check.yml` | **Beelink** (needs Postgres) | A source that ran but wrote no/stale rows — DB-level freshness via `genkei watchlist health` | GitHub issue (per source) + Discord summary |
+| `ingest-heartbeat.yml` | **GitHub-hosted** (Actions API) | A workflow with no *successful run* in its cadence + grace — i.e. the Beelink runner itself being down, which the other two can't see | GitHub issue + Discord |
+
+**Why the heartbeat is GitHub-hosted:** a down self-hosted runner never *starts* its scheduled jobs, so nothing fails (no failure alert) and the DB-side staleness check can't run either (it lives on the same runner). The heartbeat sidesteps both by living on GitHub-hosted compute and reading only the Actions API — it stays up when the homelab is down. It uses run *recency* (last successful run age) rather than DB freshness because GitHub-hosted runners can't reach the homelab Postgres (see "Network reachability").
+
+### Discord webhook secret
+
+Real-time alerts post to a Discord channel via an incoming webhook. The webhook URL is a repo secret named **`DISCORD_WEBHOOK_URL`**; it is **not** a local/CLI variable (the `genkei` tool never uses it), so it lives only as a GitHub Actions secret, not in `.env`.
+
+To configure:
+
+1. Discord → Server Settings → Integrations → Webhooks → New Webhook; pick the channel; copy the webhook URL.
+2. GitHub → repo Settings → Secrets and variables → Actions → New repository secret, name `DISCORD_WEBHOOK_URL`, paste the URL.
+
+Until the secret is set, the shared `discord-notify` action (`.github/actions/discord-notify`) no-ops gracefully — the GitHub issues still get raised, so nothing breaks; you just don't get the real-time ping. A non-2xx response from Discord is logged as a warning, never a job failure (the issue remains the durable record).
+
 ## Local development
 
 ```bash
