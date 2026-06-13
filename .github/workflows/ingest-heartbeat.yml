@@ -1,0 +1,146 @@
+name: Ingest Heartbeat
+
+# B-119 — runner-independent liveness check.
+#
+# ingest-staleness-check.yml queries the homelab Postgres directly, so it
+# must run ON the Beelink — which means it goes dark exactly when the
+# Beelink does. A down self-hosted runner never *starts* its scheduled
+# jobs, so no run fails and workflow-failure-alert.yml stays silent too.
+# That's the gap: the lake quietly stops being fed and nothing says so.
+#
+# This workflow runs on GitHub-hosted compute and only touches the GitHub
+# Actions API (always reachable), asking a coarser question: has each
+# scheduled ingest workflow had a *successful run* within its cadence +
+# grace? If not, the lake is going stale even though no failure alert
+# fired. Daily workflows get 48h of grace (one missed day); the weekly
+# CFTC pull gets ~9 days.
+
+on:
+  schedule:
+    # 15:00 UTC — an hour after ingest-staleness-check (14:00), so by the
+    # time this runs the morning crons have had their chance to succeed.
+    - cron: "0 15 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+jobs:
+  heartbeat:
+    name: Check scheduled ingest workflows have run recently
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check each ingest workflow's last successful run
+        id: heartbeat
+        run: |
+          set -euo pipefail
+          NOW=$(date -u +%s)
+
+          # "<workflow-file>:<max_age_hours>". Daily jobs → 48h (one missed
+          # day of grace before alerting). CFTC is weekly → ~9 days. Keep
+          # in sync when a new scheduled ingest workflow lands.
+          WATCH=(
+            "defillama-daily.yml:48"
+            "coingecko-daily.yml:48"
+            "coinbase-daily.yml:48"
+            "yahoo-daily.yml:48"
+            "fred-daily.yml:48"
+            "bea-daily.yml:48"
+            "treasury-daily.yml:48"
+            "eia-daily.yml:48"
+            "sec-daily.yml:48"
+            "gdelt-daily.yml:48"
+            "ishares-daily.yml:48"
+            "etherscan-whales-daily.yml:48"
+            "sui-staking-daily.yml:48"
+            "sui-unlocks-daily.yml:48"
+            "cftc-weekly.yml:216"
+          )
+
+          STALE_LINES=()
+          for entry in "${WATCH[@]}"; do
+            WF="${entry%%:*}"
+            MAXH="${entry##*:}"
+            LAST=$(gh run list --workflow "$WF" --status success --limit 1 \
+              --json createdAt --jq '.[0].createdAt // empty' 2>/dev/null || true)
+            if [ -z "$LAST" ]; then
+              STALE_LINES+=("• **${WF}** — no successful run in the API's run history")
+              continue
+            fi
+            LAST_EPOCH=$(date -u -d "$LAST" +%s)
+            AGE_H=$(( (NOW - LAST_EPOCH) / 3600 ))
+            if [ "$AGE_H" -gt "$MAXH" ]; then
+              STALE_LINES+=("• **${WF}** — last success ${AGE_H}h ago (limit ${MAXH}h)")
+            else
+              echo "OK: ${WF} last success ${AGE_H}h ago (limit ${MAXH}h)"
+            fi
+          done
+
+          if [ "${#STALE_LINES[@]}" -eq 0 ]; then
+            echo "stale_count=0" >> "$GITHUB_OUTPUT"
+            echo "All watched ingest workflows have a recent successful run."
+            exit 0
+          fi
+
+          echo "stale_count=${#STALE_LINES[@]}" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "${STALE_LINES[@]}"
+
+          {
+            echo "summary<<DISCORD_EOF"
+            printf '%s\n' "${STALE_LINES[@]}"
+            echo "DISCORD_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          BODY=$(printf '%s\n' "${STALE_LINES[@]}" | sed 's/^• /- /')
+          DETECTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          TITLE="[ingest-heartbeat] scheduled ingest workflows not running"
+          EXISTING_NUMBER=$(gh issue list \
+              --state open \
+              --limit 1000 \
+              --json number,title \
+              --jq ".[] | select(.title == \"${TITLE}\") | .number" \
+              | head -1)
+
+          if [ -n "${EXISTING_NUMBER}" ]; then
+            gh issue comment "${EXISTING_NUMBER}" --body "Still stale as of ${DETECTED}:
+
+          ${BODY}"
+            echo "Commented on existing issue #${EXISTING_NUMBER}."
+          else
+            gh issue create \
+                --title "${TITLE}" \
+                --body "These scheduled ingest workflows have no recent successful run, so the lake is going stale. The most likely cause is the self-hosted **Beelink** runner being down or offline — a down runner never starts its scheduled jobs, so nothing *fails* and \`workflow-failure-alert.yml\` stays silent. This heartbeat (GitHub-hosted, Actions-API only) is the check that catches it.
+
+          ${BODY}
+
+          - Detected at: ${DETECTED}
+
+          ---
+
+          Auto-opened by \`.github/workflows/ingest-heartbeat.yml\` (B-119). Close once runs resume; daily re-runs add comments rather than reopen."
+            echo "Opened new heartbeat issue."
+          fi
+
+      - name: Ping Discord
+        if: steps.heartbeat.outputs.stale_count != '0'
+        uses: ./.github/actions/discord-notify
+        with:
+          webhook_url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          title: "🛑 Ingest heartbeat — ${{ steps.heartbeat.outputs.stale_count }} workflow(s) not running"
+          description: |
+            No recent successful run for these scheduled ingest workflows — the Beelink runner may be down (a failure alert won't fire for a runner that never starts):
+
+            ${{ steps.heartbeat.outputs.summary }}
+          color: "15158332"
