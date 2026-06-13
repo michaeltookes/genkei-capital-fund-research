@@ -68,6 +68,11 @@ jobs:
         run: alembic upgrade head
 
       - name: Collect GDELT GKG into gdelt.gkg
+        # The job timeout stays 360m for deliberate --since backfills, but a
+        # scheduled 24h snapshot finishes in minutes — so cap the daily path
+        # tight (30m) to surface a hang fast, and only allow the full 6h for a
+        # manual backfill (workflow_dispatch with `since`). B-119.
+        timeout-minutes: ${{ (github.event_name == 'workflow_dispatch' && inputs.since != '') && 360 || 30 }}
         env:
           SINCE: ${{ inputs.since || '' }}
           HOURS: ${{ inputs.hours || '' }}

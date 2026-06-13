@@ -62,6 +62,11 @@ jobs:
         run: alembic upgrade head
 
       - name: Collect ETH whale-flow snapshots into onchain.eth_whale_flows
+        # Job timeout stays 360m for deliberate --since backfills; the daily
+        # snapshot finishes in minutes, so cap the scheduled path at 30m to
+        # surface a hang fast and reserve the full 6h for a manual backfill
+        # (workflow_dispatch with `since`). B-119.
+        timeout-minutes: ${{ (github.event_name == 'workflow_dispatch' && inputs.since != '') && 360 || 30 }}
         env:
           SINCE: ${{ inputs.since || '' }}
         run: |
