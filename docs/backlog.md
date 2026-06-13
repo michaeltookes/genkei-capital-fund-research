@@ -394,17 +394,7 @@ Reliability work that grows in importance as more sources go live.
 
 ## Epic E-001 — 2026-06-12 codebase-review findings
 
-A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the engineering layers in good shape but the research loop operationally unproven and its instructions drifted behind the shipped code. Six items, ordered by leverage. B-117 and B-118 (both resolved 2026-06-12, see `docs/resolved.md`) protected the integrity of the decision/reflection loop before the first real reflection cycle; the rest harden ops and code quality. The B-118 dry run also spun off B-123 (VEEV ingest) and B-124 (yahoo magnitude audit), below.
-
-### B-119 — Close the silent-staleness windows in ingest ops
-- **Status:** open
-- **Priority:** medium
-- **Context:** B-071's staleness check is good defense-in-depth, but three gaps remain: (a) alerts land only as GitHub issues — visible only when someone looks; (b) nothing alerts if scheduled workflows simply don't run (Beelink runner down for two days → lake quietly stale, downstream research poisoned) — the staleness check itself runs on the same runner; (c) failed daily ingests get no retry, so a single transient API flake costs a full day of data until the next cron. Overlaps B-023 (CLI freshness warning) and B-068 (alert engine) but is narrower and earlier: push notification + runner-independence + retry.
-- **Acceptance criteria:**
-  - Staleness-check and workflow-failure alerts also push to a real-time channel (Discord/ntfy/email — pick one, document in `docs/infrastructure.md`).
-  - A "no `ingest_run` rows for any source in 48h" check runs on **GitHub-hosted** compute so it survives homelab downtime.
-  - Daily ingest workflows gain a retry-on-failure step (one templated pattern applied across the ~14 ingest workflows).
-  - Long-timeout jobs (gdelt 360m, etherscan-whales 360m) get per-step timeouts or heartbeat logging so a hang is distinguishable from slow progress.
+A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the engineering layers in good shape but the research loop operationally unproven and its instructions drifted behind the shipped code. Six items, ordered by leverage. B-117 and B-118 (both resolved 2026-06-12, see `docs/resolved.md`) protected the integrity of the decision/reflection loop before the first real reflection cycle; the rest harden ops and code quality. B-119 (resolved 2026-06-13) closed the observability half of silent-staleness. Spin-offs filed along the way: B-123 (VEEV ingest) and B-124 (yahoo magnitude audit) from the B-118 dry run, and B-125 (ingest retry) from B-119 — all below.
 
 ### B-120 — Promote backlog items into the mission queue
 - **Status:** open
