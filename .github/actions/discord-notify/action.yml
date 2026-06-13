@@ -1,0 +1,69 @@
+name: Discord notify
+description: >-
+  Post an embed to a Discord incoming webhook. No-ops gracefully (exit 0) when
+  the webhook URL is empty, so workflows that call it keep working before the
+  DISCORD_WEBHOOK_URL secret is configured. A non-2xx Discord response is a
+  warning, not a failure — the GitHub issue raised by the caller is the durable
+  record; Discord is the real-time ping (B-119).
+
+inputs:
+  webhook_url:
+    description: "Discord incoming webhook URL (pass secrets.DISCORD_WEBHOOK_URL). Empty string = skip."
+    required: false
+    default: ""
+  title:
+    description: "Embed title (truncated to 256 chars)."
+    required: true
+  description:
+    description: "Embed body (truncated to 4096 chars). Discord markdown is supported."
+    required: true
+  color:
+    description: "Embed sidebar color as a decimal int. Default red (15158332)."
+    required: false
+    default: "15158332"
+  url:
+    description: "Optional link the embed title points at (e.g. the failed run URL)."
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Post to Discord
+      shell: bash
+      env:
+        WEBHOOK: ${{ inputs.webhook_url }}
+        TITLE: ${{ inputs.title }}
+        DESCRIPTION: ${{ inputs.description }}
+        COLOR: ${{ inputs.color }}
+        LINK: ${{ inputs.url }}
+      run: |
+        set -euo pipefail
+        if [ -z "${WEBHOOK}" ]; then
+          echo "::notice::DISCORD_WEBHOOK_URL not set — skipping Discord notification (the GitHub issue is still the durable record)."
+          exit 0
+        fi
+        # Build the JSON with python so titles/bodies/errors are escaped safely
+        # (curl --data-raw with hand-built JSON breaks on quotes/newlines).
+        payload="$(python3 - <<'PY'
+        import json, os
+        embed = {
+            "title": os.environ["TITLE"][:256],
+            "description": os.environ["DESCRIPTION"][:4096],
+            "color": int(os.environ.get("COLOR") or "15158332"),
+        }
+        link = os.environ.get("LINK") or ""
+        if link:
+            embed["url"] = link
+        print(json.dumps({"embeds": [embed]}))
+        PY
+        )"
+        code="$(curl -sS -o /dev/null -w '%{http_code}' \
+          -H 'Content-Type: application/json' \
+          --data-raw "${payload}" \
+          "${WEBHOOK}" || echo 000)"
+        echo "Discord webhook responded ${code}"
+        case "${code}" in
+          2*) : ;;
+          *) echo "::warning::Discord webhook returned ${code} — alert may not have been delivered (GitHub issue still recorded it)." ;;
+        esac

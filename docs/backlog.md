@@ -394,17 +394,7 @@ Reliability work that grows in importance as more sources go live.
 
 ## Epic E-001 — 2026-06-12 codebase-review findings
 
-A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the engineering layers in good shape but the research loop operationally unproven and its instructions drifted behind the shipped code. Six items, ordered by leverage. B-117 and B-118 (both resolved 2026-06-12, see `docs/resolved.md`) protected the integrity of the decision/reflection loop before the first real reflection cycle; the rest harden ops and code quality. The B-118 dry run also spun off B-123 (VEEV ingest) and B-124 (yahoo magnitude audit), below.
-
-### B-119 — Close the silent-staleness windows in ingest ops
-- **Status:** open
-- **Priority:** medium
-- **Context:** B-071's staleness check is good defense-in-depth, but three gaps remain: (a) alerts land only as GitHub issues — visible only when someone looks; (b) nothing alerts if scheduled workflows simply don't run (Beelink runner down for two days → lake quietly stale, downstream research poisoned) — the staleness check itself runs on the same runner; (c) failed daily ingests get no retry, so a single transient API flake costs a full day of data until the next cron. Overlaps B-023 (CLI freshness warning) and B-068 (alert engine) but is narrower and earlier: push notification + runner-independence + retry.
-- **Acceptance criteria:**
-  - Staleness-check and workflow-failure alerts also push to a real-time channel (Discord/ntfy/email — pick one, document in `docs/infrastructure.md`).
-  - A "no `ingest_run` rows for any source in 48h" check runs on **GitHub-hosted** compute so it survives homelab downtime.
-  - Daily ingest workflows gain a retry-on-failure step (one templated pattern applied across the ~14 ingest workflows).
-  - Long-timeout jobs (gdelt 360m, etherscan-whales 360m) get per-step timeouts or heartbeat logging so a hang is distinguishable from slow progress.
+A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the engineering layers in good shape but the research loop operationally unproven and its instructions drifted behind the shipped code. Six items, ordered by leverage. B-117 and B-118 (both resolved 2026-06-12, see `docs/resolved.md`) protected the integrity of the decision/reflection loop before the first real reflection cycle; the rest harden ops and code quality. B-119 (resolved 2026-06-13) closed the observability half of silent-staleness. Spin-offs filed along the way: B-123 (VEEV ingest) and B-124 (yahoo magnitude audit) from the B-118 dry run, and B-125 (ingest retry) from B-119 — all below.
 
 ### B-120 — Promote backlog items into the mission queue
 - **Status:** open
@@ -453,3 +443,13 @@ A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the e
   - Spot-check latest `adj_close` for ~5–10 watchlist equities (incl. NOW) against an external reference; record findings in `docs/sources/yahoo.md`.
   - If a systematic mis-scaling is found, root-cause it in `src/genkei/ingest/yahoo.py` / `normalize/yahoo.py` and re-backfill the affected tickers.
   - If isolated to NOW, document the discrepancy and decide keep-as-is vs re-pull.
+
+### B-125 — Retry-on-failure for daily ingest workflows
+- **Status:** open
+- **Priority:** medium
+- **Context:** Split out of B-119, which delivered the *observability* half of silent-staleness (real-time Discord alerts, the runner-independent heartbeat, tighter long-job timeouts) — you now find out within hours when the lake stops being fed. This item is the *prevention* half: a single transient API flake (FRED slow at 11:00 UTC, a 502 from DeFiLlama) currently costs a full day of data until the next cron, because each ingest runs once with no retry. Deliberately separated because doing it safely across the 14 heterogeneous ingest workflows is its own focused, testable task — they differ in shape (collect-emits-run-id→normalize vs single-step collect), some have soft-failure modes (SEC) and backfill paths, and a naive retry could double-write or mask a real outage. Bundling it into the observability PR would have hurt reviewability.
+- **Acceptance criteria:**
+  - A uniform retry pattern (prefer a native bash retry-with-backoff around the collect step — no new third-party action, matching the repo's SHA-pinned-action posture) applied across the daily ingest workflows.
+  - Retry is bounded (e.g. 3 attempts, increasing backoff) and idempotency-safe — the collectors already upsert, so re-running collect must not corrupt `meta.ingest_runs` accounting; confirm the run-id parsing still captures the *successful* attempt's id for the normalize step.
+  - SEC's soft-failure mode and the `workflow_dispatch`/backfill paths are preserved, not retried into double-work.
+  - A short note in `docs/infrastructure.md` describing the retry contract.
