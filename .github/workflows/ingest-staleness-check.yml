@@ -53,6 +53,7 @@ jobs:
           python3 -m pip install -e .
 
       - name: Run watchlist health + raise issues for non-OK rows
+        id: health
         run: |
           set -euo pipefail
           DETECTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -77,12 +78,25 @@ jobs:
           ')
 
           if [ -z "${UNHEALTHY}" ]; then
+              echo "unhealthy_count=0" >> "$GITHUB_OUTPUT"
               echo "All sources OK."
               exit 0
           fi
 
           echo "Unhealthy rows:"
           echo "${UNHEALTHY}"
+
+          # Hand the Discord step a count + a compact bulleted summary
+          # (one real-time message beats one Discord ping per unhealthy row).
+          COUNT=$(printf '%s\n' "${UNHEALTHY}" | grep -c . || true)
+          echo "unhealthy_count=${COUNT}" >> "$GITHUB_OUTPUT"
+          {
+              echo "summary<<DISCORD_EOF"
+              printf '%s\n' "${UNHEALTHY}" | while IFS=$'\t' read -r SRC EP TAG AGE ERR; do
+                  echo "• **${SRC}/${EP}** — ${TAG} (age ${AGE})"
+              done
+              echo "DISCORD_EOF"
+          } >> "$GITHUB_OUTPUT"
 
           # One issue per (source, endpoint) so each can be tracked + closed
           # independently. Repeat failures on the same row add comments
@@ -125,3 +139,15 @@ jobs:
                   echo "Opened new issue for ${SRC}/${EP} (${TAG})."
               fi
           done
+
+      - name: Ping Discord with the unhealthy summary
+        if: steps.health.outputs.unhealthy_count != '0'
+        uses: ./.github/actions/discord-notify
+        with:
+          webhook_url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          title: "⚠️ Ingest staleness — ${{ steps.health.outputs.unhealthy_count }} unhealthy source(s)"
+          description: |
+            `genkei watchlist health` flagged ${{ steps.health.outputs.unhealthy_count }} non-OK row(s); a GitHub issue was opened or updated per source.
+
+            ${{ steps.health.outputs.summary }}
+          color: "16763904"
