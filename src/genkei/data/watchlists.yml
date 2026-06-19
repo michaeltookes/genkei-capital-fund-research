@@ -46,6 +46,18 @@ crypto:
       ecosystem: Ethereum
       sleeve: core
       rationale: Long-term core. Oracle infrastructure across every major chain.
+    # JUP (B-126). coingecko_id is `jupiter-exchange-solana`, NOT the bare
+    # `jupiter` id — that one is an unrelated legacy Ethereum "Jupiter
+    # Project" token. Verified: DefiLlama's gecko_id for the `jupiter`
+    # protocol matches `jupiter-exchange-solana`. No coinbase_product:
+    # Coinbase's JUP-USD product exists but is delisted (trading_disabled),
+    # so price comes from CoinGecko only.
+    - symbol: JUP
+      name: Jupiter
+      coingecko_id: jupiter-exchange-solana
+      ecosystem: Solana
+      sleeve: core
+      rationale: Long-term core. Dominant Solana DEX aggregator + on-chain perps; a direct bet on DeFi becoming load-bearing for everyday finance.
     - symbol: SUI
       name: Sui
       coingecko_id: sui
@@ -517,6 +529,20 @@ protocols:
       category: DEX
       coingecko_id: deep
       rationale: Sui Foundation's native on-chain orderbook DEX. Lower TVL than AMMs ($17M) but represents core Sui infrastructure; DEEP token is the canonical Sui-native fee asset. NOTE the coingecko_id is `deep` (CoinGecko's id for the Sui DEEP token), NOT `deepbook` (an unrelated coin with symbol ADB).
+
+    # Solana ecosystem (B-126) — pairs with the JUP crypto-core watchlist
+    # entry above. Jupiter is the dominant Solana DEX aggregator + on-chain
+    # perps venue, so its swap volume / TVL / fees are the most direct read
+    # on Solana DeFi activity AND on Jupiter's own fundamentals (the
+    # "company" half of the thesis). Slug verified live against
+    # `api.llama.fi/protocol/jupiter` (category DEX, Solana, ~$1.5B TVL,
+    # gecko_id `jupiter-exchange-solana`). The `/summary/fees/jupiter`
+    # stream feeds `genkei revenue-divergence` — the fee-vs-price check.
+    - slug: jupiter
+      name: Jupiter
+      category: DEX
+      coingecko_id: jupiter-exchange-solana
+      rationale: Dominant Solana DEX aggregator + perps; volume / TVL / fees are the most direct read on Solana DeFi activity and Jupiter's own fundamentals.
 
 # SEC 13F filers (institutional investment managers). One submissions
 # fetch per filer per day in the daily SEC pipeline; per-filing 13F-HR
