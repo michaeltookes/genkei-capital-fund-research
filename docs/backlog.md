@@ -425,16 +425,6 @@ A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the e
   - Signal/brief outputs carry the horizon tag convention from CLAUDE.md.
   - First artifact actually lands in the chosen surface as proof of the path.
 
-### B-123 — Ingest VEEV into the equity watchlist
-- **Status:** open
-- **Priority:** medium
-- **Context:** Surfaced by the B-118 reflection dry run. The 2026-06-11 `veeva-vs-salesforce-split-aftermath` decision's primary subject is VEEV, but VEEV is **not** a watchlist equity and has no rows in `yahoo.candles` — `genkei prices --ticker VEEV` returns empty, so the decision can only ever be `deferred` at reflection time (it's the worked deferred-outcome example in `prompts/reflect-on-decisions.md`). A logged, horizon-bearing decision with no price series for its subject is a dead reflection. CRM/NOW/ADBE/WDAY/SNOW are all already ingested; VEEV is the one named comparator missing.
-- **Acceptance criteria:**
-  - VEEV added to the `equities:` section of `src/genkei/data/watchlists.yml` with correct `cik` / `cusip` / `sector` / `tier` / `sleeve` (life-sciences SaaS, equity-core).
-  - Yahoo backfill run lands VEEV history in `yahoo.candles`; `genkei prices --ticker VEEV` returns a series.
-  - `genkei watchlist health` surfaces VEEV like the other equities.
-  - Re-reflect the 2026-06-11 decision once data exists (flip it off `deferred`).
-
 ### B-124 — Audit yahoo.candles price magnitudes against external references
 - **Status:** open
 - **Priority:** low
