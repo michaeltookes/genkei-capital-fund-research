@@ -531,18 +531,20 @@ protocols:
       rationale: Sui Foundation's native on-chain orderbook DEX. Lower TVL than AMMs ($17M) but represents core Sui infrastructure; DEEP token is the canonical Sui-native fee asset. NOTE the coingecko_id is `deep` (CoinGecko's id for the Sui DEEP token), NOT `deepbook` (an unrelated coin with symbol ADB).
 
     # Solana ecosystem (B-126) — pairs with the JUP crypto-core watchlist
-    # entry above. Jupiter is the dominant Solana DEX aggregator + on-chain
-    # perps venue, so its swap volume / TVL / fees are the most direct read
-    # on Solana DeFi activity AND on Jupiter's own fundamentals (the
-    # "company" half of the thesis). Slug verified live against
-    # `api.llama.fi/protocol/jupiter` (category DEX, Solana, ~$1.5B TVL,
-    # gecko_id `jupiter-exchange-solana`). The `/summary/fees/jupiter`
-    # stream feeds `genkei revenue-divergence` — the fee-vs-price check.
+    # entry above. Jupiter is a full-stack Solana DeFi ecosystem spanning
+    # aggregator, perps, lending, JupSOL/JupUSD, prediction markets, and
+    # related interfaces. The parent slug fits the JUP thesis because it
+    # captures the combined protocol surface rather than only the DEX
+    # aggregator or perps child slugs. Slug verified live against
+    # `api.llama.fi/protocol/jupiter` (`id: parent#jupiter`,
+    # `isParentProtocol: true`, gecko_id `jupiter-exchange-solana`). The
+    # `/summary/fees/jupiter` stream feeds `genkei revenue-divergence` —
+    # the fee-vs-price check.
     - slug: jupiter
       name: Jupiter
-      category: DEX
+      category: Full Stack DeFi
       coingecko_id: jupiter-exchange-solana
-      rationale: Dominant Solana DEX aggregator + perps; volume / TVL / fees are the most direct read on Solana DeFi activity and Jupiter's own fundamentals.
+      rationale: Full-stack Solana DeFi ecosystem spanning aggregator, perps, lending, liquid staking, stablecoin, and adjacent interfaces; parent-level TVL/fees are the most direct read on Solana DeFi activity and Jupiter's own fundamentals.
 
 # SEC 13F filers (institutional investment managers). One submissions
 # fetch per filer per day in the daily SEC pipeline; per-filing 13F-HR

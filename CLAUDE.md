@@ -107,7 +107,7 @@ Tracked as backlog items so they don't block forward motion:
 - ~~**B-008/B-009** — Postgres schema / migrations~~ → resolved by `docs/storage.md` (2026-05-07).
 - ~~**B-007** — Activate TimescaleDB~~ → resolved 2026-05-09: image swapped to `timescale/timescaledb:2.26.4-pg16`, `shared_preload_libraries = 'timescaledb'` set via `ALTER SYSTEM`, extension `timescaledb 2.26.4` installed against `genkei_capital` database.
 - ~~**B-013** — Repo layout~~ → resolved by `docs/repo-layout.md` (2026-05-07): `src/genkei/{common,ingest,normalize,cli,experiments,reports}/`. Migration lands in Phase 1.
-- ~~**B-015** — Watchlists~~ → resolved by `config/watchlists.yml` (2026-05-09): crypto, equities, and macro series landed.
+- ~~**B-015** — Watchlists~~ → resolved by `src/genkei/data/watchlists.yml` (2026-05-09): crypto, equities, and macro series landed.
 - **B-037** — CLI name (working: `genkei`).
 
 ## References
