@@ -12,6 +12,7 @@ from unittest.mock import patch
 from genkei.ingest import fred
 from genkei.ingest.fred import (
     DEFAULT_RATE_LIMIT,
+    OpenObservationVintage,
     SeriesTarget,
     _fetch_observations_payload,
     _fetch_series_pair,
@@ -98,7 +99,7 @@ class UrlBuilderTests(unittest.TestCase):
         self.assertIn("realtime_start=2024-04-25", url)
         # realtime_end defaults to the far-future sentinel (no boundary clipping).
         self.assertIn("realtime_end=9999-12-31", url)
-        # Reverted: no output_type=3 / vintage_dates (the format normalize can't parse).
+        # Incremental long-format requests do not use the bootstrap vintage chunk path.
         self.assertNotIn("output_type", url)
         self.assertNotIn("vintage_dates", url)
         self.assertIn("limit=100000", url)
@@ -150,6 +151,7 @@ class UrlBuilderTests(unittest.TestCase):
                 SeriesTarget("DGS10", "10-Year Treasury Yield"),
                 "KEY123",
                 PagingHttp(),  # type: ignore[arg-type]
+                since_vintage="2024-01-15",
             )
 
         self.assertIn("offset=0", url)
@@ -163,22 +165,16 @@ class UrlBuilderTests(unittest.TestCase):
         # Incremental fix: with vintages stored through 2024-02-15, the
         # request window starts there (not the full 1776 history → no cap),
         # but FRED clips already-current values to the window start. Those
-        # rows are snapshots, not true new vintages, so the collector drops
-        # them before storing the raw blob.
+        # unchanged rows are snapshots, not true new vintages, so the
+        # collector drops them before storing the raw blob.
         urls: list[str] = []
 
         class IncrementalHttp:
             def get_json(self, url: str) -> object:
                 urls.append(url)
                 return {
-                    "count": 3,
+                    "count": 2,
                     "observations": [
-                        {
-                            "date": "2024-01-01",
-                            "realtime_start": "2024-02-15",
-                            "realtime_end": "2024-03-09",
-                            "value": "1.0",
-                        },
                         {
                             "date": "2024-02-01",
                             "realtime_start": "2024-02-15",
@@ -199,6 +195,9 @@ class UrlBuilderTests(unittest.TestCase):
             "KEY123",
             IncrementalHttp(),  # type: ignore[arg-type]
             since_vintage="2024-02-15",
+            boundary_open_vintages={
+                "2024-02-01": OpenObservationVintage("2024-01-20", "2.0")
+            },
         )
         self.assertEqual(len(urls), 1)
         self.assertIn("realtime_start=2024-02-15", urls[0])
@@ -245,7 +244,10 @@ class UrlBuilderTests(unittest.TestCase):
             "KEY123",
             IncrementalHttp(),  # type: ignore[arg-type]
             since_vintage="2024-02-15",
-            boundary_open_vintages={"2024-01-01": "2024-01-10"},
+            boundary_open_vintages={
+                "2024-01-01": OpenObservationVintage("2024-01-10", "1.0"),
+                "2024-02-01": OpenObservationVintage("2024-01-20", "2.0"),
+            },
         )
 
         self.assertEqual(payload["count"], 2)
@@ -255,20 +257,99 @@ class UrlBuilderTests(unittest.TestCase):
         )
         self.assertEqual(payload["observations"][0]["realtime_end"], "2024-03-09")
 
-    def test_without_since_vintage_requests_full_history(self) -> None:
+    def test_since_vintage_keeps_same_day_boundary_updates(self) -> None:
+        class IncrementalHttp:
+            def get_json(self, _url: str) -> object:
+                return {
+                    "count": 1,
+                    "observations": [
+                        {
+                            "date": "2024-02-01",
+                            "realtime_start": "2024-02-15",
+                            "realtime_end": "9999-12-31",
+                            "value": "2.1",
+                        },
+                    ],
+                }
+
+        _url, payload = _fetch_observations_payload(
+            SeriesTarget("DGS10", "10-Year Treasury Yield"),
+            "KEY123",
+            IncrementalHttp(),  # type: ignore[arg-type]
+            since_vintage="2024-02-15",
+            boundary_open_vintages={
+                "2024-02-01": OpenObservationVintage("2024-01-20", "2.0")
+            },
+        )
+
+        self.assertEqual(payload["count"], 2)
+        self.assertEqual(
+            payload["observations"],
+            [
+                {
+                    "date": "2024-02-01",
+                    "realtime_start": "2024-01-20",
+                    "realtime_end": "2024-02-14",
+                    "value": "2.0",
+                },
+                {
+                    "date": "2024-02-01",
+                    "realtime_start": "2024-02-15",
+                    "realtime_end": "9999-12-31",
+                    "value": "2.1",
+                },
+            ],
+        )
+
+    def test_without_since_vintage_uses_chunked_vintage_bootstrap(self) -> None:
         urls: list[str] = []
 
         class FullHttp:
             def get_json(self, url: str) -> object:
                 urls.append(url)
-                return {"count": 1, "observations": [{"date": "1960-01-01"}]}
+                if "/series/vintagedates" in url:
+                    return {
+                        "count": 2,
+                        "vintage_dates": ["2024-01-10", "2024-03-10"],
+                    }
+                if "output_type=3" in url:
+                    return {
+                        "count": 1,
+                        "observations": [
+                            {
+                                "date": "2024-01-01",
+                                "DGS10_20240110": "1.0",
+                                "DGS10_20240310": "1.1",
+                            }
+                        ],
+                    }
+                raise AssertionError(f"unexpected url: {url}")
 
-        _url, _payload = _fetch_observations_payload(
-            SeriesTarget("CPIAUCSL", "CPI"),
+        _url, payload = _fetch_observations_payload(
+            SeriesTarget("DGS10", "10-Year Treasury Yield"),
             "KEY123",
             FullHttp(),  # type: ignore[arg-type]
         )
-        self.assertIn("realtime_start=1776-07-04", urls[0])
+        self.assertIn("/series/vintagedates", urls[0])
+        self.assertIn("output_type=3", urls[1])
+        self.assertNotIn("realtime_start=1776-07-04", urls[1])
+        self.assertEqual(
+            payload["observations"],
+            [
+                {
+                    "date": "2024-01-01",
+                    "realtime_start": "2024-01-10",
+                    "value": "1.0",
+                    "realtime_end": "2024-03-09",
+                },
+                {
+                    "date": "2024-01-01",
+                    "realtime_start": "2024-03-10",
+                    "value": "1.1",
+                    "realtime_end": "9999-12-31",
+                },
+            ],
+        )
 
     def test_fetch_observations_payload_fails_when_count_is_not_satisfied(self) -> None:
         class TruncatedHttp:

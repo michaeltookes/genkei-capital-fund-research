@@ -15,7 +15,8 @@ boundary rows unless they close a currently open stored interval. Closure rows
 are rewritten to the stored open ``realtime_start`` before normalization. That
 keeps pseudo-vintages out while preserving true interval closures under D-013's
 ``(series_id, ts, realtime_start)`` schema. ``--backfill`` re-requests the full
-history from ``EARLIEST_REALTIME``.
+history through chunked vintage-date requests and converts FRED's wide
+``output_type=3`` response back into the normalizer's long row shape.
 
 Vintage handling (the G-019/G-027/G-029 history): observations calls send a
 *bounded* realtime window. Omitting the window defaults to today's vintage
@@ -24,10 +25,9 @@ full-history window ``1776-07-04 → 9999-12-31`` returns HTTP 400 on long
 daily series (FRED caps full-window JSON at 2000 vintages). The incremental
 window sidesteps both — it spans only the handful of vintages since the last
 collect, far under the cap, and ``realtime_end=9999`` keeps current values'
-vintage windows un-clipped. A prior ``output_type=3`` vintage-chunk approach
-was reverted: it re-fetched all ~5,000 vintages per daily series each run
-(hung past the workflow timeout, 2026-05-16 → 2026-06-19) and emitted a wide
-vintage-column shape the normalizer couldn't parse.
+vintage windows un-clipped. Bootstrap/backfill does use chunked
+``output_type=3`` vintage-date requests, but only after converting the wide
+vintage-column shape back into long rows with derived ``realtime_end`` values.
 
 API key: the free FRED API key lives in the ``FRED_API_KEY`` env var.
 Register at https://fredaccount.stlouisfed.org/apikeys.
@@ -41,6 +41,8 @@ import logging
 import os
 import sys
 from dataclasses import dataclass
+from datetime import date, timedelta
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -64,6 +66,8 @@ DEFAULT_RATE_LIMIT = RateLimit.per_second(1)
 EARLIEST_REALTIME = "1776-07-04"
 LATEST_REALTIME = "9999-12-31"
 OBSERVATIONS_PAGE_LIMIT = 100_000
+VINTAGE_DATES_PAGE_LIMIT = 10_000
+VINTAGE_OBSERVATIONS_CHUNK_SIZE = 2_000
 LOGGER = logging.getLogger(__name__)
 
 
@@ -74,6 +78,14 @@ class SeriesTarget:
     series_id: str
     name: str
     rationale: str | None = None
+
+
+@dataclass(frozen=True)
+class OpenObservationVintage:
+    """Currently open stored vintage metadata for one observation date."""
+
+    realtime_start: str
+    value: Any
 
 
 def load_series(path: Path) -> list[SeriesTarget]:
@@ -144,7 +156,7 @@ def build_observations_url(
 
     * Omitting the realtime window defaults to *today's* vintage, collapsing
       the vintage-aware table into daily snapshot duplication.
-    * The full-history window ``1776-07-04 → 9999-12-31`` returns HTTP 400
+    * The full-history window ``1776-07-04 -> 9999-12-31`` returns HTTP 400
       on long daily series — FRED caps full-window JSON at 2000 vintages.
 
     The collector avoids both by passing a *bounded* window: the daily run
@@ -160,6 +172,45 @@ def build_observations_url(
         "file_type": "json",
         "realtime_start": realtime_start,
         "realtime_end": realtime_end,
+        "limit": str(limit),
+        "offset": str(offset),
+    }
+    return f"{FRED_BASE_URL}/series/observations?{urlencode(params)}"
+
+
+def build_vintage_dates_url(
+    api_key: str,
+    series_id: str,
+    *,
+    limit: int = VINTAGE_DATES_PAGE_LIMIT,
+    offset: int = 0,
+) -> str:
+    """Build the URL for the FRED vintage-date endpoint."""
+    params = {
+        "series_id": series_id,
+        "api_key": api_key,
+        "file_type": "json",
+        "limit": str(limit),
+        "offset": str(offset),
+    }
+    return f"{FRED_BASE_URL}/series/vintagedates?{urlencode(params)}"
+
+
+def build_vintage_observations_url(
+    api_key: str,
+    series_id: str,
+    vintage_dates: list[str],
+    *,
+    limit: int = OBSERVATIONS_PAGE_LIMIT,
+    offset: int = 0,
+) -> str:
+    """Build the URL for a parseable chunk of new/revised vintage observations."""
+    params = {
+        "series_id": series_id,
+        "api_key": api_key,
+        "file_type": "json",
+        "output_type": "3",
+        "vintage_dates": ",".join(vintage_dates),
         "limit": str(limit),
         "offset": str(offset),
     }
@@ -205,19 +256,23 @@ def latest_stored_vintage(series_id: str) -> str | None:
 
 def open_observation_vintages_for_boundary(
     series_id: str, realtime_start: str
-) -> dict[str, str]:
+) -> dict[str, OpenObservationVintage]:
     """Currently open stored vintage by observation date at an incremental boundary."""
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT DISTINCT ON ((ts AT TIME ZONE 'UTC')::date) "
-            "(ts AT TIME ZONE 'UTC')::date::text, realtime_start::text "
+            "(ts AT TIME ZONE 'UTC')::date::text, realtime_start::text, value::text "
             "FROM fred.observations "
             "WHERE series_id = %s AND realtime_start <= %s AND realtime_end = %s "
             "ORDER BY (ts AT TIME ZONE 'UTC')::date, realtime_start DESC",
             [series_id, realtime_start, LATEST_REALTIME],
         )
         rows = cur.fetchall()
-    return {row[0]: row[1] for row in rows if row and row[0] and row[1]}
+    return {
+        row[0]: OpenObservationVintage(realtime_start=row[1], value=row[2])
+        for row in rows
+        if row and row[0] and row[1]
+    }
 
 
 def collect(
@@ -292,7 +347,7 @@ def _fetch_series_pair(
     failures: list[dict[str, str]],
     *,
     since_vintage: str | None = None,
-    boundary_open_vintages: dict[str, str] | None = None,
+    boundary_open_vintages: dict[str, OpenObservationVintage] | None = None,
 ) -> int:
     """Fetch metadata + observations for one series. Returns 0/1/2 rows written.
 
@@ -305,6 +360,7 @@ def _fetch_series_pair(
     written = 0
     for blob_prefix in (SERIES_BLOB_PREFIX, OBSERVATIONS_BLOB_PREFIX):
         endpoint_name = f"{blob_prefix}{target.series_id}"
+        url = ""
         try:
             if blob_prefix == SERIES_BLOB_PREFIX:
                 url = build_series_url(api_key, target.series_id)
@@ -341,7 +397,7 @@ def _fetch_observations_payload(
     http: HttpClient,
     *,
     since_vintage: str | None = None,
-    boundary_open_vintages: dict[str, str] | None = None,
+    boundary_open_vintages: dict[str, OpenObservationVintage] | None = None,
 ) -> tuple[str, Any]:
     """Fetch observations over a bounded realtime window; return one raw payload.
 
@@ -351,12 +407,15 @@ def _fetch_observations_payload(
     boundary date. Incremental runs only keep those boundary rows when they
     shorten ``realtime_end`` for a currently open stored interval, and rewrite
     ``realtime_start`` back to that interval's original key. Later rows are
-    true new revisions. ``None`` (a fresh series or ``--backfill``) requests
-    the full history from ``EARLIEST_REALTIME``;
-    that can hit the cap on long daily series, so backfilling those is a
-    known limitation (they're already populated — incremental carries them
-    forward). Paginates on ``count`` like the other collectors.
+    true new revisions. ``None`` (a fresh series or ``--backfill``) uses
+    ``/series/vintagedates`` plus chunked ``output_type=3`` observation
+    requests, then converts the wide vintage columns into the same long row
+    shape the normalizer already expects. Paginates on ``count`` like the
+    other collectors.
     """
+    if since_vintage is None:
+        return _fetch_full_observations_payload(target, api_key, http)
+
     realtime_start = since_vintage or EARLIEST_REALTIME
     first_url = build_observations_url(
         api_key,
@@ -419,10 +478,217 @@ def _fetch_observations_payload(
     return first_url, combined
 
 
+def _fetch_full_observations_payload(
+    target: SeriesTarget,
+    api_key: str,
+    http: HttpClient,
+) -> tuple[str, Any]:
+    """Fetch full history through parseable vintage-date chunks."""
+    vintage_dates_url, vintage_dates = _fetch_vintage_dates(target, api_key, http)
+    if not vintage_dates:
+        return vintage_dates_url, {"count": 0, "limit": 0, "offset": 0, "observations": []}
+
+    first_url: str | None = None
+    rows_without_ends: list[dict[str, Any]] = []
+    for start in range(0, len(vintage_dates), VINTAGE_OBSERVATIONS_CHUNK_SIZE):
+        chunk = vintage_dates[start : start + VINTAGE_OBSERVATIONS_CHUNK_SIZE]
+        url, payload = _fetch_vintage_observations_chunk(target, api_key, http, chunk)
+        first_url = first_url or url
+        rows_without_ends.extend(_wide_vintage_payload_to_long_rows(target.series_id, payload))
+
+    observations = _derive_realtime_ends(rows_without_ends)
+    return first_url or vintage_dates_url, {
+        "count": len(observations),
+        "limit": len(observations),
+        "offset": 0,
+        "observations": observations,
+    }
+
+
+def _fetch_vintage_dates(
+    target: SeriesTarget,
+    api_key: str,
+    http: HttpClient,
+) -> tuple[str, list[str]]:
+    first_url = build_vintage_dates_url(
+        api_key,
+        target.series_id,
+        limit=VINTAGE_DATES_PAGE_LIMIT,
+        offset=0,
+    )
+    vintage_dates: list[str] = []
+    offset = 0
+    expected_count: int | None = None
+    while True:
+        url = build_vintage_dates_url(
+            api_key,
+            target.series_id,
+            limit=VINTAGE_DATES_PAGE_LIMIT,
+            offset=offset,
+        )
+        payload = http.get_json(url)
+        if not isinstance(payload, dict):
+            raise ValueError(f"FRED vintage dates payload for {target.series_id} is not an object.")
+        page_dates = payload.get("vintage_dates")
+        if not isinstance(page_dates, list):
+            raise ValueError(f"FRED vintage dates payload for {target.series_id} is missing dates.")
+        vintage_dates.extend(date_value for date_value in page_dates if isinstance(date_value, str))
+
+        page_count = _as_non_negative_int(payload.get("count"))
+        expected_count = page_count if expected_count is None else expected_count
+        if expected_count is not None and len(vintage_dates) >= expected_count:
+            break
+        if len(page_dates) < VINTAGE_DATES_PAGE_LIMIT:
+            if expected_count is not None and len(vintage_dates) < expected_count:
+                raise ValueError(
+                    f"FRED vintage dates payload for {target.series_id} ended after "
+                    f"{len(vintage_dates)} of {expected_count} rows."
+                )
+            break
+        offset += VINTAGE_DATES_PAGE_LIMIT
+    return first_url, vintage_dates
+
+
+def _fetch_vintage_observations_chunk(
+    target: SeriesTarget,
+    api_key: str,
+    http: HttpClient,
+    vintage_dates: list[str],
+) -> tuple[str, Any]:
+    first_url = build_vintage_observations_url(
+        api_key,
+        target.series_id,
+        vintage_dates,
+        limit=OBSERVATIONS_PAGE_LIMIT,
+        offset=0,
+    )
+    combined: dict[str, Any] | None = None
+    observations: list[Any] = []
+    offset = 0
+    expected_count: int | None = None
+    while True:
+        url = build_vintage_observations_url(
+            api_key,
+            target.series_id,
+            vintage_dates,
+            limit=OBSERVATIONS_PAGE_LIMIT,
+            offset=offset,
+        )
+        payload = http.get_json(url)
+        if not isinstance(payload, dict):
+            raise ValueError(
+                f"FRED vintage observations payload for {target.series_id} is not an object."
+            )
+        page_observations = payload.get("observations")
+        if not isinstance(page_observations, list):
+            raise ValueError(
+                f"FRED vintage observations payload for {target.series_id} "
+                "is missing observations."
+            )
+        if combined is None:
+            combined = dict(payload)
+            combined["offset"] = 0
+        observations.extend(page_observations)
+
+        page_count = _as_non_negative_int(payload.get("count"))
+        expected_count = page_count if expected_count is None else expected_count
+        if expected_count is not None and len(observations) >= expected_count:
+            break
+        if len(page_observations) < OBSERVATIONS_PAGE_LIMIT:
+            if expected_count is not None and len(observations) < expected_count:
+                raise ValueError(
+                    f"FRED vintage observations payload for {target.series_id} ended after "
+                    f"{len(observations)} of {expected_count} rows."
+                )
+            break
+        offset += OBSERVATIONS_PAGE_LIMIT
+
+    if combined is None:
+        raise ValueError(f"FRED vintage observations payload for {target.series_id} was empty.")
+    combined["observations"] = observations
+    combined["count"] = len(observations)
+    combined["limit"] = len(observations)
+    return first_url, combined
+
+
+def _wide_vintage_payload_to_long_rows(series_id: str, payload: Any) -> list[dict[str, Any]]:
+    if not isinstance(payload, dict):
+        return []
+    observations = payload.get("observations")
+    if not isinstance(observations, list):
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for obs in observations:
+        if not isinstance(obs, dict):
+            continue
+        observation_date = obs.get("date")
+        if not isinstance(observation_date, str):
+            continue
+        for key, value in obs.items():
+            vintage_date = _vintage_date_from_wide_key(series_id, key)
+            if vintage_date is None:
+                continue
+            rows.append(
+                {
+                    "date": observation_date,
+                    "realtime_start": vintage_date,
+                    "value": value,
+                }
+            )
+    return rows
+
+
+def _vintage_date_from_wide_key(series_id: str, key: Any) -> str | None:
+    if not isinstance(key, str):
+        return None
+    for prefix in (f"{series_id}_", f"_{series_id}_"):
+        if not key.startswith(prefix):
+            continue
+        compact_date = key[len(prefix) :]
+        if len(compact_date) == 8 and compact_date.isdigit():
+            return f"{compact_date[:4]}-{compact_date[4:6]}-{compact_date[6:]}"
+    return None
+
+
+def _derive_realtime_ends(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in rows:
+        observation_date = row.get("date")
+        realtime_start = row.get("realtime_start")
+        if not isinstance(observation_date, str) or not isinstance(realtime_start, str):
+            continue
+        try:
+            date.fromisoformat(observation_date)
+            date.fromisoformat(realtime_start)
+        except ValueError:
+            continue
+        by_key[(observation_date, realtime_start)] = row
+
+    by_observation_date: dict[str, list[dict[str, Any]]] = {}
+    for (observation_date, _realtime_start), row in by_key.items():
+        by_observation_date.setdefault(observation_date, []).append(row)
+
+    out: list[dict[str, Any]] = []
+    for rows_for_date in by_observation_date.values():
+        rows_for_date.sort(key=lambda row: row["realtime_start"])
+        for index, row in enumerate(rows_for_date):
+            normalized = dict(row)
+            if index + 1 < len(rows_for_date):
+                normalized["realtime_end"] = _previous_day_iso(
+                    rows_for_date[index + 1]["realtime_start"]
+                )
+            else:
+                normalized["realtime_end"] = LATEST_REALTIME
+            out.append(normalized)
+    out.sort(key=lambda row: (row["date"], row["realtime_start"]))
+    return out
+
+
 def _filter_realtime_window_boundary_rows(
     observations: list[Any],
     realtime_start: str,
-    open_vintage_by_observation_date: dict[str, str],
+    open_vintage_by_observation_date: dict[str, OpenObservationVintage],
 ) -> list[Any]:
     """Drop clipped boundary rows unless they close an existing open interval."""
     filtered: list[Any] = []
@@ -434,14 +700,52 @@ def _filter_realtime_window_boundary_rows(
         observation_date = obs.get("date")
         if not isinstance(observation_date, str):
             continue
-        stored_realtime_start = open_vintage_by_observation_date.get(observation_date)
-        if stored_realtime_start is None or obs.get("realtime_end") == LATEST_REALTIME:
+        stored_open = open_vintage_by_observation_date.get(observation_date)
+        if stored_open is None:
+            filtered.append(obs)
             continue
 
-        rewritten = dict(obs)
-        rewritten["realtime_start"] = stored_realtime_start
-        filtered.append(rewritten)
+        if obs.get("realtime_end") != LATEST_REALTIME:
+            rewritten = dict(obs)
+            rewritten["realtime_start"] = stored_open.realtime_start
+            filtered.append(rewritten)
+            continue
+
+        if _fred_values_equal(obs.get("value"), stored_open.value):
+            continue
+
+        if stored_open.realtime_start != realtime_start:
+            filtered.append(
+                {
+                    "date": observation_date,
+                    "realtime_start": stored_open.realtime_start,
+                    "realtime_end": _previous_day_iso(realtime_start),
+                    "value": stored_open.value,
+                }
+            )
+        filtered.append(obs)
     return filtered
+
+
+def _previous_day_iso(value: str) -> str:
+    return (date.fromisoformat(value) - timedelta(days=1)).isoformat()
+
+
+def _fred_values_equal(left: Any, right: Any) -> bool:
+    return _canonical_fred_value(left) == _canonical_fred_value(right)
+
+
+def _canonical_fred_value(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        if not value or value == ".":
+            return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return str(value)
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:

@@ -51,7 +51,43 @@ def _route(request: httpx.Request) -> httpx.Response:
                 ]
             },
         )
+    if path.endswith("/series/vintagedates"):
+        if series_id == "GDPC1":
+            return httpx.Response(
+                200,
+                json={"count": 2, "vintage_dates": ["2024-04-25", "2024-05-30"]},
+            )
+        return httpx.Response(200, json={"count": 1, "vintage_dates": ["2026-05-09"]})
     if path.endswith("/series/observations"):
+        if request.url.params.get("output_type") == "3":
+            if "vintage_dates" not in request.url.params:
+                return httpx.Response(400, text="missing vintage_dates")
+            if series_id == "GDPC1":
+                return httpx.Response(
+                    200,
+                    json={
+                        "count": 1,
+                        "observations": [
+                            {
+                                "date": "2024-01-01",
+                                "GDPC1_20240425": "27000.0",
+                                "GDPC1_20240530": "27100.5",
+                            }
+                        ],
+                    },
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "count": 1,
+                    "observations": [
+                        {
+                            "date": "2026-05-09",
+                            "DGS10_20260509": "4.32",
+                        }
+                    ],
+                },
+            )
         if "output_type" in request.url.params:
             return httpx.Response(400, text="unexpected output_type")
         if "vintage_dates" in request.url.params:
