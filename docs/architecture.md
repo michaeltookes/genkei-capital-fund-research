@@ -122,7 +122,7 @@ External APIs (DefiLlama, CoinGecko, FRED, SEC EDGAR, Etherscan)
    └──────────────────┘  └──────────────────┘  └──────────────────────┘
 ```
 
-The normalizer is **data-lake-shaped**, not report-shaped (D-006). Cross-source derived signals (relative-strength, revenue-divergence) live in either Postgres views under `analytics.*` or in `src/genkei/experiments/<name>.py` pure functions, paired with a CLI surface under `src/genkei/cli/<name>.py`. The legacy markdown daily brief is retired pending B-025.
+The normalizer is **data-lake-shaped**, not report-shaped (D-006). Cross-source derived signals (relative-strength, revenue-divergence) live in either Postgres views under `analytics.*` or in `src/genkei/experiments/<name>.py` pure functions, paired with a CLI surface under `src/genkei/cli/<name>.py`. The legacy markdown daily brief is retired (B-025 / D-024); the durable report artifact is the weekly signal digest (`reports/signals/`).
 
 ---
 
@@ -202,7 +202,7 @@ src/genkei/
 │   └── coinbase.py               — Coinbase public market data (B-035 family)
 ├── normalize/                    — one normalizer per ingester, raw blobs → tables
 ├── reports/
-│   └── defillama_daily.py        — legacy markdown brief (retired pending B-025)
+│   └── signal_digest.py          — weekly cross-source signal digest → reports/signals/ (D-024)
 ├── cli/
 │   ├── prices, filings, tvl, macro, macro-regime, watchlist, query
 │   ├── insiders, insider-clusters, holdings, crowding, eight-k-impact
@@ -375,7 +375,7 @@ Tracked as backlog items so they don't block forward motion:
 | `docs/infrastructure.md` | Homelab Postgres, network reachability, self-hosted runner runbook |
 | `docs/missions.md` | Mission queue format, manual + scheduled invocation, monitoring |
 | `docs/defillama-mvp.md` | DeFiLlama-specific pipeline notes (legacy; predates Postgres refactor) |
-| `docs/defillama-daily-review.md` | Acceptance gates for the legacy markdown brief (relevance pending B-025) |
+| `docs/defillama-daily-review.md` | Acceptance gates for the legacy markdown brief — historical; brief retired in B-025 / D-024 |
 | `docs/backlog.md` | Open items, 43 entries across 8 phases |
 | `docs/resolved.md` | Completed milestones, 78 entries with evidence |
 | `docs/scoring.md` | Watchlist scoring rubric (B-065) — per-asset composite scoring formula + components |
@@ -411,7 +411,7 @@ Tracked as backlog items so they don't block forward motion:
 - **Tests gate:** `python3 -m unittest discover -s tests` must pass before any push.
 - **Secrets:** never in repo. `.env` (gitignored) locally, GH Actions secrets for CI, `.env.example` lists every variable.
 - **Raw vendor data:** never committed. Postgres is the system of record.
-- **Reports:** commit to `reports/` (when re-enabled); brief is currently retired pending B-025.
+- **Reports:** commit markdown to `reports/`. The durable artifact is the weekly signal digest at `reports/signals/weekly-<date>.md` (D-024); the legacy DeFiLlama daily brief is retired (B-025).
 
 ---
 
@@ -584,6 +584,13 @@ Both write to the same destination table; the natural `(entity, …, ts)` PK kee
 **Decision:** The CoinGecko collector's `load_coins(path)` returns the **union** of every `coingecko_id` found in the watchlist's `crypto:` section AND the `protocols:` section, deduped by id. A protocol-derived `CoinTarget` carries an empty `symbol` (the protocols section is keyed on the DefiLlama slug, not the token symbol) — the authoritative symbol + name still land in `coingecko.coins` from the API response itself.
 **Why:** B-087 added 6 Sui-native protocols with `coingecko_id` mappings; B-091's smoke caught that 12 of 14 protocol-side mappings returned `insufficient-data` in `revenue-divergence` because the tokens weren't being fetched. Two reasonable shapes considered: (a) extend `load_coins` to union; (b) add a new `crypto.data-only` tier to the watchlist. Picked (a) — pure data-flow change, no investment intent implied. "We want the data" and "we want to trade the asset" are different concerns; the watchlist's `crypto:` section is for trade-eligible assets, `protocols:` is for tracked protocols. The union just says "fetch whatever has a coingecko_id mapping anywhere."
 **Alternative considered:** Add tokens to `crypto:` directly. Rejected — that implies investment intent on assets we only want for data observability.
+
+### D-024 — Output channel: weekly signal digest in `reports/signals/`; legacy daily brief retired
+**Date:** 2026-06-19 · **In:** B-122 (resolves B-051; closes B-001/B-002/B-025), `src/genkei/reports/signal_digest.py`
+**Decision:** Research/signal output lands as **markdown committed in-repo under `reports/`**, on a **weekly** cadence. `genkei.reports.signal_digest` renders the trailing-week correlator output (`genkei signals`) into `reports/signals/weekly-<date>.md`, grouped by horizon tag (`<asset_class>:<sleeve>`), with a lake-health footer. Cadence is weekly via a `/schedule` routine — the module is runner-agnostic, so a GH Actions cron works equally. Failure-mode: generation is idempotent (dated filename, re-runnable), and a failed run surfaces through the existing B-119 Discord/issue alerting rather than silently dropping. The **legacy DeFiLlama daily markdown brief is retired** (it was already broken — read pre-Postgres JSON that no longer exists); the lake is the system of record, and on-demand `genkei` queries plus the weekly digest supersede a per-source daily brief.
+**Why:** `reports/` was empty, so the research decision log was the lake's *only* durable artifact — a miscalibrated reflection loop (B-117/B-118) had no second artifact to catch it, and Phase 6 emitters were writing signals to `meta.signal_events` with nowhere human-readable to land. Weekly (not daily) matches the "lake is the asset, reports are emergent UIs" philosophy and the weekend-session rhythm; the very first artifact surfaced 11 stale/missing sources the decision log wouldn't have caught. Horizon tags already existed in the events (`<asset_class>:<sleeve>`), so the digest just renders them.
+**Alternative considered:** (a) Daily cadence — rejected as noise for a long-horizon book and a return to the daily-brief model we'd moved away from. (b) Rebuild the DeFiLlama daily brief Postgres-backed — rejected as a second report surface to maintain with no clear consumer. (c) External surface (Mission Control / GitHub Discussions) — Mission Control is dead (OpenClaw, D-017); deferred, revisit if in-repo markdown becomes limiting.
+**What would change our mind:** If signal volume grows enough that a weekly digest buries fresh stacks, add an event-driven per-stack artifact or shorten cadence; the renderer already separates pure formatting from delivery, so a different surface is a small change.
 
 ---
 

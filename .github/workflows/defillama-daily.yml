@@ -1,9 +1,11 @@
-name: DeFiLlama Daily Brief
+name: DeFiLlama Daily Pipeline
 
 # B-017 + B-018 moved the pipeline onto Postgres, so the scheduled job
 # runs on the self-hosted runner that can reach the homelab database.
-# The daily-brief render step stays disabled pending B-025 (decide fate
-# of the legacy markdown brief).
+# The legacy daily markdown brief was retired in B-025 / D-024: the lake
+# is the system of record, and the durable human-readable artifact is now
+# the weekly signal digest (genkei.reports.signal_digest), not a per-source
+# daily brief. This workflow is collect → normalize → emit only.
 
 on:
   schedule:
@@ -49,7 +51,3 @@ jobs:
         run: |
           python3 -m genkei.experiments.emitters.tvl_drawdown_emitter \
             --since "$(date -u -d '120 days ago' '+%Y-%m-%d')"
-
-      # Daily-brief render step intentionally omitted: B-025 will decide
-      # whether the markdown brief gets rewritten against Postgres or
-      # retired entirely.

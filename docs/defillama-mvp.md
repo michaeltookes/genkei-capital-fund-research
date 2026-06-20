@@ -1,5 +1,16 @@
 # DeFiLlama MVP Design
 
+> **Status (B-025 / D-024, 2026-06-19): the daily markdown brief described
+> below is RETIRED.** It was the pre-Postgres MVP (scripts reading
+> `data/normalized/defillama/*.json`); once B-017/B-018 moved the pipeline
+> onto Postgres the brief's data source ceased to exist and its render step
+> was disabled. The output-channel decision (D-024) makes the lake the
+> system of record, on-demand `genkei` queries the interactive surface, and
+> the **weekly signal digest** (`reports/signals/`, `genkei.reports.signal_digest`)
+> the durable artifact — superseding a per-source daily brief. This document
+> is kept as the historical MVP design + the signal-definition reference
+> (sections below still describe the DeFiLlama metrics the lake ingests).
+
 ## Objective
 
 Build a lightweight, repeatable daily research flow using only public DeFiLlama data. The
