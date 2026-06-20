@@ -27,10 +27,10 @@ Operating *as if* a real fund — data hygiene, archival, audit trail at fund-gr
 ### Sleeves
 
 - **Equity core** — long-only, buy-and-hold quality companies (Buffett mentality: buy great, never sell while income covers expenses). **No short-term equity sleeve.**
-- **Crypto core (long-term hold)** — BTC, ETH, SOL, LINK.
+- **Crypto core (long-term hold)** — BTC, ETH, SOL, LINK, JUP. JUP (added 2026-06-17) is a deliberate DeFi-adoption bet — dominant Solana DEX aggregator + on-chain perps — tracked both as a token (price) and as a protocol (TVL/fees via the `protocols:` Solana section).
 - **Crypto tactical (turnover-eligible)** — SUI (primary watchlist), PYTH, RENDER (secondary watchlist), and any future alts.
 
-The **crypto watchlist** lives in `config/watchlists.yml`. Tier (primary/secondary) and sleeve (core/tactical) are orthogonal: tier is how much *coverage* the data lake gives an asset; sleeve is how the user *trades* it.
+The **crypto watchlist** lives in `src/genkei/data/watchlists.yml`. Tier (primary/secondary) and sleeve (core/tactical) are orthogonal: tier is how much *coverage* the data lake gives an asset; sleeve is how the user *trades* it.
 
 ### Horizons
 
@@ -107,7 +107,7 @@ Tracked as backlog items so they don't block forward motion:
 - ~~**B-008/B-009** — Postgres schema / migrations~~ → resolved by `docs/storage.md` (2026-05-07).
 - ~~**B-007** — Activate TimescaleDB~~ → resolved 2026-05-09: image swapped to `timescale/timescaledb:2.26.4-pg16`, `shared_preload_libraries = 'timescaledb'` set via `ALTER SYSTEM`, extension `timescaledb 2.26.4` installed against `genkei_capital` database.
 - ~~**B-013** — Repo layout~~ → resolved by `docs/repo-layout.md` (2026-05-07): `src/genkei/{common,ingest,normalize,cli,experiments,reports}/`. Migration lands in Phase 1.
-- ~~**B-015** — Watchlists~~ → resolved by `config/watchlists.yml` (2026-05-09): crypto, equities, and macro series landed.
+- ~~**B-015** — Watchlists~~ → resolved by `src/genkei/data/watchlists.yml` (2026-05-09): crypto, equities, and macro series landed.
 - **B-037** — CLI name (working: `genkei`).
 
 ## References

@@ -304,6 +304,40 @@ class BuildMatchTermsTests(unittest.TestCase):
         terms = build_match_terms(wl)
         self.assertEqual(terms[0].label, "aave-v3")
 
+    def test_crypto_gdelt_terms_override_ambiguous_name(self) -> None:
+        wl = _empty_watchlist(
+            crypto=[
+                CryptoEntry(
+                    symbol="JUP",
+                    name="Jupiter",
+                    coingecko_id="jupiter-exchange-solana",
+                    tier="primary",
+                    gdelt_terms=("Jupiter Exchange", "JUP token"),
+                )
+            ]
+        )
+        terms = build_match_terms(wl)
+        self.assertIn(_MatchTerm(term_lower="jupiter exchange", label="JUP"), terms)
+        self.assertIn(_MatchTerm(term_lower="jup token", label="JUP"), terms)
+        self.assertNotIn(_MatchTerm(term_lower="jupiter", label="JUP"), terms)
+
+        generic_hits = match_article(
+            themes=[],
+            persons=[],
+            organizations=["NASA Jupiter mission"],
+            document_identifier="",
+            terms=terms,
+        )
+        self.assertEqual(generic_hits, [])
+        hits = match_article(
+            themes=[],
+            persons=[],
+            organizations=["Jupiter Exchange"],
+            document_identifier="",
+            terms=terms,
+        )
+        self.assertEqual(hits, ["JUP"])
+
     def test_protocol_parenthetical_adds_base_and_former_name_variants(self) -> None:
         wl = _empty_watchlist(
             protocols=[
@@ -330,6 +364,23 @@ class BuildMatchTermsTests(unittest.TestCase):
             terms=terms,
         )
         self.assertEqual(hits, ["sky-lending"])
+
+    def test_protocol_gdelt_terms_override_ambiguous_name(self) -> None:
+        wl = _empty_watchlist(
+            protocols=[
+                ProtocolEntry(
+                    slug="jupiter",
+                    name="Jupiter",
+                    category="Full Stack DeFi",
+                    tier="primary",
+                    gdelt_terms=("Jupiter Exchange", "Jupiter Aggregator"),
+                )
+            ]
+        )
+        terms = build_match_terms(wl)
+        self.assertIn(_MatchTerm(term_lower="jupiter exchange", label="jupiter"), terms)
+        self.assertIn(_MatchTerm(term_lower="jupiter aggregator", label="jupiter"), terms)
+        self.assertNotIn(_MatchTerm(term_lower="jupiter", label="jupiter"), terms)
 
     def test_filer_label_is_cik(self) -> None:
         wl = _empty_watchlist(

@@ -16,8 +16,10 @@ from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
     BenchmarkEntry,
     CotMarketEntry,
+    CryptoEntry,
     EiaSeriesEntry,
     EtfTickerEntry,
+    ProtocolEntry,
     TreasurySeriesEntry,
     load_watchlist,
 )
@@ -106,6 +108,42 @@ class BenchmarksParserTests(unittest.TestCase):
         w = _load(body)
         self.assertEqual(len(w.benchmarks), 1)
         self.assertEqual(w.benchmarks[0].name, "First")
+
+
+class GdeltTermsParserTests(unittest.TestCase):
+    def test_crypto_and_protocol_gdelt_terms_parse_as_tuples(self) -> None:
+        body = """\
+version: 1
+crypto:
+  primary:
+    - symbol: JUP
+      name: Jupiter
+      coingecko_id: jupiter-exchange-solana
+      gdelt_terms:
+        - Jupiter Exchange
+        - "  "
+        - 123
+        - JUP token
+protocols:
+  primary:
+    - slug: jupiter
+      name: Jupiter
+      category: Full Stack DeFi
+      gdelt_terms:
+        - Jupiter Exchange
+        - Jupiter Aggregator
+"""
+        w = _load(body)
+
+        crypto = w.crypto[0]
+        protocol = w.protocols[0]
+        self.assertIsInstance(crypto, CryptoEntry)
+        self.assertIsInstance(protocol, ProtocolEntry)
+        self.assertEqual(crypto.gdelt_terms, ("Jupiter Exchange", "JUP token"))
+        self.assertEqual(
+            protocol.gdelt_terms,
+            ("Jupiter Exchange", "Jupiter Aggregator"),
+        )
 
 
 COT_MARKETS_YAML = """\

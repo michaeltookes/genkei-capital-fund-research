@@ -12,15 +12,15 @@ timestamp endpoint, copy any cached blob into the current ingest run,
 and parse the cached CSV without re-fetching the same public URL.
 
 Watchlist filter:
-- An article is kept iff at least one watchlist asset name matches
-  inside the article's themes / persons / organizations / document_
-  identifier (case-insensitive substring). Matches per article are
-  stored in ``matched_assets TEXT[]``. Articles with zero matches are
-  dropped at parse time and never land in the table.
-- Match terms: equity company names, crypto names, protocol names,
-  13F filer names. Macro series IDs (FRED) are skipped — they don't
-  appear in news. Min term length = 4 chars to avoid two-letter false
-  positives (e.g. "AA" matching unrelated text).
+- An article is kept iff at least one watchlist asset name or explicit
+  ``gdelt_terms`` override matches inside the article's themes / persons /
+  organizations / document_identifier (case-insensitive substring). Matches
+  per article are stored in ``matched_assets TEXT[]``. Articles with zero
+  matches are dropped at parse time and never land in the table.
+- Match terms: equity company names, crypto names / ``gdelt_terms``,
+  protocol names / ``gdelt_terms``, 13F filer names. Macro series IDs
+  (FRED) are skipped — they don't appear in news. Min term length = 4 chars
+  to avoid two-letter false positives (e.g. "AA" matching unrelated text).
 
 Two modes:
 - **incremental** (default) — fetches the last ``--hours`` window
@@ -174,9 +174,10 @@ def build_match_terms(watchlist: Watchlist) -> list[_MatchTerm]:
 
     Returns a lower-cased + length-filtered list, deduped by term and label.
     Equity entries contribute company name variants labeled by ticker; crypto
-    entries the coin name labeled by symbol, with short-symbol whole-word
-    fallback; protocols protocol name variants labeled by slug; filers the
-    filer name labeled by CIK.
+    entries their ``gdelt_terms`` override or coin name labeled by symbol,
+    with short-symbol whole-word fallback; protocols their ``gdelt_terms``
+    override or protocol name variants labeled by slug; filers the filer name
+    labeled by CIK.
     """
     seen: set[tuple[str, str, bool]] = set()
     terms: list[_MatchTerm] = []
@@ -202,10 +203,15 @@ def build_match_terms(watchlist: Watchlist) -> list[_MatchTerm]:
         for variant in _watchlist_name_variants(entry.name):
             add(variant, entry.symbol.upper())
     for entry in watchlist.crypto:
-        if not add(entry.name, entry.symbol.upper()):
+        candidates = entry.gdelt_terms or (entry.name,)
+        added = False
+        for candidate in candidates:
+            added = add(candidate, entry.symbol.upper()) or added
+        if not added:
             add(entry.symbol, entry.symbol.upper(), min_length=3, whole_word=True)
     for entry in watchlist.protocols:
-        for variant in _watchlist_name_variants(entry.name):
+        variants = entry.gdelt_terms or tuple(_watchlist_name_variants(entry.name))
+        for variant in variants:
             add(variant, entry.slug.lower())
     for entry in watchlist.filers:
         add(entry.name, entry.filer_cik)

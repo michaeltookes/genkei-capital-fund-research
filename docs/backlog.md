@@ -453,3 +453,14 @@ A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the e
   - Retry is bounded (e.g. 3 attempts, increasing backoff) and idempotency-safe — the collectors already upsert, so re-running collect must not corrupt `meta.ingest_runs` accounting; confirm the run-id parsing still captures the *successful* attempt's id for the normalize step.
   - SEC's soft-failure mode and the `workflow_dispatch`/backfill paths are preserved, not retried into double-work.
   - A short note in `docs/infrastructure.md` describing the retry contract.
+
+### B-126 — Jupiter (JUP) token-unlock / emissions ingester
+- **Status:** open
+- **Priority:** medium
+- **Context:** JUP landed in the watchlist on 2026-06-17 (crypto-core + a `jupiter` DefiLlama protocol entry), so price, TVL, and fees flow through the existing CoinGecko + DefiLlama ingesters automatically. The gap is **token unlocks**: Jupiter has a material vesting/emissions schedule and unlock events are a known JUP price catalyst, but the repo has no general unlock ingester — only the SUI-specific `ingest/sui_unlocks.py` (CryptoRank scrape, single-allocation coverage). Without unlock data the dilution half of the JUP thesis is blind, and the event-driven edge type (CLAUDE.md lists "token unlocks") can't fire for JUP. This is the second unlock source; per CLAUDE.md clean-code the extract-a-shared-helper trigger is the *third*, but the SUI ingester's silent `except Exception: pass` smell (flagged in B-121) is worth resolving in whatever shape emerges.
+- **Acceptance criteria:**
+  - A JUP unlock schedule lands in Postgres from a free source (CryptoRank or a Jupiter-published vesting source), with allocation breakdown where available.
+  - The collector follows the standard `db.ingest_run(...)` / `db.bulk_upsert(...)` shape with a `--backfill` path; raw payloads go through `db.store_raw_blob(...)`.
+  - A CLI surface (e.g. `genkei unlocks --asset JUP`) returns the schedule with `--json`, mirroring the SUI pattern.
+  - Coverage limits documented in `docs/sources/` (which allocations are visible vs paywalled), matching the SUI-unlocks honesty note.
+  - Decide whether to generalize `sui_unlocks.py` into a shared unlock framework now or defer to a third source; record the call in this item.

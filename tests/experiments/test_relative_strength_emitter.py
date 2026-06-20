@@ -285,15 +285,21 @@ class CryptoAssetsTests(unittest.TestCase):
     def test_excludes_btc_and_keeps_others(self) -> None:
         w = _load_watchlist()
         out = _crypto_assets(w)
-        assets = sorted((asset, symbol, product) for asset, symbol, product, _ in out)
+        assets = sorted(
+            (asset.asset_id, asset.symbol, asset.price_source, asset.price_key)
+            for asset in out
+        )
         self.assertEqual(
             assets,
-            [("ethereum", "ETH", "ETH-USD"), ("sui", "SUI", "SUI-USD")],
+            [
+                ("ethereum", "ETH", "coinbase", "ETH-USD"),
+                ("sui", "SUI", "coinbase", "SUI-USD"),
+            ],
         )
 
     def test_sleeve_passthrough(self) -> None:
         w = _load_watchlist()
-        out = {asset: sleeve for asset, _symbol, _product, sleeve in _crypto_assets(w)}
+        out = {asset.asset_id: asset.sleeve for asset in _crypto_assets(w)}
         self.assertEqual(out.get("ethereum"), "core")
         self.assertEqual(out.get("sui"), "tactical")
 
@@ -308,11 +314,30 @@ class CryptoAssetsTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "watchlists.yml"
             path.write_text(yaml, encoding="utf-8")
-            products = {
-                asset: product
-                for asset, _symbol, product, _sleeve in _crypto_assets(load_watchlist(path))
+            price_keys = {
+                asset.asset_id: (asset.price_source, asset.price_key)
+                for asset in _crypto_assets(load_watchlist(path))
             }
-        self.assertEqual(products["alias-token"], "ALIAS-V2-USD")
+        self.assertEqual(price_keys["alias-token"], ("coinbase", "ALIAS-V2-USD"))
+
+    def test_keeps_coingecko_only_primary_asset(self) -> None:
+        yaml = WATCHLIST_YAML + (
+            "    - symbol: JUP\n"
+            "      name: Jupiter\n"
+            "      coingecko_id: jupiter-exchange-solana\n"
+            "      sleeve: core\n"
+        )
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(yaml, encoding="utf-8")
+            targets = {
+                asset.asset_id: asset for asset in _crypto_assets(load_watchlist(path))
+            }
+        jup = targets["jupiter-exchange-solana"]
+        self.assertEqual(jup.symbol, "JUP")
+        self.assertEqual(jup.price_source, "coingecko")
+        self.assertEqual(jup.price_key, "jupiter-exchange-solana")
+        self.assertEqual(jup.sleeve, "core")
 
 
 class EmitOrchestratorTests(unittest.TestCase):
@@ -341,7 +366,11 @@ class EmitOrchestratorTests(unittest.TestCase):
             (date(2024, 6, 2), Decimal("25"), Decimal("0"), Decimal("25")),  # leader onset
         ]
 
-        def fake_load(product: str, *, until: object = None) -> list[PricePoint]:
+        def fake_peer_load(product: str, *, until: object = None) -> list[PricePoint]:
+            self.assertEqual(product, "BTC-USD")
+            return [PricePoint(ts=date(2024, 6, 1), price_usd=Decimal("100"))]
+
+        def fake_asset_load(asset: object, *, until: object = None) -> list[PricePoint]:
             # Non-empty so the orchestrator routes through compute.
             return [PricePoint(ts=date(2024, 6, 1), price_usd=Decimal("100"))]
 
@@ -368,8 +397,12 @@ class EmitOrchestratorTests(unittest.TestCase):
                 ),
                 patch(
                     "genkei.experiments.emitters.relative_strength_emitter._load_price_series",
-                    side_effect=fake_load,
-                ) as load_mock,
+                    side_effect=fake_peer_load,
+                ) as peer_load_mock,
+                patch(
+                    "genkei.experiments.emitters.relative_strength_emitter._load_asset_price_series",
+                    side_effect=fake_asset_load,
+                ) as asset_load_mock,
                 patch(
                     "genkei.experiments.emitters.relative_strength_emitter.compute_daily_relative_strength",
                     side_effect=fake_compute,
@@ -387,9 +420,82 @@ class EmitOrchestratorTests(unittest.TestCase):
         self.assertEqual(kinds, ["laggard_crossing", "leader_crossing"])
         assets = sorted(e["asset"] for e in emitted)
         self.assertEqual(assets, ["ethereum", "sui"])
-        products = [call.args[0] for call in load_mock.call_args_list]
-        self.assertEqual(products, ["BTC-USD", "ETH-USD", "SUI-USD"])
+        peer_products = [call.args[0] for call in peer_load_mock.call_args_list]
+        self.assertEqual(peer_products, ["BTC-USD"])
+        asset_keys = [call.args[0].price_key for call in asset_load_mock.call_args_list]
+        self.assertEqual(asset_keys, ["ETH-USD", "SUI-USD"])
         self.assertEqual(result.crossings_emitted, 2)
+
+    def test_orchestrator_emits_for_coingecko_only_asset(self) -> None:
+        class FakeRun:
+            id = 43
+
+            def __enter__(self) -> FakeRun:
+                return self
+
+            def __exit__(self, *_: object) -> None:
+                return None
+
+            def add_rows(self, _rows: int) -> None:
+                return None
+
+        yaml = (
+            "version: 1\n"
+            "crypto:\n"
+            "  primary:\n"
+            "    - symbol: BTC\n"
+            "      name: Bitcoin\n"
+            "      coingecko_id: bitcoin\n"
+            "      coinbase_product: BTC-USD\n"
+            "      sleeve: core\n"
+            "    - symbol: JUP\n"
+            "      name: Jupiter\n"
+            "      coingecko_id: jupiter-exchange-solana\n"
+            "      sleeve: core\n"
+        )
+        jup_daily = [
+            (date(2024, 6, 1), Decimal("0"), Decimal("0"), Decimal("0")),
+            (date(2024, 6, 2), Decimal("25"), Decimal("0"), Decimal("25")),
+        ]
+
+        def fake_asset_load(asset: object, *, until: object = None) -> list[PricePoint]:
+            self.assertEqual(asset.price_source, "coingecko")
+            self.assertEqual(asset.price_key, "jupiter-exchange-solana")
+            return [PricePoint(ts=date(2024, 6, 1), price_usd=Decimal("100"))]
+
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(yaml, encoding="utf-8")
+            with (
+                patch(
+                    "genkei.experiments.emitters.relative_strength_emitter.db.ingest_run",
+                    return_value=FakeRun(),
+                ),
+                patch(
+                    "genkei.experiments.emitters.relative_strength_emitter._load_price_series",
+                    return_value=[PricePoint(ts=date(2024, 6, 1), price_usd=Decimal("100"))],
+                ),
+                patch(
+                    "genkei.experiments.emitters.relative_strength_emitter._load_asset_price_series",
+                    side_effect=fake_asset_load,
+                ),
+                patch(
+                    "genkei.experiments.emitters.relative_strength_emitter.compute_daily_relative_strength",
+                    return_value=jup_daily,
+                ),
+                patch(
+                    "genkei.experiments.emitters.relative_strength_emitter.emit_signals_bulk",
+                    return_value=1,
+                ) as emit_mock,
+            ):
+                result = emit_recent_crossings(config=path)
+
+        emitted = emit_mock.call_args.args[0]
+        self.assertEqual(len(emitted), 1)
+        self.assertEqual(emitted[0]["asset"], "jupiter-exchange-solana")
+        self.assertEqual(emitted[0]["horizon"], "crypto:core")
+        self.assertEqual(emitted[0]["signal_kind"], "leader_crossing")
+        self.assertEqual(result.crossings_emitted, 1)
 
     def test_orchestrator_skips_assets_with_no_data(self) -> None:
         class FakeRun:
@@ -405,7 +511,7 @@ class EmitOrchestratorTests(unittest.TestCase):
                 return None
 
         # BTC peer series loads but asset series are empty.
-        def fake_load(product: str, *, until: object = None) -> list[PricePoint]:
+        def fake_peer_load(product: str, *, until: object = None) -> list[PricePoint]:
             if product == "BTC-USD":
                 return [PricePoint(ts=date(2024, 6, 1), price_usd=Decimal("60000"))]
             return []
@@ -420,7 +526,11 @@ class EmitOrchestratorTests(unittest.TestCase):
                 ),
                 patch(
                     "genkei.experiments.emitters.relative_strength_emitter._load_price_series",
-                    side_effect=fake_load,
+                    side_effect=fake_peer_load,
+                ),
+                patch(
+                    "genkei.experiments.emitters.relative_strength_emitter._load_asset_price_series",
+                    return_value=[],
                 ),
                 patch(
                     "genkei.experiments.emitters.relative_strength_emitter.emit_signals_bulk",
@@ -459,6 +569,9 @@ class EmitOrchestratorTests(unittest.TestCase):
                     return_value=[],
                 ),
                 patch(
+                    "genkei.experiments.emitters.relative_strength_emitter._load_asset_price_series",
+                ) as asset_load_mock,
+                patch(
                     "genkei.experiments.emitters.relative_strength_emitter.emit_signals_bulk",
                     return_value=0,
                 ),
@@ -466,6 +579,7 @@ class EmitOrchestratorTests(unittest.TestCase):
                 result = emit_recent_crossings(config=path)
 
         # No BTC data → can't compute anything; all assets counted as no_data.
+        asset_load_mock.assert_not_called()
         self.assertEqual(result.crossings_emitted, 0)
         self.assertEqual(result.assets_skipped_no_data, 2)
 

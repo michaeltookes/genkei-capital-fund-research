@@ -59,11 +59,13 @@ Field mapping per event:
                       ``(asset, ts, source, signal_kind, source_ref, horizon)``
                       makes re-emission idempotent.
 
-Loading note: loads the full available coinbase.candles series for each
-(asset, BTC) pair regardless of ``--since``. The relative-strength
-window needs ≥30 days of trailing history and the crossing detector
-needs the prior day's state. ``--since`` is applied in-Python to the
-*emission* window after crossings are detected.
+Loading note: loads the full available price series for each (asset, BTC)
+pair regardless of ``--since``. Assets use ``coinbase.candles`` when a
+live ``coinbase_product`` is configured and fall back to
+``coingecko.market_data`` otherwise; BTC remains the fixed Coinbase peer.
+The relative-strength window needs ≥30 days of trailing history and the
+crossing detector needs the prior day's state. ``--since`` is applied
+in-Python to the *emission* window after crossings are detected.
 """
 
 from __future__ import annotations
@@ -143,6 +145,17 @@ class EmitResult:
     assets_skipped_no_data: int
 
 
+@dataclass(frozen=True)
+class _CryptoAssetTarget:
+    """One watchlist crypto asset plus the table/key to load its prices from."""
+
+    asset_id: str
+    symbol: str
+    price_source: str  # "coinbase" | "coingecko"
+    price_key: str
+    sleeve: str
+
+
 def _state_for(rel_strength_pct: Decimal | None) -> str | None:
     """Classify a rel-strength value into ``"laggard" | "neutral" | "leader"``
     or ``None`` when input is None.
@@ -198,6 +211,37 @@ def _load_price_series(product: str, *, until: date | None = None) -> list[Price
         cur.execute(sql, params)
         rows = cur.fetchall()
     return [PricePoint(ts=d, price_usd=Decimal(price)) for d, price in rows]
+
+
+def _load_coingecko_price_series(
+    coingecko_id: str, *, until: date | None = None
+) -> list[PricePoint]:
+    """Pull (ts, price_usd) rows from ``coingecko.market_data`` for one asset."""
+    sql = (
+        "SELECT ts::date AS d, price_usd::numeric "
+        "FROM coingecko.market_data "
+        "WHERE coingecko_id = %s AND price_usd IS NOT NULL"
+    )
+    params: list[Any] = [coingecko_id]
+    if until is not None:
+        sql += " AND ts::date <= %s"
+        params.append(until)
+    sql += " ORDER BY ts::date ASC"
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+    return [PricePoint(ts=d, price_usd=Decimal(price)) for d, price in rows]
+
+
+def _load_asset_price_series(
+    target: _CryptoAssetTarget, *, until: date | None = None
+) -> list[PricePoint]:
+    """Load one asset's price history from its configured watchlist source."""
+    if target.price_source == "coinbase":
+        return _load_price_series(target.price_key, until=until)
+    if target.price_source == "coingecko":
+        return _load_coingecko_price_series(target.price_key, until=until)
+    raise ValueError(f"unsupported crypto price source: {target.price_source}")
 
 
 def compute_daily_relative_strength(
@@ -316,25 +360,37 @@ def _build_event(
     }
 
 
-def _crypto_assets(watchlist: Watchlist) -> list[tuple[str, str, str, str]]:
-    """Return ``[(coingecko_id, symbol, product, sleeve)]`` for entries with a
-    coinbase product available, excluding the peer (BTC) itself.
+def _crypto_assets(watchlist: Watchlist) -> list[_CryptoAssetTarget]:
+    """Return signal-scoped crypto assets, excluding the fixed BTC peer.
 
-    Restricted to entries that have ``coinbase_product`` set — the
-    emitter reads from ``coinbase.candles``, so a coin without a
-    coinbase mapping has no price data here. Future tactical-sleeve
-    coins added to the watchlist with a coinbase_product will be
-    picked up automatically.
+    Coinbase remains preferred when a live product is configured because it
+    matches the emitter's original history. CoinGecko keeps primary assets
+    with delisted or unavailable Coinbase products in the signal feed.
     """
-    out: list[tuple[str, str, str, str]] = []
+    out: list[_CryptoAssetTarget] = []
     for entry in watchlist.crypto:
-        product = entry.coinbase_product
+        product = entry.coinbase_product.strip() if entry.coinbase_product else ""
         asset_id = entry.coingecko_id.strip()
-        if not product or not asset_id:
+        symbol = entry.symbol.upper()
+        if not asset_id:
             continue
-        if product == PEER_PRODUCT:
+        if product == PEER_PRODUCT or symbol == PEER_SYMBOL or asset_id == "bitcoin":
             continue
-        out.append((asset_id, entry.symbol, product, entry.sleeve or "core"))
+        if product:
+            price_source = "coinbase"
+            price_key = product
+        else:
+            price_source = "coingecko"
+            price_key = asset_id
+        out.append(
+            _CryptoAssetTarget(
+                asset_id=asset_id,
+                symbol=entry.symbol,
+                price_source=price_source,
+                price_key=price_key,
+                sleeve=entry.sleeve or "core",
+            )
+        )
     return out
 
 
@@ -372,8 +428,8 @@ def emit_recent_crossings(
     ) as run:
         if not assets:
             LOGGER.warning(
-                "no watchlist crypto entries carry a coinbase_product (other "
-                "than BTC); relative-strength emitter has nothing to scope to"
+                "no watchlist crypto entries carry a coingecko_id (other than "
+                "BTC); relative-strength emitter has nothing to scope to"
             )
             return EmitResult(
                 ingest_run_id=run.id,
@@ -398,21 +454,21 @@ def emit_recent_crossings(
 
         events: list[dict[str, Any]] = []
         assets_skipped_no_data = 0
-        for asset_id, _symbol, product, sleeve in assets:
-            asset_series = _load_price_series(product, until=until)
+        for asset in assets:
+            asset_series = _load_asset_price_series(asset, until=until)
             if not asset_series:
                 LOGGER.warning(
-                    "no coinbase.candles data for %s; skipping relative-strength "
-                    "emission",
-                    product,
+                    "no %s price data for %s; skipping relative-strength emission",
+                    asset.price_source,
+                    asset.price_key,
                 )
                 assets_skipped_no_data += 1
                 continue
-            horizon = f"crypto:{sleeve}"
+            horizon = f"crypto:{asset.sleeve}"
             daily = compute_daily_relative_strength(
                 asset_series, peer_series, window_days=WINDOW_DAYS
             )
-            crossings = _detect_crossings(daily, asset=asset_id)
+            crossings = _detect_crossings(daily, asset=asset.asset_id)
             for crossing in crossings:
                 if since is not None and crossing.ts < since:
                     continue
