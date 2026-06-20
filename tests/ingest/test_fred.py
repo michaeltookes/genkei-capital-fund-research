@@ -206,6 +206,54 @@ class UrlBuilderTests(unittest.TestCase):
         self.assertEqual(payload["count"], 1)
         self.assertEqual(payload["observations"][0]["realtime_start"], "2024-03-10")
 
+    def test_since_vintage_preserves_existing_boundary_rows_for_interval_updates(
+        self,
+    ) -> None:
+        # If the row keyed by (date, since_vintage) already exists, FRED may
+        # return it with a shortened realtime_end before the newer revision.
+        # Keep that row so normalize can upsert the interval closure, while
+        # still dropping unrelated clipped boundary snapshots.
+        class IncrementalHttp:
+            def get_json(self, _url: str) -> object:
+                return {
+                    "count": 3,
+                    "observations": [
+                        {
+                            "date": "2024-01-01",
+                            "realtime_start": "2024-02-15",
+                            "realtime_end": "2024-03-09",
+                            "value": "1.0",
+                        },
+                        {
+                            "date": "2024-02-01",
+                            "realtime_start": "2024-02-15",
+                            "realtime_end": "9999-12-31",
+                            "value": "2.0",
+                        },
+                        {
+                            "date": "2024-01-01",
+                            "realtime_start": "2024-03-10",
+                            "realtime_end": "9999-12-31",
+                            "value": "1.1",
+                        },
+                    ],
+                }
+
+        _url, payload = _fetch_observations_payload(
+            SeriesTarget("DGS10", "10-Year Treasury Yield"),
+            "KEY123",
+            IncrementalHttp(),  # type: ignore[arg-type]
+            since_vintage="2024-02-15",
+            boundary_observation_dates={"2024-01-01"},
+        )
+
+        self.assertEqual(payload["count"], 2)
+        self.assertEqual(
+            [(obs["date"], obs["realtime_start"]) for obs in payload["observations"]],
+            [("2024-01-01", "2024-02-15"), ("2024-01-01", "2024-03-10")],
+        )
+        self.assertEqual(payload["observations"][0]["realtime_end"], "2024-03-09")
+
     def test_without_since_vintage_requests_full_history(self) -> None:
         urls: list[str] = []
 
