@@ -33,7 +33,9 @@ jobs:
   pipeline:
     name: On-chain staking collect (Postgres-backed)
     runs-on: [self-hosted, beelink]
-    timeout-minutes: 15
+    # Backfill walks from pool deployment blocks and is expected to take
+    # ~10-30 minutes; keep enough headroom for manual full-history runs.
+    timeout-minutes: 60
     env:
       GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
       ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
