@@ -126,14 +126,6 @@ import httpx
 from genkei.common import db
 from genkei.common.http import HttpClient, RateLimit
 
-# Silence httpx's default INFO-level "HTTP Request: GET <full-url>" logging —
-# Etherscan auth lives in URL params, and INFO-level URL logging leaks the
-# API key to stdout / log aggregators / process output. WARNING still
-# surfaces real problems (4xx, 5xx, network errors); only routine
-# request-completion lines are suppressed. Set at module load so anyone
-# importing this collector is protected.
-logging.getLogger("httpx").setLevel(logging.WARNING)
-
 SOURCE_NAME = "onchain_staking"
 COLLECT_ENDPOINT_LABEL = "collect"
 ETHERSCAN_V2_URL = "https://api.etherscan.io/v2/api"

@@ -16,6 +16,7 @@ client exposes the single building block every collector needs:
 
 from __future__ import annotations
 
+import logging
 import math
 import random
 import threading
@@ -31,6 +32,13 @@ from typing import Any
 import httpx
 
 from genkei import __version__
+
+# httpx logs every request URL at INFO. Several sources carry the API key in
+# the query string (BEA UserID, EIA api_key, FRED api_key, …), so leaving the
+# httpx logger at INFO leaks live secrets into stdout and CI logs. Pin it to
+# WARNING once, centrally, for every ingester that goes through this client —
+# rather than relying on each module to remember the one-liner.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 #: Status codes the default retry policy considers transient. Override on a
 #: per-client basis via :class:`RetryPolicy.retry_on_status` if a source has

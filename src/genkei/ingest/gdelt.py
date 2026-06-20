@@ -59,7 +59,6 @@ from genkei.common.watchlist import (
 )
 
 LOGGER = logging.getLogger(__name__)
-logging.getLogger("httpx").setLevel(logging.WARNING)
 
 SOURCE_NAME = "gdelt"
 COLLECT_ENDPOINT = "collect"

@@ -1054,12 +1054,12 @@ bea:
   - table_id: T20804
     line_number: 1
     name: PCE Price Index (headline) — % change
-    frequency: Q
+    frequency: M
     rationale: Fed's headline inflation gauge.
   - table_id: T20804
     line_number: 25
     name: PCE Price Index excluding Food and Energy (core) — % change
-    frequency: Q
+    frequency: M
     rationale: Fed's preferred inflation gauge — the policy-pivot signal.
   - table_id: T70100
     line_number: 5
@@ -1257,7 +1257,9 @@ eia:
     frequency: M
     data_field: generation
     facets:
-      fueltype: ALL
+      # EIA renamed this facet 'fueltype' → 'fueltypeid' on the
+      # electric-power-operational-data route; the old key now 400s (G-040).
+      fueltypeid: ALL
       location: US
       sectorid: '99'
     units: THOUSAND_MWH

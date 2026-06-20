@@ -79,10 +79,6 @@ from genkei.common.watchlist import (
     load_watchlist,
 )
 
-# Suppress httpx INFO logging — Etherscan auth lives in URL params, and
-# INFO-level URL logging would leak the API key to stdout / log aggregators.
-logging.getLogger("httpx").setLevel(logging.WARNING)
-
 SOURCE_NAME = "eth_whale_flow"
 COLLECT_ENDPOINT_LABEL = "collect"
 ETHERSCAN_V2_URL = "https://api.etherscan.io/v2/api"
