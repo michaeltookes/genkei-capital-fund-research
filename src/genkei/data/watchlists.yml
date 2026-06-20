@@ -208,6 +208,19 @@ equities:
       sector: Enterprise software
       sleeve: core
       rationale: HCM + Financial Management SaaS; enterprise back-office incumbent.
+    # VEEV (B-123). Subject of the 2026-06-11 veeva-vs-salesforce-split-
+    # aftermath decision, which could only ever reflect as `deferred`
+    # because VEEV had no price series. sector reads "software" so the
+    # rel-strength emitter routes it to QQQ alongside the CRM/NOW/ADBE/WDAY
+    # SaaS cohort (the bare "life-sciences SaaS" string would fall through
+    # to SPY). cusip 922475108 from ISIN US9224751084.
+    - symbol: VEEV
+      cik: "0001393052"
+      cusip: "922475108"
+      name: Veeva Systems Inc.
+      sector: Enterprise software / life sciences
+      sleeve: core
+      rationale: Vertical SaaS for pharma/life-sciences (CRM + Vault); the named comparator to Salesforce in the 2026-06-11 split-aftermath decision.
     - symbol: SNOW
       cik: "0001640147"
       cusip: "833445109"
