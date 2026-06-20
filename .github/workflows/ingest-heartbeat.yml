@@ -66,6 +66,7 @@ jobs:
             "etherscan-whales-daily.yml:48"
             "sui-staking-daily.yml:48"
             "sui-unlocks-daily.yml:48"
+            "onchain-staking-daily.yml:48"
             "cftc-weekly.yml:216"
           )
 

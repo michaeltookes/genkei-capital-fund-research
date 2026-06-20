@@ -1,0 +1,63 @@
+name: On-chain Staking Daily Snapshot
+
+# B-086 — incrementally pulls Chainlink v0.2 staking-pool events (community +
+# operator pools) from the Etherscan V2 API into onchain.staking_events. Runs
+# on the self-hosted Beelink runner so it can reach the homelab Postgres on
+# mission_control_net, and reuses the ETHERSCAN_API_KEY secret already
+# configured for the whale-flow workflow.
+#
+# The ingester existed and was sound but had no scheduled trigger, so it only
+# ran on the handful of manual invocations (last 2026-06-07) and went ~13 days
+# stale — surfaced by the D-024 weekly digest's health footer. This wires it
+# into the daily cron. Incremental + idempotent: each run walks from the last
+# stored block, and the (pool, tx_hash, log_index) PK makes re-runs no-ops.
+# A one-shot full history is available via `--backfill` (workflow_dispatch).
+#
+# 05:30 UTC sits in the quiet pre-morning window, ahead of the 06:00 Sui
+# staking cron and well clear of the 10:30/11:00 DeFiLlama/FRED slots.
+
+on:
+  schedule:
+    - cron: "30 5 * * *"
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: "Walk every pool from its deployment block (one-shot full history)."
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    name: On-chain staking collect (Postgres-backed)
+    runs-on: [self-hosted, beelink]
+    timeout-minutes: 15
+    env:
+      GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+      ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+
+      - name: Apply database migrations
+        run: alembic upgrade head
+
+      - name: Collect Chainlink staking events into onchain.staking_events
+        run: |
+          python3 -m genkei.ingest.onchain_staking \
+            ${{ (github.event_name == 'workflow_dispatch' && inputs.backfill) && '--backfill' || '' }}

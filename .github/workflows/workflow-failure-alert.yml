@@ -24,7 +24,7 @@ on:
     # sync when a new ingest workflow lands.
     workflows:
       - "Tests"
-      - "DeFiLlama Daily Brief"
+      - "DeFiLlama Daily Pipeline"
       - "CoinGecko Daily Market Data"
       - "Coinbase Daily OHLCV"
       - "Yahoo Daily Equity OHLCV"
@@ -39,6 +39,7 @@ on:
       - "Etherscan Whale-Flow Daily Snapshot"
       - "Sui Staking Daily Snapshot"
       - "SUI Unlocks Daily Snapshot"
+      - "On-chain Staking Daily Snapshot"
       - "Ingest Staleness Check"
       - "Ingest Heartbeat"
     types: [completed]
