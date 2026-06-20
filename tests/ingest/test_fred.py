@@ -159,15 +159,40 @@ class UrlBuilderTests(unittest.TestCase):
         self.assertEqual(payload["count"], 3)
         self.assertEqual(len(payload["observations"]), 3)
 
-    def test_since_vintage_sets_realtime_start_incrementally(self) -> None:
+    def test_since_vintage_sets_realtime_start_and_drops_boundary_rows(self) -> None:
         # Incremental fix: with vintages stored through 2024-02-15, the
-        # request window starts there (not the full 1776 history → no cap).
+        # request window starts there (not the full 1776 history → no cap),
+        # but FRED clips already-current values to the window start. Those
+        # rows are snapshots, not true new vintages, so the collector drops
+        # them before storing the raw blob.
         urls: list[str] = []
 
         class IncrementalHttp:
             def get_json(self, url: str) -> object:
                 urls.append(url)
-                return {"count": 1, "observations": [{"date": "2024-03-01"}]}
+                return {
+                    "count": 3,
+                    "observations": [
+                        {
+                            "date": "2024-01-01",
+                            "realtime_start": "2024-02-15",
+                            "realtime_end": "2024-03-09",
+                            "value": "1.0",
+                        },
+                        {
+                            "date": "2024-02-01",
+                            "realtime_start": "2024-02-15",
+                            "realtime_end": "9999-12-31",
+                            "value": "2.0",
+                        },
+                        {
+                            "date": "2024-01-01",
+                            "realtime_start": "2024-03-10",
+                            "realtime_end": "9999-12-31",
+                            "value": "1.1",
+                        },
+                    ],
+                }
 
         _url, payload = _fetch_observations_payload(
             SeriesTarget("DGS10", "10-Year Treasury Yield"),
@@ -179,6 +204,7 @@ class UrlBuilderTests(unittest.TestCase):
         self.assertIn("realtime_start=2024-02-15", urls[0])
         self.assertNotIn("1776", urls[0])  # not the full-history cap window
         self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["observations"][0]["realtime_start"], "2024-03-10")
 
     def test_without_since_vintage_requests_full_history(self) -> None:
         urls: list[str] = []

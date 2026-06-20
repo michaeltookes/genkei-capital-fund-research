@@ -6,12 +6,14 @@ two raw blobs per series (``series_<id>``, ``observations_<id>``) in
 ``meta.raw_blobs``. The downstream normalizer
 (``genkei.normalize.fred``) reads from those blobs.
 
-Incremental design: each daily run fetches only the vintages newer than
-what's already stored — ``realtime_start = max(realtime_start) in
-fred.observations`` for the series, ``realtime_end = 9999-12-31`` — so new
-revisions land as new rows under D-013's ``(series_id, ts, realtime_start)``
-schema rather than overwriting history. ``--backfill`` re-requests the full
-history from ``EARLIEST_REALTIME``.
+Incremental design: each daily run fetches a bounded realtime window starting
+at what's already stored — ``realtime_start = max(realtime_start) in
+fred.observations`` for the series, ``realtime_end = 9999-12-31``. FRED's
+standard long-format response clips values that were already current at the
+window boundary to that request ``realtime_start``; the collector drops those
+boundary rows so only true later revisions land as new rows under D-013's
+``(series_id, ts, realtime_start)`` schema. ``--backfill`` re-requests the
+full history from ``EARLIEST_REALTIME``.
 
 Vintage handling (the G-019/G-027/G-029 history): observations calls send a
 *bounded* realtime window. Omitting the window defaults to today's vintage
@@ -135,9 +137,8 @@ def build_observations_url(
     """Build the URL for the observations endpoint over a realtime window.
 
     Sends an explicit ``realtime_start`` / ``realtime_end`` window so FRED
-    tags each observation with its true ``realtime_start`` — the vintage
-    key under D-013. Two failure modes this navigates between (see the
-    G-019/G-027/G-029 history):
+    returns the long observation shape the normalizer expects. Two failure
+    modes this navigates between (see the G-019/G-027/G-029 history):
 
     * Omitting the realtime window defaults to *today's* vintage, collapsing
       the vintage-aware table into daily snapshot duplication.
@@ -147,8 +148,9 @@ def build_observations_url(
     The collector avoids both by passing a *bounded* window: the daily run
     uses ``realtime_start = last stored vintage`` → ``9999-12-31``, which
     spans only the handful of new vintages since the last collect, far
-    under the cap, while ``realtime_end = 9999`` keeps current values'
-    vintage windows un-clipped.
+    under the cap. FRED clips already-current values to the window start,
+    so incremental collection drops rows whose ``realtime_start`` equals
+    that boundary before storing the raw blob.
     """
     params = {
         "series_id": series_id,
@@ -182,7 +184,9 @@ def latest_stored_vintage(series_id: str) -> str | None:
 
     Historical FRED vintages are immutable under the D-013
     ``(series_id, ts, realtime_start)`` schema, so the daily collector only
-    needs vintages strictly newer than this. Re-fetching the full vintage
+    needs vintages strictly newer than this. The next request still starts at
+    this boundary because FRED's realtime windows are inclusive; rows clipped
+    to the boundary are filtered out before storage. Re-fetching the full vintage
     history every run is what made the collector hang past its 15-min
     workflow timeout (2026-05-16 → 2026-06-19: ~5,000 vintages per daily
     series, killed mid-run, normalize starved for 34 days). Returns ``None``
@@ -262,9 +266,9 @@ def _fetch_series_pair(
     """Fetch metadata + observations for one series. Returns 0/1/2 rows written.
 
     ``since_vintage`` (ISO ``YYYY-MM-DD``) sets the observations
-    ``realtime_start`` so only that vintage forward is fetched; already-stored
-    historical vintages are skipped, keeping the request well under FRED's
-    2000-vintage cap.
+    ``realtime_start`` so only that vintage window is fetched; rows clipped to
+    that inclusive boundary are discarded before storage, keeping pseudo-
+    vintages out of ``fred.observations``.
     """
     written = 0
     for blob_prefix in (SERIES_BLOB_PREFIX, OBSERVATIONS_BLOB_PREFIX):
@@ -304,11 +308,13 @@ def _fetch_observations_payload(
 ) -> tuple[str, Any]:
     """Fetch observations over a bounded realtime window; return one raw payload.
 
-    ``since_vintage`` (ISO ``YYYY-MM-DD``) becomes ``realtime_start`` so only
-    that vintage forward is requested — historical vintages are immutable
-    under D-013 and already stored, so the daily collector skips them and
-    stays far under FRED's 2000-vintage cap. ``None`` (a fresh series or
-    ``--backfill``) requests the full history from ``EARLIEST_REALTIME``;
+    ``since_vintage`` (ISO ``YYYY-MM-DD``) becomes ``realtime_start`` for a
+    bounded incremental request. FRED's default long-format response includes
+    values already current at the request boundary and labels them with that
+    boundary date, so incremental runs drop rows where ``realtime_start`` is
+    exactly ``since_vintage``. Later rows are true new revisions. ``None`` (a
+    fresh series or ``--backfill``) requests the full history from
+    ``EARLIEST_REALTIME``;
     that can hit the cap on long daily series, so backfilling those is a
     known limitation (they're already populated — incremental carries them
     forward). Paginates on ``count`` like the other collectors.
@@ -363,10 +369,21 @@ def _fetch_observations_payload(
 
     if combined is None:
         raise ValueError(f"FRED observations payload for {target.series_id} was empty.")
+    if since_vintage is not None:
+        observations = _drop_realtime_window_start_rows(observations, since_vintage)
     combined["observations"] = observations
     combined["count"] = len(observations)
     combined["limit"] = len(observations)
     return first_url, combined
+
+
+def _drop_realtime_window_start_rows(observations: list[Any], realtime_start: str) -> list[Any]:
+    """Drop FRED rows clipped to the incremental realtime-window boundary."""
+    return [
+        obs
+        for obs in observations
+        if not isinstance(obs, dict) or obs.get("realtime_start") != realtime_start
+    ]
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
