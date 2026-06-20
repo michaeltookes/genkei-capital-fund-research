@@ -548,24 +548,52 @@ protocols:
       rationale: Sui Foundation's native on-chain orderbook DEX. Lower TVL than AMMs ($17M) but represents core Sui infrastructure; DEEP token is the canonical Sui-native fee asset. NOTE the coingecko_id is `deep` (CoinGecko's id for the Sui DEEP token), NOT `deepbook` (an unrelated coin with symbol ADB).
 
     # Solana ecosystem (B-126) — pairs with the JUP crypto-core watchlist
-    # entry above. Jupiter is a full-stack Solana DeFi ecosystem spanning
-    # aggregator, perps, lending, JupSOL/JupUSD, prediction markets, and
-    # related interfaces. The parent slug fits the JUP thesis because it
-    # captures the combined protocol surface rather than only the DEX
-    # aggregator or perps child slugs. Slug verified live against
-    # `api.llama.fi/protocol/jupiter` (`id: parent#jupiter`,
-    # `isParentProtocol: true`, gecko_id `jupiter-exchange-solana`). The
-    # `/summary/fees/jupiter` stream feeds `genkei revenue-divergence` —
-    # the fee-vs-price check.
-    - slug: jupiter
-      name: Jupiter
-      category: Full Stack DeFi
+    # entry above. Jupiter is a full-stack Solana DeFi ecosystem, which
+    # DefiLlama models as a `parent#jupiter` umbrella. The parent slug is
+    # NOT in the bulk `/protocols` list (the `defillama.protocol_tvl` FK
+    # parent table), so normalizing TVL for `slug: jupiter` fails with a
+    # foreign-key violation. We therefore track the signal-bearing child
+    # protocols directly — same pattern as the Sui bluefin-spot /
+    # bluefin-pro split — which together reconstruct the full-stack view:
+    # aggregator volume + perps TVL + lending + liquid staking. Each
+    # `coingecko_id` pairs the child with its value-capture token (JUP for
+    # aggregator/perps/lend; JupSOL for staked-sol) so
+    # `genkei revenue-divergence` joins cleanly. `gdelt_terms` kept tight
+    # and child-specific to avoid matching the planet / Roman god and to
+    # stop one Jupiter headline being attributed to all four slugs.
+    - slug: jupiter-aggregator
+      name: Jupiter Aggregator
+      category: DEX Aggregator
       coingecko_id: jupiter-exchange-solana
       gdelt_terms:
-        - Jupiter Exchange
         - Jupiter Aggregator
+        - Jupiter Exchange
         - JUP token
-      rationale: Full-stack Solana DeFi ecosystem spanning aggregator, perps, lending, liquid staking, stablecoin, and adjacent interfaces; parent-level TVL/fees are the most direct read on Solana DeFi activity and Jupiter's own fundamentals.
+      rationale: Jupiter's core Solana swap aggregator — routing volume + fees are the most direct read on Solana DEX activity and Jupiter's flagship product.
+    - slug: jupiter-perpetual-exchange
+      name: Jupiter Perpetual Exchange
+      category: Derivatives
+      coingecko_id: jupiter-exchange-solana
+      gdelt_terms:
+        - Jupiter Perpetual
+        - Jupiter Perps
+        - JLP pool
+      rationale: Jupiter's on-chain perps venue; the JLP pool holds the bulk of Jupiter's TVL and perps fees are its largest revenue line.
+    - slug: jupiter-lend
+      name: Jupiter Lend
+      category: Lending
+      coingecko_id: jupiter-exchange-solana
+      gdelt_terms:
+        - Jupiter Lend
+      rationale: Jupiter's lending market; newer leg of the full-stack expansion — TVL tracks the push beyond swaps + perps.
+    - slug: jupiter-staked-sol
+      name: Jupiter Staked SOL
+      category: Liquid Staking
+      coingecko_id: jupiter-staked-sol
+      gdelt_terms:
+        - Jupiter Staked SOL
+        - JupSOL
+      rationale: JupSOL liquid-staking TVL; captures Jupiter's share of Solana LST demand. Paired with the JupSOL token, not JUP.
 
 # SEC 13F filers (institutional investment managers). One submissions
 # fetch per filer per day in the daily SEC pipeline; per-filing 13F-HR
