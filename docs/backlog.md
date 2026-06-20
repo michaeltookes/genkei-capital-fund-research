@@ -29,28 +29,6 @@ Daily briefs and reports are emergent UIs; **the data lake is the asset**.
 
 ## Open items
 
-### B-001 — Persist generated DeFiLlama reports back to the repository
-- **Status:** open
-- **Priority:** high
-- **Context:** The current GitHub Action uploads generated reports as workflow artifacts only. Michael wants daily outputs available in the repo as well.
-- **Acceptance criteria:**
-  - Daily Markdown reports are committed to an agreed repo path, likely `reports/daily/`.
-  - Normalized daily JSON is committed to an agreed repo path, likely `data/normalized/defillama/`.
-  - Raw API snapshots remain uncommitted unless explicitly approved.
-  - The workflow avoids noisy duplicate commits when output has not changed.
-- **Note:** Re-evaluate after Phase 1 lands — if normalized data goes to Postgres, only the markdown brief may need committing.
-
-### B-002 — Publish DeFiLlama reports to Mission Control Research tab
-- **Status:** open
-- **Priority:** high
-- **Context:** Michael wants generated reports stored on the Mission Control site under Research.
-- **Acceptance criteria:**
-  - Mission Control has a Research destination for these reports.
-  - The pipeline can create or update a Research entry with the daily Markdown brief.
-  - Each Mission Control entry links back to the repo artifact or workflow run.
-  - Failures are visible without silently losing the repo artifact.
-- **Note:** Mission Control was tied to the OpenClaw harness. The agent harness is now locked to Claude Code (D-017/R-030), so delivery may shift to GitHub Discussions, an external channel, or a different surface entirely.
-
 ### B-003 — Add manual run instructions for the DeFiLlama Daily Brief Action
 - **Status:** open
 - **Priority:** medium
@@ -103,15 +81,6 @@ Migrate the existing MVP into the new foundation; it becomes the canonical patte
   - Configurable `--max-snapshot-age-hours` (default e.g. 24).
   - Report banner / CLI warning when stale.
   - `meta.ingest_runs` queryable for staleness.
-
-### B-025 — Decide fate of existing daily-brief markdown report
-- **Status:** open
-- **Priority:** medium
-- **Context:** With CLI-driven on-demand briefs, the auto-generated daily brief may become redundant. Or it may stay as one example downstream artifact.
-- **Acceptance criteria:**
-  - Decision recorded in `docs/defillama-mvp.md`.
-  - If retired: workflow + script removed, B-001/B-002 closed or rescoped.
-  - If kept: it now reads from Postgres via the CLI helpers.
 
 ## Phase 2 — Free-data ingesters with backfill
 
@@ -225,15 +194,6 @@ The interface the agent (and human user) uses to query the lake.
 
 Wires the data lake to the on-demand AI researcher.
 
-
-### B-051 — Decide brief delivery surface
-- **Status:** open
-- **Priority:** medium
-- **Context:** Where do generated outputs land? Repo commit, GitHub Issue/Discussion, external channel?
-- **Acceptance criteria:**
-  - Decision documented.
-  - Delivery wired into the harness.
-  - Failure-mode behavior defined (retry? alert? drop?).
 
 ### B-052 — "Open research questions" log
 - **Status:** open
@@ -415,15 +375,6 @@ A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the e
   - Silent `except Exception` coercion blocks log a `WARNING` on non-ValueError failures.
   - A shared `PostgresTestCase` base class replaces the duplicated integration-test setup; at least one ingester's `--backfill` path gains an automated test.
   - Date-range chunking (`coinbase._chunk_windows` + the coingecko inline copy) hoisted to `common/`.
-
-### B-122 — Resolve the output-channel decision before more emitters land
-- **Status:** open
-- **Priority:** medium
-- **Context:** `reports/` is empty and B-001/B-051 (brief delivery) are still open. Consistent with "the lake is the asset," but it means the decision log is the *only* durable research output — if the reflection loop is miscalibrated (see B-117/B-118), no second artifact catches it. Phase 6 emitters are starting to produce signals with nowhere defined to land, and CLAUDE.md requires every signal output to carry a horizon tag. This item escalates B-051 from "decide someday" to "decide before the next emitter ships" — even a minimal decision ("reports/ in-repo, weekly cadence") suffices.
-- **Acceptance criteria:**
-  - B-051's decision recorded (surface + cadence + failure-mode behavior), and B-001/B-002/B-025 closed or rescoped accordingly.
-  - Signal/brief outputs carry the horizon tag convention from CLAUDE.md.
-  - First artifact actually lands in the chosen surface as proof of the path.
 
 ### B-124 — Audit yahoo.candles price magnitudes against external references
 - **Status:** open

@@ -74,7 +74,7 @@ Long-running task lists meant for async / overnight execution.
 
 ## Output channel
 
-Briefs, alerts, and agent answers commit to the repo under `reports/`. Future migration to a nicer interface is possible but out of scope today.
+Briefs, alerts, and agent answers commit to the repo under `reports/` (D-024). The durable signal artifact is the **weekly signal digest** — `python -m genkei.reports.signal_digest` renders the trailing-week correlator output into `reports/signals/weekly-<date>.md`, grouped by horizon tag, with a lake-health footer. Cadence is weekly via a `/schedule` routine (runner-agnostic; a GH Actions cron works too); failed runs alert via the B-119 Discord/issue path rather than dropping silently. The legacy DeFiLlama daily markdown brief is **retired** (B-025) — the lake is the system of record and on-demand `genkei` queries cover the rest. Future migration to a nicer interface is possible but out of scope today.
 
 ## Conventions
 
