@@ -1,7 +1,7 @@
 """GDELT 2.0 GKG news/event ingester (B-033).
 
 Fetches the firehose GKG (Global Knowledge Graph) CSV files at
-``https://data.gdeltproject.org/gdeltv2/<YYYYMMDDHHMMSS>.gkg.csv.zip``
+``https://storage.googleapis.com/data.gdeltproject.org/gdeltv2/<YYYYMMDDHHMMSS>.gkg.csv.zip``
 (published every 15 min, 96 files/day), parses the V2.1 tab-separated
 rows, filters to articles mentioning any watchlist asset, and bulk-
 upserts into ``gdelt.gkg``.
@@ -65,7 +65,12 @@ SOURCE_NAME = "gdelt"
 COLLECT_ENDPOINT = "collect"
 BACKFILL_ENDPOINT = "backfill"
 
-GDELT_BASE_URL = "https://data.gdeltproject.org/gdeltv2"
+# GDELT serves the v2 firehose from a Google Cloud Storage bucket fronted by
+# the data.gdeltproject.org CNAME, but that custom domain presents the bucket's
+# *.storage.googleapis.com cert — so HTTPS to data.gdeltproject.org fails TLS
+# verification with a hostname mismatch (G-039). Hit the bucket's real GCS
+# hostname instead: same bytes, valid cert, no insecure-http downgrade.
+GDELT_BASE_URL = "https://storage.googleapis.com/data.gdeltproject.org/gdeltv2"
 LASTUPDATE_URL = f"{GDELT_BASE_URL}/lastupdate.txt"
 GDELT_RATE_LIMIT = RateLimit.per_second(2)
 GDELT_USER_AGENT = "genkei/0.1 (+gdelt; research-desk)"
