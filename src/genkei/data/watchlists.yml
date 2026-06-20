@@ -552,24 +552,18 @@ protocols:
     # DefiLlama models as a `parent#jupiter` umbrella. The parent slug is
     # NOT in the bulk `/protocols` list (the `defillama.protocol_tvl` FK
     # parent table), so normalizing TVL for `slug: jupiter` fails with a
-    # foreign-key violation. We therefore track the signal-bearing child
-    # protocols directly — same pattern as the Sui bluefin-spot /
-    # bluefin-pro split — which together reconstruct the full-stack view:
-    # aggregator volume + perps TVL + lending + liquid staking. Each
-    # `coingecko_id` pairs the child with its value-capture token (JUP for
-    # aggregator/perps/lend; JupSOL for staked-sol) so
+    # foreign-key violation. We therefore track the signal-bearing TVL-backed
+    # child protocols directly — same pattern as the Sui bluefin-spot /
+    # bluefin-pro split — which together reconstruct the TVL view: perps,
+    # lending, and liquid staking. The DEX aggregator child
+    # (`jupiter-aggregator`) is fee/volume-only on DefiLlama (empty TVL
+    # history), so keep it out of this `protocols:` scope until the pipeline
+    # has a dedicated fee-only protocol path. JUP's crypto entry above still
+    # carries aggregator/news terms. Each `coingecko_id` pairs the child with
+    # its value-capture token (JUP for perps/lend; JupSOL for staked-sol) so
     # `genkei revenue-divergence` joins cleanly. `gdelt_terms` kept tight
     # and child-specific to avoid matching the planet / Roman god and to
-    # stop one Jupiter headline being attributed to all four slugs.
-    - slug: jupiter-aggregator
-      name: Jupiter Aggregator
-      category: DEX Aggregator
-      coingecko_id: jupiter-exchange-solana
-      gdelt_terms:
-        - Jupiter Aggregator
-        - Jupiter Exchange
-        - JUP token
-      rationale: Jupiter's core Solana swap aggregator — routing volume + fees are the most direct read on Solana DEX activity and Jupiter's flagship product.
+    # stop one Jupiter headline being attributed to all three slugs.
     - slug: jupiter-perpetual-exchange
       name: Jupiter Perpetual Exchange
       category: Derivatives
