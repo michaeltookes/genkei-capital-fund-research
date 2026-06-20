@@ -55,6 +55,10 @@ crypto:
     - symbol: JUP
       name: Jupiter
       coingecko_id: jupiter-exchange-solana
+      gdelt_terms:
+        - Jupiter Exchange
+        - Jupiter Aggregator
+        - JUP token
       ecosystem: Solana
       sleeve: core
       rationale: Long-term core. Dominant Solana DEX aggregator + on-chain perps; a direct bet on DeFi becoming load-bearing for everyday finance.
@@ -544,6 +548,10 @@ protocols:
       name: Jupiter
       category: Full Stack DeFi
       coingecko_id: jupiter-exchange-solana
+      gdelt_terms:
+        - Jupiter Exchange
+        - Jupiter Aggregator
+        - JUP token
       rationale: Full-stack Solana DeFi ecosystem spanning aggregator, perps, lending, liquid staking, stablecoin, and adjacent interfaces; parent-level TVL/fees are the most direct read on Solana DeFi activity and Jupiter's own fundamentals.
 
 # SEC 13F filers (institutional investment managers). One submissions

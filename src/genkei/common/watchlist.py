@@ -33,6 +33,9 @@ class CryptoEntry:
     # every future coin will list on Coinbase; absent → Coinbase ingester
     # skips this coin with a logged note.
     coinbase_product: str | None = None
+    # Source-specific news matching terms for GDELT. Optional override for
+    # ambiguous display names where the bare name is too noisy.
+    gdelt_terms: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -118,6 +121,9 @@ class ProtocolEntry:
     tier: str  # primary | secondary
     rationale: str | None = None
     coingecko_id: str | None = None
+    # Source-specific news matching terms for GDELT. Optional override for
+    # ambiguous display names where the bare name is too noisy.
+    gdelt_terms: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -501,6 +507,7 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                         tier=str(tier_name),
                         sleeve=_optional_string(entry.get("sleeve")),
                         coinbase_product=_optional_string(entry.get("coinbase_product")),
+                        gdelt_terms=_optional_string_tuple(entry.get("gdelt_terms")),
                     )
                 )
 
@@ -584,6 +591,7 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                         tier=str(tier_name),
                         rationale=_optional_string(entry.get("rationale")),
                         coingecko_id=_optional_string(entry.get("coingecko_id")),
+                        gdelt_terms=_optional_string_tuple(entry.get("gdelt_terms")),
                     )
                 )
 
@@ -988,3 +996,10 @@ def _normalize_filer_cik(raw: object) -> str | None:
 def _optional_string(value: object) -> str | None:
     """Return a non-empty string value or None for absent optional fields."""
     return value if isinstance(value, str) and value else None
+
+
+def _optional_string_tuple(value: object) -> tuple[str, ...]:
+    """Return non-empty strings from an optional YAML list."""
+    if not isinstance(value, list):
+        return ()
+    return tuple(item.strip() for item in value if isinstance(item, str) and item.strip())
