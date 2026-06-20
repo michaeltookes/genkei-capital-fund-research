@@ -11,10 +11,11 @@ at what's already stored — ``realtime_start = max(realtime_start) in
 fred.observations`` for the series, ``realtime_end = 9999-12-31``. FRED's
 standard long-format response clips values that were already current at the
 window boundary to that request ``realtime_start``; the collector drops clipped
-boundary rows unless that exact observation/vintage already exists and needs a
-``realtime_end`` update. That keeps pseudo-vintages out while preserving true
-interval closures under D-013's ``(series_id, ts, realtime_start)`` schema.
-``--backfill`` re-requests the full history from ``EARLIEST_REALTIME``.
+boundary rows unless they close a currently open stored interval. Closure rows
+are rewritten to the stored open ``realtime_start`` before normalization. That
+keeps pseudo-vintages out while preserving true interval closures under D-013's
+``(series_id, ts, realtime_start)`` schema. ``--backfill`` re-requests the full
+history from ``EARLIEST_REALTIME``.
 
 Vintage handling (the G-019/G-027/G-029 history): observations calls send a
 *bounded* realtime window. Omitting the window defaults to today's vintage
@@ -150,8 +151,8 @@ def build_observations_url(
     uses ``realtime_start = last stored vintage`` → ``9999-12-31``, which
     spans only the handful of new vintages since the last collect, far
     under the cap. FRED clips already-current values to the window start,
-    so incremental collection keeps only boundary rows whose
-    ``(date, realtime_start)`` key already exists before storing the raw blob.
+    so incremental collection keeps only boundary rows that close a currently
+    open stored interval before storing the raw blob.
     """
     params = {
         "series_id": series_id,
@@ -187,7 +188,7 @@ def latest_stored_vintage(series_id: str) -> str | None:
     ``(series_id, ts, realtime_start)`` schema, so the daily collector only
     needs vintages strictly newer than this. The next request still starts at
     this boundary because FRED's realtime windows are inclusive; clipped rows
-    are filtered before storage unless they update an existing boundary key.
+    are filtered before storage unless they update an existing open interval.
     Re-fetching the full vintage history every run is what made the collector hang past its 15-min
     workflow timeout (2026-05-16 → 2026-06-19: ~5,000 vintages per daily
     series, killed mid-run, normalize starved for 34 days). Returns ``None``
@@ -202,17 +203,21 @@ def latest_stored_vintage(series_id: str) -> str | None:
     return row[0] if row and row[0] else None
 
 
-def stored_observation_dates_for_vintage(series_id: str, realtime_start: str) -> set[str]:
-    """Observation dates already stored for ``series_id`` at ``realtime_start``."""
+def open_observation_vintages_for_boundary(
+    series_id: str, realtime_start: str
+) -> dict[str, str]:
+    """Currently open stored vintage by observation date at an incremental boundary."""
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT (ts AT TIME ZONE 'UTC')::date::text "
+            "SELECT DISTINCT ON ((ts AT TIME ZONE 'UTC')::date) "
+            "(ts AT TIME ZONE 'UTC')::date::text, realtime_start::text "
             "FROM fred.observations "
-            "WHERE series_id = %s AND realtime_start = %s",
-            [series_id, realtime_start],
+            "WHERE series_id = %s AND realtime_start <= %s AND realtime_end = %s "
+            "ORDER BY (ts AT TIME ZONE 'UTC')::date, realtime_start DESC",
+            [series_id, realtime_start, LATEST_REALTIME],
         )
         rows = cur.fetchall()
-    return {row[0] for row in rows if row and row[0]}
+    return {row[0]: row[1] for row in rows if row and row[0] and row[1]}
 
 
 def collect(
@@ -250,8 +255,8 @@ def collect(
             written = 0
             for target_index, target in enumerate(series, start=1):
                 since_vintage = None if backfill else latest_stored_vintage(target.series_id)
-                boundary_observation_dates = (
-                    stored_observation_dates_for_vintage(target.series_id, since_vintage)
+                boundary_open_vintages = (
+                    open_observation_vintages_for_boundary(target.series_id, since_vintage)
                     if since_vintage is not None
                     else None
                 )
@@ -262,7 +267,7 @@ def collect(
                     run.id,
                     failures,
                     since_vintage=since_vintage,
-                    boundary_observation_dates=boundary_observation_dates,
+                    boundary_open_vintages=boundary_open_vintages,
                 )
                 if target_index % 5 == 0:
                     LOGGER.info("FRED collect progress: %s/%s", target_index, len(series))
@@ -287,15 +292,15 @@ def _fetch_series_pair(
     failures: list[dict[str, str]],
     *,
     since_vintage: str | None = None,
-    boundary_observation_dates: set[str] | None = None,
+    boundary_open_vintages: dict[str, str] | None = None,
 ) -> int:
     """Fetch metadata + observations for one series. Returns 0/1/2 rows written.
 
     ``since_vintage`` (ISO ``YYYY-MM-DD``) sets the observations
     ``realtime_start`` so only that vintage window is fetched. Rows clipped to
-    that inclusive boundary are discarded unless their observation date is
-    already stored at the boundary vintage, in which case the row updates
-    ``realtime_end`` for an existing interval.
+    that inclusive boundary are discarded unless they close a currently open
+    stored interval, in which case the row is rewritten to that interval's
+    original ``realtime_start`` before normalization.
     """
     written = 0
     for blob_prefix in (SERIES_BLOB_PREFIX, OBSERVATIONS_BLOB_PREFIX):
@@ -310,7 +315,7 @@ def _fetch_series_pair(
                     api_key,
                     http,
                     since_vintage=since_vintage,
-                    boundary_observation_dates=boundary_observation_dates,
+                    boundary_open_vintages=boundary_open_vintages,
                 )
         except (
             httpx.TimeoutException,
@@ -336,18 +341,18 @@ def _fetch_observations_payload(
     http: HttpClient,
     *,
     since_vintage: str | None = None,
-    boundary_observation_dates: set[str] | None = None,
+    boundary_open_vintages: dict[str, str] | None = None,
 ) -> tuple[str, Any]:
     """Fetch observations over a bounded realtime window; return one raw payload.
 
     ``since_vintage`` (ISO ``YYYY-MM-DD``) becomes ``realtime_start`` for a
     bounded incremental request. FRED's default long-format response includes
     values already current at the request boundary and labels them with that
-    boundary date. Incremental runs only keep those boundary rows when that
-    exact observation date is already stored at ``since_vintage`` so an
-    existing row's ``realtime_end`` can be closed. Later rows are true new
-    revisions. ``None`` (a fresh series or ``--backfill``) requests the full
-    history from ``EARLIEST_REALTIME``;
+    boundary date. Incremental runs only keep those boundary rows when they
+    shorten ``realtime_end`` for a currently open stored interval, and rewrite
+    ``realtime_start`` back to that interval's original key. Later rows are
+    true new revisions. ``None`` (a fresh series or ``--backfill``) requests
+    the full history from ``EARLIEST_REALTIME``;
     that can hit the cap on long daily series, so backfilling those is a
     known limitation (they're already populated — incremental carries them
     forward). Paginates on ``count`` like the other collectors.
@@ -406,7 +411,7 @@ def _fetch_observations_payload(
         observations = _filter_realtime_window_boundary_rows(
             observations,
             since_vintage,
-            boundary_observation_dates or set(),
+            boundary_open_vintages or {},
         )
     combined["observations"] = observations
     combined["count"] = len(observations)
@@ -417,16 +422,26 @@ def _fetch_observations_payload(
 def _filter_realtime_window_boundary_rows(
     observations: list[Any],
     realtime_start: str,
-    stored_observation_dates: set[str],
+    open_vintage_by_observation_date: dict[str, str],
 ) -> list[Any]:
-    """Drop clipped boundary rows unless they update an existing vintage key."""
-    return [
-        obs
-        for obs in observations
-        if not isinstance(obs, dict)
-        or obs.get("realtime_start") != realtime_start
-        or obs.get("date") in stored_observation_dates
-    ]
+    """Drop clipped boundary rows unless they close an existing open interval."""
+    filtered: list[Any] = []
+    for obs in observations:
+        if not isinstance(obs, dict) or obs.get("realtime_start") != realtime_start:
+            filtered.append(obs)
+            continue
+
+        observation_date = obs.get("date")
+        if not isinstance(observation_date, str):
+            continue
+        stored_realtime_start = open_vintage_by_observation_date.get(observation_date)
+        if stored_realtime_start is None or obs.get("realtime_end") == LATEST_REALTIME:
+            continue
+
+        rewritten = dict(obs)
+        rewritten["realtime_start"] = stored_realtime_start
+        filtered.append(rewritten)
+    return filtered
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:

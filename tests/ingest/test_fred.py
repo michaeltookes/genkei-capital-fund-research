@@ -206,13 +206,14 @@ class UrlBuilderTests(unittest.TestCase):
         self.assertEqual(payload["count"], 1)
         self.assertEqual(payload["observations"][0]["realtime_start"], "2024-03-10")
 
-    def test_since_vintage_preserves_existing_boundary_rows_for_interval_updates(
+    def test_since_vintage_rewrites_boundary_rows_to_open_vintage_for_interval_updates(
         self,
     ) -> None:
-        # If the row keyed by (date, since_vintage) already exists, FRED may
-        # return it with a shortened realtime_end before the newer revision.
-        # Keep that row so normalize can upsert the interval closure, while
-        # still dropping unrelated clipped boundary snapshots.
+        # If the open row for an observation predates the series-wide max
+        # cursor, FRED clips that old row to since_vintage when a newer
+        # revision arrives. Rewrite the clipped row to the stored open vintage
+        # so normalize closes the real interval instead of inserting a pseudo-
+        # vintage at the cursor.
         class IncrementalHttp:
             def get_json(self, _url: str) -> object:
                 return {
@@ -244,13 +245,13 @@ class UrlBuilderTests(unittest.TestCase):
             "KEY123",
             IncrementalHttp(),  # type: ignore[arg-type]
             since_vintage="2024-02-15",
-            boundary_observation_dates={"2024-01-01"},
+            boundary_open_vintages={"2024-01-01": "2024-01-10"},
         )
 
         self.assertEqual(payload["count"], 2)
         self.assertEqual(
             [(obs["date"], obs["realtime_start"]) for obs in payload["observations"]],
-            [("2024-01-01", "2024-02-15"), ("2024-01-01", "2024-03-10")],
+            [("2024-01-01", "2024-01-10"), ("2024-01-01", "2024-03-10")],
         )
         self.assertEqual(payload["observations"][0]["realtime_end"], "2024-03-09")
 
