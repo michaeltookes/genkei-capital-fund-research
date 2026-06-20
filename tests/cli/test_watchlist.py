@@ -223,6 +223,21 @@ class LoadProtocolsTests(unittest.TestCase):
         primary = [p for p in wl.protocols if p.tier == "primary"]
         self.assertGreater(len(primary), 0)
 
+    def test_packaged_jupiter_protocols_group_under_jup_token(self) -> None:
+        wl = load_watchlist(DEFAULT_WATCHLIST_PATH)
+        jupiter_protocols = {
+            p.slug: p.coingecko_id for p in wl.protocols if p.slug.startswith("jupiter")
+        }
+
+        self.assertEqual(
+            jupiter_protocols,
+            {
+                "jupiter-perpetual-exchange": "jupiter-exchange-solana",
+                "jupiter-lend": "jupiter-exchange-solana",
+                "jupiter-staked-sol": "jupiter-exchange-solana",
+            },
+        )
+
 
 class LoadEthWhaleAddressesTests(unittest.TestCase):
     """B-106 — `eth_whale_addresses:` parser pins fail-fast config validation."""

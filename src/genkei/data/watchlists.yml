@@ -560,7 +560,7 @@ protocols:
     # history), so keep it out of this `protocols:` scope until the pipeline
     # has a dedicated fee-only protocol path. JUP's crypto entry above still
     # carries aggregator/news terms. Each `coingecko_id` pairs the child with
-    # its value-capture token (JUP for perps/lend; JupSOL for staked-sol) so
+    # Jupiter's value-capture token (JUP) so
     # `genkei revenue-divergence` joins cleanly. `gdelt_terms` kept tight
     # and child-specific to avoid matching the planet / Roman god and to
     # stop one Jupiter headline being attributed to all three slugs.
@@ -583,11 +583,11 @@ protocols:
     - slug: jupiter-staked-sol
       name: Jupiter Staked SOL
       category: Liquid Staking
-      coingecko_id: jupiter-staked-sol
+      coingecko_id: jupiter-exchange-solana
       gdelt_terms:
         - Jupiter Staked SOL
         - JupSOL
-      rationale: JupSOL liquid-staking TVL; captures Jupiter's share of Solana LST demand. Paired with the JupSOL token, not JUP.
+      rationale: JupSOL liquid-staking TVL; captures Jupiter's share of Solana LST demand. Revenue/value-capture analysis maps to JUP, not the JupSOL receipt token.
 
 # SEC 13F filers (institutional investment managers). One submissions
 # fetch per filer per day in the daily SEC pipeline; per-filing 13F-HR
