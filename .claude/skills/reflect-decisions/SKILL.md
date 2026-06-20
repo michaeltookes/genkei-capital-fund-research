@@ -30,7 +30,7 @@ If the eligible queue is empty and `early_resolved` is empty, report "no decisio
 
 For each decision in the queue:
 
-1. **Resolve the `asset` to a price series first.** A clean ticker (`LINK`, `CRM`) pulls directly. A cohort/sector label (`"equity-core: SaaS sector (CRM + NOW + …)"`, `"cohort: VEEV vs CRM"`) is NOT a valid `--ticker` — reflect it against its **named primary anchor** (the decision's Frame names the anchor, e.g. CRM for the SaaS thesis) and note in the outcome that the cohort was represented by that anchor. If the anchor or subject has no price series at all (e.g. VEEV is not yet a watchlist equity, so `genkei prices --ticker VEEV` returns empty), defer — see the deferred path below.
+1. **Resolve the `asset` to a price series first.** A clean ticker (`LINK`, `CRM`, `VEEV`) pulls directly. A cohort/sector label (`"equity-core: SaaS sector (CRM + NOW + …)"`, `"cohort: VEEV vs CRM"`) is NOT always a valid `--ticker` by itself — reflect it against the decision's named primary anchor, and say which subject/comparator/benchmark was used. After B-123, VEEV is a watchlist equity with Yahoo candles, so the 2026-06-11 VEEV-vs-CRM decision should pull `genkei prices --ticker VEEV` directly when it becomes eligible. If the current subject or anchor still has no price series at all, defer — see the deferred path below.
 2. **Pull realized prices** per the prompt's instructions:
    - Crypto decisions: `genkei prices --ticker <ASSET> --since <date> --until <today> --json`. Same for BTC benchmark.
    - Equity decisions: same command — equity tickers route to `yahoo.candles` (B-092), and `price_usd` is the split/dividend-adjusted close, the right input for the return calc. Benchmark is SPY, pulled the same way.
