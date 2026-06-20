@@ -8,13 +8,15 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from genkei.experiments.signal_store import SignalEvent, Stack
 from genkei.reports.signal_digest import (
+    build_weekly_digest,
     render_weekly_digest,
     write_digest,
 )
@@ -49,6 +51,8 @@ def _stack(
     score: str = "1.42",
     n_sources: int = 2,
     events: list | None = None,
+    window_start: datetime | None = None,
+    window_end: datetime | None = None,
 ) -> Stack:
     evs = events if events is not None else [
         _event("tvl_drawdown", "tvl_drawdown_stress"),
@@ -59,8 +63,8 @@ def _stack(
         asset=asset,
         asset_class=asset_class,
         direction=direction,
-        window_start=datetime(2026, 6, 14, 0, 0, tzinfo=timezone.utc),
-        window_end=datetime(2026, 6, 18, 0, 0, tzinfo=timezone.utc),
+        window_start=window_start or datetime(2026, 6, 14, 0, 0, tzinfo=timezone.utc),
+        window_end=window_end or datetime(2026, 6, 18, 0, 0, tzinfo=timezone.utc),
         score=Decimal(score),
         distinct_sources=n_sources,
         event_count=len(evs),
@@ -176,6 +180,51 @@ class WriteDigestTests(unittest.TestCase):
             self.assertEqual(out.name, "weekly-2026-06-19.md")
             self.assertTrue(out.exists())
             self.assertEqual(out.read_text(encoding="utf-8"), md)
+
+
+class BuildWeeklyDigestTests(unittest.TestCase):
+    def test_fetches_prior_rule_window_but_renders_current_window_stacks(self):
+        rule = SimpleNamespace(window_days=90)
+        current_stack = _stack(
+            asset="CRM",
+            asset_class="equity",
+            horizon="equity:core",
+            window_start=datetime(2026, 5, 1, 0, 0, tzinfo=timezone.utc),
+            window_end=datetime(2026, 6, 18, 0, 0, tzinfo=timezone.utc),
+        )
+        old_stack = _stack(
+            asset="OLD",
+            asset_class="equity",
+            horizon="equity:core",
+            window_start=datetime(2026, 4, 1, 0, 0, tzinfo=timezone.utc),
+            window_end=datetime(2026, 6, 10, 0, 0, tzinfo=timezone.utc),
+        )
+        events = [_event("insider_clusters", "sell_cluster")]
+
+        with (
+            patch("genkei.experiments.signal_rules.load_rules", return_value=[rule]),
+            patch("genkei.experiments.signal_store.query_events", return_value=events) as query,
+            patch(
+                "genkei.experiments.signal_store.detect_stacks",
+                return_value=[current_stack, old_stack],
+            ) as detect,
+            patch("genkei.cli.watchlist._query_source_health", return_value=[]),
+            patch("genkei.cli.watchlist._with_health_status", return_value=[]),
+        ):
+            markdown, rendered_until = build_weekly_digest(
+                since=SINCE,
+                until=UNTIL,
+                benchmark=False,
+            )
+
+        since_dt = datetime.combine(SINCE, datetime.min.time(), tzinfo=timezone.utc)
+        until_dt = datetime.combine(UNTIL, datetime.max.time(), tzinfo=timezone.utc)
+        query.assert_called_once_with(since=since_dt - timedelta(days=90), until=until_dt)
+        detect.assert_called_once_with(events, [rule])
+        self.assertEqual(rendered_until, UNTIL)
+        self.assertIn("| CRM |", markdown)
+        self.assertNotIn("| OLD |", markdown)
+        self.assertIn("2026-06-12 → 2026-06-19", markdown)
 
 
 if __name__ == "__main__":

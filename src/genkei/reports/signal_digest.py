@@ -36,6 +36,18 @@ DEFAULT_OUTPUT_DIR = Path("reports/signals")
 DEFAULT_LOOKBACK_DAYS = 7
 
 
+def _max_rule_window_days(rules: list[Any]) -> int:
+    """Return the widest correlation window needed to detect current stacks."""
+    return max((int(getattr(rule, "window_days", 0) or 0) for rule in rules), default=0)
+
+
+def _filter_stacks_for_digest_window(
+    stacks: list[Any], *, since: datetime, until: datetime
+) -> list[Any]:
+    """Keep stacks whose terminal event lands inside the rendered digest window."""
+    return [stack for stack in stacks if since <= stack.window_end <= until]
+
+
 def _fmt_pct(value: Any | None) -> str:
     if value is None:
         return "n/a"
@@ -218,8 +230,13 @@ def build_weekly_digest(
     until_dt = datetime.combine(until, time(23, 59, 59, 999999, tzinfo=timezone.utc))
 
     rules = load_rules(rules_path or DEFAULT_RULES_PATH)
-    events = query_events(since=since_dt, until=until_dt)
-    stacks = detect_stacks(events, rules)
+    event_since_dt = since_dt - timedelta(days=_max_rule_window_days(rules))
+    events = query_events(since=event_since_dt, until=until_dt)
+    stacks = _filter_stacks_for_digest_window(
+        detect_stacks(events, rules),
+        since=since_dt,
+        until=until_dt,
+    )
 
     bench_contexts = None
     if benchmark:
