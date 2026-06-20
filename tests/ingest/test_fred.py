@@ -18,7 +18,6 @@ from genkei.ingest.fred import (
     _redact_key,
     build_observations_url,
     build_series_url,
-    build_vintage_dates_url,
     load_series,
     require_api_key,
 )
@@ -93,32 +92,20 @@ class UrlBuilderTests(unittest.TestCase):
         self.assertIn("api_key=KEY123", url)
         self.assertIn("file_type=json", url)
 
-    def test_vintage_dates_url_contains_required_params(self) -> None:
-        url = build_vintage_dates_url("KEY123", "GDPC1")
+    def test_observations_url_uses_bounded_realtime_window(self) -> None:
+        url = build_observations_url("KEY123", "GDPC1", realtime_start="2024-04-25")
         self.assertIn("series_id=GDPC1", url)
-        self.assertIn("api_key=KEY123", url)
-        self.assertIn("file_type=json", url)
-        self.assertIn("limit=10000", url)
-        self.assertIn("offset=0", url)
-
-    def test_observations_url_uses_explicit_vintage_dates(self) -> None:
-        url = build_observations_url(
-            "KEY123", "GDPC1", vintage_dates=["2024-04-25", "2024-05-30"]
-        )
-        self.assertIn("series_id=GDPC1", url)
-        self.assertNotIn("realtime_start", url)
-        self.assertNotIn("realtime_end", url)
-        self.assertIn("output_type=3", url)
-        self.assertIn("vintage_dates=2024-04-25,2024-05-30", url)
+        self.assertIn("realtime_start=2024-04-25", url)
+        # realtime_end defaults to the far-future sentinel (no boundary clipping).
+        self.assertIn("realtime_end=9999-12-31", url)
+        # Reverted: no output_type=3 / vintage_dates (the format normalize can't parse).
+        self.assertNotIn("output_type", url)
+        self.assertNotIn("vintage_dates", url)
         self.assertIn("limit=100000", url)
         self.assertIn("offset=0", url)
 
-    def test_observations_url_requires_vintage_dates(self) -> None:
-        with self.assertRaisesRegex(ValueError, "vintage_dates"):
-            build_observations_url("KEY123", "GDPC1", vintage_dates=[])
-
     def test_redact_key_strips_api_key_from_url(self) -> None:
-        url = build_observations_url("SECRET", "DGS10", vintage_dates=["2026-05-09"])
+        url = build_observations_url("SECRET", "DGS10", realtime_start="2026-05-09")
         redacted = _redact_key(url, "SECRET")
         self.assertNotIn("SECRET", redacted)
         self.assertIn("api_key=***", redacted)
@@ -146,8 +133,6 @@ class UrlBuilderTests(unittest.TestCase):
         class PagingHttp:
             def get_json(self, url: str) -> object:
                 calls.append(url)
-                if "/series/vintagedates" in url:
-                    return {"count": 1, "vintage_dates": ["2024-01-15"]}
                 if "offset=0" in url:
                     return {
                         "count": 3,
@@ -168,49 +153,51 @@ class UrlBuilderTests(unittest.TestCase):
             )
 
         self.assertIn("offset=0", url)
-        self.assertEqual(len(calls), 3)
-        self.assertIn("/series/vintagedates", calls[0])
-        self.assertIn("limit=2", calls[1])
-        self.assertIn("offset=2", calls[2])
+        self.assertEqual(len(calls), 2)
+        self.assertIn("limit=2", calls[0])
+        self.assertIn("offset=2", calls[1])
         self.assertEqual(payload["count"], 3)
         self.assertEqual(len(payload["observations"]), 3)
 
-    def test_fetch_observations_payload_chunks_vintage_dates(self) -> None:
-        calls: list[str] = []
+    def test_since_vintage_sets_realtime_start_incrementally(self) -> None:
+        # Incremental fix: with vintages stored through 2024-02-15, the
+        # request window starts there (not the full 1776 history → no cap).
+        urls: list[str] = []
 
-        class ChunkingHttp:
+        class IncrementalHttp:
             def get_json(self, url: str) -> object:
-                calls.append(url)
-                if "/series/vintagedates" in url:
-                    return {
-                        "count": 3,
-                        "vintage_dates": ["2024-01-15", "2024-02-15", "2024-03-15"],
-                    }
-                if "vintage_dates=2024-01-15,2024-02-15" in url:
-                    return {
-                        "count": 2,
-                        "observations": [{"date": "2024-01-01"}, {"date": "2024-01-02"}],
-                    }
-                if "vintage_dates=2024-03-15" in url:
-                    return {"count": 1, "observations": [{"date": "2024-02-01"}]}
-                raise AssertionError(f"unexpected url: {url}")
+                urls.append(url)
+                return {"count": 1, "observations": [{"date": "2024-03-01"}]}
 
-        with patch.object(fred, "VINTAGE_DATES_CHUNK_SIZE", 2):
-            _url, payload = _fetch_observations_payload(
-                SeriesTarget("DGS10", "10-Year Treasury Yield"),
-                "KEY123",
-                ChunkingHttp(),  # type: ignore[arg-type]
-            )
+        _url, payload = _fetch_observations_payload(
+            SeriesTarget("DGS10", "10-Year Treasury Yield"),
+            "KEY123",
+            IncrementalHttp(),  # type: ignore[arg-type]
+            since_vintage="2024-02-15",
+        )
+        self.assertEqual(len(urls), 1)
+        self.assertIn("realtime_start=2024-02-15", urls[0])
+        self.assertNotIn("1776", urls[0])  # not the full-history cap window
+        self.assertEqual(payload["count"], 1)
 
-        self.assertEqual(len(calls), 3)
-        self.assertEqual(payload["count"], 3)
-        self.assertEqual(len(payload["observations"]), 3)
+    def test_without_since_vintage_requests_full_history(self) -> None:
+        urls: list[str] = []
+
+        class FullHttp:
+            def get_json(self, url: str) -> object:
+                urls.append(url)
+                return {"count": 1, "observations": [{"date": "1960-01-01"}]}
+
+        _url, _payload = _fetch_observations_payload(
+            SeriesTarget("CPIAUCSL", "CPI"),
+            "KEY123",
+            FullHttp(),  # type: ignore[arg-type]
+        )
+        self.assertIn("realtime_start=1776-07-04", urls[0])
 
     def test_fetch_observations_payload_fails_when_count_is_not_satisfied(self) -> None:
         class TruncatedHttp:
             def get_json(self, url: str) -> object:
-                if "/series/vintagedates" in url:
-                    return {"count": 1, "vintage_dates": ["2024-01-15"]}
                 return {"count": 3, "observations": [{"date": "2024-01-01"}]}
 
         with (
@@ -221,6 +208,7 @@ class UrlBuilderTests(unittest.TestCase):
                 SeriesTarget("DGS10", "10-Year Treasury Yield"),
                 "KEY123",
                 TruncatedHttp(),  # type: ignore[arg-type]
+                since_vintage="2024-01-15",
             )
 
 
