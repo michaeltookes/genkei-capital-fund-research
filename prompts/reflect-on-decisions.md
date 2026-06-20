@@ -45,7 +45,7 @@ For each queued decision, pull the price series from the decision date through t
 ### Equity decisions (`sleeve: equity-core` or any equity ticker)
 
 - Asset: `genkei prices --ticker <TICKER> --since <decision_date> --until <today> --json` — equity tickers route to `yahoo.candles` automatically (B-092). The `price_usd` field is the split/dividend-adjusted close, which is the right input for the return calc.
-- **Cohort / sector assets** (`asset: "equity-core: SaaS sector (CRM + NOW + …)"`, `asset: "cohort: VEEV vs CRM"`) aren't tickers. Reflect against the **named primary anchor** the decision's Frame calls out (e.g. CRM for the SaaS thesis), and say in the outcome which ticker stood in for the cohort. If the subject has no price series at all (e.g. VEEV is not a watchlist equity, so its pull is empty), defer — see below.
+- **Cohort / sector assets** (`asset: "equity-core: SaaS sector (CRM + NOW + …)"`, `asset: "cohort: VEEV vs CRM"`) aren't always single tickers. Reflect against the **named primary anchor** the decision's Frame calls out (e.g. CRM for the SaaS thesis); when the subject ticker is now in the watchlist (VEEV after B-123), pull that subject directly and say which comparator / benchmark was used. If the current subject still has no price series at all (for example, a non-watchlist name whose pull is empty), defer — see below.
 - Benchmark: SPY, pulled the same way (benchmarks live in the watchlist and route to Yahoo per B-102).
 - If a pull errors or returns empty (source outage, delisted ticker, un-ingested name), mark the decision `status: deferred` with a note naming the gap — never fabricate. The reflection cycle should still RUN — the failure mode of skipping reflection is worse than the failure mode of incomplete reflection.
 
@@ -115,15 +115,14 @@ Real blocks produced during the B-118 dry run (2026-06-12), pulling live prices 
 - **Reflection:** Over this window LINK was pure beta to BTC — the structural oracle-share thesis hadn't begun to play out, which is consistent with the low confidence the call carried. Nothing to recalibrate yet; the real test is whether LINK diverges from BTC over the year, and a 26-day −0.8pp alpha is noise. Takeaway: low-confidence crypto-core calls need the full horizon — short-window alpha says nothing.
 ```
 
-**Deferred (no price series for the subject)** — 2026-06-11 VEEV vs CRM:
+**Previously deferred, now data-backed after B-123** — 2026-06-11 VEEV vs CRM:
 
 ```markdown
 ## Outcome
 
-- **Status:** deferred (required data unavailable)
-- **Resolved:** — (deferred 2026-06-12)
-- **Reason:** The decision's primary subject is VEEV, which is not a watchlist equity and has no rows in `yahoo.candles` — `genkei prices --ticker VEEV` returns empty. The CRM leg is available, but the call is fundamentally about VEEV vs CRM, so a one-legged alpha would misrepresent it. Filed as a backlog item to add VEEV to the watchlist; re-reflect once it ingests.
-- **Reflection:** (none — no realized data to reflect on. Deferral is honest record-keeping, not a graded outcome.)
+- **Status:** still pending until the `years` horizon or a trigger fires.
+- **Data note:** B-123 added VEEV to `equities: primary` and backfilled Yahoo candles, so the old dry-run deferral is obsolete. A future reflection should pull `genkei prices --ticker VEEV ...` directly, compare against SPY for equity-core alpha, and mention CRM only as the thesis comparator when interpreting the outcome.
+- **Reflection:** Do not terminally defer this decision for missing VEEV prices unless the current pull actually returns empty again. The right behavior after B-123 is a normal data-backed reflection when the horizon/trigger condition makes the decision eligible.
 ```
 
 **Early-resolved (supersession + trigger-fire)** — 2026-05-20 SUI, superseded by the 2026-06-02 rotation:
