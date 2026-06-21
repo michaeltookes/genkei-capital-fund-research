@@ -250,16 +250,6 @@ Once cross-source data is in, the system starts producing investable signals.
 
 The cross-source signal correlation engine (B-064, resolved 2026-05-28) shipped the store, the correlator, the starter rule pack, and one reference emitter (`insider_clusters`). The engine cannot fire a real stack until a **second** source is wired, because the correlator enforces `min_distinct_sources ≥ 2`. The four starter rules in `src/genkei/data/signal_rules.yml` are partial-fire until their component emitters land. Each emitter is ~150–200 lines following `src/genkei/experiments/emitters/insider_clusters_emitter.py`: adapt an existing Phase 5 experiment's output into `meta.signal_events`, resolve `asset` via the watchlist, wrap in `meta.ingest_runs` (`source='signal_emitter'`) so `genkei watchlist health` surfaces staleness, register the source in `cli/watchlist.py`, and chain the run into the relevant daily workflow. See the deferred-follow-ups paragraph in the B-064 entry of `docs/resolved.md` and `docs/experiments/cross-source-signals.md`.
 
-### B-096 — Wire the macro-regime emitter into signal_events
-- **Status:** open
-- **Priority:** low
-- **Context:** Source experiment is `src/genkei/experiments/macro_regime.py` (B-059). The engine wants regime **transitions** (risk_on→risk_off, etc.), not continuous daily state, so the emitter de-dupes within a regime run and only fires on the boundary.
-- **Acceptance criteria:**
-  - New emitter `src/genkei/experiments/emitters/macro_regime_emitter.py` emits one event per regime transition with direction inferred from the transition (e.g. →risk_off = bearish overlay).
-  - `asset` is a market-wide sentinel (decide convention — e.g. `MACRO`/`SPY`) documented in the emitter and `cross-source-signals.md`.
-  - Standard idempotency, `meta.ingest_runs` wrapping, watchlist registration.
-  - Unit tests pin transition detection (no event on same-regime days) and direction mapping.
-
 ### B-097 — Wire the watchlist-scoring emitter into signal_events
 - **Status:** open
 - **Priority:** low

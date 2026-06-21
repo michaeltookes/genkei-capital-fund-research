@@ -267,8 +267,9 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
     # equity_relative_strength — equity-side rel-strength counterpart
     # to B-098, closes the same min_distinct_sources gate for equity
     # stacks (insider_clusters / crowding / eight_k_impact /
-    # equity_relative_strength = 4 equity-side sources now). As more
-    # emitters land (macro_regime, watchlist_scoring), append.
+    # equity_relative_strength = 4 equity-side sources now). B-096 added
+    # macro_regime (first macro-horizon source, chained off the FRED daily
+    # workflow). As more emitters land (watchlist_scoring), append.
     "signal_emitter": [
         "insider_clusters",
         "crowding",
@@ -276,6 +277,7 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
         "tvl_drawdown",
         "relative_strength",
         "equity_relative_strength",
+        "macro_regime",
     ],
 }
 

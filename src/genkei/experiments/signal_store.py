@@ -46,7 +46,7 @@ from genkei.common import db
 # Allowed enum values (must match the migration's CHECK constraints).
 # ---------------------------------------------------------------------------
 
-ASSET_CLASSES = frozenset({"equity", "crypto", "protocol"})
+ASSET_CLASSES = frozenset({"equity", "crypto", "protocol", "macro"})
 DIRECTIONS = frozenset({"bullish", "bearish", "neutral"})
 DEFAULT_HORIZON = "equity:core"
 
