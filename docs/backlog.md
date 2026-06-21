@@ -250,16 +250,6 @@ Once cross-source data is in, the system starts producing investable signals.
 
 The cross-source signal correlation engine (B-064, resolved 2026-05-28) shipped the store, the correlator, the starter rule pack, and one reference emitter (`insider_clusters`). The engine cannot fire a real stack until a **second** source is wired, because the correlator enforces `min_distinct_sources ≥ 2`. The four starter rules in `src/genkei/data/signal_rules.yml` are partial-fire until their component emitters land. Each emitter is ~150–200 lines following `src/genkei/experiments/emitters/insider_clusters_emitter.py`: adapt an existing Phase 5 experiment's output into `meta.signal_events`, resolve `asset` via the watchlist, wrap in `meta.ingest_runs` (`source='signal_emitter'`) so `genkei watchlist health` surfaces staleness, register the source in `cli/watchlist.py`, and chain the run into the relevant daily workflow. See the deferred-follow-ups paragraph in the B-064 entry of `docs/resolved.md` and `docs/experiments/cross-source-signals.md`.
 
-### B-097 — Wire the watchlist-scoring emitter into signal_events
-- **Status:** open
-- **Priority:** low
-- **Context:** Source is the composite `meta.signals` scores (B-065). Emits when an asset's composite score crosses a threshold band (e.g. into the top/bottom band), not on every score change.
-- **Acceptance criteria:**
-  - New emitter `src/genkei/experiments/emitters/watchlist_scoring_emitter.py` emits a band-crossing event with direction from the band.
-  - Hysteresis / band definition documented so a score oscillating on a boundary doesn't emit repeatedly.
-  - Standard idempotency, `meta.ingest_runs` wrapping, watchlist registration.
-  - Unit tests pin band-crossing logic and no-emit-within-band behavior.
-
 ### ~~B-111 — Equity relative-strength emitter (generalize B-098 to equities vs SPY/QQQ)~~
 - **Status:** resolved 2026-06-06 (see `docs/resolved.md`)
 - **Priority:** medium
