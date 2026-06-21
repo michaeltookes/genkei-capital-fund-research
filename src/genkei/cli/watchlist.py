@@ -269,7 +269,8 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
     # stacks (insider_clusters / crowding / eight_k_impact /
     # equity_relative_strength = 4 equity-side sources now). B-096 added
     # macro_regime (first macro-horizon source, chained off the FRED daily
-    # workflow). As more emitters land (watchlist_scoring), append.
+    # workflow). B-097 added watchlist_scoring (the synthesis source,
+    # chained off the daily scoring run). All seven emitters now land.
     "signal_emitter": [
         "insider_clusters",
         "crowding",
@@ -278,6 +279,7 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
         "relative_strength",
         "equity_relative_strength",
         "macro_regime",
+        "watchlist_scoring",
     ],
 }
 
