@@ -77,6 +77,12 @@ class EndpointSchema:
     # ``chainBalances``. A missing-from-all set is a real drift signal
     # because the normalizer silently yields zero rows when none resolve.
     any_of_keys: tuple[str, ...] = field(default_factory=tuple)
+    # Optional value-shape guard for ``any_of_keys``. When set, at least
+    # one interchangeable key must both exist and carry this top-level
+    # shape. This keeps a present-but-unparseable value (e.g.
+    # ``chainBalances: []``) from masking drift when the normalizer needs
+    # a dict.
+    any_of_value_type: str | None = None  # "object" or "array"
     # For array payloads, check the first N items rather than every item
     # (the goal is canary, not exhaustive).
     array_sample_size: int = 3
@@ -179,6 +185,7 @@ SCHEMA_SPECS: tuple[EndpointSchema, ...] = (
         # normalizer accepts either, so require at least one rather than
         # hard-coding the newer name (which real blobs don't carry).
         any_of_keys=("chainCirculating", "chainBalances"),
+        any_of_value_type="object",
         # Per-id /stablecoin/{id} history is backfill-only — the daily
         # collector keeps the forward supply series current through the
         # aggregate ``stablecoins`` blob, so these blobs legitimately age
@@ -368,7 +375,7 @@ def check_payload(payload: Any, spec: EndpointSchema) -> list[DriftIssue]:
                         detail=f"required key {key!r} not in top-level object",
                     )
                 )
-        if spec.any_of_keys and not any(key in payload for key in spec.any_of_keys):
+        if spec.any_of_keys and not _any_of_keys_resolves(payload, spec):
             issues.append(
                 DriftIssue(
                     source=spec.source,
@@ -378,6 +385,11 @@ def check_payload(payload: Any, spec: EndpointSchema) -> list[DriftIssue]:
                     detail=(
                         "none of the interchangeable top-level keys "
                         f"{spec.any_of_keys!r} are present"
+                        + (
+                            f" with expected {_describe_schema_type(spec.any_of_value_type)} shape"
+                            if spec.any_of_value_type is not None
+                            else ""
+                        )
                     ),
                 )
             )
@@ -522,6 +534,29 @@ def check_payload(payload: Any, spec: EndpointSchema) -> list[DriftIssue]:
     raise ValueError(
         f"unsupported payload_type {spec.payload_type!r} in spec {spec.endpoint_kind!r}"
     )
+
+
+def _any_of_keys_resolves(payload: dict[str, Any], spec: EndpointSchema) -> bool:
+    for key in spec.any_of_keys:
+        if key not in payload:
+            continue
+        if spec.any_of_value_type is None or _matches_schema_type(
+            payload[key], spec.any_of_value_type
+        ):
+            return True
+    return False
+
+
+def _matches_schema_type(value: Any, schema_type: str) -> bool:
+    if schema_type == "object":
+        return isinstance(value, dict)
+    if schema_type == "array":
+        return isinstance(value, list)
+    raise ValueError(f"unsupported any_of_value_type {schema_type!r}")
+
+
+def _describe_schema_type(schema_type: str | None) -> str:
+    return {"object": "object", "array": "array"}.get(str(schema_type), str(schema_type))
 
 
 def check_recent_blobs(

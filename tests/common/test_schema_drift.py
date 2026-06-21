@@ -621,6 +621,31 @@ class RealisticPayloadShapeTests(unittest.TestCase):
         self.assertEqual(len(issues), 1)
         self.assertEqual(issues[0].kind, "MISSING_ANY_OF_KEYS")
 
+    def test_defillama_stablecoin_id_rejects_unparseable_chain_key_value(self) -> None:
+        # A present key is not enough: normalize_stablecoin_history requires
+        # the selected chain balance container to be a dict, otherwise it
+        # silently returns zero rows.
+        spec = self._stablecoin_spec()
+        for bad_value in (None, []):
+            with self.subTest(bad_value=bad_value):
+                payload = {
+                    "symbol": "USDC",
+                    "name": "USD Coin",
+                    "pegType": "peggedUSD",
+                    "chainBalances": bad_value,
+                }
+                issues = check_payload(payload, spec)
+                self.assertEqual(len(issues), 1)
+                self.assertEqual(issues[0].kind, "MISSING_ANY_OF_KEYS")
+                self.assertIn("expected object shape", issues[0].detail)
+
+    def test_defillama_stablecoin_id_accepts_one_parseable_chain_key_value(self) -> None:
+        spec = self._stablecoin_spec()
+        payload = self._stablecoin_payload("chainCirculating")
+        payload["chainBalances"] = []
+
+        self.assertEqual(check_payload(payload, spec), [])
+
     def test_defillama_chain_tvl_history_array_of_dated_points(self) -> None:
         payload = [
             {"date": 1715000000, "tvl": 60_000_000_000.0},
