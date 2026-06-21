@@ -1,0 +1,72 @@
+name: Weekly Signal Digest
+
+# D-024 / B-122 — render the weekly cross-source signal digest and commit it
+# to reports/signals/. The data lake is the system of record; this markdown is
+# the one durable emergent artifact (CLAUDE.md "Output channel"), grouping the
+# trailing-week correlator stacks by horizon tag with a lake-health footer.
+#
+# Runs on the self-hosted Beelink runner because the digest queries the homelab
+# Postgres directly (meta.signal_events + the per-source health rows). This is
+# the only workflow that commits back to the repo — the daily ingest jobs write
+# to Postgres, but the digest's output IS a repo file, so it needs contents:
+# write and a credentialed checkout to push.
+#
+# Monday 16:00 UTC sits after the weekday daily ingest crons, the 14:00
+# staleness check, and the 15:00 heartbeat, so the trailing-7-day window the
+# digest renders includes the freshest data. A missed/failed run is not silent:
+# workflow-failure-alert.yml (B-071) catches failures and ingest-heartbeat.yml
+# (B-119) catches a run that never starts because the Beelink is down.
+
+on:
+  schedule:
+    - cron: "0 16 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  digest:
+    name: Render + commit the weekly signal digest
+    runs-on: [self-hosted, beelink]
+    timeout-minutes: 15
+    env:
+      GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: main
+          # Keep the token so the commit-back push at the end authenticates.
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+
+      - name: Render the weekly signal digest into reports/signals/
+        run: python3 -m genkei.reports.signal_digest
+
+      - name: Commit + push the digest if it changed
+        run: |
+          set -euo pipefail
+          if [ -z "$(git status --porcelain reports/signals/)" ]; then
+            echo "No digest changes to commit."
+            exit 0
+          fi
+          git config user.name "genkei signal-digest bot"
+          git config user.email "actions@github.com"
+          git add reports/signals/
+          git commit -m "chore(reports): weekly signal digest $(date -u +%Y-%m-%d)
+
+          Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
+          # Low-frequency job; rebase to dodge a race with any same-day push.
+          git pull --rebase --autostash origin main
+          git push origin HEAD:main
