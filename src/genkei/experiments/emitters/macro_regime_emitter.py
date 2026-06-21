@@ -185,10 +185,6 @@ def emit_regime_transitions(
     transitions whose date falls within ``[since, until]``. Wrapped in a single
     ``meta.ingest_runs`` row for uniform provenance / health tracking.
     """
-    load_since = since - timedelta(days=BOUNDARY_LOOKBACK_DAYS) if since else None
-    results = load_regimes(since=load_since, until=until)
-    results_ascending = sorted(results, key=lambda r: r.ts)
-
     with db.ingest_run(
         EMITTER_RUN_TAG,
         endpoint=EMITTER_ENDPOINT,
@@ -197,6 +193,9 @@ def emit_regime_transitions(
             "until": until.isoformat() if until else None,
         },
     ) as run:
+        load_since = since - timedelta(days=BOUNDARY_LOOKBACK_DAYS) if since else None
+        results = load_regimes(since=load_since, until=until)
+        results_ascending = sorted(results, key=lambda r: r.ts)
         transitions = detect_transitions(results_ascending)
         if since is not None:
             transitions = [t for t in transitions if t.ts >= since]

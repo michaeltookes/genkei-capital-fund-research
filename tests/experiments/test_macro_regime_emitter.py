@@ -1,8 +1,8 @@
 """Unit tests for the macro-regime → signal_events emitter (B-096).
 
-Pure tests only — transition detection and direction mapping carry the
-logic; the DB-touching ``emit_regime_transitions`` is exercised via the
-emitter integration path, so this module stays offline + deterministic.
+Most tests are pure transition detection and direction mapping; the
+DB-touching ``emit_regime_transitions`` path is covered with mocks so the
+module stays offline + deterministic.
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from __future__ import annotations
 import unittest
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
+from unittest.mock import patch
 
 from genkei.experiments.emitters.macro_regime_emitter import (
     ASSET_CLASS,
@@ -18,6 +19,7 @@ from genkei.experiments.emitters.macro_regime_emitter import (
     _build_event,
     detect_transitions,
     direction_for_regime,
+    emit_regime_transitions,
 )
 from genkei.experiments.macro_regime import RegimeResult
 
@@ -133,6 +135,48 @@ class BuildEventTests(unittest.TestCase):
         self.assertEqual(ev["payload"]["available_inputs"], 4)
         # mixed -> neutral direction
         self.assertEqual(ev["direction"], "neutral")
+
+
+class EmitRegimeTransitionsTests(unittest.TestCase):
+    def test_load_failures_are_audited_inside_ingest_run(self) -> None:
+        events: list[str] = []
+
+        class FakeRun:
+            id = 99
+
+            def __enter__(self) -> FakeRun:
+                events.append("enter")
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                events.append("exit")
+                return None
+
+            def add_rows(self, _rows: int) -> None:
+                events.append("add_rows")
+
+        def fake_load_regimes(*_args: object, **_kwargs: object) -> list[RegimeResult]:
+            events.append("load")
+            raise RuntimeError("column horizon does not exist")
+
+        with (
+            patch(
+                "genkei.experiments.emitters.macro_regime_emitter.db.ingest_run",
+                return_value=FakeRun(),
+            ),
+            patch(
+                "genkei.experiments.emitters.macro_regime_emitter.load_regimes",
+                side_effect=fake_load_regimes,
+            ),
+            patch(
+                "genkei.experiments.emitters.macro_regime_emitter.emit_signals_bulk",
+            ) as emit_mock,
+            self.assertRaisesRegex(RuntimeError, "column horizon does not exist"),
+        ):
+            emit_regime_transitions(since=date(2026, 6, 1))
+
+        self.assertEqual(events, ["enter", "load", "exit"])
+        emit_mock.assert_not_called()
 
 
 if __name__ == "__main__":
