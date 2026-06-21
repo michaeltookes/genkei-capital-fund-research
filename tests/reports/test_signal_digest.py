@@ -142,6 +142,61 @@ class RenderStacksTests(unittest.TestCase):
         self.assertIn("n/a", md)
 
 
+class RenderMacroOverlayTests(unittest.TestCase):
+    def test_macro_column_present_only_when_contexts_given(self):
+        stacks = [_stack(direction="bearish")]
+        without = render_weekly_digest(
+            stacks, since=SINCE, until=UNTIL, generated_at=GEN_AT
+        )
+        self.assertNotIn("| macro |", without)
+
+        ctxs = [SimpleNamespace(regime="risk_off", alignment="corroborates")]
+        with_macro = render_weekly_digest(
+            stacks,
+            macro_contexts=ctxs,
+            since=SINCE,
+            until=UNTIL,
+            generated_at=GEN_AT,
+        )
+        self.assertIn(" macro |", with_macro)
+        self.assertIn("risk_off ✓", with_macro)
+
+    def test_contradicting_regime_renders_cross(self):
+        stacks = [_stack(direction="bullish")]
+        ctxs = [SimpleNamespace(regime="risk_off", alignment="contradicts")]
+        md = render_weekly_digest(
+            stacks, macro_contexts=ctxs, since=SINCE, until=UNTIL, generated_at=GEN_AT
+        )
+        self.assertIn("risk_off ✗", md)
+
+    def test_unknown_macro_renders_na(self):
+        stacks = [_stack()]
+        ctxs = [SimpleNamespace(regime=None, alignment="unknown")]
+        md = render_weekly_digest(
+            stacks, macro_contexts=ctxs, since=SINCE, until=UNTIL, generated_at=GEN_AT
+        )
+        # The macro cell is n/a when there's no regime.
+        self.assertIn(" macro |", md)
+        self.assertIn("n/a", md)
+
+    def test_current_regime_header_rendered(self):
+        regime = SimpleNamespace(regime="risk_on", ts=date(2026, 6, 16))
+        md = render_weekly_digest(
+            [_stack()],
+            current_regime=regime,
+            since=SINCE,
+            until=UNTIL,
+            generated_at=GEN_AT,
+        )
+        self.assertIn("**Macro regime:** `risk_on` (as of 2026-06-16)", md)
+
+    def test_no_current_regime_omits_header(self):
+        md = render_weekly_digest(
+            [_stack()], since=SINCE, until=UNTIL, generated_at=GEN_AT
+        )
+        self.assertNotIn("**Macro regime:**", md)
+
+
 class RenderHealthTests(unittest.TestCase):
     def test_all_ok_summarized_without_table(self):
         rows = [
@@ -215,6 +270,7 @@ class BuildWeeklyDigestTests(unittest.TestCase):
                 since=SINCE,
                 until=UNTIL,
                 benchmark=False,
+                macro_overlay=False,
             )
 
         since_dt = datetime.combine(SINCE, datetime.min.time(), tzinfo=timezone.utc)
