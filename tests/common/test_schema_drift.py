@@ -646,6 +646,19 @@ class RealisticPayloadShapeTests(unittest.TestCase):
 
         self.assertEqual(check_payload(payload, spec), [])
 
+    def test_defillama_stablecoin_id_rejects_unparseable_preferred_chain_key(self) -> None:
+        # The normalizer selects chainCirculating whenever it exists. A valid
+        # fallback chainBalances value must not hide an unparseable preferred
+        # value that would make the normalizer return zero rows.
+        spec = self._stablecoin_spec()
+        payload = self._stablecoin_payload("chainBalances")
+        payload["chainCirculating"] = []
+
+        issues = check_payload(payload, spec)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].kind, "MISSING_ANY_OF_KEYS")
+        self.assertIn("expected object shape", issues[0].detail)
+
     def test_defillama_chain_tvl_history_array_of_dated_points(self) -> None:
         payload = [
             {"date": 1715000000, "tvl": 60_000_000_000.0},

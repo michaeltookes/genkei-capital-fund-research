@@ -69,19 +69,18 @@ class EndpointSchema:
     # set after `endpoint_pattern` matches. Used to disambiguate
     # shared-prefix endpoint families (see class docstring).
     endpoint_pattern_excludes: tuple[str, ...] = field(default_factory=tuple)
-    # For object payloads: at least ONE of these top-level keys must be
-    # present (an "either/or" the AND-list ``required_keys`` can't express).
+    # For object payloads: at least ONE of these ordered top-level keys must
+    # be present (an "either/or" the AND-list ``required_keys`` can't express).
     # Use when a source publishes the same load-bearing field under more
-    # than one name across payload versions and the normalizer accepts any
-    # of them — e.g. DefiLlama's ``chainCirculating`` vs the older
-    # ``chainBalances``. A missing-from-all set is a real drift signal
-    # because the normalizer silently yields zero rows when none resolve.
+    # than one name across payload versions and the normalizer checks them in
+    # precedence order — e.g. DefiLlama's ``chainCirculating`` then the older
+    # ``chainBalances``. A missing-from-all set is a real drift signal because
+    # the normalizer silently yields zero rows when none resolve.
     any_of_keys: tuple[str, ...] = field(default_factory=tuple)
-    # Optional value-shape guard for ``any_of_keys``. When set, at least
-    # one interchangeable key must both exist and carry this top-level
-    # shape. This keeps a present-but-unparseable value (e.g.
-    # ``chainBalances: []``) from masking drift when the normalizer needs
-    # a dict.
+    # Optional value-shape guard for ``any_of_keys``. When set, the first
+    # present interchangeable key must carry this top-level shape. This keeps
+    # a present-but-unparseable preferred value (e.g. ``chainCirculating: []``)
+    # from masking drift when the normalizer needs a dict.
     any_of_value_type: str | None = None  # "object" or "array"
     # For array payloads, check the first N items rather than every item
     # (the goal is canary, not exhaustive).
@@ -182,8 +181,9 @@ SCHEMA_SPECS: tuple[EndpointSchema, ...] = (
         required_keys=("symbol", "name", "pegType"),
         # The per-chain supply series lives under ``chainCirculating`` in
         # current payloads and ``chainBalances`` in older ones; the
-        # normalizer accepts either, so require at least one rather than
-        # hard-coding the newer name (which real blobs don't carry).
+        # normalizer checks chainCirculating first and falls back to
+        # chainBalances, so require the selected key to be parseable rather
+        # than hard-coding the newer name (which real blobs don't carry).
         any_of_keys=("chainCirculating", "chainBalances"),
         any_of_value_type="object",
         # Per-id /stablecoin/{id} history is backfill-only — the daily
@@ -383,13 +383,7 @@ def check_payload(payload: Any, spec: EndpointSchema) -> list[DriftIssue]:
                     sample_endpoint_name=None,
                     kind="MISSING_ANY_OF_KEYS",
                     detail=(
-                        "none of the interchangeable top-level keys "
-                        f"{spec.any_of_keys!r} are present"
-                        + (
-                            f" with expected {_describe_schema_type(spec.any_of_value_type)} shape"
-                            if spec.any_of_value_type is not None
-                            else ""
-                        )
+                        _missing_any_of_keys_detail(spec)
                     ),
                 )
             )
@@ -540,11 +534,23 @@ def _any_of_keys_resolves(payload: dict[str, Any], spec: EndpointSchema) -> bool
     for key in spec.any_of_keys:
         if key not in payload:
             continue
-        if spec.any_of_value_type is None or _matches_schema_type(
-            payload[key], spec.any_of_value_type
-        ):
+        if spec.any_of_value_type is None:
             return True
+        return _matches_schema_type(payload[key], spec.any_of_value_type)
     return False
+
+
+def _missing_any_of_keys_detail(spec: EndpointSchema) -> str:
+    if spec.any_of_value_type is None:
+        return (
+            "none of the interchangeable top-level keys "
+            f"{spec.any_of_keys!r} are present"
+        )
+    return (
+        "no selected interchangeable top-level key "
+        f"{spec.any_of_keys!r} carries expected "
+        f"{_describe_schema_type(spec.any_of_value_type)} shape"
+    )
 
 
 def _matches_schema_type(value: Any, schema_type: str) -> bool:
