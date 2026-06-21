@@ -39,9 +39,13 @@ uniformly with the other emitters.
 
 Note on stacks: with only this macro source on the ``MACRO`` sentinel, a
 single emitter can't satisfy the correlator's ``min_distinct_sources >= 2``
-gate on its own — these events are the foundation; a companion rule (or a
-second macro-horizon source) is needed before macro stacks surface in the
-weekly digest. See ``docs/experiments/cross-source-signals.md``.
+gate, and a plain rule can't pair macro with per-asset signals (the
+correlator groups by asset + filters to one horizon). So macro surfaces as
+*context, not a co-signal*: ``signal_macro_overlay.py`` tags each per-asset
+stack with the regime in effect at its window_end (corroborates / contradicts
+/ neutral) and the digest shows a current-regime header (D-025). Raw events
+stay queryable via ``genkei signals --events --asset MACRO``. See
+``docs/experiments/cross-source-signals.md``.
 """
 
 from __future__ import annotations
