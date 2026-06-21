@@ -324,7 +324,16 @@ class RecentBlobQueryTests(unittest.TestCase):
                         "symbol": "USDC",
                         "name": "USD Coin",
                         "pegType": "peggedUSD",
-                        "chainBalances": {"Ethereum": {"tokens": []}},
+                        "chainBalances": {
+                            "Ethereum": {
+                                "tokens": [
+                                    {
+                                        "date": 1716000000,
+                                        "circulating": {"peggedUSD": 50_000_000_000},
+                                    },
+                                ],
+                            },
+                        },
                     },
                     datetime.now(timezone.utc),
                 )
@@ -658,6 +667,40 @@ class RealisticPayloadShapeTests(unittest.TestCase):
         self.assertEqual(len(issues), 1)
         self.assertEqual(issues[0].kind, "MISSING_ANY_OF_KEYS")
         self.assertIn("expected object shape", issues[0].detail)
+
+    def test_defillama_stablecoin_id_rejects_missing_history_points(self) -> None:
+        # A selected chain container still normalizes to zero rows when no
+        # chain has a tokens point with both a parseable date and USD supply.
+        spec = self._stablecoin_spec()
+        cases = {
+            "empty_tokens": {"Ethereum": {"tokens": []}},
+            "missing_tokens": {"Ethereum": {}},
+            "non_dict_point": {"Ethereum": {"tokens": ["bad"]}},
+            "missing_supply": {"Ethereum": {"tokens": [{"date": 1716000000}]}},
+            "missing_date": {
+                "Ethereum": {"tokens": [{"circulating": {"peggedUSD": 1.0}}]},
+            },
+        }
+        for name, chain_balances in cases.items():
+            with self.subTest(name=name):
+                payload = {
+                    "symbol": "USDC",
+                    "name": "USD Coin",
+                    "pegType": "peggedUSD",
+                    "chainBalances": chain_balances,
+                }
+
+                issues = check_payload(payload, spec)
+                self.assertEqual(len(issues), 1)
+                self.assertEqual(issues[0].kind, "MISSING_ANY_OF_KEYS")
+                self.assertIn("stablecoin history point", issues[0].detail)
+
+    def test_defillama_stablecoin_id_accepts_one_usable_history_point(self) -> None:
+        spec = self._stablecoin_spec()
+        payload = self._stablecoin_payload("chainBalances")
+        payload["chainBalances"]["Solana"] = {"tokens": []}
+
+        self.assertEqual(check_payload(payload, spec), [])
 
     def test_defillama_chain_tvl_history_array_of_dated_points(self) -> None:
         payload = [

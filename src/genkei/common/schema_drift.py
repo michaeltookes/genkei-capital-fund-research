@@ -33,6 +33,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from genkei.common import db
+from genkei.common.defillama import is_stablecoin_history_point
 
 
 @dataclass(frozen=True)
@@ -82,6 +83,10 @@ class EndpointSchema:
     # a present-but-unparseable preferred value (e.g. ``chainCirculating: []``)
     # from masking drift when the normalizer needs a dict.
     any_of_value_type: str | None = None  # "object" or "array"
+    # Optional content guard for the selected ``any_of_keys`` value. This is
+    # intentionally enumerated rather than open-ended so a spec has to name the
+    # normalizer shape it is mirroring.
+    any_of_value_content: str | None = None  # "stablecoin_history"
     # For array payloads, check the first N items rather than every item
     # (the goal is canary, not exhaustive).
     array_sample_size: int = 3
@@ -186,6 +191,7 @@ SCHEMA_SPECS: tuple[EndpointSchema, ...] = (
         # than hard-coding the newer name (which real blobs don't carry).
         any_of_keys=("chainCirculating", "chainBalances"),
         any_of_value_type="object",
+        any_of_value_content="stablecoin_history",
         # Per-id /stablecoin/{id} history is backfill-only — the daily
         # collector keeps the forward supply series current through the
         # aggregate ``stablecoins`` blob, so these blobs legitimately age
@@ -535,8 +541,32 @@ def _any_of_keys_resolves(payload: dict[str, Any], spec: EndpointSchema) -> bool
         if key not in payload:
             continue
         if spec.any_of_value_type is None:
+            return _any_of_value_content_resolves(payload[key], spec)
+        return _matches_schema_type(
+            payload[key], spec.any_of_value_type
+        ) and _any_of_value_content_resolves(payload[key], spec)
+    return False
+
+
+def _any_of_value_content_resolves(value: Any, spec: EndpointSchema) -> bool:
+    if spec.any_of_value_content is None:
+        return True
+    if spec.any_of_value_content == "stablecoin_history":
+        return _has_stablecoin_history_point(value)
+    raise ValueError(f"unsupported any_of_value_content {spec.any_of_value_content!r}")
+
+
+def _has_stablecoin_history_point(chain_balances: Any) -> bool:
+    if not isinstance(chain_balances, dict):
+        return False
+    for chain_data in chain_balances.values():
+        if not isinstance(chain_data, dict):
+            continue
+        series = chain_data.get("tokens")
+        if not isinstance(series, list):
+            continue
+        if any(is_stablecoin_history_point(point) for point in series):
             return True
-        return _matches_schema_type(payload[key], spec.any_of_value_type)
     return False
 
 
@@ -546,10 +576,16 @@ def _missing_any_of_keys_detail(spec: EndpointSchema) -> str:
             "none of the interchangeable top-level keys "
             f"{spec.any_of_keys!r} are present"
         )
+    content = (
+        f" with {_describe_value_content(spec.any_of_value_content)}"
+        if spec.any_of_value_content is not None
+        else ""
+    )
     return (
         "no selected interchangeable top-level key "
         f"{spec.any_of_keys!r} carries expected "
         f"{_describe_schema_type(spec.any_of_value_type)} shape"
+        f"{content}"
     )
 
 
@@ -563,6 +599,12 @@ def _matches_schema_type(value: Any, schema_type: str) -> bool:
 
 def _describe_schema_type(schema_type: str | None) -> str:
     return {"object": "object", "array": "array"}.get(str(schema_type), str(schema_type))
+
+
+def _describe_value_content(value_content: str | None) -> str:
+    return {
+        "stablecoin_history": "at least one stablecoin history point",
+    }.get(str(value_content), str(value_content))
 
 
 def check_recent_blobs(
