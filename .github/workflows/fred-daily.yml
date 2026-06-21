@@ -54,3 +54,12 @@ jobs:
 
       - name: Normalize raw payloads into fred.* tables
         run: python3 -m genkei.normalize.fred --source-run-id "${{ steps.collect.outputs.source_run_id }}"
+
+      # B-096 — the macro-regime view (analytics.macro_regime_per_date) is a
+      # live view over the FRED series just refreshed above, so emit regime
+      # transitions right after normalize. A 90-day window covers daily
+      # incremental emission; re-emission is idempotent on the transition key.
+      - name: Emit macro-regime transition events (B-096)
+        run: |
+          python3 -m genkei.experiments.emitters.macro_regime_emitter \
+            --since "$(date -u -d '90 days ago' '+%Y-%m-%d')"

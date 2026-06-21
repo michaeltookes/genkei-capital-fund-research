@@ -56,7 +56,7 @@ Rules can use `signal_kind: null` as a wildcard to match any kind from a source 
 
 ## Emitter status
 
-Five of seven emitters are wired up as of 2026-06-01:
+Six of seven emitters are wired up (five equity/crypto by 2026-06-01, macro added 2026-06-21):
 
 * **`insider_clusters`** (B-064) — the reference adapter that proved the pattern end-to-end.
 * **`crowding`** (B-093) — the second source. Because the correlator enforces `min_distinct_sources ≥ 2`, this is the emitter that lets the engine fire its *first* real multi-source stack: insider clusters + crowding both land on `equity:core` assets, so `activist_position_take` and `broad_exit` are now fully fireable and `smart_money_buy` reaches two of its three sources. It turns each `CrowdingRow` quarter-over-quarter delta into `crowding_add` (net positive), `crowding_jump` (net ≥ `--jump-threshold`, default 3 — also emitted alongside `crowding_add` so a big add participates in both the add- and jump-keyed rules), and `crowding_exit` (net negative) events. Strength is `min(abs(net_change) / 4, 1.0)` — the 1 → 4 activist-add pattern saturates at full conviction.
@@ -65,9 +65,10 @@ Five of seven emitters are wired up as of 2026-06-01:
 
 * **`relative_strength`** (B-098) — **the second crypto-side source**; the pair that finally closes the engine's crypto-side `min_distinct_sources ≥ 2` gate. Same inflection B-093 played for equity-core after B-064. For each watchlist crypto asset (ethereum / solana / chainlink / sui / pyth-network / render-token), walks daily and computes the trailing 30-day return vs BTC (the fixed crypto-market benchmark, crypto's analog of SPY). Detects state crossings using a three-state machine (laggard ≤ −15pp / neutral / leader ≥ +15pp). Emits ONE event per crossing *onset* — `laggard_crossing` (bearish) or `leader_crossing` (bullish) — and skips continued in-state days, matching the tvl_drawdown episode-onset precedent. Transitions back into neutral are silent (the "stress lifted" implicit signal — captured by the next opposite-direction crossing). Strength = `min(abs(rel_strength_pct) / 20, 1.0)`: ±15pp at threshold edge → 0.75, ±20pp at saturation → 1.0. The 20pp saturation was tuned from live data after a first pass at 30pp left a real ETH 2018 stress episode just below the rule's `min_score` of 1.5 — crypto rel-strength magnitudes during real episodes cluster in the 15-25pp range, so saturating at 20pp gives a meaningful strength to threshold-edge crossings rather than discounting them. `source_ref = "<coingecko_id>:BTC:30d:<crossing_iso>"`. Horizons follow the asset's sleeve (ethereum/solana/chainlink at `crypto:core`, sui/pyth-network/render-token at `crypto:tactical`). **Live homelab backfill** (2016-present, 487 crossings across the six crypto watchlist assets): the engine's **first real crypto stack** fires — 2018-08-04 ETH bearish `crypto_tvl_stress_combo` with score 1.65, combining a laggard_crossing at 2018-07-16 (ETH down ~17pp vs BTC over the trailing 30 days) with the 2018-08-04 tvl_drawdown_stress event. This is the canonical ETH ICO-crash signal — both on-chain demand contraction AND price losing relative leadership vs the broader crypto market at the same time. The other two ETH TVL stress episodes (2018-12-13 and 2018-12-29) don't pair because the nearest ETH laggard crossings landed 33-49 days later, just past the rule's 30-day window. That's correct behavior: the rule requires *coincident* stress, not eventual stress.
 
-Follow-up emitters (B-096 / B-097):
+* **`macro_regime`** (B-096) — **the engine's first macro-horizon source**. Adapts B-059's regime classifier (`analytics.macro_regime_per_date`, via `load_regimes`) into one event per regime *transition* — the regime is a continuous daily state, so only the boundary day where the label flips is atomic enough to deserve a row (same "transition not state" precedent tvl_drawdown / relative_strength follow). Events use a market-wide sentinel `asset = "MACRO"` under a dedicated `asset_class = "macro"` (added in the 20260621 migration — a macro regime is not an equity/crypto/protocol, and equities/crypto are *downstream* of macro per CLAUDE.md, so it's a cross-sleeve overlay, not a per-ticker signal). `signal_kind` is the new regime label (`risk_off` / `easing` / …) so rules can target a specific entry; direction maps `risk_on`/`easing`→bullish, `risk_off`/`tightening_stress`→bearish, `mixed`→neutral; `strength` is null (a label has no natural 0-1 axis — the correlator defaults it to 1.0). `source_ref = "<ts_iso>:<new_regime>"`. Horizon `macro:cross-sleeve:primary`. Chained off the FRED daily workflow (the view is live over the FRED series). **Live homelab backfill** (2006-present): 571 transitions across 5119 regime-days — the threshold classifier oscillates on borderline days, so transitions are frequent. **Important:** with only this one source on the `MACRO` sentinel, the correlator's `min_distinct_sources ≥ 2` gate means macro events *don't form stacks on their own* — they land in `meta.signal_events` (queryable via `genkei signals --events`) but won't surface in the weekly digest until a companion rule pairs macro regime with per-asset signals as an overlay (a cross-horizon rule shape the correlator doesn't support yet) or a second macro-horizon source lands. This is the same partial-fire pattern every emitter had before its pair arrived.
 
-* `macro_regime_emitter` (B-096) — emits regime-change events (the regime itself is a continuous state; only transitions are atomic enough to deserve an event row).
+Follow-up emitter (B-097):
+
 * `watchlist_scoring_emitter` (B-097) — emits when the composite score crosses a configurable threshold band.
 
 Until each emitter lands, the corresponding rule components don't fire. The starter rules are pre-configured for the full picture so they light up automatically as emitters arrive.
@@ -100,7 +101,7 @@ Live example against the homelab on 2026-06-01: of the top 10 stacks, only one (
 
 * `src/genkei/experiments/signal_store.py` — `SignalEvent` / `CorrelationRule` / `RuleComponent` / `Stack` dataclasses; `emit_signal` / `emit_signals_bulk` / `query_events` persistence; `detect_stacks` pure correlator.
 * `src/genkei/experiments/signal_rules.py` — YAML loader + validator (separate so tests can exercise the correlator on synthetic rules without pulling `yaml`).
-* `src/genkei/experiments/emitters/` — one module per Phase 5 source. Today: `insider_clusters_emitter.py` (B-064) + `crowding_emitter.py` (B-093) + `eight_k_emitter.py` (B-094) + `tvl_drawdown_emitter.py` (B-095) + `relative_strength_emitter.py` (B-098).
+* `src/genkei/experiments/emitters/` — one module per Phase 5 source. Today: `insider_clusters_emitter.py` (B-064) + `crowding_emitter.py` (B-093) + `eight_k_emitter.py` (B-094) + `tvl_drawdown_emitter.py` (B-095) + `relative_strength_emitter.py` (B-098) + `macro_regime_emitter.py` (B-096).
 * `src/genkei/cli/signals.py` — Typer wrapper.
 * `src/genkei/data/signal_rules.yml` — the declarative rule set.
 
@@ -122,10 +123,14 @@ python -m genkei.experiments.emitters.tvl_drawdown_emitter --since 2024-01-01
 # Populate relative-strength crossings (crypto-side, B-098)
 python -m genkei.experiments.emitters.relative_strength_emitter --since 2024-01-01
 
+# Populate macro-regime transitions (macro-side, B-096)
+python -m genkei.experiments.emitters.macro_regime_emitter --since 2024-01-01
+
 # Now query
 genkei signals --top 10
 genkei signals --events --asset AAPL --top 50      # raw events for AAPL
 genkei signals --events --asset ethereum --top 20  # TVL stress events for ETH
+genkei signals --events --asset MACRO --top 20     # macro regime transitions
 ```
 
 ## Edge cases pinned by tests
@@ -138,7 +143,7 @@ genkei signals --events --asset ethereum --top 20  # TVL stress events for ETH
 
 ## What B-064 deliberately does NOT cover
 
-* **The two remaining emitters** (B-096 / B-097) — each is a separate follow-up branch. The equity-side starter rules and the crypto-side `crypto_tvl_stress_combo` rule are all fully wired now (B-064 / B-093 / B-094 / B-095 / B-098). The remaining emitters add macro overlay context (B-096 regime transitions) and watchlist-scoring band crossings (B-097).
+* **The remaining emitter** (B-097) — a separate follow-up branch. The equity-side starter rules and the crypto-side `crypto_tvl_stress_combo` rule are all fully wired (B-064 / B-093 / B-094 / B-095 / B-098), and B-096 added the macro-regime source. What's still missing is (a) the watchlist-scoring band-crossing emitter (B-097) and (b) a rule shape that lets the single-source macro overlay actually *stack* with per-asset signals across horizons — until then macro events land but don't surface as digest stacks.
 * **Live homelab evidence** — the insider-cluster emitter hasn't been run against the homelab yet (one command, `python -m genkei.experiments.emitters.insider_clusters_emitter --since 2024-01-01`, when you want real data). Tests prove correctness against synthetic events.
 * **Decay / weighting by event age** — every event inside the window contributes equally regardless of how recent it is. A v2 could add a half-life so a 6-day-old event contributes less than a today event in a 7-day window.
 * **Benchmark-adjusted display, not benchmark-gated events** — events fire on absolute thresholds, while B-100 adds the `vs_bench` presentation column so the operator can compare each fired stack against SPY/BTC at decision time.
