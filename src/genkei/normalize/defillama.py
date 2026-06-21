@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from genkei.common import db
+from genkei.common.defillama import as_float, parse_history_timestamp, stablecoin_supply
 
 DEFAULT_CONFIG_PATH = Path("config/defillama.sources.json")
 SOURCE_NAME = "defillama"
@@ -51,21 +52,12 @@ STABLECOIN_HISTORY_PREFIX = "stablecoin_"
 JsonObject = dict[str, Any]
 RawBlob = tuple[str, Any, datetime]
 LOGGER = logging.getLogger(__name__)
+_stablecoin_supply = stablecoin_supply
 
 
 # ---------------------------------------------------------------------------
 # Pure helpers
 # ---------------------------------------------------------------------------
-
-
-def as_float(value: Any) -> float | None:
-    """Coerce numeric API values to ``float`` while preserving missingness."""
-    if isinstance(value, bool) or value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def day_align_utc(value: datetime) -> datetime:
@@ -89,23 +81,6 @@ def day_align_utc(value: datetime) -> datetime:
     else:
         value = value.astimezone(timezone.utc)
     return value.replace(hour=0, minute=0, second=0, microsecond=0)
-
-
-def parse_history_timestamp(value: Any) -> datetime | None:
-    """Parse DeFiLlama history timestamps (epoch seconds or ISO) as UTC."""
-    if isinstance(value, bool) or value is None:
-        return None
-    if isinstance(value, (int, float)):
-        try:
-            return datetime.fromtimestamp(float(value), tz=timezone.utc)
-        except (ValueError, OverflowError, OSError):
-            return None
-    if isinstance(value, str):
-        try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
-        except ValueError:
-            return None
-    return None
 
 
 def chain_history_stem(chain_name: str) -> str:
@@ -919,28 +894,6 @@ def _maybe_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
-
-
-def _stablecoin_supply(balance: Any) -> float | None:
-    """Pick a USD supply figure out of a DeFiLlama chainBalances entry."""
-    if isinstance(balance, dict):
-        for outer_key in ("current", "circulating"):
-            outer = balance.get(outer_key)
-            if isinstance(outer, dict):
-                for inner_key in ("peggedUSD", "current", "circulating"):
-                    value = as_float(outer.get(inner_key))
-                    if value is not None:
-                        return value
-            else:
-                value = as_float(outer)
-                if value is not None:
-                    return value
-        for key in ("peggedUSD", "supply"):
-            value = as_float(balance.get(key))
-            if value is not None:
-                return value
-        return None
-    return as_float(balance)
 
 
 def _price_timestamp(value: Any, *, default: datetime) -> datetime:

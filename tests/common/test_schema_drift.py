@@ -298,6 +298,95 @@ class RecentBlobQueryTests(unittest.TestCase):
         self.assertIn("endpoint_name NOT LIKE", str(captured["sql"]))
         self.assertIn("submissions\\_history\\_%", captured["params"])
 
+    def test_backfill_only_spec_omits_freshness_cutoff(self) -> None:
+        # A backfill-only endpoint must NOT constrain the query by
+        # fetched_at — its blobs legitimately age between backfills, so we
+        # sample the latest of any age and only shape-check it.
+        spec = next(s for s in SCHEMA_SPECS if s.endpoint_kind == "stablecoin_<id>")
+        self.assertTrue(spec.backfill_only)
+        captured: dict[str, object] = {}
+
+        class FakeCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, sql: str, params: list[object]) -> None:
+                captured["sql"] = sql
+                captured["params"] = params
+
+            def fetchone(self):
+                return (
+                    "stablecoin_99",
+                    {
+                        "symbol": "USDC",
+                        "name": "USD Coin",
+                        "pegType": "peggedUSD",
+                        "chainBalances": {
+                            "Ethereum": {
+                                "tokens": [
+                                    {
+                                        "date": 1716000000,
+                                        "circulating": {"peggedUSD": 50_000_000_000},
+                                    },
+                                ],
+                            },
+                        },
+                    },
+                    datetime.now(timezone.utc),
+                )
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def cursor(self):
+                return FakeCursor()
+
+        with patch("genkei.common.schema_drift.db.connection", return_value=FakeConn()):
+            issues = check_recent_blobs(max_age_hours=72, specs=(spec,))
+
+        self.assertEqual(issues, [])
+        self.assertNotIn("fetched_at >=", str(captured["sql"]))
+
+    def test_backfill_only_spec_with_no_blobs_is_silent(self) -> None:
+        # Never-backfilled endpoint (no rows) is not drift — stay quiet
+        # rather than firing NO_RECENT_SAMPLES.
+        spec = next(s for s in SCHEMA_SPECS if s.endpoint_kind == "stablecoin_<id>")
+
+        class FakeCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, sql: str, params: list[object]) -> None:
+                pass
+
+            def fetchone(self):
+                return None
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def cursor(self):
+                return FakeCursor()
+
+        with patch("genkei.common.schema_drift.db.connection", return_value=FakeConn()):
+            issues = check_recent_blobs(max_age_hours=72, specs=(spec,))
+
+        self.assertEqual(issues, [])
+
 
 class NaturalKeyUniquenessTests(unittest.TestCase):
     """Pin the table-level canary that surfaces day-align regressions."""
@@ -504,21 +593,113 @@ class RealisticPayloadShapeTests(unittest.TestCase):
         self.assertEqual(issues[0].kind, "MISSING_REQUIRED_KEY")
         self.assertIn("seriess", issues[0].detail)
 
-    def test_defillama_stablecoin_id_uses_chain_circulating_key(self) -> None:
-        # G-005 lesson: the per-stablecoin endpoint uses
-        # `chainCirculating`, NOT `chainBalances`. Spec encodes this.
+    def _stablecoin_spec(self):
+        return next(s for s in SCHEMA_SPECS if s.endpoint_kind == "stablecoin_<id>")
+
+    def _stablecoin_payload(self, chain_key: str) -> dict:
         eth_chain = {
             "tokens": [
                 {"date": 1716000000, "circulating": {"peggedUSD": 50_000_000_000}},
             ],
         }
-        payload = {
+        return {
             "symbol": "USDC",
             "name": "USD Coin",
             "pegType": "peggedUSD",
-            "chainCirculating": {"Ethereum": eth_chain},
+            chain_key: {"Ethereum": eth_chain},
         }
-        spec = next(s for s in SCHEMA_SPECS if s.endpoint_kind == "stablecoin_<id>")
+
+    def test_defillama_stablecoin_id_accepts_chain_circulating_key(self) -> None:
+        # Newer payloads carry the per-chain series under `chainCirculating`.
+        spec = self._stablecoin_spec()
+        self.assertEqual(check_payload(self._stablecoin_payload("chainCirculating"), spec), [])
+
+    def test_defillama_stablecoin_id_accepts_chain_balances_key(self) -> None:
+        # The live /stablecoin/{id} endpoint actually serves the series under
+        # `chainBalances` (G-043); the normalizer accepts either, so the spec
+        # must too rather than hard-requiring `chainCirculating`.
+        spec = self._stablecoin_spec()
+        self.assertEqual(check_payload(self._stablecoin_payload("chainBalances"), spec), [])
+
+    def test_defillama_stablecoin_id_missing_both_chain_keys_is_drift(self) -> None:
+        # If neither interchangeable key is present the normalizer silently
+        # yields zero rows — exactly the drift the any_of_keys check guards.
+        spec = self._stablecoin_spec()
+        payload = {"symbol": "USDC", "name": "USD Coin", "pegType": "peggedUSD"}
+        issues = check_payload(payload, spec)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].kind, "MISSING_ANY_OF_KEYS")
+
+    def test_defillama_stablecoin_id_rejects_unparseable_chain_key_value(self) -> None:
+        # A present key is not enough: normalize_stablecoin_history requires
+        # the selected chain balance container to be a dict, otherwise it
+        # silently returns zero rows.
+        spec = self._stablecoin_spec()
+        for bad_value in (None, []):
+            with self.subTest(bad_value=bad_value):
+                payload = {
+                    "symbol": "USDC",
+                    "name": "USD Coin",
+                    "pegType": "peggedUSD",
+                    "chainBalances": bad_value,
+                }
+                issues = check_payload(payload, spec)
+                self.assertEqual(len(issues), 1)
+                self.assertEqual(issues[0].kind, "MISSING_ANY_OF_KEYS")
+                self.assertIn("expected object shape", issues[0].detail)
+
+    def test_defillama_stablecoin_id_accepts_one_parseable_chain_key_value(self) -> None:
+        spec = self._stablecoin_spec()
+        payload = self._stablecoin_payload("chainCirculating")
+        payload["chainBalances"] = []
+
+        self.assertEqual(check_payload(payload, spec), [])
+
+    def test_defillama_stablecoin_id_rejects_unparseable_preferred_chain_key(self) -> None:
+        # The normalizer selects chainCirculating whenever it exists. A valid
+        # fallback chainBalances value must not hide an unparseable preferred
+        # value that would make the normalizer return zero rows.
+        spec = self._stablecoin_spec()
+        payload = self._stablecoin_payload("chainBalances")
+        payload["chainCirculating"] = []
+
+        issues = check_payload(payload, spec)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].kind, "MISSING_ANY_OF_KEYS")
+        self.assertIn("expected object shape", issues[0].detail)
+
+    def test_defillama_stablecoin_id_rejects_missing_history_points(self) -> None:
+        # A selected chain container still normalizes to zero rows when no
+        # chain has a tokens point with both a parseable date and USD supply.
+        spec = self._stablecoin_spec()
+        cases = {
+            "empty_tokens": {"Ethereum": {"tokens": []}},
+            "missing_tokens": {"Ethereum": {}},
+            "non_dict_point": {"Ethereum": {"tokens": ["bad"]}},
+            "missing_supply": {"Ethereum": {"tokens": [{"date": 1716000000}]}},
+            "missing_date": {
+                "Ethereum": {"tokens": [{"circulating": {"peggedUSD": 1.0}}]},
+            },
+        }
+        for name, chain_balances in cases.items():
+            with self.subTest(name=name):
+                payload = {
+                    "symbol": "USDC",
+                    "name": "USD Coin",
+                    "pegType": "peggedUSD",
+                    "chainBalances": chain_balances,
+                }
+
+                issues = check_payload(payload, spec)
+                self.assertEqual(len(issues), 1)
+                self.assertEqual(issues[0].kind, "MISSING_ANY_OF_KEYS")
+                self.assertIn("stablecoin history point", issues[0].detail)
+
+    def test_defillama_stablecoin_id_accepts_one_usable_history_point(self) -> None:
+        spec = self._stablecoin_spec()
+        payload = self._stablecoin_payload("chainBalances")
+        payload["chainBalances"]["Solana"] = {"tokens": []}
+
         self.assertEqual(check_payload(payload, spec), [])
 
     def test_defillama_chain_tvl_history_array_of_dated_points(self) -> None:
