@@ -69,6 +69,14 @@ class EndpointSchema:
     # set after `endpoint_pattern` matches. Used to disambiguate
     # shared-prefix endpoint families (see class docstring).
     endpoint_pattern_excludes: tuple[str, ...] = field(default_factory=tuple)
+    # For object payloads: at least ONE of these top-level keys must be
+    # present (an "either/or" the AND-list ``required_keys`` can't express).
+    # Use when a source publishes the same load-bearing field under more
+    # than one name across payload versions and the normalizer accepts any
+    # of them — e.g. DefiLlama's ``chainCirculating`` vs the older
+    # ``chainBalances``. A missing-from-all set is a real drift signal
+    # because the normalizer silently yields zero rows when none resolve.
+    any_of_keys: tuple[str, ...] = field(default_factory=tuple)
     # For array payloads, check the first N items rather than every item
     # (the goal is canary, not exhaustive).
     array_sample_size: int = 3
@@ -81,6 +89,17 @@ class EndpointSchema:
     # elements. When set, ``required_keys`` is ignored and the
     # "items must be objects" check is skipped.
     array_item_min_length: int | None = None
+    # When True, this endpoint is only fetched during backfill (not the
+    # daily collector), so its blobs are expected to age past
+    # ``max_age_hours`` between backfills. The freshness check skips the
+    # NO_RECENT_SAMPLES alarm for these and instead validates the shape
+    # of the latest blob whenever one exists — schema drift still gets
+    # caught, but a stale-but-intact backfill artifact doesn't false-
+    # alarm the health footer / B-071 issue opener. The daily forward
+    # series these endpoints once backfilled is kept current by a
+    # separate daily endpoint (e.g. stablecoin_<id> history is backfill-
+    # only; the aggregate ``stablecoins`` blob carries the daily supply).
+    backfill_only: bool = False
 
 
 # Spec registry. Each entry captures the load-bearing fields the
@@ -154,7 +173,17 @@ SCHEMA_SPECS: tuple[EndpointSchema, ...] = (
         endpoint_kind="stablecoin_<id>",
         endpoint_pattern="stablecoin\\_%",
         payload_type="object",
-        required_keys=("symbol", "name", "pegType", "chainCirculating"),
+        required_keys=("symbol", "name", "pegType"),
+        # The per-chain supply series lives under ``chainCirculating`` in
+        # current payloads and ``chainBalances`` in older ones; the
+        # normalizer accepts either, so require at least one rather than
+        # hard-coding the newer name (which real blobs don't carry).
+        any_of_keys=("chainCirculating", "chainBalances"),
+        # Per-id /stablecoin/{id} history is backfill-only — the daily
+        # collector keeps the forward supply series current through the
+        # aggregate ``stablecoins`` blob, so these blobs legitimately age
+        # past 72h between backfills (G-043).
+        backfill_only=True,
     ),
     # CoinGecko
     EndpointSchema(
@@ -301,9 +330,9 @@ class DriftIssue:
     source: str
     endpoint_kind: str
     sample_endpoint_name: str | None
-    # One of: MISSING_REQUIRED_KEY, WRONG_TOP_LEVEL_TYPE, EMPTY_ARRAY,
-    # MISSING_NESTED_PATH, NO_RECENT_SAMPLES, DUPLICATE_NATURAL_KEY,
-    # CHECKER_ERROR.
+    # One of: MISSING_REQUIRED_KEY, MISSING_ANY_OF_KEYS, WRONG_TOP_LEVEL_TYPE,
+    # EMPTY_ARRAY, MISSING_NESTED_PATH, NO_RECENT_SAMPLES,
+    # DUPLICATE_NATURAL_KEY, CHECKER_ERROR.
     kind: str
     detail: str
 
@@ -339,6 +368,19 @@ def check_payload(payload: Any, spec: EndpointSchema) -> list[DriftIssue]:
                         detail=f"required key {key!r} not in top-level object",
                     )
                 )
+        if spec.any_of_keys and not any(key in payload for key in spec.any_of_keys):
+            issues.append(
+                DriftIssue(
+                    source=spec.source,
+                    endpoint_kind=spec.endpoint_kind,
+                    sample_endpoint_name=None,
+                    kind="MISSING_ANY_OF_KEYS",
+                    detail=(
+                        "none of the interchangeable top-level keys "
+                        f"{spec.any_of_keys!r} are present"
+                    ),
+                )
+            )
         for path in spec.nested_paths:
             if not _path_exists(payload, path):
                 issues.append(
@@ -501,13 +543,18 @@ def check_recent_blobs(
             # Build the WHERE clause dynamically because each spec can
             # contribute zero or more NOT-LIKE exclusions. Params bind
             # positionally so the query parser stays happy.
+            # Backfill-only endpoints are exempt from the freshness window:
+            # their blobs are meant to age between backfills, so we sample
+            # the latest blob of any age and only validate its shape.
             sql = (
                 "SELECT endpoint_name, payload, fetched_at "
                 "FROM meta.raw_blobs "
-                "WHERE endpoint_name LIKE %s ESCAPE %s "
-                "AND fetched_at >= %s"
+                "WHERE endpoint_name LIKE %s ESCAPE %s"
             )
-            params: list[Any] = [spec.endpoint_pattern, "\\", cutoff]
+            params: list[Any] = [spec.endpoint_pattern, "\\"]
+            if not spec.backfill_only:
+                sql += " AND fetched_at >= %s"
+                params.append(cutoff)
             for exclude in spec.endpoint_pattern_excludes:
                 sql += " AND endpoint_name NOT LIKE %s ESCAPE %s"
                 params.extend([exclude, "\\"])
@@ -515,6 +562,10 @@ def check_recent_blobs(
             cur.execute(sql, params)
             row = cur.fetchone()
             if row is None:
+                # A backfill-only endpoint with zero blobs has simply
+                # never been backfilled — that's not drift, so stay quiet.
+                if spec.backfill_only:
+                    continue
                 issues.append(
                     DriftIssue(
                         source=spec.source,
