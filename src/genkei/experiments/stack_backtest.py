@@ -34,13 +34,16 @@ insider clusters are shifted by their filing lag before the correlator
 detects stacks and before the return window starts. We do not filter or
 weight stacks based on what happens after that anchor date.
 
-**v1 scope.** Raw returns only. SPY-adjusted abnormal returns require
-the SPY ingester (filed as B-102 alongside this work) and the
-benchmark-adjustment logic from B-100; both are separate follow-ups
-that don't block honest v1 measurement. Stacks on crypto assets are
-out of scope until B-095–B-098 add the crypto-side emitters and
-crypto-side correlation rules — no rule today emits crypto stacks
-so this is moot.
+**v2 scope (B-101 follow-up).** Now asset-class-aware. Equity stacks keep
+the ``yahoo.candles`` adjusted-close loader; **crypto stacks** (live once
+B-095/B-098 landed the TVL-drawdown + relative-strength emitters) load from
+``coinbase.candles`` via ``signal_benchmark.load_close_series``, so they
+finally get forward returns instead of being silently dropped. **Abnormal
+returns** route per class — SPY for equity, BTC for crypto (B-102 landed the
+benchmark ingester) — so each stack is measured against its own market. The
+per-asset random-day baseline (``mean_excess_pct``) remains; the
+benchmark-adjusted ``mean_abnormal_pct`` is the v2 addition. Macro/protocol
+stacks have no tradeable series and contribute no returns.
 """
 
 from __future__ import annotations
@@ -56,6 +59,11 @@ from genkei.experiments.eight_k_impact import (
     PricePoint,
     compute_windowed_returns,
     load_price_series,
+)
+from genkei.experiments.signal_benchmark import (
+    DEFAULT_CRYPTO_BENCHMARK,
+    DEFAULT_EQUITY_BENCHMARK,
+    load_close_series,
 )
 from genkei.experiments.signal_rules import DEFAULT_RULES_PATH, load_rules
 from genkei.experiments.signal_store import (
@@ -292,6 +300,7 @@ def compute_stack_returns(
     *,
     windows: Sequence[tuple[str, int, int]] = STACK_WINDOWS,
     benchmark_prices: Sequence[PricePoint] | None = None,
+    benchmark_prices_by_class: dict[str, Sequence[PricePoint]] | None = None,
 ) -> list[StackReturns]:
     """Compute per-window forward returns for each stack.
 
@@ -300,11 +309,15 @@ def compute_stack_returns(
     history once and share it across the stack-returns pass and the
     baseline pass.
 
-    ``benchmark_prices`` is optional (B-102). When supplied, each stack's
-    same-window benchmark return (computed from the stack's anchor date
-    against the benchmark's own price series) is recorded in
-    ``StackReturns.benchmark_windows`` so the aggregator can produce a
-    ``mean_abnormal_pct = mean(stack_return - benchmark_return)`` column.
+    Benchmark returns are optional and feed the aggregator's
+    ``mean_abnormal_pct = mean(stack_return - benchmark_return)`` column:
+
+      * ``benchmark_prices_by_class`` (B-101 v2) routes each stack to its
+        asset-class benchmark series (SPY for equity, BTC for crypto), so a
+        mixed equity+crypto run compares each stack against the right market.
+      * ``benchmark_prices`` (single series) applies to *every* stack — kept
+        for callers/tests that pre-filter to one class. ``by_class`` wins when
+        both are given.
     """
     if not stacks:
         return []
@@ -315,9 +328,13 @@ def compute_stack_returns(
         windows_dict = compute_windowed_returns(
             prices, event_date=anchor, windows=windows
         )
-        if benchmark_prices is not None:
+        if benchmark_prices_by_class is not None:
+            bench_series = benchmark_prices_by_class.get(stack.asset_class)
+        else:
+            bench_series = benchmark_prices
+        if bench_series is not None:
             benchmark_windows = compute_windowed_returns(
-                benchmark_prices, event_date=anchor, windows=windows
+                bench_series, event_date=anchor, windows=windows
             )
         else:
             benchmark_windows = {}
@@ -562,6 +579,45 @@ def _required_availability_lookback_days() -> int:
     )
 
 
+#: Default per-asset-class benchmark tickers (B-101 v2). Equity stacks compare
+#: vs SPY (yahoo.candles), crypto stacks vs BTC (coinbase.candles) — the same
+#: routing the live ``genkei signals`` vs_bench column uses.
+DEFAULT_BENCHMARKS: dict[str, str] = {
+    "equity": DEFAULT_EQUITY_BENCHMARK,
+    "crypto": DEFAULT_CRYPTO_BENCHMARK,
+}
+
+
+def _to_pricepoints(rows: Sequence[tuple[date, Decimal]]) -> list[PricePoint]:
+    """Adapt ``(date, close)`` rows from ``signal_benchmark`` to ``PricePoint``."""
+    return [PricePoint(ts=d, adj_close=close) for d, close in rows]
+
+
+def _load_asset_prices(
+    asset: str,
+    asset_class: str,
+    *,
+    since: date | None = None,
+    until: date | None = None,
+) -> list[PricePoint]:
+    """Class-aware price loader (B-101 v2).
+
+    Equity assets keep the original ``yahoo.candles`` adjusted-close loader;
+    crypto assets (whose ``asset`` is the coingecko_id the B-095/B-098 emitters
+    write) resolve to ``coinbase.candles`` via the shared
+    ``signal_benchmark.load_close_series`` so crypto stacks finally get forward
+    returns instead of being silently dropped. Macro / protocol stacks have no
+    tradeable series and return empty.
+    """
+    if asset_class == "equity":
+        return load_price_series(asset, since=since, until=until)
+    if asset_class == "crypto":
+        return _to_pricepoints(
+            load_close_series(asset, "crypto", since=since, until=until)
+        )
+    return []
+
+
 def run_backtest(
     *,
     rule: str | None = None,
@@ -569,7 +625,7 @@ def run_backtest(
     asset: str | None = None,
     since: date | None = None,
     until: date | None = None,
-    benchmark_ticker: str | None = None,
+    benchmarks: dict[str, str] | None = None,
     windows: Sequence[tuple[str, int, int]] = STACK_WINDOWS,
     rules_path: Path = DEFAULT_RULES_PATH,
 ) -> tuple[list[StackReturns], dict[str, BaselineStats]]:
@@ -582,10 +638,12 @@ def run_backtest(
       * ``asset`` — single ticker.
       * ``since`` / ``until`` — bound the event ts range (stacks whose
         ``window_end`` falls in the range).
-      * ``benchmark_ticker`` — when set (e.g. ``"SPY"``), load the
-        benchmark's price series once and attach same-window benchmark
-        returns to each ``StackReturns``. The aggregator surfaces
-        ``mean_abnormal_pct`` in the resulting strata (B-102).
+      * ``benchmarks`` — per-asset-class benchmark tickers, e.g.
+        ``{"equity": "SPY", "crypto": "BTC"}`` (B-101 v2). For each class
+        present in the stacks, the benchmark's series is loaded once and the
+        same-window benchmark return attached to each ``StackReturns`` so the
+        aggregator surfaces ``mean_abnormal_pct``. ``None`` skips abnormal
+        returns entirely.
 
     Returns ``(stack_returns, baselines)`` so the CLI can aggregate
     multiple stratifications without re-running the underlying queries.
@@ -629,6 +687,9 @@ def run_backtest(
     # different event dates (stack return anchors vs sampled dates) but
     # the same underlying ticker data.
     forward_days = _required_forward_days(windows)
+    # An asset name maps to exactly one class; capture it for class-aware
+    # price + benchmark routing.
+    class_by_asset: dict[str, str] = {s.asset: s.asset_class for s in stacks}
     by_asset: dict[str, list[Stack]] = defaultdict(list)
     for stack in stacks:
         by_asset[stack.asset].append(stack)
@@ -638,43 +699,52 @@ def run_backtest(
     for asset_name, asset_stacks in by_asset.items():
         first = min(_stack_return_anchor_date(s) for s in asset_stacks)
         last = max(_stack_return_anchor_date(s) for s in asset_stacks)
-        prices = load_price_series(
+        prices = _load_asset_prices(
             asset_name,
+            class_by_asset[asset_name],
             since=first - timedelta(days=PRICE_LOAD_LOOKBACK_DAYS),
             until=last + timedelta(days=forward_days),
         )
         prices_by_asset[asset_name] = prices
         baselines[asset_name] = compute_baseline(asset_name, prices, windows=windows)
 
-    benchmark_prices: list[PricePoint] | None = None
-    if benchmark_ticker is not None:
-        # Load the benchmark across the union of every stack's range so
-        # every (stack, window) pair has the benchmark return available.
-        all_first = min(_stack_return_anchor_date(s) for s in stacks)
-        all_last = max(_stack_return_anchor_date(s) for s in stacks)
-        benchmark_prices = load_price_series(
-            benchmark_ticker,
-            since=all_first - timedelta(days=PRICE_LOAD_LOOKBACK_DAYS),
-            until=all_last + timedelta(days=forward_days),
-        )
-        if not benchmark_prices:
-            raise ValueError(
-                f"No benchmark prices found for {benchmark_ticker!r} in requested range."
+    benchmark_prices_by_class: dict[str, list[PricePoint]] | None = None
+    if benchmarks:
+        # Load each present class's benchmark once across the union of that
+        # class's stack windows, so every (stack, window) pair has its
+        # class-appropriate benchmark return available (SPY for equity, BTC
+        # for crypto).
+        benchmark_prices_by_class = {}
+        classes_present = {s.asset_class for s in stacks}
+        for asset_class in classes_present:
+            ticker = benchmarks.get(asset_class)
+            if ticker is None:
+                continue
+            class_stacks = [s for s in stacks if s.asset_class == asset_class]
+            all_first = min(_stack_return_anchor_date(s) for s in class_stacks)
+            all_last = max(_stack_return_anchor_date(s) for s in class_stacks)
+            series = _load_asset_prices(
+                ticker,
+                asset_class,
+                since=all_first - timedelta(days=PRICE_LOAD_LOOKBACK_DAYS),
+                until=all_last + timedelta(days=forward_days),
             )
+            if series:
+                benchmark_prices_by_class[asset_class] = series
 
     stack_returns = compute_stack_returns(
         stacks,
         prices_by_asset,
         windows=windows,
-        benchmark_prices=benchmark_prices,
+        benchmark_prices_by_class=benchmark_prices_by_class,
     )
-    if benchmark_ticker is not None and not any(
+    if benchmarks and not any(
         value is not None
         for stack_return in stack_returns
         for value in stack_return.benchmark_windows.values()
     ):
         raise ValueError(
-            f"No benchmark-adjusted returns were evaluable for {benchmark_ticker!r} "
-            "in requested range."
+            f"No benchmark-adjusted returns were evaluable for {benchmarks!r} "
+            "in the requested range."
         )
     return stack_returns, baselines
