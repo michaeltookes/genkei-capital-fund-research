@@ -22,6 +22,7 @@ from genkei.experiments.stack_backtest import (
     StackReturns,
     _event_available_date,
     _hit_rate,
+    _load_asset_prices,
     _mean,
     _median,
     aggregate_stack_returns,
@@ -815,7 +816,7 @@ class BenchmarkAbnormalReturnTests(unittest.TestCase):
             ) as load_mock,
         ):
             stack_returns, _ = run_backtest(
-                rule="smart_money_buy", benchmark_ticker="SPY"
+                rule="smart_money_buy", benchmarks={"equity": "SPY"}
             )
 
         loaded = sorted({call.args[0] for call in load_mock.call_args_list})
@@ -825,7 +826,7 @@ class BenchmarkAbnormalReturnTests(unittest.TestCase):
         for sr in stack_returns:
             self.assertTrue(sr.benchmark_windows)
 
-    def test_run_backtest_rejects_empty_benchmark_prices(self) -> None:
+    def test_run_backtest_rejects_empty_benchmark_when_no_class_evaluable(self) -> None:
         events = [
             _event(
                 asset="AAPL",
@@ -855,9 +856,9 @@ class BenchmarkAbnormalReturnTests(unittest.TestCase):
                 "genkei.experiments.stack_backtest.load_price_series",
                 side_effect=fake_load,
             ),
-            self.assertRaisesRegex(ValueError, "No benchmark prices"),
+            self.assertRaisesRegex(ValueError, "No benchmark-adjusted returns"),
         ):
-            run_backtest(rule="smart_money_buy", benchmark_ticker="SPY")
+            run_backtest(rule="smart_money_buy", benchmarks={"equity": "SPY"})
 
     def test_run_backtest_rejects_unevaluable_benchmark_windows(self) -> None:
         events = [
@@ -891,7 +892,7 @@ class BenchmarkAbnormalReturnTests(unittest.TestCase):
             ),
             self.assertRaisesRegex(ValueError, "No benchmark-adjusted returns"),
         ):
-            run_backtest(rule="smart_money_buy", benchmark_ticker="SPY")
+            run_backtest(rule="smart_money_buy", benchmarks={"equity": "SPY"})
 
     def test_run_backtest_skips_benchmark_load_when_no_ticker(self) -> None:
         # Crowding fires ~45 days before insider so after the availability
@@ -933,6 +934,74 @@ class BenchmarkAbnormalReturnTests(unittest.TestCase):
         # benchmark_windows empty when no benchmark passed.
         for sr in stack_returns:
             self.assertEqual(sr.benchmark_windows, {})
+
+
+def _crypto_stack(asset: str = "ethereum", *, window_end: datetime = _DEFAULT_WINDOW_END) -> Stack:
+    return Stack(
+        rule_name="crypto_tvl_stress_combo",
+        asset=asset,
+        asset_class="crypto",
+        direction="bearish",
+        window_start=window_end - timedelta(days=7),
+        window_end=window_end,
+        score=Decimal("1.6"),
+        distinct_sources=2,
+        event_count=2,
+        horizon="crypto:core",
+        events=[],
+    )
+
+
+class BacktestV2ClassAwareTests(unittest.TestCase):
+    """B-101 v2: per-class benchmark routing + class-aware price loading."""
+
+    def test_compute_stack_returns_routes_benchmark_by_asset_class(self) -> None:
+        equity_stack = _stack(asset="AAPL")
+        crypto_stack = _crypto_stack(asset="ethereum")
+        prices = {
+            "AAPL": _linear_price_series(start=date(2023, 12, 1), days=120),
+            "ethereum": _linear_price_series(start=date(2023, 12, 1), days=120),
+        }
+        eq_bench = _linear_price_series(start=date(2023, 12, 1), days=120)
+        # Only the equity class has a benchmark series; the crypto stack must
+        # look up "crypto" (absent) and get NO benchmark windows — proving the
+        # lookup is keyed by the stack's asset_class, not a single shared series.
+        stack_returns = compute_stack_returns(
+            [equity_stack, crypto_stack],
+            prices,
+            benchmark_prices_by_class={"equity": eq_bench},
+        )
+        by_asset = {sr.stack.asset: sr for sr in stack_returns}
+        self.assertTrue(by_asset["AAPL"].benchmark_windows)
+        self.assertEqual(by_asset["ethereum"].benchmark_windows, {})
+
+    def test_load_asset_prices_equity_uses_yahoo_loader(self) -> None:
+        sentinel = [PricePoint(ts=date(2024, 1, 1), adj_close=Decimal("100"))]
+        with patch(
+            "genkei.experiments.stack_backtest.load_price_series",
+            return_value=sentinel,
+        ) as yahoo_mock:
+            out = _load_asset_prices(
+                "AAPL", "equity", since=date(2024, 1, 1), until=date(2024, 2, 1)
+            )
+        self.assertEqual(out, sentinel)
+        yahoo_mock.assert_called_once()
+
+    def test_load_asset_prices_crypto_uses_close_series_and_adapts(self) -> None:
+        rows = [(date(2024, 1, 1), Decimal("2000")), (date(2024, 1, 2), Decimal("2100"))]
+        with patch(
+            "genkei.experiments.stack_backtest.load_close_series",
+            return_value=rows,
+        ) as close_mock:
+            out = _load_asset_prices(
+                "ethereum", "crypto", since=date(2024, 1, 1), until=date(2024, 2, 1)
+            )
+        close_mock.assert_called_once()
+        # Tuples adapted to PricePoint(ts, adj_close).
+        self.assertEqual([(p.ts, p.adj_close) for p in out], rows)
+
+    def test_load_asset_prices_unknown_class_is_empty(self) -> None:
+        self.assertEqual(_load_asset_prices("MACRO", "macro", since=None, until=None), [])
 
 
 if __name__ == "__main__":
