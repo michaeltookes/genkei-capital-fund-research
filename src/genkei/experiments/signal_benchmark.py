@@ -229,6 +229,23 @@ def _load_asset_series(
     return []
 
 
+def load_close_series(
+    identifier: str,
+    asset_class: str,
+    *,
+    since: date | None = None,
+    until: date | None = None,
+) -> list[tuple[date, Decimal]]:
+    """Public class-aware ``(date, close)`` loader (equity→yahoo, crypto→coinbase).
+
+    The canonical close-series resolver, shared so callers that need a price
+    series routed by ``asset_class`` (e.g. the stack backtest, B-101 v2) don't
+    re-implement the per-source SQL + coinbase-product resolution. Works for
+    both watchlist assets and benchmark tickers (SPY is equity, BTC is crypto).
+    """
+    return _load_asset_series(identifier, asset_class, since=since, until=until)
+
+
 def _load_benchmark_series(
     benchmark: str,
     asset_class: str,
