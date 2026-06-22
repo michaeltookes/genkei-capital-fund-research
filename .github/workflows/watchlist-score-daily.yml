@@ -1,0 +1,66 @@
+name: Watchlist Scoring Daily
+
+# B-065 + B-097 — compute the daily composite scoring rubric and emit its
+# band-crossing signals.
+#
+# Two sequential steps, both Postgres-only (no external APIs — the rubric
+# synthesizes data the other daily ingests already landed):
+#   1. `genkei watchlist score --persist` writes one meta.signals row per
+#      watchlist asset for today (the rubric output, B-065).
+#   2. the watchlist-scoring emitter (B-097) reads that growing meta.signals
+#      time series and emits a signal_event when an asset's composite score
+#      crosses into the bullish/bearish conviction band.
+#
+# This is the run that makes both live: B-065's scoring was computed once
+# (2026-05-22) and never scheduled, so meta.signals had a single day and the
+# B-097 emitter had no time series to detect crossings against. Daily
+# persistence builds the series; the emitter fires as bands are crossed.
+#
+# Runs on the self-hosted Beelink (needs homelab Postgres) at 13:00 UTC —
+# after the morning ingest crons have refreshed the rubric's inputs
+# (insider/SEC, Yahoo, DeFiLlama, CoinGecko, FRED) and before the 14:00
+# staleness check. Failures surface via the B-119 Discord/issue path
+# (workflow-failure-alert.yml + ingest-heartbeat.yml).
+
+on:
+  schedule:
+    - cron: "0 13 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  score:
+    name: Score watchlist + emit band-crossing signals (Postgres-backed)
+    runs-on: [self-hosted, beelink]
+    timeout-minutes: 30
+    env:
+      GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+
+      - name: Apply database migrations
+        run: alembic upgrade head
+
+      - name: Compute + persist today's composite scores into meta.signals
+        run: python3 -m genkei.cli watchlist score --persist
+
+      - name: Emit watchlist-scoring band-crossing events
+        run: |
+          python3 -m genkei.experiments.emitters.watchlist_scoring_emitter \
+            --since "$(date -u -d '90 days ago' '+%Y-%m-%d')"

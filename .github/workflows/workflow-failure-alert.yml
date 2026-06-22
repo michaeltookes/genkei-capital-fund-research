@@ -41,6 +41,7 @@ on:
       - "SUI Unlocks Daily Snapshot"
       - "On-chain Staking Daily Snapshot"
       - "Weekly Signal Digest"
+      - "Watchlist Scoring Daily"
       - "Ingest Staleness Check"
       - "Ingest Heartbeat"
     types: [completed]
