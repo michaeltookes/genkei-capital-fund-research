@@ -274,54 +274,63 @@ class BenchmarkColumnTests(unittest.TestCase):
             ),
         ]
 
-    def test_default_no_abnormal_column_without_benchmark(self) -> None:
+    def test_no_benchmark_flag_omits_abnormal_column(self) -> None:
         with patch(
             "genkei.cli.backtest.run_backtest",
             return_value=(_stack_returns_for_two_rules(), _baselines()),
-        ):
+        ) as run_mock:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = main(["backtest", "--no-benchmark"])
+        self.assertEqual(code, 0)
+        out = buf.getvalue()
+        # --no-benchmark disables benchmark loading and the abnormal column.
+        self.assertIsNone(run_mock.call_args.kwargs["benchmarks"])
+        self.assertNotIn("abnormal", out)
+
+    def test_default_renders_abnormal_column_with_per_class_benchmarks(self) -> None:
+        with patch(
+            "genkei.cli.backtest.run_backtest",
+            return_value=(self._stack_returns_with_benchmark(), _baselines()),
+        ) as run_mock:
             buf = io.StringIO()
             with redirect_stdout(buf):
                 code = main(["backtest"])
         self.assertEqual(code, 0)
         out = buf.getvalue()
-        # No abnormal column header should appear.
-        self.assertNotIn("abnormal", out)
-
-    def test_benchmark_flag_renders_abnormal_column(self) -> None:
-        with patch(
-            "genkei.cli.backtest.run_backtest",
-            return_value=(self._stack_returns_with_benchmark(), _baselines()),
-        ) as run_mock:
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                code = main(["backtest", "--benchmark", "SPY"])
-        self.assertEqual(code, 0)
-        out = buf.getvalue()
-        # benchmark_ticker was passed through to run_backtest.
-        self.assertEqual(run_mock.call_args.kwargs["benchmark_ticker"], "SPY")
+        # Benchmarks are on by default and routed per asset class.
+        self.assertEqual(
+            run_mock.call_args.kwargs["benchmarks"],
+            {"equity": "SPY", "crypto": "BTC"},
+        )
         self.assertIn("abnormal", out)
-        self.assertIn("benchmark=SPY", out)
+        self.assertIn("benchmark=SPY/equity, BTC/crypto", out)
         # Per-stack abnormal: post_5d = (3-1 + 5-1)/2 = 3.0; post_30d = (6-2 + 10-2)/2 = 6.0
         self.assertIn("3.00", out)
         self.assertIn("6.00", out)
 
-    def test_benchmark_lowercased_uppercased_via_cli(self) -> None:
-        # CLI uppercases the benchmark ticker before passing to run_backtest.
+    def test_benchmark_flags_lowercase_uppercased_via_cli(self) -> None:
+        # CLI validates + uppercases each benchmark ticker before run_backtest.
         with patch(
             "genkei.cli.backtest.run_backtest",
             return_value=(self._stack_returns_with_benchmark(), _baselines()),
         ) as run_mock:
             buf = io.StringIO()
             with redirect_stdout(buf):
-                code = main(["backtest", "--benchmark", "spy"])
+                code = main(
+                    ["backtest", "--equity-benchmark", "spy", "--crypto-benchmark", "btc"]
+                )
         self.assertEqual(code, 0)
-        self.assertEqual(run_mock.call_args.kwargs["benchmark_ticker"], "SPY")
+        self.assertEqual(
+            run_mock.call_args.kwargs["benchmarks"],
+            {"equity": "SPY", "crypto": "BTC"},
+        )
 
     def test_non_benchmark_ticker_rejected_before_query(self) -> None:
         with patch("genkei.cli.backtest.run_backtest") as run_mock:
             buf = io.StringIO()
             with redirect_stderr(buf):
-                code = main(["backtest", "--benchmark", "AAPL"])
+                code = main(["backtest", "--equity-benchmark", "AAPL"])
         self.assertEqual(code, 2)
         run_mock.assert_not_called()
         msg = re.sub(r"\x1b\[[0-9;]*m", "", buf.getvalue())
@@ -336,7 +345,7 @@ class BenchmarkColumnTests(unittest.TestCase):
         ):
             buf = io.StringIO()
             with redirect_stdout(buf):
-                code = main(["backtest", "--benchmark", "SPY", "--json"])
+                code = main(["backtest", "--json"])
         self.assertEqual(code, 0)
         parsed = json_mod.loads(buf.getvalue())
         smb = parsed[0]

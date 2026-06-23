@@ -191,9 +191,23 @@ genkei backtest --benchmark QQQ --by asset     # tech-tilted benchmark
 
 The default cut is `--by rule`. Add `--benchmark SPY` for the abnormal column (only renders when the benchmark series covers at least one stack window). JSON output preserves Decimal precision via `_json_default` and includes both `mean_abnormal_pct` and `n_abnormal_evaluable`.
 
+## v2 follow-up (B-101 v2): crypto stacks + per-class benchmarks
+
+The v1 + SPY-abnormal work above was **equity-only** — `run_backtest` loaded every asset from `yahoo.candles` and took a single benchmark ticker, so crypto stacks (live once B-095/B-098 landed the TVL-drawdown + relative-strength emitters) were *silently dropped* (no yahoo rows for `ethereum`), and there was no way to benchmark crypto against BTC. This follow-up makes the backtest asset-class-aware:
+
+- **Class-routed prices.** Equity stacks keep the yahoo adjusted-close loader; crypto stacks load `coinbase.candles` via the shared `signal_benchmark.load_close_series`. Macro/protocol stacks have no tradeable series and contribute nothing.
+- **Per-class benchmarks.** The single `benchmark_ticker` becomes a `benchmarks` dict — **SPY for equity, BTC for crypto**, on by default. Each stack's abnormal return is measured against *its own* market. The equity benchmark is validated against `watchlists.yml::benchmarks` (SPY/QQQ/IWM); the crypto benchmark is the canonical BTC resolved through `signal_benchmark` to its coinbase product (it is *not* added to the equity benchmarks section — that would collide with BTC-the-crypto-asset in the `prices` source resolver). CLI: `--equity-benchmark` / `--crypto-benchmark` / `--no-benchmark`.
+
+### Live re-run on the full (now complete-engine) dataset
+
+With all seven emitters live the population grew to **979 stacks across 6 rules** (v1 saw 416). The equity relative-strength rules (B-111/B-098) now dominate — `equity_rel_strength_exit` (n=514) and `deterioration_stack` (n=312) are the bulk of the bearish side.
+
+- **Crypto is finally measured.** `crypto_tvl_stress_combo` (n=1, the ETH 2018 ICO-crash stack) posts −44.85% raw at 90d and **−40.17pp abnormal vs BTC** — so it underperformed the *crypto market*, not just fell with it. v1 couldn't see this stack at all. (n=1 is a framing, not a verdict.)
+- **Bullish entry carries real edge.** `equity_rel_strength_entry` (n=36) is the standout: **+49.2pp abnormal vs SPY** and +15.6pp excess at 365d (with a noisy/negative 30d — the edge is a slow 6–12mo move, not tactical).
+- **The big bearish populations are weak as shorts in aggregate.** `equity_rel_strength_exit` and `deterioration_stack` show *positive* long-horizon abnormal returns (they're still equities in a rising tape) and near-zero excess vs their own random-day baseline — i.e. firing the "exit" stack didn't beat just holding the name. This reinforces v1's asset-heterogeneity finding: the signal is real on specific names (MSTR/HOOD) but averages out across the populous, CRM-dominated population. Per-asset weighting remains the operational follow-up.
+
 ## What this experiment deliberately does NOT cover
 
-- **Crypto-side stacks.** No crypto-side correlation rules exist today (B-095–B-098 will add the crypto emitters). When they land, the backtest will need to use `coinbase.candles` / `coingecko.market_data` for crypto assets and a crypto-side benchmark (BTC); the orchestrator is structured to make that drop-in. B-102 explicitly defers the BTC benchmark for that reason.
 - **Per-rule horizon tuning.** All rules use the same `STACK_WINDOWS` set. Future v2: each rule has its own "natural" forward-return horizon — `broad_exit` clearly lives at 6–12mo, `smart_money_buy`'s realized horizon is unknown for n=1.
 - **Statistical significance tests.** Mean / hit-rate / excess / abnormal are reported as point estimates without confidence intervals. With 115+ stacks for the bearish rules the asymptotic numbers are informative enough; revisit when a rule needs a "is this real or noise?" verdict.
 - **Sector-relative benchmark.** SPY is the broad-market comparator. A "tech-only" portfolio comparator (e.g. AAPL stacks vs QQQ) would be more informative for the watchlist's tech-heavy core. `--benchmark QQQ` already works mechanically for that; per-rule auto-selection is a future tweak.
@@ -207,4 +221,5 @@ The default cut is `--by rule`. Add `--benchmark SPY` for the abnormal column (o
 - `src/genkei/experiments/eight_k_impact.py` — source of the reusable `compute_windowed_returns` / `load_price_series` / `PricePoint`.
 - `docs/experiments/cross-source-signals.md` — the engine being measured.
 - `src/genkei/ingest/yahoo.py` — Yahoo OHLCV collector; B-102 extended it to also fetch the benchmark tickers declared under `watchlists.yml::benchmarks`.
-- `src/genkei/common/watchlist.py` — `BenchmarkEntry` + `find_benchmark`; B-102 added the benchmarks parser block.
+- `src/genkei/common/watchlist.py` — `BenchmarkEntry` + `find_benchmark`; B-102 added the benchmarks parser block (equity benchmarks only — the crypto benchmark BTC is canonical via `signal_benchmark`, not registered here).
+- `src/genkei/experiments/signal_benchmark.py` — `load_close_series` (the shared class-aware close loader the v2 crypto path reuses) + the SPY/BTC default benchmark routing.

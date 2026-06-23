@@ -91,7 +91,7 @@ def _format_stratum_table(
     stats_list: list[StackStratumStats],
     stratum_label: str,
     *,
-    benchmark_ticker: Optional[str] = None,
+    benchmark_label: Optional[str] = None,
 ) -> str:
     if not stats_list:
         return (
@@ -103,8 +103,8 @@ def _format_stratum_table(
         f"Backtest by {stratum_label} "
         f"({sum(s.n_stacks for s in stats_list)} stacks across {len(stats_list)} strata)"
     )
-    if show_abnormal and benchmark_ticker:
-        header += f" — benchmark={benchmark_ticker}"
+    if show_abnormal and benchmark_label:
+        header += f" — benchmark={benchmark_label}"
     lines = [header, "-" * len(header)]
     window_labels = [label for label, _, _ in STACK_WINDOWS]
     # One block per stratum, with one row per window. The flat row format
@@ -162,9 +162,10 @@ def _format_stratum_table(
         "(bullish rule: good; bearish rule: bad)"
     )
     if show_abnormal:
-        bench_label = benchmark_ticker or "benchmark"
+        bench_label = benchmark_label or "benchmark"
         lines.append(
-            f"  abnormal         = mean(stack_return - {bench_label}_return) over same window (pp)"
+            f"  abnormal         = mean(stack_return - benchmark_return), "
+            f"per-class benchmark ({bench_label}), same window (pp)"
         )
         lines.append(
             "                     positive = stack beat the benchmark in-window "
@@ -173,10 +174,8 @@ def _format_stratum_table(
     return "\n".join(lines)
 
 
-def _resolve_benchmark_ticker(raw: Optional[str], config: Path) -> Optional[str]:
-    """Validate ``--benchmark`` against the benchmark watchlist."""
-    if raw is None:
-        return None
+def _resolve_benchmark_ticker(raw: str, config: Path) -> str:
+    """Validate one benchmark ticker against the benchmark watchlist."""
     try:
         watchlist = load_watchlist(config)
     except FileNotFoundError as exc:
@@ -202,7 +201,7 @@ def backtest_cmd(
     ] = "rule",
     asset: Annotated[
         Optional[str],
-        typer.Option("--asset", "-a", help="Limit to one asset (equity ticker)."),
+        typer.Option("--asset", "-a", help="Limit to one asset (equity ticker or crypto id)."),
     ] = None,
     rule: Annotated[
         Optional[str],
@@ -220,17 +219,27 @@ def backtest_cmd(
         Optional[str],
         typer.Option("--until", help="Latest stack window_end date (YYYY-MM-DD)."),
     ] = None,
-    benchmark: Annotated[
-        Optional[str],
+    equity_benchmark: Annotated[
+        str,
         typer.Option(
-            "--benchmark",
-            help=(
-                "Benchmark ticker for abnormal-return column "
-                "(e.g. SPY). Must be in watchlists.yml::benchmarks "
-                "and have rows in yahoo.candles."
-            ),
+            "--equity-benchmark",
+            help="Benchmark ticker for equity stacks' abnormal-return column (yahoo.candles).",
         ),
-    ] = None,
+    ] = "SPY",
+    crypto_benchmark: Annotated[
+        str,
+        typer.Option(
+            "--crypto-benchmark",
+            help="Benchmark ticker for crypto stacks' abnormal-return column (coinbase.candles).",
+        ),
+    ] = "BTC",
+    no_benchmark: Annotated[
+        bool,
+        typer.Option(
+            "--no-benchmark",
+            help="Skip the benchmark-adjusted abnormal-return column entirely.",
+        ),
+    ] = False,
     json_out: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable JSON."),
@@ -262,7 +271,18 @@ def backtest_cmd(
     if since_d is not None and until_d is not None and since_d > until_d:
         raise typer.BadParameter("--since must be on or before --until.")
 
-    benchmark_ticker = _resolve_benchmark_ticker(benchmark, config)
+    benchmarks: Optional[dict[str, str]] = None
+    benchmark_label: Optional[str] = None
+    if not no_benchmark:
+        # Equity benchmark must be a registered yahoo benchmark (SPY/QQQ/IWM).
+        # The crypto benchmark is a coinbase-listed symbol (BTC) resolved by
+        # signal_benchmark — it isn't in the equity benchmarks section, so just
+        # normalize it; a bad value yields no crypto series and the
+        # no-abnormal-returns guard catches it.
+        eq = _resolve_benchmark_ticker(equity_benchmark, config)
+        cr = crypto_benchmark.strip().upper()
+        benchmarks = {"equity": eq, "crypto": cr}
+        benchmark_label = f"{eq}/equity, {cr}/crypto"
     try:
         stack_returns, baselines = run_backtest(
             rule=rule,
@@ -270,7 +290,7 @@ def backtest_cmd(
             asset=asset,
             since=since_d,
             until=until_d,
-            benchmark_ticker=benchmark_ticker,
+            benchmarks=benchmarks,
             rules_path=rules_path,
         )
     except ValueError as exc:
@@ -291,7 +311,7 @@ def backtest_cmd(
             _format_stratum_table(
                 stats_list,
                 stratum_label=by,
-                benchmark_ticker=benchmark_ticker,
+                benchmark_label=benchmark_label,
             )
         )
 
