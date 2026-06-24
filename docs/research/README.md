@@ -23,7 +23,7 @@ docs/research/
 ## How the reflection cycle works
 
 1. `/reflect-decisions` (loads `prompts/reflect-on-decisions.md`) — run weekly, or after each new decision lands.
-2. For every file in `decisions/` with `status: pending` past its horizon, pull realized prices, compute alpha vs benchmark, append outcome + 2-3 sentence reflection, flip `status: resolved`.
+2. For every file in `decisions/` with `status: pending` past its horizon, pull realized prices, compute raw alpha plus action-aware decision alpha vs benchmark, append outcome + 2-3 sentence reflection, flip `status: resolved`.
 3. Commit one batch per run.
 
 ## Frontmatter contract
@@ -48,7 +48,7 @@ Recommended optional direction key:
 |---|---|---|
 | `action` | string | `buy` / `add` / `hold` / `trim` / `sell` / `avoid` / `harvest_loss` |
 
-`/reflect-decisions` treats a missing `action` as `hold` for legacy decisions. For `sell`, `trim`, `avoid`, and `harvest_loss`, the reflection lens is inverted: asset underperformance is the intended directional outcome, not a lag.
+New decisions should include `action`. For legacy files without it, `/reflect-decisions` must first check the recommendation text: backfill obvious non-hold calls, treat missing action as `hold` only when the file is plainly a hold/maintain decision, and skip ambiguous cases for manual action tagging. For `sell`, `trim`, `avoid`, and `harvest_loss`, the reflection lens is inverted: asset underperformance is the intended directional outcome, not a lag.
 
 > **Date-valued keys must be date-only.** `tests/test_research_decisions.py` rejects any frontmatter value that parses to a `datetime` rather than a `date`. So a key like `trigger_fired_at` must be written `YYYY-MM-DD` (e.g. `2026-06-02`), never a full timestamp — PyYAML parses the bare date to `datetime.date` (passes) but a `…T00:00:00Z` string to `datetime.datetime` (fails).
 

@@ -3,6 +3,7 @@ date: 2026-06-02
 asset: SUI
 sleeve: crypto-tactical
 horizon: months
+action: trim
 confidence: medium
 status: pending
 trigger_reassessment: "SUI chain TVL recovers above $700M within 6 months OR SUIG open-market insider buy cluster ≥2 reporters at any price within 6 months OR SUI outperforms ETH on 90d window by ≥10pp within 6 months OR SUI/BTC 30d rel-strength flips back to laggard (≤−15pp) — the latter accelerates the trim"
