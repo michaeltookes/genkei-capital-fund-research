@@ -47,7 +47,7 @@ jobs:
       - name: Collect BEA NIPA tables into meta.raw_blobs
         id: collect
         run: |
-          output="$(python3 -m genkei.ingest.bea)"
+          output="$(bash scripts/ci/retry.sh 3 10 -- python3 -m genkei.ingest.bea)"
           echo "$output"
           # Parse "BEA collect: meta.ingest_runs id=NNN" — same convention
           # as the FRED workflow above so the workflow logs stay greppable.

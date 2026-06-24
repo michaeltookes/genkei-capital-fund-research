@@ -78,9 +78,13 @@ jobs:
           HOURS: ${{ inputs.hours || '' }}
         run: |
           args=()
+          # Scheduled snapshot (and a manual --hours override) wrap the collect
+          # in bounded retry (B-125); a manual --since backfill runs once.
+          retry=(bash scripts/ci/retry.sh 3 10 --)
           if [ -n "$SINCE" ]; then
             args+=(--backfill --since "$SINCE")
+            retry=()
           elif [ -n "$HOURS" ]; then
             args+=(--hours "$HOURS")
           fi
-          python3 -m genkei.ingest.gdelt "${args[@]}"
+          "${retry[@]}" python3 -m genkei.ingest.gdelt "${args[@]}"

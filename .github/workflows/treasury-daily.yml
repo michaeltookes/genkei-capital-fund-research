@@ -47,7 +47,7 @@ jobs:
       - name: Collect Treasury Fiscal Data into meta.raw_blobs
         id: collect
         run: |
-          output="$(python3 -m genkei.ingest.treasury)"
+          output="$(bash scripts/ci/retry.sh 3 10 -- python3 -m genkei.ingest.treasury)"
           echo "$output"
           # Parse "Treasury collect: meta.ingest_runs id=NNN" — same
           # convention as the FRED + BEA workflows so workflow logs

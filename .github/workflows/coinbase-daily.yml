@@ -48,7 +48,7 @@ jobs:
       - name: Collect Coinbase candles into meta.raw_blobs
         id: collect
         run: |
-          output="$(python3 -m genkei.ingest.coinbase)"
+          output="$(bash scripts/ci/retry.sh 3 10 -- python3 -m genkei.ingest.coinbase)"
           echo "$output"
           run_id_line="$(printf '%s\n' "$output" | grep 'ingest_run_id=' | tail -n 1 || true)"
           source_run_id="${run_id_line##*=}"

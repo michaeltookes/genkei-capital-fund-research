@@ -53,4 +53,4 @@ jobs:
 
       - name: Collect Sui validator snapshots into onchain.sui_validators
         run: |
-          python3 -m genkei.ingest.sui_staking
+          bash scripts/ci/retry.sh 3 10 -- python3 -m genkei.ingest.sui_staking

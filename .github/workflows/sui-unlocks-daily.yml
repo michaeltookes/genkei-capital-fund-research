@@ -56,4 +56,4 @@ jobs:
 
       - name: Collect SUI unlock schedule into onchain.sui_unlocks
         run: |
-          python3 -m genkei.ingest.sui_unlocks
+          bash scripts/ci/retry.sh 3 10 -- python3 -m genkei.ingest.sui_unlocks

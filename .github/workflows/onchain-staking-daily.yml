@@ -60,6 +60,15 @@ jobs:
         run: alembic upgrade head
 
       - name: Collect Chainlink staking events into onchain.staking_events
+        # Scheduled runs wrap the collect in bounded retry (B-125); a manual
+        # workflow_dispatch backfill runs once (a re-walk would be double-work).
+        env:
+          BACKFILL: ${{ (github.event_name == 'workflow_dispatch' && inputs.backfill) && 'true' || 'false' }}
         run: |
-          python3 -m genkei.ingest.onchain_staking \
-            ${{ (github.event_name == 'workflow_dispatch' && inputs.backfill) && '--backfill' || '' }}
+          args=()
+          retry=(bash scripts/ci/retry.sh 3 10 --)
+          if [ "$BACKFILL" = "true" ]; then
+            args+=(--backfill)
+            retry=()
+          fi
+          "${retry[@]}" python3 -m genkei.ingest.onchain_staking "${args[@]}"
