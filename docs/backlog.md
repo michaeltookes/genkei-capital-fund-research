@@ -345,17 +345,6 @@ A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the e
   - One full `/run-missions` pass executed; completed missions land in `missions/done/` with checklists marked.
   - Friction or spec gaps found in the mission format fed back into `docs/missions.md`.
 
-### B-121 — Code-quality pass: hoist duplicated patterns, surface silent failures
-- **Status:** open
-- **Priority:** medium
-- **Context:** Four findings from the source/test review, none urgent but all compounding. (1) The watchlist-loader pattern (`load_coins` / `load_equities` / `load_series` / `load_products` / `load_filers` / EIA / BEA) is on its ~sixth near-copy — CLAUDE.md says hoist at the third. (2) `normalize/defillama.py` is the largest tangle: ~8 endpoint types dispatched by string-prefix matching in one module. (3) `except Exception: pass` blocks in coercion helpers (`ingest/ishares.py:110,118,129`, `ingest/sui_staking.py:164`, `ingest/sui_unlocks.py:138`) swallow unexpected failures with no log line — in unattended daily ingest that's the difference between noticing bad data and not. (4) The 11 Postgres integration test classes duplicate identical pool setup, and the `--backfill` paths — the recovery mechanism when ingest breaks — have no automated coverage.
-- **Acceptance criteria:**
-  - `common/watchlist.py` gains a generic `load_watchlist_entries(...)` (entries getter + dedup key); the per-ingester loaders delegate to it.
-  - `normalize/defillama.py` split into a `normalize/defillama/` package with a dispatch table and per-endpoint modules.
-  - Silent `except Exception` coercion blocks log a `WARNING` on non-ValueError failures.
-  - A shared `PostgresTestCase` base class replaces the duplicated integration-test setup; at least one ingester's `--backfill` path gains an automated test.
-  - Date-range chunking (`coinbase._chunk_windows` + the coingecko inline copy) hoisted to `common/`.
-
 ### B-124 — Audit yahoo.candles price magnitudes against external references
 - **Status:** open
 - **Priority:** low
