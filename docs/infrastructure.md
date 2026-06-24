@@ -166,6 +166,26 @@ The lake is fed by 14 scheduled ingest workflows. Three workflows watch for it g
 
 **Why the heartbeat is GitHub-hosted:** a down self-hosted runner never *starts* its scheduled jobs, so nothing fails (no failure alert) and the DB-side staleness check can't run either (it lives on the same runner). The heartbeat sidesteps both by living on GitHub-hosted compute and reading only the Actions API — it stays up when the homelab is down. It uses run *recency* (last successful run age) rather than DB freshness because GitHub-hosted runners can't reach the homelab Postgres (see "Network reachability").
 
+### Retry on transient failure (B-125)
+
+Monitoring above is the *observability* half of silent-staleness — you find out when the lake stops being fed. Retry is the *prevention* half: each ingest workflow ran its collector exactly once, so a single transient API flake (a slow FRED at 11:00 UTC, a 502 from DeFiLlama) dropped a full day of data until the next cron.
+
+The external-API **collect** step of every ingest workflow is now wrapped in `scripts/ci/retry.sh` — a plain bash retry-with-backoff (no third-party Action, matching the SHA-pinned-action posture):
+
+```
+bash scripts/ci/retry.sh <max_attempts> <base_delay_seconds> -- <command...>
+```
+
+Contract:
+
+- **Bounded:** 3 attempts, exponential backoff (`base_delay * 2^(n-1)` → 10s, 20s). Worst-case ~30s added before a step fails for real — well inside every workflow's timeout budget.
+- **Idempotency-safe:** collectors upsert and wrap each run in a single `meta.ingest_runs` row, so a retried attempt opens a fresh run rather than corrupting accounting. A failed attempt's run is marked `failed`; the successful attempt's run is the one normalize consumes.
+- **Run-id preserved:** the command's stdout streams through unchanged. A failed attempt prints no `ingest_run_id=` line (collectors print it only on success), so the workflows that parse `grep ingest_run_id= | tail -n1` still pick the successful attempt's id. Retry diagnostics go to stderr.
+- **Scope — deliberately *not* everything:**
+  - **Normalize / emit steps are not wrapped** — they read the local Postgres, not a flaky external API.
+  - **`workflow_dispatch` backfill / `--since` replay paths run once, never retried** — re-walking a backfill is double-work. The args-array workflows (`cftc`, `gdelt`, `etherscan-whales`, `onchain-staking`) clear the retry prefix (`retry=()`) in backfill mode; only the scheduled incremental path retries.
+  - **SEC's soft-failure collectors (`sec_form4`, `sec_form13f`) are not wrapped** — they already tolerate per-item 404s and record partials without failing the run, so a retry would re-walk for no gain.
+
 ### Discord webhook secret
 
 Real-time alerts post to a Discord channel via an incoming webhook. The webhook URL is a repo secret named **`DISCORD_WEBHOOK_URL`**; it is **not** a local/CLI variable (the `genkei` tool never uses it), so it lives only as a GitHub Actions secret, not in `.env`.
