@@ -24,14 +24,14 @@ CYBL is **Cyberlux Corporation** (Durham, NC; OTC Pink) — a defense-tech micro
 
 ## Fundamentals
 
-The genuinely unusual part: **CYBL has a real, growing defense business**, not a hollow shell.
-- **FY2025 revenue $31.4M**, gross margin expanded to **~45%**; completed delivery of all **2,000 K8 UAS** under a **$78.9M DoD contract**; reported **$18.1M backlog** entering 2H25 (company releases via StockTitan / BusinessWire / cyberlux.com).
+The genuinely unusual part: **CYBL has a real defense business**, not a hollow shell; it has scaled materially since 2021, but the recent revenue trend is contracting and lumpy.
+- **FY2025 revenue $31.4M** (down from **$48.4M in FY2024**), gross margin expanded to **~45%**; completed delivery of all **2,000 K8 UAS** under a **$78.9M DoD contract**; reported **$18.1M backlog** entering 2H25 (company releases via StockTitan / BusinessWire / cyberlux.com).
 - 2021 baseline: $8.1M revenue, **$1.9M net income** (was profitable then).
 
 But the equity structure tells the opposite story:
 - **Price ~$0.0016** ("trip-zero" sub-penny) as of 2026-06-17; market cap **~$12–15M** (Yahoo / stockanalysis.com / macroaxis).
 - **~7.18 billion shares outstanding.**
-- **Recent quarter: net income −$2.07M, net change in cash −$3.36M** (losses + burn), with a third-party model putting **~47% odds of financial distress**. (One source cited a +$2.85M positive-earnings period — likely a different/one-off window; OTC-Pink reporting is inconsistent and I could not reconcile it. Flagged, not relied upon.)
+- **Recent quarter: Q1 2026 revenue $1.8M vs $5.1M in Q1 2025; net loss −$6.017M; net cash used in operating activities −$1.502M** (losses + burn), with a third-party model putting **~47% odds of financial distress**. (One source cited a +$2.85M positive-earnings period — likely a different/one-off window; OTC-Pink reporting is inconsistent and I could not reconcile it. Flagged, not relied upon.)
 - **Dilution trajectory is the disease:** ~5.8B shares → 5.1B after a PR'd cancellation of 700M "ghost shares" (May 2022), with authorized cut 8.75B → 7.0B "to protect shareholders." Yet outstanding is **now 7.18B — above the 2022 authorized cap**, meaning authorized was subsequently *re-raised* and dilution continued (~+40% shares since 2022). The investor-friendly "reductions" were headlines; the trend is more shares.
 
 The core fact: a company doing $31M of revenue at 45% gross margin "should" be worth more than a ~$12M market cap — **unless the share count keeps outrunning the business.** That gap is the market pricing relentless dilution.
@@ -43,13 +43,13 @@ No lake coverage (no insider/13F/institutional data for an OTC Pink name). Exter
 ## Phase A — case for and case against
 
 **Bull case (steelmanned):**
-1. Real revenue, real DoD contracts, 45% gross margin, growing backlog — genuinely rare for a sub-penny stock; this is an operating defense business, not vapor.
+1. Real revenue, real DoD contracts, 45% gross margin, reported backlog — genuinely rare for a sub-penny stock; this is an operating defense business, not vapor.
 2. Optionality on a **corporate action**: a reverse split + Nasdaq uplisting would re-rate the equity off the sub-penny floor and could be a multiple-bagger from $0.0016 *if* paired with a clean cap table.
 3. **War-catalyst convexity**: in a major conflict escalation, drone-defense micro-caps can spike several-hundred percent on headlines; a small position is a cheap lottery ticket on that.
 4. Downside is already mostly realized — the user holds at a loss; the remaining dollar value is tiny.
 
 **Bear case:**
-1. **Dilution overwhelms growth.** Defense contracts are working-capital-hungry (you fund production before getting paid); CYBL funds that by issuing shares. Revenue rises, per-share value doesn't. 7.18B shares and climbing.
+1. **Dilution overwhelms growth.** Defense contracts are working-capital-hungry (you fund production before getting paid); CYBL funds that by issuing shares. Even when revenue scales over multi-year windows, per-share value doesn't. 7.18B shares and climbing.
 2. **Sub-penny "trip zero" is structurally dead money** — at $0.0016 the equity is an option on a corporate action that management has had years to execute and hasn't.
 3. **Cash burn + ~47% distress odds** → the financing need that drives more dilution or toxic convertibles is ongoing.
 4. **War-news pops round-trip** — years of catalysts have not lifted the floor.
