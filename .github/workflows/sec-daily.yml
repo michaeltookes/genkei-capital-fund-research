@@ -63,7 +63,7 @@ jobs:
       - name: Collect SEC submissions + XBRL facts into meta.raw_blobs
         id: collect-sec
         run: |
-          output="$(python3 -m genkei.ingest.sec)"
+          output="$(bash scripts/ci/retry.sh 3 10 -- python3 -m genkei.ingest.sec)"
           echo "$output"
           run_id_line="$(printf '%s\n' "$output" | grep 'ingest_run_id=' | tail -n 1 || true)"
           ingest_run_id="${run_id_line##*=}"

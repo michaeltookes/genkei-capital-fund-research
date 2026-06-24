@@ -41,7 +41,7 @@ jobs:
         run: alembic upgrade head
 
       - name: Collect raw payloads into meta.raw_blobs
-        run: python3 -m genkei.ingest.defillama
+        run: bash scripts/ci/retry.sh 3 10 -- python3 -m genkei.ingest.defillama
 
       - name: Normalize raw payloads into defillama.* tables
         run: python3 -m genkei.normalize.defillama

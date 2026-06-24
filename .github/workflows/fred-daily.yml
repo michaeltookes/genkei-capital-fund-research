@@ -42,7 +42,7 @@ jobs:
       - name: Collect FRED series + observations into meta.raw_blobs
         id: collect
         run: |
-          output="$(python3 -m genkei.ingest.fred)"
+          output="$(bash scripts/ci/retry.sh 3 10 -- python3 -m genkei.ingest.fred)"
           echo "$output"
           run_id_line="$(printf '%s\n' "$output" | grep 'ingest_run_id=' | tail -n 1 || true)"
           source_run_id="${run_id_line##*=}"

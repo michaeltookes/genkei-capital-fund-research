@@ -71,7 +71,11 @@ jobs:
           SINCE: ${{ inputs.since || '' }}
         run: |
           args=()
+          # Scheduled snapshot wraps the collect in bounded retry (B-125); a
+          # manual --since backfill runs once (a re-walk would be double-work).
+          retry=(bash scripts/ci/retry.sh 3 10 --)
           if [ -n "$SINCE" ]; then
             args+=(--since "$SINCE")
+            retry=()
           fi
-          python3 -m genkei.ingest.etherscan_whale_flow "${args[@]}"
+          "${retry[@]}" python3 -m genkei.ingest.etherscan_whale_flow "${args[@]}"

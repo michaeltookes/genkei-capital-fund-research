@@ -61,9 +61,14 @@ jobs:
           SINCE: ${{ inputs.since || '' }}
         run: |
           args=()
+          # Scheduled incremental runs wrap the collect in bounded retry (B-125);
+          # a manual backfill / --since replay runs once (a re-walk is double-work).
+          retry=(bash scripts/ci/retry.sh 3 10 --)
           if [ "$BACKFILL" = "true" ]; then
             args+=(--backfill)
+            retry=()
           elif [ -n "$SINCE" ]; then
             args+=(--since "$SINCE")
+            retry=()
           fi
-          python3 -m genkei.ingest.cftc "${args[@]}"
+          "${retry[@]}" python3 -m genkei.ingest.cftc "${args[@]}"

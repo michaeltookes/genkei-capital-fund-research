@@ -52,4 +52,4 @@ jobs:
 
       - name: Collect iShares ETF snapshots into etf.fund_snapshots
         run: |
-          python3 -m genkei.ingest.ishares
+          bash scripts/ci/retry.sh 3 10 -- python3 -m genkei.ingest.ishares
