@@ -10,7 +10,7 @@ from tempfile import TemporaryDirectory
 
 from genkei.common import db
 from genkei.normalize import defillama as normalizer
-from tests._postgres import get_harness, postgres_required
+from tests._postgres import PostgresTestCase
 
 CONFIG = {"chain_focus": ["Ethereum"]}
 FETCHED_AT = datetime(2026, 5, 9, 12, 0, tzinfo=timezone.utc)
@@ -59,24 +59,7 @@ PRICES_PAYLOAD = {
 }
 
 
-@postgres_required
-class NormalizerIntegrationTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.harness = get_harness()
-
-    def setUp(self) -> None:
-        from psycopg_pool import ConnectionPool
-
-        db.reset_pool()
-        self._pool = ConnectionPool(conninfo=self.harness.url, min_size=1, max_size=2, open=True)
-        db.set_pool(self._pool)
-
-    def tearDown(self) -> None:
-        db.reset_pool()
-        self._pool.close()
-        self.harness.truncate_all()
-
+class NormalizerIntegrationTests(PostgresTestCase):
     def _seed_collector_run(self) -> int:
         """Insert a fake collector ingest_run + matching raw_blobs."""
         with db.connection() as conn, conn.cursor() as cur:

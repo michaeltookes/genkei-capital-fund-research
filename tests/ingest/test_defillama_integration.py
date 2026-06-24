@@ -13,7 +13,7 @@ import httpx
 from genkei.common import db
 from genkei.common.http import HttpClient
 from genkei.ingest import defillama as collector
-from tests._postgres import get_harness, postgres_required
+from tests._postgres import PostgresTestCase
 
 CONFIG = {
     "defillama_base_urls": {
@@ -46,24 +46,7 @@ def _route(request: httpx.Request) -> httpx.Response:
     return httpx.Response(200, json=payload)
 
 
-@postgres_required
-class CollectorIntegrationTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.harness = get_harness()
-
-    def setUp(self) -> None:
-        from psycopg_pool import ConnectionPool
-
-        db.reset_pool()
-        self._pool = ConnectionPool(conninfo=self.harness.url, min_size=1, max_size=2, open=True)
-        db.set_pool(self._pool)
-
-    def tearDown(self) -> None:
-        db.reset_pool()
-        self._pool.close()
-        self.harness.truncate_all()
-
+class CollectorIntegrationTests(PostgresTestCase):
     def test_full_run_lands_one_blob_per_endpoint(self) -> None:
         with TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "config.json"

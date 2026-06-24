@@ -152,3 +152,50 @@ def get_harness() -> PostgresHarness:
         _HARNESS = PostgresHarness()
         atexit.register(_HARNESS.stop)
     return _HARNESS
+
+
+@postgres_required
+class PostgresTestCase(unittest.TestCase):
+    """Base class for tests that exercise ``genkei.common.db`` against a live DB.
+
+    Every integration test class repeated the same pool lifecycle: grab the
+    shared harness in ``setUpClass``, and around each test truncate the
+    database, swap ``genkei.common.db``'s pool for a fresh one bound to the
+    harness, then tear it back down (B-121). That boilerplate now lives here —
+    subclasses just add test methods. The ``@postgres_required`` skip is
+    inherited, so subclasses are skipped cleanly when Docker / testcontainers
+    isn't available.
+
+    Use ``self.harness`` for direct-SQL helpers (``connection``,
+    ``truncate_all``); use the normal ``genkei.common.db`` API inside the code
+    under test — it's wired to the harness for the duration of each test.
+    """
+
+    harness: PostgresHarness
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls.harness = get_harness()
+
+    def setUp(self) -> None:
+        super().setUp()
+        # Imported lazily so the offline suite never needs psycopg_pool.
+        from psycopg_pool import ConnectionPool
+
+        from genkei.common import db
+
+        self.harness.truncate_all()
+        db.reset_pool()
+        self._pool = ConnectionPool(
+            conninfo=self.harness.url, min_size=1, max_size=2, open=True
+        )
+        db.set_pool(self._pool)
+
+    def tearDown(self) -> None:
+        from genkei.common import db
+
+        db.reset_pool()
+        self._pool.close()
+        self.harness.truncate_all()
+        super().tearDown()
