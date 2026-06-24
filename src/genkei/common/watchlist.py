@@ -9,12 +9,14 @@ subcommands both read from here so a fix propagates to every reader.
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Mapping
+from collections.abc import Callable, Hashable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypeVar
 
 import yaml
+
+_EntryT = TypeVar("_EntryT")
 
 DEFAULT_WATCHLIST_PATH = Path(__file__).resolve().parent.parent / "data" / "watchlists.yml"
 SleeveKind = Literal["crypto", "equity", "macro", "protocol", "filer"]
@@ -976,6 +978,53 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
         treasury=treasury,
         eia=eia,
     )
+
+
+def load_watchlist_or_exit(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
+    """Load a watchlist, converting load/parse errors into ``SystemExit``.
+
+    Every ingester and CLI entry point wants the same behavior: a missing or
+    malformed watchlist should abort with a clean one-line message, not a
+    traceback. This is the single source of that preamble (B-121). The bare
+    ``load_watchlist`` stays exception-based for library callers that want to
+    handle the errors themselves.
+    """
+    try:
+        return load_watchlist(path)
+    except FileNotFoundError as exc:
+        raise SystemExit(f"Watchlist file not found: {path}") from exc
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def load_watchlist_entries(
+    path: Path,
+    select: Callable[[Watchlist], Iterable[_EntryT]],
+    *,
+    dedup_key: Callable[[_EntryT], Hashable] | None = None,
+) -> list[_EntryT]:
+    """Load the watchlist and return one section as a list (B-121).
+
+    ``select`` is the entries getter — e.g. ``lambda w: w.macro``. Load/parse
+    errors abort via ``load_watchlist_or_exit``. When ``dedup_key`` is given,
+    entries are deduped on that key with first occurrence winning; loaders that
+    must *reject* duplicates (rather than silently drop them) pass no
+    ``dedup_key`` and keep their own validation loop. This helper owns only the
+    universal load preamble and the silent-dedup case — the per-source mapping
+    into typed fetch targets stays in each ingester.
+    """
+    entries = list(select(load_watchlist_or_exit(path)))
+    if dedup_key is None:
+        return entries
+    seen: set[Hashable] = set()
+    out: list[_EntryT] = []
+    for entry in entries:
+        key = dedup_key(entry)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(entry)
+    return out
 
 
 def _normalize_filer_cik(raw: object) -> str | None:

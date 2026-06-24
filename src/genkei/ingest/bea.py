@@ -57,7 +57,7 @@ import httpx
 
 from genkei.common import db
 from genkei.common.http import HttpClient, RateLimit
-from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist
+from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist_entries
 
 SOURCE_NAME = "bea"
 COLLECT_ENDPOINT_LABEL = "collect"
@@ -101,17 +101,12 @@ def load_targets(path: Path = DEFAULT_WATCHLIST_PATH) -> list[TableTarget]:
     deterministic test fixtures + reproducible blob ordering across
     runs.
     """
-    try:
-        watchlist = load_watchlist(path)
-    except FileNotFoundError as exc:
-        raise SystemExit(f"Watchlist file not found: {path}") from exc
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from exc
-    if not watchlist.bea:
+    entries = load_watchlist_entries(path, lambda w: w.bea)
+    if not entries:
         raise SystemExit("watchlists.yml is missing a `bea:` section or it is empty.")
     seen: set[tuple[str, str]] = set()
     out: list[TableTarget] = []
-    for entry in watchlist.bea:
+    for entry in entries:
         key = (entry.table_id, entry.frequency)
         if key in seen:
             continue

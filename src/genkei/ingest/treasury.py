@@ -63,7 +63,7 @@ import httpx
 from genkei.common import db
 from genkei.common.http import HttpClient, RateLimit
 from genkei.common.slugs import blob_slug_part as _blob_slug_part
-from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist
+from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist_entries
 
 SOURCE_NAME = "treasury"
 COLLECT_ENDPOINT_LABEL = "collect"
@@ -135,19 +135,14 @@ def load_targets(path: Path = DEFAULT_WATCHLIST_PATH) -> list[EndpointTarget]:
     fetches each unique (endpoint, date_field) pair once. Sort the
     output for deterministic blob ordering across runs.
     """
-    try:
-        watchlist = load_watchlist(path)
-    except FileNotFoundError as exc:
-        raise SystemExit(f"Watchlist file not found: {path}") from exc
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from exc
-    if not watchlist.treasury:
+    entries = load_watchlist_entries(path, lambda w: w.treasury)
+    if not entries:
         raise SystemExit(
             "watchlists.yml is missing a `treasury:` section or it is empty."
         )
     seen: set[tuple[str, str]] = set()
     out: list[EndpointTarget] = []
-    for entry in watchlist.treasury:
+    for entry in entries:
         key = (entry.endpoint, entry.date_field)
         if key in seen:
             continue

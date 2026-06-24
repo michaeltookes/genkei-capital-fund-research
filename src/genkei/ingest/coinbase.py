@@ -61,7 +61,7 @@ import httpx
 from genkei.common import db
 from genkei.common.dates import iter_date_windows
 from genkei.common.http import HttpClient, RateLimit
-from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist
+from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist_entries
 
 SOURCE_NAME = "coinbase"
 COLLECT_ENDPOINT_LABEL = "collect"
@@ -102,15 +102,10 @@ def load_products(path: Path) -> list[ProductTarget]:
     one product. A duplicate would silently double-fetch and cost rate
     budget for nothing.
     """
-    try:
-        watchlist = load_watchlist(path)
-    except FileNotFoundError as exc:
-        raise SystemExit(f"Watchlist file not found: {path}") from exc
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from exc
+    entries = load_watchlist_entries(path, lambda w: w.crypto)
     out: list[ProductTarget] = []
     seen_products: set[str] = set()
-    for entry in watchlist.crypto:
+    for entry in entries:
         if not entry.coinbase_product:
             LOGGER.info(
                 "Coinbase: skipping %s (no coinbase_product in watchlist)", entry.symbol

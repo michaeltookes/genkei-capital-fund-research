@@ -39,7 +39,7 @@ from typing import Any
 from genkei.common import db
 from genkei.common.dates import iter_date_windows
 from genkei.common.http import HttpClient, RateLimit
-from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist
+from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist_or_exit
 
 SOURCE_NAME = "coingecko"
 COLLECT_ENDPOINT_LABEL = "collect"
@@ -99,12 +99,7 @@ def load_coins(path: Path) -> list[CoinTarget]:
     authoritative symbol + name land in ``coingecko.coins`` from the
     CoinGecko API response itself (B-091).
     """
-    try:
-        watchlist = load_watchlist(path)
-    except FileNotFoundError as exc:
-        raise SystemExit(f"Watchlist file not found: {path}") from exc
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from exc
+    watchlist = load_watchlist_or_exit(path)
 
     out: list[CoinTarget] = []
     seen_ids: set[str] = set()

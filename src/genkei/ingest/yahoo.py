@@ -56,7 +56,7 @@ import httpx
 
 from genkei.common import db
 from genkei.common.http import HttpClient, RateLimit
-from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist
+from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist_or_exit
 
 SOURCE_NAME = "yahoo"
 COLLECT_ENDPOINT_LABEL = "collect"
@@ -113,12 +113,7 @@ def load_equities(path: Path) -> list[EquityTarget]:
     Yahoo-specific suffix (BRK-B, BHP.AX, etc.) the watchlist can grow a
     ``yahoo_ticker`` field — out of scope for v1.
     """
-    try:
-        watchlist = load_watchlist(path)
-    except FileNotFoundError as exc:
-        raise SystemExit(f"Watchlist file not found: {path}") from exc
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from exc
+    watchlist = load_watchlist_or_exit(path)
     out: list[EquityTarget] = []
     seen: set[str] = set()
     for entry in watchlist.equities:

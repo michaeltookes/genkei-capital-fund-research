@@ -69,7 +69,7 @@ from genkei.common.http import HttpClient, RateLimit
 from genkei.common.slugs import blob_slug_part as _blob_slug_part
 from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
-    load_watchlist,
+    load_watchlist_entries,
 )
 
 SOURCE_NAME = "eia"
@@ -120,18 +120,13 @@ def load_targets(path: Path = DEFAULT_WATCHLIST_PATH) -> list[SeriesTarget]:
     Watchlist series_ids are upper-cased + deduped during loading, so
     this only needs to project the typed entries into ``SeriesTarget``s.
     """
-    try:
-        watchlist = load_watchlist(path)
-    except FileNotFoundError as exc:
-        raise SystemExit(f"Watchlist file not found: {path}") from exc
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from exc
-    if not watchlist.eia:
+    entries = load_watchlist_entries(path, lambda w: w.eia)
+    if not entries:
         raise SystemExit(
             "watchlists.yml is missing an `eia:` section or it is empty."
         )
     out: list[SeriesTarget] = []
-    for entry in watchlist.eia:
+    for entry in entries:
         out.append(
             SeriesTarget(
                 series_id=entry.series_id,

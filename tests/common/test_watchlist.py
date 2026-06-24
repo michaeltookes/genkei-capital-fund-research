@@ -530,5 +530,68 @@ class EiaParserTests(unittest.TestCase):
         self.assertEqual(w.eia[0].facets, {"series": "RWTC"})
 
 
+_DEDUP_YAML = """\
+version: 1
+crypto:
+  primary:
+    - symbol: BTC
+      name: Bitcoin
+      coingecko_id: bitcoin
+    - symbol: WBTC
+      name: Wrapped Bitcoin
+      coingecko_id: bitcoin
+    - symbol: ETH
+      name: Ethereum
+      coingecko_id: ethereum
+"""
+
+
+class LoadHelperTests(unittest.TestCase):
+    """The shared loader preamble + entries getter hoisted in B-121."""
+
+    def _write(self, body: str) -> Path:
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / "watchlists.yml"
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_or_exit_raises_systemexit_on_missing_file(self) -> None:
+        from genkei.common.watchlist import load_watchlist_or_exit
+
+        with self.assertRaises(SystemExit):
+            load_watchlist_or_exit(Path("/nonexistent/watchlists.yml"))
+
+    def test_entries_returns_selected_section(self) -> None:
+        from genkei.common.watchlist import load_watchlist_entries
+
+        path = self._write(_DEDUP_YAML)
+        symbols = [e.symbol for e in load_watchlist_entries(path, lambda w: w.crypto)]
+        self.assertEqual(symbols, ["BTC", "WBTC", "ETH"])
+
+    def test_entries_dedup_key_keeps_first_occurrence(self) -> None:
+        from genkei.common.watchlist import load_watchlist_entries
+
+        path = self._write(_DEDUP_YAML)
+        entries = load_watchlist_entries(
+            path, lambda w: w.crypto, dedup_key=lambda e: e.coingecko_id
+        )
+        # BTC and WBTC share coingecko_id "bitcoin" — first wins, WBTC dropped.
+        self.assertEqual([e.symbol for e in entries], ["BTC", "ETH"])
+
+    def test_entries_without_dedup_key_keeps_duplicates(self) -> None:
+        from genkei.common.watchlist import load_watchlist_entries
+
+        path = self._write(_DEDUP_YAML)
+        entries = load_watchlist_entries(path, lambda w: w.crypto)
+        self.assertEqual(len(entries), 3)
+
+    def test_entries_propagates_systemexit_on_missing_file(self) -> None:
+        from genkei.common.watchlist import load_watchlist_entries
+
+        with self.assertRaises(SystemExit):
+            load_watchlist_entries(Path("/nope/watchlists.yml"), lambda w: w.crypto)
+
+
 if __name__ == "__main__":
     unittest.main()

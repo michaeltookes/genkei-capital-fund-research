@@ -51,7 +51,7 @@ import httpx
 
 from genkei.common import db
 from genkei.common.http import HttpClient, RateLimit
-from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist
+from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist_entries
 
 SOURCE_NAME = "fred"
 COLLECT_ENDPOINT_LABEL = "collect"
@@ -94,17 +94,12 @@ def load_series(path: Path) -> list[SeriesTarget]:
     Rejects duplicate series IDs since the FRED collector keys on them and
     a duplicate would silently double-fetch.
     """
-    try:
-        watchlist = load_watchlist(path)
-    except FileNotFoundError as exc:
-        raise SystemExit(f"Watchlist file not found: {path}") from exc
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from exc
-    if not watchlist.macro:
+    entries = load_watchlist_entries(path, lambda w: w.macro)
+    if not entries:
         raise SystemExit("watchlists.yml is missing macro_series or it is empty.")
     out: list[SeriesTarget] = []
     seen_ids: set[str] = set()
-    for entry in watchlist.macro:
+    for entry in entries:
         if entry.series_id in seen_ids:
             raise SystemExit(f"Duplicate macro_series id: {entry.series_id}")
         seen_ids.add(entry.series_id)
