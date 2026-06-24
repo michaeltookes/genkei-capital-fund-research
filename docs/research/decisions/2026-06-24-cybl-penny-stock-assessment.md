@@ -3,6 +3,7 @@ date: 2026-06-24
 asset: CYBL
 sleeve: equity-core
 horizon: months
+action: harvest_loss
 confidence: medium
 status: pending
 trigger_reassessment: "CYBL files a reverse split + Nasdaq/NYSE uplisting OR reports a reduction in fully diluted/convertible overhang (not just basic shares outstanding) OR announces K8 receivable/interpleader cash release that materially reduces financing need OR a war-driven pop holds above ~$0.01 for >2 weeks"

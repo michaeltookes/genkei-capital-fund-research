@@ -38,6 +38,7 @@ VALID_SLEEVES = {"equity-core", "crypto-core", "crypto-tactical", "macro-aware"}
 VALID_HORIZONS = {"weeks", "months", "years"}
 VALID_CONFIDENCES = {"low", "medium", "high"}
 VALID_STATUSES = {"pending", "resolved", "deferred"}
+VALID_ACTIONS = {"buy", "add", "hold", "trim", "sell", "avoid", "harvest_loss"}
 
 
 def _decision_files() -> list[Path]:
@@ -177,6 +178,18 @@ class DecisionFrontmatterContractTests(unittest.TestCase):
                     fm["status"],
                     VALID_STATUSES,
                     f"{path.name}: `status` must be one of {sorted(VALID_STATUSES)}",
+                )
+
+    def test_optional_action_is_valid_when_present(self) -> None:
+        for path in _decision_files():
+            with self.subTest(path=path.name):
+                fm = _parse_frontmatter(path)
+                if "action" not in fm:
+                    continue
+                self.assertIn(
+                    fm["action"],
+                    VALID_ACTIONS,
+                    f"{path.name}: `action` must be one of {sorted(VALID_ACTIONS)}",
                 )
 
     def test_trigger_reassessment_is_nonempty_string(self) -> None:

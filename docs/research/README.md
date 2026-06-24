@@ -42,6 +42,14 @@ Every decision file's frontmatter MUST have these keys (validated in CI by `test
 
 Add optional keys freely (`tags`, `related`, etc.). The contract is the minimum.
 
+Recommended optional direction key:
+
+| key | type | values |
+|---|---|---|
+| `action` | string | `buy` / `add` / `hold` / `trim` / `sell` / `avoid` / `harvest_loss` |
+
+`/reflect-decisions` treats a missing `action` as `hold` for legacy decisions. For `sell`, `trim`, `avoid`, and `harvest_loss`, the reflection lens is inverted: asset underperformance is the intended directional outcome, not a lag.
+
 > **Date-valued keys must be date-only.** `tests/test_research_decisions.py` rejects any frontmatter value that parses to a `datetime` rather than a `date`. So a key like `trigger_fired_at` must be written `YYYY-MM-DD` (e.g. `2026-06-02`), never a full timestamp — PyYAML parses the bare date to `datetime.date` (passes) but a `…T00:00:00Z` string to `datetime.datetime` (fails).
 
 ## Supersession and trigger-fire (early resolution)

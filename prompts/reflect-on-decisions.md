@@ -29,10 +29,11 @@ Walk `docs/research/decisions/*.md`. For each file:
 1. Parse the YAML frontmatter (between the `---` fences).
 2. Skip if `status: resolved` or `status: deferred` (terminal — already handled).
 3. Skip the template file `_template.md` and `README.md`.
-4. **Early-resolution check:** if `superseded_by` is set OR `trigger_fired_at` / `trigger_fired: true` is present — and the file is still `pending` — resolve it now (see "Early resolution beats the horizon math" above), add it to the `early_resolved` list for the batch summary/commit, and skip remaining steps for this file.
-5. Compute `elapsed_days = (today - frontmatter.date).days`.
-6. Skip if `elapsed_days < horizon_days` per the mapping above.
-7. Add the rest to the to-reflect queue.
+4. Read optional `action` frontmatter; if missing, default to `hold` for legacy decisions. Valid direction values are `buy`, `add`, `hold`, `trim`, `sell`, `avoid`, and `harvest_loss`.
+5. **Early-resolution check:** if `superseded_by` is set OR `trigger_fired_at` / `trigger_fired: true` is present — and the file is still `pending` — resolve it now (see "Early resolution beats the horizon math" above), add it to the `early_resolved` list for the batch summary/commit, and skip remaining steps for this file.
+6. Compute `elapsed_days = (today - frontmatter.date).days`.
+7. Skip if `elapsed_days < horizon_days` per the mapping above.
+8. Add the rest to the to-reflect queue.
 
 If the queue is empty and `early_resolved` is empty, report "no decisions past their horizon" and stop. If `early_resolved` has entries, skip realized-data pulling and benchmark math, then continue to the summary/commit path so those resolved files are persisted.
 
@@ -66,8 +67,10 @@ For equity / crypto decisions where you have prices:
 
 - **Asset return:** `(price_today / price_at_decision_date) - 1`. Annualize if horizon > 1y by using `(1 + ret) ** (365/elapsed_days) - 1`.
 - **Benchmark return:** same calc, against SPY or BTC depending on sleeve.
-- **Alpha:** `asset_return - benchmark_return`. Positive = beat the benchmark; negative = underperformed.
-- **Confidence calibration:** if the decision said `confidence: high` and alpha is +5% or worse, that's a calibration miss — note it. Same for `confidence: low` and a big positive surprise.
+- **Raw alpha:** `asset_return - benchmark_return`. This is always the asset's return minus benchmark return.
+- **Action lens:** use frontmatter `action` if present, otherwise `hold`. `buy`, `add`, and `hold` are long-exposure calls; positive raw alpha is good. `trim`, `sell`, `avoid`, and `harvest_loss` are exit/avoid calls; negative raw alpha is good because the avoided asset lagged the benchmark.
+- **Decision alpha:** for long-exposure calls, `asset_return - benchmark_return`; for exit/avoid calls, `benchmark_return - asset_return`. Positive decision alpha means the recommendation worked in its intended direction. For `harvest_loss`, also note that the tax value is separate from market alpha and depends on actual sale timing, basis, and wash-sale compliance.
+- **Confidence calibration:** use decision alpha, not raw alpha. If the decision said `confidence: high` and decision alpha is -5pp or worse, that's a calibration miss — note it. Same for `confidence: low` and a big positive surprise.
 
 For macro decisions:
 
@@ -83,9 +86,11 @@ Append to the decision file's `## Outcome (filled in by /reflect-decisions)` sec
 ## Outcome
 
 - **Resolved:** YYYY-MM-DD (reflection ran at horizon)
+- **Action:** buy | add | hold | trim | sell | avoid | harvest_loss
 - **Asset return:** +X.X% over Y days (annualized: +Z.Z%)
 - **Benchmark return (SPY|BTC):** +X.X%
-- **Alpha:** +X.X% (beat | lagged | in-line)
+- **Raw alpha:** +X.Xpp (asset beat | lagged | in-line vs benchmark)
+- **Decision alpha:** +X.Xpp (worked | missed | in-line for the action lens)
 - **Trigger-condition status:** fired on YYYY-MM-DD | not fired
 - **Reflection:** [2-3 sentences. What was right about the original thesis? What was wrong? Was confidence well-calibrated? What's the takeaway for *future* decisions in the same sleeve / signal pattern?]
 ```

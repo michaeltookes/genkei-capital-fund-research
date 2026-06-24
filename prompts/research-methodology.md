@@ -141,6 +141,7 @@ date: 2026-05-17
 asset: AAPL                    # or BTC, or "macro: USD", or "cohort: software"
 sleeve: equity-core
 horizon: years
+action: hold                   # buy/add/hold/trim/sell/avoid/harvest_loss
 confidence: medium
 status: pending                # → resolved after /reflect-decisions runs
 trigger_reassessment: "DGS10 above 5.0% OR quarterly revenue YoY < 0"
