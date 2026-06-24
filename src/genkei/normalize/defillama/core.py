@@ -35,6 +35,7 @@ from typing import Any
 
 from genkei.common import db
 from genkei.common.defillama import as_float, parse_history_timestamp, stablecoin_supply
+from genkei.normalize.defillama.dispatch import CHAIN_HISTORY_PREFIX, classify_blob
 
 DEFAULT_CONFIG_PATH = Path("config/defillama.sources.json")
 SOURCE_NAME = "defillama"
@@ -42,13 +43,6 @@ NORMALIZE_ENDPOINT_LABEL = "normalize"
 NORMALIZE_BACKFILL_ENDPOINT_LABEL = "normalize_backfill"
 COLLECT_ENDPOINT_LABEL = "collect"
 BACKFILL_ENDPOINT_LABEL = "backfill"
-CHAIN_HISTORY_PREFIX = "chain_tvl_history_"
-# Backfill blob name prefixes (mirror genkei.ingest.defillama).
-PRICE_HISTORICAL_PREFIX = "prices_historical_"
-PROTOCOL_HISTORY_PREFIX = "protocol_"
-PROTOCOL_FEES_PREFIX = "protocol_fees_"
-PROTOCOL_REVENUE_PREFIX = "protocol_revenue_"
-STABLECOIN_HISTORY_PREFIX = "stablecoin_"
 JsonObject = dict[str, Any]
 RawBlob = tuple[str, Any, datetime]
 LOGGER = logging.getLogger(__name__)
@@ -649,8 +643,13 @@ def normalize(config_path: Path, *, source_run_id: int | None = None) -> int:
         fees_rows: list[JsonObject] = []
         revenue_rows: list[JsonObject] = []
         for endpoint_name, (url, payload, fetched_at) in blobs.items():
-            if endpoint_name.startswith(PROTOCOL_FEES_PREFIX):
-                slug = endpoint_name[len(PROTOCOL_FEES_PREFIX) :]
+            routed = classify_blob(endpoint_name)
+            if routed is None:
+                continue
+            kind, slug = routed
+            # price_historical / stablecoin_history don't occur in daily collect
+            # blobs (those are backfill-only); ignore them if they ever appear.
+            if kind == "protocol_fees":
                 fees_rows.extend(
                     normalize_protocol_fee_series(
                         payload,
@@ -661,8 +660,7 @@ def normalize(config_path: Path, *, source_run_id: int | None = None) -> int:
                         fetched_at=fetched_at,
                     )
                 )
-            elif endpoint_name.startswith(PROTOCOL_REVENUE_PREFIX):
-                slug = endpoint_name[len(PROTOCOL_REVENUE_PREFIX) :]
+            elif kind == "protocol_revenue":
                 revenue_rows.extend(
                     normalize_protocol_fee_series(
                         payload,
@@ -673,8 +671,7 @@ def normalize(config_path: Path, *, source_run_id: int | None = None) -> int:
                         fetched_at=fetched_at,
                     )
                 )
-            elif endpoint_name.startswith(PROTOCOL_HISTORY_PREFIX):
-                slug = endpoint_name[len(PROTOCOL_HISTORY_PREFIX) :]
+            elif kind == "protocol_history":
                 protocol_tvl_rows.extend(
                     normalize_protocol_history(
                         payload,
@@ -776,7 +773,12 @@ def normalize_backfill(*, source_run_id: int | None = None) -> int:
         stablecoin_rows: list[JsonObject] = []
 
         for endpoint_name, (url, payload, fetched_at) in blobs.items():
-            if endpoint_name.startswith(PRICE_HISTORICAL_PREFIX):
+            routed = classify_blob(endpoint_name)
+            if routed is None:
+                LOGGER.debug("backfill normalizer skipping unknown blob: %s", endpoint_name)
+                continue
+            kind, ident = routed
+            if kind == "price_historical":
                 price_rows.extend(
                     normalize_prices(
                         payload,
@@ -785,9 +787,7 @@ def normalize_backfill(*, source_run_id: int | None = None) -> int:
                         now=fetched_at,
                     )
                 )
-            elif endpoint_name.startswith(PROTOCOL_FEES_PREFIX) or endpoint_name.startswith(
-                PROTOCOL_REVENUE_PREFIX
-            ):
+            elif kind in ("protocol_fees", "protocol_revenue"):
                 # Backfill mode doesn't currently produce these (the
                 # fees/revenue endpoints already return full history in
                 # the daily collect), so they shouldn't appear here.
@@ -795,30 +795,26 @@ def normalize_backfill(*, source_run_id: int | None = None) -> int:
                 # robust if/when backfill paths get added later.
                 LOGGER.debug("backfill normalizer skipping fees/revenue blob: %s", endpoint_name)
                 continue
-            elif endpoint_name.startswith(PROTOCOL_HISTORY_PREFIX):
-                slug = endpoint_name[len(PROTOCOL_HISTORY_PREFIX) :]
+            elif kind == "protocol_history":
                 protocol_tvl_rows.extend(
                     normalize_protocol_history(
                         payload,
-                        slug=slug,
+                        slug=ident,
                         source_endpoint=url,
                         ingest_run_id=run.id,
                         fetched_at=fetched_at,
                     )
                 )
-            elif endpoint_name.startswith(STABLECOIN_HISTORY_PREFIX):
-                asset_id = endpoint_name[len(STABLECOIN_HISTORY_PREFIX) :]
+            elif kind == "stablecoin_history":
                 stablecoin_rows.extend(
                     normalize_stablecoin_history(
                         payload,
-                        asset_id=asset_id,
+                        asset_id=ident,
                         source_endpoint=url,
                         ingest_run_id=run.id,
                         fetched_at=fetched_at,
                     )
                 )
-            else:
-                LOGGER.debug("backfill normalizer skipping unknown blob: %s", endpoint_name)
 
         with db.connection() as conn:
             run.add_rows(

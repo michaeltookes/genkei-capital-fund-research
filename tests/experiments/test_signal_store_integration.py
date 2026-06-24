@@ -22,7 +22,7 @@ from genkei.experiments.signal_store import (
     emit_signals_bulk,
     query_events,
 )
-from tests._postgres import get_harness, postgres_required
+from tests._postgres import PostgresTestCase
 
 
 def _event_row(
@@ -49,27 +49,7 @@ def _event_row(
     }
 
 
-@postgres_required
-class SignalStoreIntegrationTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.harness = get_harness()
-
-    def setUp(self) -> None:
-        from psycopg_pool import ConnectionPool
-
-        self.harness.truncate_all()
-        db.reset_pool()
-        self._pool = ConnectionPool(
-            conninfo=self.harness.url, min_size=1, max_size=2, open=True
-        )
-        db.set_pool(self._pool)
-
-    def tearDown(self) -> None:
-        db.reset_pool()
-        self._pool.close()
-        self.harness.truncate_all()
-
+class SignalStoreIntegrationTests(PostgresTestCase):
     def _new_ingest_run(self) -> int:
         """Insert a placeholder meta.ingest_runs row and return its id."""
         with db.connection() as conn, conn.cursor() as cur:

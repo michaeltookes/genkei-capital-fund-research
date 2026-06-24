@@ -63,7 +63,11 @@ import httpx
 
 from genkei.common import db
 from genkei.common.http import HttpClient
-from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, FilerEntry, load_watchlist
+from genkei.common.watchlist import (
+    DEFAULT_WATCHLIST_PATH,
+    FilerEntry,
+    load_watchlist_entries,
+)
 from genkei.ingest.sec import (
     DEFAULT_RATE_LIMIT,
     SOURCE_NAME,
@@ -177,15 +181,10 @@ def select_info_table_filename(index_payload: Any) -> str | None:
 
 def load_filers(path: Path) -> list[FilerEntry]:
     """Read 13F filers from the watchlist; raise if none configured."""
-    try:
-        watchlist = load_watchlist(path)
-    except FileNotFoundError as exc:
-        raise SystemExit(f"Watchlist file not found: {path}") from exc
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from exc
-    if not watchlist.filers:
+    filers = load_watchlist_entries(path, lambda w: w.filers)
+    if not filers:
         raise SystemExit("No filers configured under `filers:` in the watchlist.")
-    return list(watchlist.filers)
+    return filers
 
 
 def extract_form13f_candidates(payload: Any, filer_cik: str) -> list[Form13FCandidate]:

@@ -12,7 +12,7 @@ from genkei.common import db
 from genkei.common.http import HttpClient
 from genkei.ingest import coingecko as ingest
 from genkei.normalize import coingecko as normalizer
-from tests._postgres import get_harness, postgres_required
+from tests._postgres import PostgresTestCase
 
 WATCHLIST = (
     "crypto:\n  primary:\n    - symbol: BTC\n      name: Bitcoin\n      coingecko_id: bitcoin\n"
@@ -54,25 +54,7 @@ def _route(request: httpx.Request) -> httpx.Response:
     return httpx.Response(404, text=f"unmocked: {request.url}")
 
 
-@postgres_required
-class CoingeckoIntegrationTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.harness = get_harness()
-
-    def setUp(self) -> None:
-        from psycopg_pool import ConnectionPool
-
-        self.harness.truncate_all()
-        db.reset_pool()
-        self._pool = ConnectionPool(conninfo=self.harness.url, min_size=1, max_size=2, open=True)
-        db.set_pool(self._pool)
-
-    def tearDown(self) -> None:
-        db.reset_pool()
-        self._pool.close()
-        self.harness.truncate_all()
-
+class CoingeckoIntegrationTests(PostgresTestCase):
     def _run_collect(self, http: HttpClient) -> int:
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "watchlists.yml"

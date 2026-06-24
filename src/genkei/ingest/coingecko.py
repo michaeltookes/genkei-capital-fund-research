@@ -32,13 +32,14 @@ import logging
 import os
 import sys
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 from genkei.common import db
+from genkei.common.dates import iter_date_windows
 from genkei.common.http import HttpClient, RateLimit
-from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist
+from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist_or_exit
 
 SOURCE_NAME = "coingecko"
 COLLECT_ENDPOINT_LABEL = "collect"
@@ -98,12 +99,7 @@ def load_coins(path: Path) -> list[CoinTarget]:
     authoritative symbol + name land in ``coingecko.coins`` from the
     CoinGecko API response itself (B-091).
     """
-    try:
-        watchlist = load_watchlist(path)
-    except FileNotFoundError as exc:
-        raise SystemExit(f"Watchlist file not found: {path}") from exc
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from exc
+    watchlist = load_watchlist_or_exit(path)
 
     out: list[CoinTarget] = []
     seen_ids: set[str] = set()
@@ -418,16 +414,11 @@ def fetch_historical_market_chart(
 
 
 def iter_date_ranges(since: date, until: date, *, chunk_days: int) -> list[tuple[date, date]]:
-    """Return inclusive date windows for range-based historical fetches."""
-    if chunk_days < 1:
-        raise ValueError("chunk_days must be >= 1.")
-    ranges: list[tuple[date, date]] = []
-    start = since
-    while start <= until:
-        end = min(start + timedelta(days=chunk_days - 1), until)
-        ranges.append((start, end))
-        start = end + timedelta(days=1)
-    return ranges
+    """Return inclusive date windows for range-based historical fetches.
+
+    Thin wrapper over the shared ``common.dates.iter_date_windows`` (B-121).
+    """
+    return iter_date_windows(since, until, chunk_days=chunk_days)
 
 
 def merge_market_chart_payloads(chunks: list[dict[str, Any]]) -> dict[str, Any]:

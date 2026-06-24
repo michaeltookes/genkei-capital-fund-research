@@ -46,7 +46,7 @@ import logging
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import httpx
@@ -161,7 +161,17 @@ def _coerce_decimal(raw: Any) -> Decimal | None:
             return None
         try:
             return Decimal(stripped)
-        except Exception:
+        except (ValueError, InvalidOperation):
+            return None
+        except Exception:  # pragma: no cover - defensive
+            # An unparseable u64 string is benign (handled above); anything
+            # else is a surprise worth surfacing rather than swallowing in
+            # unattended daily ingest (B-121).
+            LOGGER.warning(
+                "sui_staking _coerce_decimal: unexpected error coercing %r to Decimal",
+                stripped,
+                exc_info=True,
+            )
             return None
     if isinstance(raw, float):
         return Decimal(str(raw))

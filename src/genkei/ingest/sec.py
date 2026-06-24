@@ -41,7 +41,7 @@ import httpx
 
 from genkei.common import db
 from genkei.common.http import HttpClient, RateLimit
-from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist
+from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist_entries
 
 SOURCE_NAME = "sec"
 COLLECT_ENDPOINT_LABEL = "collect"
@@ -75,16 +75,11 @@ def load_companies(path: Path) -> list[CompanyTarget]:
     so multi-class listings (e.g. GOOG/GOOGL share Alphabet's CIK) only
     fetch once.
     """
-    try:
-        watchlist = load_watchlist(path)
-    except FileNotFoundError as exc:
-        raise SystemExit(f"Watchlist file not found: {path}") from exc
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from exc
+    entries = load_watchlist_entries(path, lambda w: w.equities)
 
     out: list[CompanyTarget] = []
     seen_ciks: set[str] = set()
-    for entry in watchlist.equities:
+    for entry in entries:
         normalized_cik = normalize_cik(entry.cik)
         if normalized_cik is None:
             LOGGER.warning("skip equity %s in tier %s — missing cik", entry.symbol, entry.tier)

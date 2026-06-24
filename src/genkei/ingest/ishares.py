@@ -38,7 +38,7 @@ import logging
 import sys
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -105,18 +105,14 @@ def _coerce_decimal(raw: Any) -> Decimal | None:
     if isinstance(raw, dict):
         r = raw.get("r")
         if r is not None:
-            try:
-                return Decimal(str(r))
-            except Exception:
-                pass
+            value = _safe_decimal(str(r), field="r")
+            if value is not None:
+                return value
         d = raw.get("d")
         if isinstance(d, str):
             cleaned = d.replace(",", "").strip()
             if cleaned and cleaned != "-":
-                try:
-                    return Decimal(cleaned)
-                except Exception:
-                    return None
+                return _safe_decimal(cleaned, field="d")
         return None
     if isinstance(raw, (int, float)):
         return Decimal(str(raw))
@@ -124,11 +120,27 @@ def _coerce_decimal(raw: Any) -> Decimal | None:
         cleaned = raw.replace(",", "").strip()
         if not cleaned or cleaned == "-":
             return None
-        try:
-            return Decimal(cleaned)
-        except Exception:
-            return None
+        return _safe_decimal(cleaned, field="str")
     return None
+
+
+def _safe_decimal(text: str, *, field: str) -> Decimal | None:
+    """``Decimal(text)`` where an unparseable number yields ``None`` silently
+    but any *unexpected* failure logs a WARNING instead of vanishing — in
+    unattended daily ingest a swallowed surprise is the difference between
+    noticing bad data and not (B-121)."""
+    try:
+        return Decimal(text)
+    except (ValueError, InvalidOperation):
+        return None
+    except Exception:  # pragma: no cover - defensive
+        LOGGER.warning(
+            "ishares _coerce_decimal: unexpected error coercing %s=%r to Decimal",
+            field,
+            text,
+            exc_info=True,
+        )
+        return None
 
 
 def _coerce_string(raw: Any) -> str | None:

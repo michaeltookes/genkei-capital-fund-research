@@ -59,8 +59,9 @@ from urllib.parse import urlencode
 import httpx
 
 from genkei.common import db
+from genkei.common.dates import iter_date_windows
 from genkei.common.http import HttpClient, RateLimit
-from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist
+from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist_entries
 
 SOURCE_NAME = "coinbase"
 COLLECT_ENDPOINT_LABEL = "collect"
@@ -101,15 +102,10 @@ def load_products(path: Path) -> list[ProductTarget]:
     one product. A duplicate would silently double-fetch and cost rate
     budget for nothing.
     """
-    try:
-        watchlist = load_watchlist(path)
-    except FileNotFoundError as exc:
-        raise SystemExit(f"Watchlist file not found: {path}") from exc
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from exc
+    entries = load_watchlist_entries(path, lambda w: w.crypto)
     out: list[ProductTarget] = []
     seen_products: set[str] = set()
-    for entry in watchlist.crypto:
+    for entry in entries:
         if not entry.coinbase_product:
             LOGGER.info(
                 "Coinbase: skipping %s (no coinbase_product in watchlist)", entry.symbol
@@ -159,21 +155,11 @@ def _chunk_windows(
 ) -> list[tuple[date, date]]:
     """Split [start, end] into [chunk_days]-day inclusive windows.
 
-    The last chunk is shorter if (end - start + 1) doesn't divide evenly.
-    Each window's end is the *last day included* in that chunk; the
-    URL builder converts to half-open UTC datetimes downstream.
+    Thin wrapper over the shared ``common.dates.iter_date_windows`` that binds
+    Coinbase's default chunk size (the candles endpoint's 300-row cap → 280-day
+    windows). See that helper for the windowing contract.
     """
-    if chunk_days <= 0:
-        raise ValueError(f"chunk_windows: chunk_days must be > 0, got {chunk_days}")
-    if end < start:
-        raise ValueError(f"chunk_windows: end {end} < start {start}")
-    windows: list[tuple[date, date]] = []
-    cursor = start
-    while cursor <= end:
-        chunk_end = min(cursor + timedelta(days=chunk_days - 1), end)
-        windows.append((cursor, chunk_end))
-        cursor = chunk_end + timedelta(days=1)
-    return windows
+    return iter_date_windows(start, end, chunk_days=chunk_days)
 
 
 # ---------------------------------------------------------------------------

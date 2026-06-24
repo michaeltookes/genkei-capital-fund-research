@@ -16,30 +16,10 @@ from __future__ import annotations
 import unittest
 
 from genkei.common import db
-from tests._postgres import get_harness, postgres_required
+from tests._postgres import PostgresTestCase
 
 
-@postgres_required
-class DbHelperIntegrationTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.harness = get_harness()
-
-    def setUp(self) -> None:
-        # Each test gets a fresh pool pointed at the harness so the
-        # process-wide singleton in genkei.common.db isn't corrupted by
-        # leftover state from other tests.
-        from psycopg_pool import ConnectionPool
-
-        db.reset_pool()
-        self._pool = ConnectionPool(conninfo=self.harness.url, min_size=1, max_size=2, open=True)
-        db.set_pool(self._pool)
-
-    def tearDown(self) -> None:
-        db.reset_pool()
-        self._pool.close()
-        self.harness.truncate_all()
-
+class DbHelperIntegrationTests(PostgresTestCase):
     def test_connection_commits_on_clean_exit(self) -> None:
         with db.connection() as conn, conn.cursor() as cur:
             cur.execute("INSERT INTO meta.ingest_runs (source, status) VALUES ('test', 'running')")

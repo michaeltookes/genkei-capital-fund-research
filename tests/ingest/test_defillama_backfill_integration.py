@@ -20,7 +20,7 @@ from genkei.common import db
 from genkei.common.http import HttpClient
 from genkei.ingest import defillama as ingest
 from genkei.normalize import defillama as normalizer
-from tests._postgres import get_harness, postgres_required
+from tests._postgres import PostgresTestCase
 
 CONFIG = {
     "defillama_base_urls": {
@@ -112,24 +112,7 @@ def _seed_known_protocols_and_stablecoins() -> None:
         )
 
 
-@postgres_required
-class BackfillIntegrationTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.harness = get_harness()
-
-    def setUp(self) -> None:
-        from psycopg_pool import ConnectionPool
-
-        db.reset_pool()
-        self._pool = ConnectionPool(conninfo=self.harness.url, min_size=1, max_size=2, open=True)
-        db.set_pool(self._pool)
-
-    def tearDown(self) -> None:
-        db.reset_pool()
-        self._pool.close()
-        self.harness.truncate_all()
-
+class BackfillIntegrationTests(PostgresTestCase):
     def _run_backfill(self, since: date, http: HttpClient) -> int:
         with TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "config.json"
