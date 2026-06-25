@@ -41,20 +41,20 @@ If the queue is empty, `early_resolved` is empty, and `action_backfilled` is emp
 
 ## Step 2 — Pull realized data
 
-For each queued decision, pull the price series from the decision date through today.
+For each queued decision, pull the price series from the decision date through today. Always include `--limit 1000` on `genkei prices` calls that use `--since` / `--until`; the CLI default is 30 rows, which is too short for the 180-day and 365-day reflection windows and can drop the decision-date endpoint.
 
 ### Equity decisions (`sleeve: equity-core` or any equity ticker)
 
-- Asset: `genkei prices --ticker <TICKER> --since <decision_date> --until <today> --json` — equity tickers route to `yahoo.candles` automatically (B-092). The `price_usd` field is the split/dividend-adjusted close, which is the right input for the return calc.
+- Asset: `genkei prices --ticker <TICKER> --since <decision_date> --until <today> --limit 1000 --json` — equity tickers route to `yahoo.candles` automatically (B-092). The `price_usd` field is the split/dividend-adjusted close, which is the right input for the return calc.
 - **Cohort / sector assets** (`asset: "equity-core: SaaS sector (CRM + NOW + …)"`, `asset: "cohort: VEEV vs CRM"`) aren't always single tickers. Reflect against the **named primary anchor** the decision's Frame calls out (e.g. CRM for the SaaS thesis); when the subject ticker is now in the watchlist (VEEV after B-123), pull that subject directly and say which comparator / benchmark was used. If the current subject still has no price series at all (for example, a non-watchlist name whose pull is empty), defer — see below.
 - Benchmark: SPY, pulled the same way (benchmarks live in the watchlist and route to Yahoo per B-102).
 - If a pull errors or returns empty (source outage, delisted ticker, un-ingested name), mark the decision `status: deferred` with a note naming the gap — never fabricate. The reflection cycle should still RUN — the failure mode of skipping reflection is worse than the failure mode of incomplete reflection.
 
 ### Crypto decisions (`asset: BTC|ETH|SOL|LINK|SUI|PYTH|RENDER` or `sleeve: crypto-*`)
 
-- Asset: `genkei prices --ticker <ASSET> --since <decision_date> --until <today> --json`
+- Asset: `genkei prices --ticker <ASSET> --since <decision_date> --until <today> --limit 1000 --json`
 - Benchmark: BTC (the relative-to-BTC question is "did we do better than just holding BTC?" — the foundational crypto core asset). Pull BTC the same way.
-- **Rotation / destination-basket override:** if frontmatter includes `reflection_benchmark.type: destination_basket`, pull each `reflection_benchmark.assets[].ticker` over the same date window, compute the weighted basket return from `weight`, and use that basket return instead of BTC for `benchmark_return`. This is for trim/sell rotations where proceeds were explicitly redeployed into named assets; label the outcome with `reflection_benchmark.label` and defer rather than guess if any basket component lacks price data.
+- **Rotation / destination-basket override:** if frontmatter includes `reflection_benchmark.type: destination_basket`, pull each `reflection_benchmark.assets[].ticker` over the same date window with `--limit 1000`, compute the weighted basket return from `weight`, and use that basket return instead of BTC for `benchmark_return`. This is for trim/sell rotations where proceeds were explicitly redeployed into named assets; label the outcome with `reflection_benchmark.label` and defer rather than guess if any basket component lacks price data.
 
 ### Macro decisions (`sleeve: macro-aware`)
 
@@ -163,7 +163,7 @@ Write the result to `docs/research/aggregate-YYYY-MM-DD.md` and link from `docs/
 
 - `/reflect-decisions` — runs this prompt against current `docs/research/decisions/`. Manual today; wire to `/schedule` weekly (or after each new decision lands) once you've exercised the cycle enough to trust the output.
 - `/research <question>` — the methodology prompt; loads the most recent 5-10 reflections into context so new sessions are informed by past calibration data.
-- `genkei prices --ticker <X> --since YYYY-MM-DD --until YYYY-MM-DD --json` — the workhorse query for outcome pulls, for both crypto (CoinGecko/Coinbase) and equities (Yahoo). JSON shape feeds directly into the return and alpha calc; `price_usd` is already adjusted for equities.
+- `genkei prices --ticker <X> --since YYYY-MM-DD --until YYYY-MM-DD --limit 1000 --json` — the workhorse query for outcome pulls, for both crypto (CoinGecko/Coinbase) and equities (Yahoo). JSON shape feeds directly into the return and alpha calc; `price_usd` is already adjusted for equities.
 
 ## What this prompt is NOT
 
