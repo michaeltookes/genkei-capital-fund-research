@@ -15,7 +15,7 @@ Scope decision the agent should make and record in the mission's Completed foote
 - [ ] The renderer is a pure function (offline-testable) split from DB access, matching the `signal_digest` build/render split.
 - [ ] Cadence is documented (weekly is reasonable; align with the Claude Code harness / `/schedule` decision, runner-agnostic) — wire it to a `/schedule` routine or note the cron shape; failed runs alert via the B-119 path, never silent-drop.
 - [ ] Unit tests cover the renderer offline (healthy roster, mixed stale/missing roster, empty-roster edge).
-- [ ] `python3 -m unittest discover -s tests` passes.
+- [ ] `.venv/bin/python -m unittest discover -s tests` passes.
 
 ## Notes
 - Don't rebuild alerting. If a source is dark, this report *records* it; B-119 is what *pings* about it.

@@ -13,7 +13,7 @@ The freshness signal lives in `meta.ingest_runs` (each run stamps its source + c
 - [ ] The staleness computation reuses/extends the existing `watchlist health` freshness helper rather than duplicating it — refactor to a shared helper if needed (CLAUDE.md clean-code rule).
 - [ ] `meta.ingest_runs` staleness is queryable behind the helper (no raw SQL duplicated at call sites).
 - [ ] Unit tests pin: under-threshold = no warning, over-threshold = warning + JSON flag, the default threshold value, and the threshold override.
-- [ ] `python3 -m unittest discover -s tests` passes.
+- [ ] `.venv/bin/python -m unittest discover -s tests` passes.
 
 ## Notes
 - Decide and document the default `--max-snapshot-age-hours` per data class if one global default is wrong (crypto updates daily; some macro series are weekly/monthly — a 24h default would false-positive on FRED weeklies). A per-source expected-cadence map likely already exists in `watchlist.py`; lean on it.
