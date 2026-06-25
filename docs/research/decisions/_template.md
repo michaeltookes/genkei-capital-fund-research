@@ -3,6 +3,7 @@ date: 2026-05-17
 asset: AAPL
 sleeve: equity-core
 horizon: years
+action: hold
 confidence: medium
 status: pending
 trigger_reassessment: "DGS10 above 5.0% OR quarterly revenue YoY < 0"

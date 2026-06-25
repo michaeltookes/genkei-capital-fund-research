@@ -334,6 +334,19 @@ equities:
       rationale: Leveraged SUI exposure via corporate treasury — Sui equivalent of MSTR's bitcoin-treasury playbook.
   secondary: []
 
+# Price-only Yahoo targets.
+#
+# These tickers route through `genkei prices` and `yahoo.candles` for
+# reflection/outcome tracking, but they are intentionally not equity research
+# targets. Keep speculative one-off or external-price-only decisions here so
+# SEC, insider, crowding, GDELT, and scoring pipelines do not treat them as
+# investable equity-core names.
+yahoo_price_targets:
+  - symbol: CYBL
+    name: Cyberlux Corporation
+    asset_class: otc_equity
+    role: Price coverage for the 2026-06-24 CYBL tax-loss harvest decision; not an equity-core research target.
+
 # Macro series watchlist.
 #
 # Format mirrors FRED series IDs (e.g. DGS10, CPIAUCSL). Macro is the spine

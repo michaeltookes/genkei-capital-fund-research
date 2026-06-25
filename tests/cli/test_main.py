@@ -142,8 +142,35 @@ class PricesCommandTests(unittest.TestCase):
         with redirect_stderr(err):
             code = main(["prices", "--ticker", "ABC", "--config", str(path)])
         self.assertEqual(code, 2)
-        self.assertIn("both crypto and equities", err.getvalue())
+        self.assertIn("both crypto and Yahoo-backed targets", err.getvalue())
         self.assertIn("--source yahoo", err.getvalue())
+
+    def test_price_only_yahoo_target_queries_yahoo_candles(self) -> None:
+        path = self._watchlist(
+            "yahoo_price_targets:\n"
+            "  - symbol: CYBL\n"
+            "    name: Cyberlux Corporation\n"
+            "    asset_class: otc_equity\n"
+        )
+        rows = [
+            {
+                "ts": "2026-06-24T00:00:00+00:00",
+                "price_usd": 0.0013,
+                "market_cap_usd": None,
+                "volume_usd": 192988.0,
+                "close_unadjusted": 0.0013,
+            }
+        ]
+        out = io.StringIO()
+        with (
+            patch("genkei.cli.prices._query_yahoo_candles", return_value=rows) as query,
+            redirect_stdout(out),
+        ):
+            code = main(["prices", "--ticker", "CYBL", "--config", str(path)])
+        self.assertIn(code, (None, 0))
+        query.assert_called_once()
+        self.assertIn("CYBL", out.getvalue())
+        self.assertIn("0.00", out.getvalue())
 
     def test_crypto_ticker_queries_coingecko_market_data(self) -> None:
         # Patch the DB query to avoid hitting Postgres.

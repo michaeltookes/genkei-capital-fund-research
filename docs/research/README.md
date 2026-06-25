@@ -23,7 +23,7 @@ docs/research/
 ## How the reflection cycle works
 
 1. `/reflect-decisions` (loads `prompts/reflect-on-decisions.md`) — run weekly, or after each new decision lands.
-2. For every file in `decisions/` with `status: pending` past its horizon, pull realized prices, compute alpha vs benchmark, append outcome + 2-3 sentence reflection, flip `status: resolved`.
+2. For every file in `decisions/` with `status: pending` past its horizon, pull realized prices, compute raw alpha plus action-aware decision alpha vs benchmark, append outcome + 2-3 sentence reflection, flip `status: resolved`.
 3. Commit one batch per run.
 
 ## Frontmatter contract
@@ -41,6 +41,22 @@ Every decision file's frontmatter MUST have these keys (validated in CI by `test
 | `trigger_reassessment` | string | one-line description of the observation that would flip the call before horizon |
 
 Add optional keys freely (`tags`, `related`, etc.). The contract is the minimum.
+
+Recommended optional direction key:
+
+| key | type | values |
+|---|---|---|
+| `action` | string | `buy` / `add` / `hold` / `trim` / `sell` / `avoid` / `harvest_loss` |
+
+New decisions should include `action`. For legacy files without it, `/reflect-decisions` must first check the recommendation text: backfill obvious non-hold calls, treat missing action as `hold` only when the file is plainly a hold/maintain decision, and skip ambiguous cases for manual action tagging. For `sell`, `trim`, `avoid`, and `harvest_loss`, the reflection lens is inverted: asset underperformance is the intended directional outcome, not a lag.
+
+Optional comparator override for rotations:
+
+| key | type | values |
+|---|---|---|
+| `reflection_benchmark` | mapping | `type: destination_basket`, `label`, and weighted `assets` entries |
+
+Use `reflection_benchmark` when a trim/sell decision explicitly redeploys proceeds into named destinations, so `/reflect-decisions` grades the call against that destination basket instead of the generic sleeve benchmark. For example, the 2026-06-02 SUI rotation uses a 50/50 ETH+SOL basket because the recommendation was to trim SUI into those two assets.
 
 > **Date-valued keys must be date-only.** `tests/test_research_decisions.py` rejects any frontmatter value that parses to a `datetime` rather than a `date`. So a key like `trigger_fired_at` must be written `YYYY-MM-DD` (e.g. `2026-06-02`), never a full timestamp — PyYAML parses the bare date to `datetime.date` (passes) but a `…T00:00:00Z` string to `datetime.datetime` (fails).
 

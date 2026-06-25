@@ -1,6 +1,6 @@
 # Reflect on Decisions
 
-The reflection cycle that turns the decision log from a write-only audit trail into a feedback loop. Walks `docs/research/decisions/` for entries past their horizon, pulls realized data, computes alpha vs a benchmark, and appends an outcome + 2-3 sentence reflection to each entry.
+The reflection cycle that turns the decision log from a write-only audit trail into a feedback loop. Walks `docs/research/decisions/` for entries past their horizon, pulls realized data, computes raw alpha plus action-aware decision alpha vs a benchmark, and appends an outcome + 2-3 sentence reflection to each entry.
 
 Loaded automatically by the `/reflect-decisions` skill. Run manually to start; wire to `/schedule` (weekly cadence is a reasonable starting point) once the cycle has been exercised a few times.
 
@@ -29,30 +29,32 @@ Walk `docs/research/decisions/*.md`. For each file:
 1. Parse the YAML frontmatter (between the `---` fences).
 2. Skip if `status: resolved` or `status: deferred` (terminal — already handled).
 3. Skip the template file `_template.md` and `README.md`.
-4. **Early-resolution check:** if `superseded_by` is set OR `trigger_fired_at` / `trigger_fired: true` is present — and the file is still `pending` — resolve it now (see "Early resolution beats the horizon math" above), add it to the `early_resolved` list for the batch summary/commit, and skip remaining steps for this file.
-5. Compute `elapsed_days = (today - frontmatter.date).days`.
-6. Skip if `elapsed_days < horizon_days` per the mapping above.
-7. Add the rest to the to-reflect queue.
+4. Read optional `action` frontmatter. If missing, inspect the decision's recommendation before queuing it: backfill an explicit action for any clear `buy`, `add`, `trim`, `sell`, `avoid`, or `harvest_loss` call and add the file to an `action_backfilled` list for the batch summary/commit; only treat missing action as legacy `hold` when the recommendation is plainly hold/maintain. If the direction is ambiguous, skip the file and report it for manual action tagging rather than grading it. Valid direction values are `buy`, `add`, `hold`, `trim`, `sell`, `avoid`, and `harvest_loss`.
+5. **Early-resolution check:** if `superseded_by` is set OR `trigger_fired_at` / `trigger_fired: true` is present — and the file is still `pending` — resolve it now (see "Early resolution beats the horizon math" above), add it to the `early_resolved` list for the batch summary/commit, and skip remaining steps for this file.
+6. Compute `elapsed_days = (today - frontmatter.date).days`.
+7. Skip if `elapsed_days < horizon_days` per the mapping above.
+8. Add the rest to the to-reflect queue.
 
-If the queue is empty and `early_resolved` is empty, report "no decisions past their horizon" and stop. If `early_resolved` has entries, skip realized-data pulling and benchmark math, then continue to the summary/commit path so those resolved files are persisted.
+If the queue is empty, `early_resolved` is empty, and `action_backfilled` is empty, report "no decisions past their horizon" and stop. If `early_resolved` or `action_backfilled` has entries, skip realized-data pulling and benchmark math for those files, then continue to the summary/commit path so resolved files and action-only frontmatter backfills are persisted.
 
 ---
 
 ## Step 2 — Pull realized data
 
-For each queued decision, pull the price series from the decision date through today.
+For each queued decision, pull the price series from the decision date through today. Always include `--limit 1000` on `genkei prices` calls that use `--since` / `--until`; the CLI default is 30 rows, which is too short for the 180-day and 365-day reflection windows and can drop the decision-date endpoint.
 
 ### Equity decisions (`sleeve: equity-core` or any equity ticker)
 
-- Asset: `genkei prices --ticker <TICKER> --since <decision_date> --until <today> --json` — equity tickers route to `yahoo.candles` automatically (B-092). The `price_usd` field is the split/dividend-adjusted close, which is the right input for the return calc.
+- Asset: `genkei prices --ticker <TICKER> --since <decision_date> --until <today> --limit 1000 --json` — equity tickers route to `yahoo.candles` automatically (B-092). The `price_usd` field is the split/dividend-adjusted close, which is the right input for the return calc.
 - **Cohort / sector assets** (`asset: "equity-core: SaaS sector (CRM + NOW + …)"`, `asset: "cohort: VEEV vs CRM"`) aren't always single tickers. Reflect against the **named primary anchor** the decision's Frame calls out (e.g. CRM for the SaaS thesis); when the subject ticker is now in the watchlist (VEEV after B-123), pull that subject directly and say which comparator / benchmark was used. If the current subject still has no price series at all (for example, a non-watchlist name whose pull is empty), defer — see below.
 - Benchmark: SPY, pulled the same way (benchmarks live in the watchlist and route to Yahoo per B-102).
 - If a pull errors or returns empty (source outage, delisted ticker, un-ingested name), mark the decision `status: deferred` with a note naming the gap — never fabricate. The reflection cycle should still RUN — the failure mode of skipping reflection is worse than the failure mode of incomplete reflection.
 
 ### Crypto decisions (`asset: BTC|ETH|SOL|LINK|SUI|PYTH|RENDER` or `sleeve: crypto-*`)
 
-- Asset: `genkei prices --ticker <ASSET> --since <decision_date> --until <today> --json`
+- Asset: `genkei prices --ticker <ASSET> --since <decision_date> --until <today> --limit 1000 --json`
 - Benchmark: BTC (the relative-to-BTC question is "did we do better than just holding BTC?" — the foundational crypto core asset). Pull BTC the same way.
+- **Rotation / destination-basket override:** if frontmatter includes `reflection_benchmark.type: destination_basket`, pull each `reflection_benchmark.assets[].ticker` over the same date window with `--limit 1000`, compute the weighted basket return from `weight`, and use that basket return instead of BTC for `benchmark_return`. This is for trim/sell rotations where proceeds were explicitly redeployed into named assets; label the outcome with `reflection_benchmark.label` and defer rather than guess if any basket component lacks price data.
 
 ### Macro decisions (`sleeve: macro-aware`)
 
@@ -65,9 +67,11 @@ For each queued decision, pull the price series from the decision date through t
 For equity / crypto decisions where you have prices:
 
 - **Asset return:** `(price_today / price_at_decision_date) - 1`. Annualize if horizon > 1y by using `(1 + ret) ** (365/elapsed_days) - 1`.
-- **Benchmark return:** same calc, against SPY or BTC depending on sleeve.
-- **Alpha:** `asset_return - benchmark_return`. Positive = beat the benchmark; negative = underperformed.
-- **Confidence calibration:** if the decision said `confidence: high` and alpha is +5% or worse, that's a calibration miss — note it. Same for `confidence: low` and a big positive surprise.
+- **Benchmark return:** same calc, against SPY, BTC, or an explicit `reflection_benchmark` destination basket depending on sleeve and frontmatter.
+- **Raw alpha:** `asset_return - benchmark_return`. This is always the asset's return minus benchmark return.
+- **Action lens:** use frontmatter `action` if present, otherwise the audited legacy `hold` default from Step 1. `buy`, `add`, and `hold` are long-exposure calls; positive raw alpha is good. `trim`, `sell`, `avoid`, and `harvest_loss` are exit/avoid calls; negative raw alpha is good because the avoided asset lagged the benchmark.
+- **Decision alpha:** for long-exposure calls, `asset_return - benchmark_return`; for exit/avoid calls, `benchmark_return - asset_return`. Positive decision alpha means the recommendation worked in its intended direction. For `harvest_loss`, also note that the tax value is separate from market alpha and depends on actual sale timing, basis, and wash-sale compliance.
+- **Confidence calibration:** use decision alpha, not raw alpha. If the decision said `confidence: high` and decision alpha is -5pp or worse, that's a calibration miss — note it. Same for `confidence: low` and a big positive surprise.
 
 For macro decisions:
 
@@ -83,9 +87,11 @@ Append to the decision file's `## Outcome (filled in by /reflect-decisions)` sec
 ## Outcome
 
 - **Resolved:** YYYY-MM-DD (reflection ran at horizon)
+- **Action:** buy | add | hold | trim | sell | avoid | harvest_loss
 - **Asset return:** +X.X% over Y days (annualized: +Z.Z%)
-- **Benchmark return (SPY|BTC):** +X.X%
-- **Alpha:** +X.X% (beat | lagged | in-line)
+- **Benchmark return (SPY|BTC|destination basket):** +X.X%
+- **Raw alpha:** +X.Xpp (asset beat | lagged | in-line vs benchmark)
+- **Decision alpha:** +X.Xpp (worked | missed | in-line for the action lens)
 - **Trigger-condition status:** fired on YYYY-MM-DD | not fired
 - **Reflection:** [2-3 sentences. What was right about the original thesis? What was wrong? Was confidence well-calibrated? What's the takeaway for *future* decisions in the same sleeve / signal pattern?]
 ```
@@ -102,17 +108,19 @@ Then flip `status: pending` → `status: resolved` in the frontmatter, save, and
 
 Real blocks produced during the B-118 dry run (2026-06-12), pulling live prices via `genkei prices`. Horizons were treated as elapsed to exercise the machinery — none of these decisions is naturally past horizon yet, so these illustrate the *shape*, not final resolutions.
 
-**Resolved (crypto, alpha vs BTC)** — 2026-05-17 LINK, low-confidence hold:
+**Resolved (crypto, decision alpha vs BTC)** — 2026-05-17 LINK, low-confidence hold:
 
 ```markdown
 ## Outcome
 
 - **Resolved:** 2026-06-12 (dry-run exercise; real horizon is years)
+- **Action:** hold
 - **Asset return:** −20.1% over 26 days (LINK 9.82 → 7.84)
 - **Benchmark return (BTC):** −19.3% (BTC 78,493 → 63,337)
-- **Alpha:** −0.8pp (in-line — LINK fell with the whole crypto tape, not idiosyncratically)
+- **Raw alpha:** −0.8pp (in-line — LINK fell with the whole crypto tape, not idiosyncratically)
+- **Decision alpha:** −0.8pp (in-line for a hold)
 - **Trigger-condition status:** not fired (no 15pp underperformance vs ETH; ETH TVL above $35B)
-- **Reflection:** Over this window LINK was pure beta to BTC — the structural oracle-share thesis hadn't begun to play out, which is consistent with the low confidence the call carried. Nothing to recalibrate yet; the real test is whether LINK diverges from BTC over the year, and a 26-day −0.8pp alpha is noise. Takeaway: low-confidence crypto-core calls need the full horizon — short-window alpha says nothing.
+- **Reflection:** Over this window LINK was pure beta to BTC — the structural oracle-share thesis hadn't begun to play out, which is consistent with the low confidence the call carried. Nothing to recalibrate yet; the real test is whether LINK diverges from BTC over the year, and a 26-day −0.8pp decision alpha is noise. Takeaway: low-confidence crypto-core calls need the full horizon — short-window alpha says nothing.
 ```
 
 **Previously deferred, now data-backed after B-123** — 2026-06-11 VEEV vs CRM:
@@ -121,7 +129,7 @@ Real blocks produced during the B-118 dry run (2026-06-12), pulling live prices 
 ## Outcome
 
 - **Status:** still pending until the `years` horizon or a trigger fires.
-- **Data note:** B-123 added VEEV to `equities: primary` and backfilled Yahoo candles, so the old dry-run deferral is obsolete. A future reflection should pull `genkei prices --ticker VEEV ...` directly, compare against SPY for equity-core alpha, and mention CRM only as the thesis comparator when interpreting the outcome.
+- **Data note:** B-123 added VEEV to `equities: primary` and backfilled Yahoo candles, so the old dry-run deferral is obsolete. A future reflection should pull `genkei prices --ticker VEEV ...` directly, compare against SPY for equity-core raw/decision alpha, and mention CRM only as the thesis comparator when interpreting the outcome.
 - **Reflection:** Do not terminally defer this decision for missing VEEV prices unless the current pull actually returns empty again. The right behavior after B-123 is a normal data-backed reflection when the horizon/trigger condition makes the decision eligible.
 ```
 
@@ -145,7 +153,7 @@ When you've accumulated ~10 reflections, run a one-time aggregate pass:
 - Hit rate by sleeve (equity-core / crypto-core / crypto-tactical).
 - Hit rate by confidence bucket.
 - Hit rate by primary signal (macro-led, fundamentals-led, insider-led, technical-led).
-- Average alpha by sleeve.
+- Average decision alpha by sleeve, with raw alpha context for exit/avoid calls.
 
 Write the result to `docs/research/aggregate-YYYY-MM-DD.md` and link from `docs/research/README.md`. This is the meta-feedback the methodology + log was built to enable.
 
@@ -155,7 +163,7 @@ Write the result to `docs/research/aggregate-YYYY-MM-DD.md` and link from `docs/
 
 - `/reflect-decisions` — runs this prompt against current `docs/research/decisions/`. Manual today; wire to `/schedule` weekly (or after each new decision lands) once you've exercised the cycle enough to trust the output.
 - `/research <question>` — the methodology prompt; loads the most recent 5-10 reflections into context so new sessions are informed by past calibration data.
-- `genkei prices --ticker <X> --since YYYY-MM-DD --until YYYY-MM-DD --json` — the workhorse query for outcome pulls, for both crypto (CoinGecko/Coinbase) and equities (Yahoo). JSON shape feeds directly into the alpha calc; `price_usd` is already adjusted for equities.
+- `genkei prices --ticker <X> --since YYYY-MM-DD --until YYYY-MM-DD --limit 1000 --json` — the workhorse query for outcome pulls, for both crypto (CoinGecko/Coinbase) and equities (Yahoo). JSON shape feeds directly into the return and alpha calc; `price_usd` is already adjusted for equities.
 
 ## What this prompt is NOT
 

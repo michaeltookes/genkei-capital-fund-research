@@ -82,7 +82,9 @@ Before consuming Yahoo-derived equity signals:
    `(yahoo, collect)` + `(yahoo, normalize)` rows is within 36 hours.
 2. **Every watchlist ticker covered** — `SELECT DISTINCT ticker FROM
    yahoo.candles` matches the union of `equities` + `benchmarks` +
-   `etf_tickers` from the watchlist.
+   `etf_tickers` + `yahoo_price_targets` from the watchlist. The
+   `yahoo_price_targets` section is price-only coverage; those tickers
+   should not be treated as equity research targets.
 3. **Per-ticker latest ts on the most recent NYSE / NASDAQ trading
    day** — gap > 5 calendar days during regular market sessions
    signals a delist or API drift.

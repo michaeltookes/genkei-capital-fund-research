@@ -141,6 +141,16 @@ date: 2026-05-17
 asset: AAPL                    # or BTC, or "macro: USD", or "cohort: software"
 sleeve: equity-core
 horizon: years
+action: hold                   # buy/add/hold/trim/sell/avoid/harvest_loss
+# For trim/sell rotations into named destinations, add:
+# reflection_benchmark:
+#   type: destination_basket
+#   label: 50/50 ETH+SOL destination basket
+#   assets:
+#     - ticker: ETH
+#       weight: 0.5
+#     - ticker: SOL
+#       weight: 0.5
 confidence: medium
 status: pending                # → resolved after /reflect-decisions runs
 trigger_reassessment: "DGS10 above 5.0% OR quarterly revenue YoY < 0"

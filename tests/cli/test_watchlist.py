@@ -14,6 +14,7 @@ from genkei.common.watchlist import (
     EthWhaleAddressEntry,
     MacroEntry,
     ProtocolEntry,
+    YahooPriceTargetEntry,
     load_watchlist,
 )
 
@@ -131,6 +132,28 @@ class LoadWatchlistTests(unittest.TestCase):
         )
         wl = load_watchlist(path)
         self.assertIsNone(wl.equities[0].cik)
+
+    def test_reads_price_only_yahoo_targets_without_equity_classification(self) -> None:
+        path = self._write(
+            "yahoo_price_targets:\n"
+            "  - symbol: CYBL\n"
+            "    name: Cyberlux Corporation\n"
+            "    role: Price-only reflection coverage.\n"
+            "    asset_class: otc_equity\n"
+        )
+        wl = load_watchlist(path)
+        self.assertEqual(
+            wl.yahoo_price_targets[0],
+            YahooPriceTargetEntry(
+                symbol="CYBL",
+                name="Cyberlux Corporation",
+                role="Price-only reflection coverage.",
+                asset_class="otc_equity",
+            ),
+        )
+        self.assertIsNotNone(wl.find_yahoo_price_target("cybl"))
+        self.assertIsNone(wl.find_equity("CYBL"))
+        self.assertIsNone(wl.classify("CYBL"))
 
     def test_rejects_missing_file(self) -> None:
         with self.assertRaises(FileNotFoundError):
