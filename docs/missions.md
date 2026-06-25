@@ -90,3 +90,13 @@ Resolve a blocker by editing the mission file (remove the Blocked section, fix w
 - Never modify `main` from inside a mission — always a feature branch.
 - Tests pass before any commit.
 - Blocked missions stay in `pending/` with a `## Blocked:` note explaining why.
+
+## Lessons from the first multi-mission seeding (B-120, 2026-06-24)
+
+The queue went from one mission ever to a real working set during B-120. What that exercise surfaced about the format and process:
+
+- **Verify candidates against `docs/resolved.md` before promoting.** A backlog item's *own* follow-up text can be stale — B-120 named the "B-064 emitter follow-ups" as a promotion candidate, but all seven emitters had already landed (resolved). Promotion is the moment to re-check the item is actually open, not trust the backlog's narrative of itself.
+- **Every mission carries a `**Backlog ref:**` line** (now in `_template.md`). It makes the mission → `/update-backlog` linkage explicit and greppable, so a completed mission maps cleanly back to the backlog row it resolves (or records "none — audit-driven" when there's no row).
+- **Size honestly, and say so.** Missions range from doc-and-convention (minutes — e.g. B-052) to repetitive-but-large (~23 pages — e.g. B-047 CLI docs). "Small enough for one async session" is the bar; for a large-but-mechanical mission it's fine to land work in batches across several commits, but **don't `git mv` it to `done/` until every acceptance box is genuinely ticked.** If a mission can't fit one session even mechanically, split it before promoting.
+- **Tests need the project venv.** `python3 -m unittest discover -s tests` fails with `ModuleNotFound` against the bare system Python (3.9 with nothing installed); run the suite through `.venv/bin/python -m unittest discover -s tests` (or activate the venv) or every mission validation false-fails.
+- **A demonstration pass and a full autonomous drain are different runs.** `run-missions`' pre-flight switches off `main` to *any* feature branch — so executing one mission inline on an existing feature branch (to prove the loop end-to-end) is legitimate, distinct from the overnight drain that loops `pending/` to empty on a dedicated `missions-YYYY-MM-DD` branch. Both are valid; just be clear which you're doing.

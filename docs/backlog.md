@@ -74,7 +74,7 @@ Migrate the existing MVP into the new foundation; it becomes the canonical patte
   - Existing tests still pass.
 
 ### B-023 — Add data-freshness check + visible warning
-- **Status:** open
+- **Status:** open — promoted to mission queue 2026-06-24 (`missions/pending/2026-06-24-b023-data-freshness-warning.md`, B-120)
 - **Priority:** medium
 - **Context:** If the latest snapshot is >N hours stale, the report (or any CLI query) should make that visible.
 - **Acceptance criteria:**
@@ -183,7 +183,7 @@ The interface the agent (and human user) uses to query the lake.
   - Cache key includes all query parameters.
 
 ### B-047 — CLI documentation in `docs/cli/`
-- **Status:** open
+- **Status:** open — promoted to mission queue 2026-06-24 (`missions/pending/2026-06-24-b047-cli-docs.md`, B-120)
 - **Priority:** medium
 - **Context:** Every subcommand gets `--help` text + a worked example. The agent reads these when it doesn't know how to query.
 - **Acceptance criteria:**
@@ -195,17 +195,8 @@ The interface the agent (and human user) uses to query the lake.
 Wires the data lake to the on-demand AI researcher.
 
 
-### B-052 — "Open research questions" log
-- **Status:** open
-- **Priority:** low
-- **Context:** Agent appends questions worth follow-up to a tracked file the user can review.
-- **Acceptance criteria:**
-  - Tracked file exists (e.g. `docs/research-questions.md`).
-  - Agent appends with date + question + originating context.
-  - User can mark items resolved without breaking format.
-
 ### B-053 — Periodic ingest-health summary
-- **Status:** open
+- **Status:** open — promoted to mission queue 2026-06-24 (`missions/pending/2026-06-24-b053-ingest-health-summary.md`, B-120)
 - **Priority:** low
 - **Context:** Agent reports staleness per source, schema drift, anomalies — surfaces operational issues without manual checks.
 - **Acceptance criteria:**
@@ -335,15 +326,6 @@ Reliability work that grows in importance as more sources go live.
 ## Epic E-001 — 2026-06-12 codebase-review findings
 
 A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the engineering layers in good shape but the research loop operationally unproven and its instructions drifted behind the shipped code. Six items, ordered by leverage. B-117 and B-118 (both resolved 2026-06-12, see `docs/resolved.md`) protected the integrity of the decision/reflection loop before the first real reflection cycle; the rest harden ops and code quality. B-119 (resolved 2026-06-13) closed the observability half of silent-staleness. Spin-offs filed along the way: B-123 (VEEV ingest) and B-124 (yahoo magnitude audit) from the B-118 dry run, and B-125 (ingest retry) from B-119 — all below.
-
-### B-120 — Promote backlog items into the mission queue
-- **Status:** open
-- **Priority:** medium
-- **Context:** The mission queue (B-078) is fully built, tested, and documented — and has processed exactly one mission ever, while 40+ items sit in this backlog. Overnight-autonomous mode is idle capacity. This item is the process kick: pick the highest-leverage open items, write them as mission files, and run the queue.
-- **Acceptance criteria:**
-  - 3–5 open backlog items promoted to `missions/pending/` using `missions/_template.md` (candidates: B-117, B-053, B-047, B-064 emitter follow-ups).
-  - One full `/run-missions` pass executed; completed missions land in `missions/done/` with checklists marked.
-  - Friction or spec gaps found in the mission format fed back into `docs/missions.md`.
 
 ### B-124 — Audit yahoo.candles price magnitudes against external references
 - **Status:** open

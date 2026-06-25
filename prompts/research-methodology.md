@@ -176,6 +176,7 @@ The body is what you wrote during the methodology. The footer is a placeholder f
 - `genkei watchlist health` — sanity-check the data lake before relying on a query result. If a source is STALE or EMPTY, your conclusions may be drawing on stale data.
 - `genkei macro-regime` — one-shot risk-on/risk-off/mixed classifier over the macro series; the opening read for section 1.
 - `genkei stablecoin-flow` / `genkei tvl-drawdown` / `genkei revenue-divergence` — typed surfaces for the flow & positioning checks in sections 2–3; prefer them over re-deriving via `genkei query`.
+- `docs/research-questions.md` — open-research-questions log (B-052). When a session surfaces a thread worth a later look but out of scope for the current question, append it here (newest on top) rather than letting it evaporate. It's the lightweight, append-only cousin of the decision log.
 
 **Keep this document in sync with the CLI.** When a new `genkei` subcommand ships (or a table flips EMPTY → populated), update the sections above in the same PR — stale claims here propagate into every future session. See `docs/research/README.md` for the sync checklist.
 
