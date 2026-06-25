@@ -29,13 +29,13 @@ Walk `docs/research/decisions/*.md`. For each file:
 1. Parse the YAML frontmatter (between the `---` fences).
 2. Skip if `status: resolved` or `status: deferred` (terminal — already handled).
 3. Skip the template file `_template.md` and `README.md`.
-4. Read optional `action` frontmatter. If missing, inspect the decision's recommendation before queuing it: backfill an explicit action for any clear `buy`, `add`, `trim`, `sell`, `avoid`, or `harvest_loss` call; only treat missing action as legacy `hold` when the recommendation is plainly hold/maintain. If the direction is ambiguous, skip the file and report it for manual action tagging rather than grading it. Valid direction values are `buy`, `add`, `hold`, `trim`, `sell`, `avoid`, and `harvest_loss`.
+4. Read optional `action` frontmatter. If missing, inspect the decision's recommendation before queuing it: backfill an explicit action for any clear `buy`, `add`, `trim`, `sell`, `avoid`, or `harvest_loss` call and add the file to an `action_backfilled` list for the batch summary/commit; only treat missing action as legacy `hold` when the recommendation is plainly hold/maintain. If the direction is ambiguous, skip the file and report it for manual action tagging rather than grading it. Valid direction values are `buy`, `add`, `hold`, `trim`, `sell`, `avoid`, and `harvest_loss`.
 5. **Early-resolution check:** if `superseded_by` is set OR `trigger_fired_at` / `trigger_fired: true` is present — and the file is still `pending` — resolve it now (see "Early resolution beats the horizon math" above), add it to the `early_resolved` list for the batch summary/commit, and skip remaining steps for this file.
 6. Compute `elapsed_days = (today - frontmatter.date).days`.
 7. Skip if `elapsed_days < horizon_days` per the mapping above.
 8. Add the rest to the to-reflect queue.
 
-If the queue is empty and `early_resolved` is empty, report "no decisions past their horizon" and stop. If `early_resolved` has entries, skip realized-data pulling and benchmark math, then continue to the summary/commit path so those resolved files are persisted.
+If the queue is empty, `early_resolved` is empty, and `action_backfilled` is empty, report "no decisions past their horizon" and stop. If `early_resolved` or `action_backfilled` has entries, skip realized-data pulling and benchmark math for those files, then continue to the summary/commit path so resolved files and action-only frontmatter backfills are persisted.
 
 ---
 
@@ -54,6 +54,7 @@ For each queued decision, pull the price series from the decision date through t
 
 - Asset: `genkei prices --ticker <ASSET> --since <decision_date> --until <today> --json`
 - Benchmark: BTC (the relative-to-BTC question is "did we do better than just holding BTC?" — the foundational crypto core asset). Pull BTC the same way.
+- **Rotation / destination-basket override:** if frontmatter includes `reflection_benchmark.type: destination_basket`, pull each `reflection_benchmark.assets[].ticker` over the same date window, compute the weighted basket return from `weight`, and use that basket return instead of BTC for `benchmark_return`. This is for trim/sell rotations where proceeds were explicitly redeployed into named assets; label the outcome with `reflection_benchmark.label` and defer rather than guess if any basket component lacks price data.
 
 ### Macro decisions (`sleeve: macro-aware`)
 
@@ -66,7 +67,7 @@ For each queued decision, pull the price series from the decision date through t
 For equity / crypto decisions where you have prices:
 
 - **Asset return:** `(price_today / price_at_decision_date) - 1`. Annualize if horizon > 1y by using `(1 + ret) ** (365/elapsed_days) - 1`.
-- **Benchmark return:** same calc, against SPY or BTC depending on sleeve.
+- **Benchmark return:** same calc, against SPY, BTC, or an explicit `reflection_benchmark` destination basket depending on sleeve and frontmatter.
 - **Raw alpha:** `asset_return - benchmark_return`. This is always the asset's return minus benchmark return.
 - **Action lens:** use frontmatter `action` if present, otherwise the audited legacy `hold` default from Step 1. `buy`, `add`, and `hold` are long-exposure calls; positive raw alpha is good. `trim`, `sell`, `avoid`, and `harvest_loss` are exit/avoid calls; negative raw alpha is good because the avoided asset lagged the benchmark.
 - **Decision alpha:** for long-exposure calls, `asset_return - benchmark_return`; for exit/avoid calls, `benchmark_return - asset_return`. Positive decision alpha means the recommendation worked in its intended direction. For `harvest_loss`, also note that the tax value is separate from market alpha and depends on actual sale timing, basis, and wash-sale compliance.
@@ -88,7 +89,7 @@ Append to the decision file's `## Outcome (filled in by /reflect-decisions)` sec
 - **Resolved:** YYYY-MM-DD (reflection ran at horizon)
 - **Action:** buy | add | hold | trim | sell | avoid | harvest_loss
 - **Asset return:** +X.X% over Y days (annualized: +Z.Z%)
-- **Benchmark return (SPY|BTC):** +X.X%
+- **Benchmark return (SPY|BTC|destination basket):** +X.X%
 - **Raw alpha:** +X.Xpp (asset beat | lagged | in-line vs benchmark)
 - **Decision alpha:** +X.Xpp (worked | missed | in-line for the action lens)
 - **Trigger-condition status:** fired on YYYY-MM-DD | not fired

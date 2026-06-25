@@ -4,6 +4,14 @@ asset: SUI
 sleeve: crypto-tactical
 horizon: months
 action: trim
+reflection_benchmark:
+  type: destination_basket
+  label: 50/50 ETH+SOL destination basket
+  assets:
+    - ticker: ETH
+      weight: 0.5
+    - ticker: SOL
+      weight: 0.5
 confidence: medium
 status: pending
 trigger_reassessment: "SUI chain TVL recovers above $700M within 6 months OR SUIG open-market insider buy cluster ≥2 reporters at any price within 6 months OR SUI outperforms ETH on 90d window by ≥10pp within 6 months OR SUI/BTC 30d rel-strength flips back to laggard (≤−15pp) — the latter accelerates the trim"

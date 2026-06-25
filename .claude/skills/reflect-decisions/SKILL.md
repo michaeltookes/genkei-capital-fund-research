@@ -18,14 +18,14 @@ Runs the outcome-pairing cycle defined in `prompts/reflect-on-decisions.md`. Tur
 Walk `docs/research/decisions/*.md` (excluding `_template.md` and `README.md`):
 
 1. Parse YAML frontmatter (between `---` fences). Skip files with terminal statuses: `resolved` (already reflected) and `deferred` (explicitly postponed because required data was unavailable). Note both counts in the run summary.
-2. Read optional `action` frontmatter. If it is missing, inspect the decision's recommendation before queuing it: backfill an explicit action for any clear `buy`, `add`, `trim`, `sell`, `avoid`, or `harvest_loss` call; only treat missing action as legacy `hold` when the recommendation is plainly hold/maintain. If the direction is ambiguous, skip the file and report it for manual action tagging rather than grading it.
+2. Read optional `action` frontmatter. If it is missing, inspect the decision's recommendation before queuing it: backfill an explicit action for any clear `buy`, `add`, `trim`, `sell`, `avoid`, or `harvest_loss` call and add the file to an `action_backfilled` list for the batch summary/commit; only treat missing action as legacy `hold` when the recommendation is plainly hold/maintain. If the direction is ambiguous, skip the file and report it for manual action tagging rather than grading it.
 3. **Early-resolution check (before the horizon math).** If the decision was superseded or its trigger fired before horizon, it resolves *now* with a forward-link, not by benchmark pairing (see `docs/research/README.md` -> "Supersession and trigger-fire"). Specifically, if `frontmatter.superseded_by` is set, OR `frontmatter.trigger_fired: true`, OR a date such as `frontmatter.trigger_fired_at` is on or before `frontmatter.date + horizon_days` - and the file is still `pending` - flip it to `resolved`, write a short `## Outcome` note pointing at the superseding/successor decision (no alpha; it was carried forward, not graded), and add it to an `early_resolved` list for the batch summary/commit. Do NOT queue it for outcome pairing. Note these as "early-resolved (supersession/trigger)" in the run summary. This catches the failure mode where a superseded decision sits `pending` and re-queues every run.
 4. Compute `elapsed_days = (today - frontmatter.date).days`.
 5. Apply horizon mapping from the prompt: `weeks` -> 28d, `months` -> 180d, `years` -> 365d.
 6. If `elapsed_days < horizon_days`, skip - not yet eligible for reflection. Note in the run summary.
 7. If `elapsed_days >= horizon_days`, queue for outcome pairing.
 
-If the eligible queue is empty and `early_resolved` is empty, report "no decisions past their horizon" and stop. Don't make commits in this case. If `early_resolved` has entries, skip outcome pairing but continue to the summary/test/commit path; those file edits are work done for this reflection batch.
+If the eligible queue is empty, `early_resolved` is empty, and `action_backfilled` is empty, report "no decisions past their horizon" and stop. Don't make commits in this case. If `early_resolved` or `action_backfilled` has entries, skip outcome pairing for those files but continue to the summary/test/commit path; those file edits are work done for this reflection batch.
 
 ## Outcome pairing (per queued decision)
 
@@ -34,6 +34,7 @@ For each decision in the queue:
 1. **Resolve the `asset` to a price series first.** A clean ticker (`LINK`, `CRM`, `VEEV`) pulls directly. A cohort/sector label (`"equity-core: SaaS sector (CRM + NOW + …)"`, `"cohort: VEEV vs CRM"`) is NOT always a valid `--ticker` by itself — reflect it against the decision's named primary anchor, and say which subject/comparator/benchmark was used. After B-123, VEEV is a watchlist equity with Yahoo candles, so the 2026-06-11 VEEV-vs-CRM decision should pull `genkei prices --ticker VEEV` directly when it becomes eligible. If the current subject or anchor still has no price series at all, defer — see the deferred path below.
 2. **Pull realized prices** per the prompt's instructions:
    - Crypto decisions: `genkei prices --ticker <ASSET> --since <date> --until <today> --json`. Same for BTC benchmark.
+   - Rotation decisions with `reflection_benchmark.type: destination_basket`: pull each `reflection_benchmark.assets[].ticker`, compute the weighted basket return using `weight`, and use that as `benchmark_return` instead of BTC. Label the output with `reflection_benchmark.label`; defer if any basket component lacks price data.
    - Equity decisions: same command — equity tickers route to `yahoo.candles` (B-092), and `price_usd` is the split/dividend-adjusted close, the right input for the return calc. Benchmark is SPY, pulled the same way.
    - Macro decisions: pull the relevant `genkei macro --series … --since <date> --until <today>` series. Compare actual trajectory vs the regime call qualitatively.
    - Any sleeve: if a pull errors or returns empty, mark `status: deferred` with a clear note naming the gap — DO NOT fabricate outcome data. The reflection still runs, just with the deferred status.
@@ -55,10 +56,10 @@ Good reflection: "Insider-cluster signal carried this; macro turned hostile mid-
 
 ## Commit + push
 
-After processing the queue and any early-resolved decisions:
+After processing the queue and any early-resolved or action-backfilled decisions:
 
 1. Run `python3 -m unittest discover -s tests` before committing — the frontmatter validator should still pass since you've only flipped status + added body content; if it fails, something went wrong with the YAML edit.
-2. **One commit per run** is the convention. Subject: `Reflect on N decisions (resolved: X, deferred: Y)`. Body: short summary of which decisions were touched, including any early-resolved supersession/trigger files. Early-resolved-only runs still get committed.
+2. **One commit per run** is the convention. Subject: `Reflect on N decisions (resolved: X, deferred: Y, tagged: Z)`. Body: short summary of which decisions were touched, including any early-resolved supersession/trigger files and action-only backfills. Early-resolved-only and action-backfill-only runs still get committed.
 3. Push.
 
 ## Aggregate snapshot (optional)

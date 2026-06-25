@@ -192,6 +192,85 @@ class DecisionFrontmatterContractTests(unittest.TestCase):
                     f"{path.name}: `action` must be one of {sorted(VALID_ACTIONS)}",
                 )
 
+    def test_optional_reflection_benchmark_destination_basket_is_valid(self) -> None:
+        for path in _decision_files():
+            with self.subTest(path=path.name):
+                fm = _parse_frontmatter(path)
+                if "reflection_benchmark" not in fm:
+                    continue
+                benchmark = fm["reflection_benchmark"]
+                self.assertIsInstance(
+                    benchmark,
+                    dict,
+                    f"{path.name}: `reflection_benchmark` must be a mapping",
+                )
+                self.assertEqual(
+                    benchmark.get("type"),
+                    "destination_basket",
+                    f"{path.name}: only destination_basket reflection benchmarks "
+                    "are currently supported",
+                )
+                label = benchmark.get("label")
+                self.assertIsInstance(
+                    label,
+                    str,
+                    f"{path.name}: `reflection_benchmark.label` must be a string",
+                )
+                self.assertTrue(
+                    label.strip() if isinstance(label, str) else False,
+                    f"{path.name}: `reflection_benchmark.label` must not be empty",
+                )
+                assets = benchmark.get("assets")
+                self.assertIsInstance(
+                    assets,
+                    list,
+                    f"{path.name}: `reflection_benchmark.assets` must be a list",
+                )
+                self.assertTrue(
+                    assets,
+                    f"{path.name}: `reflection_benchmark.assets` must not be empty",
+                )
+                total_weight = 0.0
+                for asset in assets if isinstance(assets, list) else []:
+                    self.assertIsInstance(
+                        asset,
+                        dict,
+                        f"{path.name}: each destination-basket asset must be a mapping",
+                    )
+                    ticker = asset.get("ticker") if isinstance(asset, dict) else None
+                    self.assertIsInstance(
+                        ticker,
+                        str,
+                        f"{path.name}: each destination-basket asset needs a ticker",
+                    )
+                    self.assertTrue(
+                        ticker.strip() if isinstance(ticker, str) else False,
+                        f"{path.name}: destination-basket ticker must not be empty",
+                    )
+                    weight = asset.get("weight") if isinstance(asset, dict) else None
+                    self.assertIsInstance(
+                        weight,
+                        (int, float),
+                        f"{path.name}: destination-basket weight must be numeric",
+                    )
+                    self.assertNotIsInstance(
+                        weight,
+                        bool,
+                        f"{path.name}: destination-basket weight must be numeric",
+                    )
+                    self.assertGreater(
+                        weight,
+                        0,
+                        f"{path.name}: destination-basket weights must be positive",
+                    )
+                    total_weight += float(weight)
+                self.assertAlmostEqual(
+                    total_weight,
+                    1.0,
+                    places=6,
+                    msg=f"{path.name}: destination-basket weights must sum to 1.0",
+                )
+
     def test_trigger_reassessment_is_nonempty_string(self) -> None:
         for path in _decision_files():
             with self.subTest(path=path.name):
