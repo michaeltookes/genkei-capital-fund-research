@@ -245,13 +245,16 @@ def prices_cmd(
     crypto = watchlist.find_crypto(ticker)
     equity = watchlist.find_equity(ticker)
     benchmark = watchlist.find_benchmark(ticker)
-    # Benchmarks share Yahoo storage with equities — treat them as
-    # equity-shaped for routing purposes (B-102).
-    yahoo_target = equity is not None or benchmark is not None
+    price_target = watchlist.find_yahoo_price_target(ticker)
+    # Benchmarks and price-only targets share Yahoo storage with equities —
+    # treat them as equity-shaped for routing purposes.
+    yahoo_target = (
+        equity is not None or benchmark is not None or price_target is not None
+    )
     if crypto is None and not yahoo_target:
         typer.echo(
             f"Ticker {ticker!r} not found in {config}. "
-            "Add it under crypto, equities, or benchmarks first.",
+            "Add it under crypto, equities, benchmarks, or yahoo_price_targets first.",
             err=True,
         )
         raise typer.Exit(code=2)
@@ -260,7 +263,7 @@ def prices_cmd(
     if not source:
         if crypto is not None and yahoo_target:
             typer.echo(
-                f"Ticker {ticker!r} appears under both crypto and equities/benchmarks "
+                f"Ticker {ticker!r} appears under both crypto and Yahoo-backed targets "
                 f"in {config}. Pass --source coingecko, --source coinbase, "
                 "or --source yahoo.",
                 err=True,
@@ -272,9 +275,15 @@ def prices_cmd(
     # has no prices yet" message rotted with B-092; replace with
     # actionable routing errors.
     if crypto is None and source != "yahoo":
-        kind = "benchmark" if benchmark is not None else "equity"
+        kind = (
+            "benchmark"
+            if benchmark is not None
+            else "price-only target"
+            if price_target is not None
+            else "equity"
+        )
         typer.echo(
-            f"{ticker} is a {kind}; {kind} prices live in `yahoo.candles` "
+            f"{ticker} is a {kind}; Yahoo-backed prices live in `yahoo.candles` "
             "(B-092). Use --source yahoo (or omit --source).",
             err=True,
         )
@@ -305,8 +314,14 @@ def prices_cmd(
             crypto.coinbase_product, since=since_d, until=until_d, limit=limit
         )
     else:  # source == "yahoo"
-        # Yahoo serves both watchlist equities and benchmarks (B-102).
-        yahoo_symbol = equity.symbol if equity is not None else benchmark.symbol  # type: ignore[union-attr]
+        # Yahoo serves watchlist equities, benchmarks, and price-only targets.
+        if equity is not None:
+            yahoo_symbol = equity.symbol
+        elif benchmark is not None:
+            yahoo_symbol = benchmark.symbol
+        else:
+            assert price_target is not None
+            yahoo_symbol = price_target.symbol
         rows = _query_yahoo_candles(
             yahoo_symbol, since=since_d, until=until_d, limit=limit
         )

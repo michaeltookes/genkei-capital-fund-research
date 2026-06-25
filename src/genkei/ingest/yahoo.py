@@ -89,9 +89,9 @@ class EquityTarget:
 
 
 def load_equities(path: Path) -> list[EquityTarget]:
-    """Read ``equities:`` + ``benchmarks:`` + ``etf_tickers:`` from watchlists.yml.
+    """Read Yahoo-backed targets from watchlists.yml.
 
-    All three sections are equity-shaped from Yahoo's perspective (same
+    All supported sections are equity-shaped from Yahoo's perspective (same
     chart endpoint, same blob shape, same ``yahoo.candles`` storage).
     Listing them in separate watchlist sections keeps the *semantic*
     distinction without complicating the ingester:
@@ -107,9 +107,13 @@ def load_equities(path: Path) -> list[EquityTarget]:
         their underlying asset (BTC / ETH) so ``genkei etf-flows
         --asset BTC`` can aggregate per-asset daily-dollar-volume across
         the configured tickers.
+      * ``yahoo_price_targets:`` — price-only/reflection targets. They
+        route through ``genkei prices`` and this collector, but do not
+        become equity research targets for SEC, insider, crowding, or
+        scoring pipelines.
 
     Yahoo accepts the watchlist's bare ticker as-is for every US-listed
-    equity / ETF we care about today. If a future ticker needs a
+    equity / ETF / OTC symbol we care about today. If a future ticker needs a
     Yahoo-specific suffix (BRK-B, BHP.AX, etc.) the watchlist can grow a
     ``yahoo_ticker`` field — out of scope for v1.
     """
@@ -145,9 +149,18 @@ def load_equities(path: Path) -> list[EquityTarget]:
             )
         seen.add(symbol_key)
         out.append(EquityTarget(ticker=etf.ticker))
+    for target in watchlist.yahoo_price_targets:
+        symbol_key = target.symbol.upper()
+        if symbol_key in seen:
+            raise SystemExit(
+                f"Yahoo price target {target.symbol!r} collides with an existing "
+                "watchlist entry."
+            )
+        seen.add(symbol_key)
+        out.append(EquityTarget(ticker=target.symbol))
     if not out:
         raise SystemExit(
-            "No equity / benchmark / ETF entries in the watchlist; "
+            "No equity / benchmark / ETF / Yahoo price-target entries in the watchlist; "
             "the Yahoo collector has nothing to do."
         )
     return out

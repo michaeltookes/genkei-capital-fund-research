@@ -39,6 +39,26 @@ class LoadEquitiesTests(unittest.TestCase):
         self.assertEqual(equities[0], EquityTarget(ticker="AAPL"))
         self.assertEqual(equities[1], EquityTarget(ticker="MSFT"))
 
+    def test_reads_price_only_yahoo_targets(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(
+                "equities:\n"
+                "  primary:\n"
+                "    - symbol: AAPL\n"
+                "      name: Apple Inc.\n"
+                '      cik: "0000320193"\n'
+                "yahoo_price_targets:\n"
+                "  - symbol: CYBL\n"
+                "    name: Cyberlux Corporation\n",
+                encoding="utf-8",
+            )
+            equities = load_equities(path)
+        self.assertEqual(
+            equities,
+            [EquityTarget(ticker="AAPL"), EquityTarget(ticker="CYBL")],
+        )
+
     def test_raises_when_no_equities(self) -> None:
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "watchlists.yml"
@@ -74,6 +94,27 @@ class LoadEquitiesTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as cm:
                 load_equities(path)
             self.assertIn("Duplicate equity symbol", str(cm.exception))
+
+    def test_rejects_price_target_collision(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(
+                "equities:\n"
+                "  primary:\n"
+                "    - symbol: AAPL\n"
+                "      name: Apple Inc.\n"
+                '      cik: "0000320193"\n'
+                "yahoo_price_targets:\n"
+                "  - symbol: aapl\n"
+                "    name: Duplicate Apple\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(SystemExit) as cm:
+                load_equities(path)
+            self.assertIn(
+                "collides with an existing watchlist entry",
+                str(cm.exception),
+            )
 
     def test_rejects_case_insensitive_equity_benchmark_collision(self) -> None:
         with TemporaryDirectory() as tmp:

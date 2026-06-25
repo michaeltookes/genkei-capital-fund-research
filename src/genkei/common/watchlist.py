@@ -152,6 +152,22 @@ class BenchmarkEntry:
 
 
 @dataclass(frozen=True)
+class YahooPriceTargetEntry:
+    """A Yahoo OHLCV target used only for price/reflection coverage.
+
+    These are not equity research targets. They should not feed SEC,
+    insider, crowding, GDELT, relative-strength, or watchlist-scoring
+    pipelines; the only contract is that ``genkei prices`` and the Yahoo
+    ingester can collect/query bars from ``yahoo.candles``.
+    """
+
+    symbol: str
+    name: str
+    role: str | None = None
+    asset_class: str = "equity"
+
+
+@dataclass(frozen=True)
 class FilerEntry:
     """A SEC 13F filer (institutional investment manager) we want to track (B-080)."""
 
@@ -322,6 +338,9 @@ class Watchlist:
     protocols: list[ProtocolEntry]
     filers: list[FilerEntry]
     benchmarks: list[BenchmarkEntry] = dataclasses.field(default_factory=list)
+    yahoo_price_targets: list[YahooPriceTargetEntry] = dataclasses.field(
+        default_factory=list
+    )
     cot_markets: list[CotMarketEntry] = dataclasses.field(default_factory=list)
     etf_tickers: list[EtfTickerEntry] = dataclasses.field(default_factory=list)
     eth_whale_addresses: list[EthWhaleAddressEntry] = dataclasses.field(
@@ -405,6 +424,14 @@ class Watchlist:
         """Lookup a benchmark by ticker (case-insensitive)."""
         upper = symbol.upper()
         for entry in self.benchmarks:
+            if entry.symbol.upper() == upper:
+                return entry
+        return None
+
+    def find_yahoo_price_target(self, symbol: str) -> YahooPriceTargetEntry | None:
+        """Lookup a price-only Yahoo target by ticker (case-insensitive)."""
+        upper = symbol.upper()
+        for entry in self.yahoo_price_targets:
             if entry.symbol.upper() == upper:
                 return entry
         return None
@@ -650,6 +677,29 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                     name=str(entry.get("name") or ""),
                     role=str(entry.get("role") or ""),
                     asset_class=str(entry.get("asset_class") or "equity_index_etf"),
+                )
+            )
+
+    yahoo_price_targets: list[YahooPriceTargetEntry] = []
+    yahoo_price_targets_root = data.get("yahoo_price_targets", [])
+    if isinstance(yahoo_price_targets_root, list):
+        seen_price_target_symbols: set[str] = set()
+        for entry in yahoo_price_targets_root:
+            if not isinstance(entry, dict):
+                continue
+            symbol = entry.get("symbol")
+            if not isinstance(symbol, str) or not symbol:
+                continue
+            upper = symbol.upper()
+            if upper in seen_price_target_symbols:
+                continue
+            seen_price_target_symbols.add(upper)
+            yahoo_price_targets.append(
+                YahooPriceTargetEntry(
+                    symbol=symbol,
+                    name=str(entry.get("name") or ""),
+                    role=_optional_string(entry.get("role")),
+                    asset_class=str(entry.get("asset_class") or "equity"),
                 )
             )
 
@@ -971,6 +1021,7 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
         protocols=protocols,
         filers=filers,
         benchmarks=benchmarks,
+        yahoo_price_targets=yahoo_price_targets,
         cot_markets=cot_markets,
         etf_tickers=etf_tickers,
         eth_whale_addresses=eth_whale_addresses,

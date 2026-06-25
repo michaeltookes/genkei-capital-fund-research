@@ -102,6 +102,17 @@ def _format_list_human(wl: Watchlist, *, sleeve: Optional[str]) -> str:
         sections.append("-" * len(sections[-1]))
         for m in wl.macro:
             sections.append(f"  {m.series_id:<14} {m.name}")
+    if sleeve in (None, "prices", "yahoo"):
+        if sections:
+            sections.append("")
+        sections.append(f"yahoo_price_targets ({len(wl.yahoo_price_targets)})")
+        sections.append("-" * len(sections[-1]))
+        for target in wl.yahoo_price_targets:
+            role = target.role or "-"
+            sections.append(
+                f"  {target.symbol:<8} {target.asset_class:<16} "
+                f"{target.name} ({role})"
+            )
     return "\n".join(sections) if sections else "(no entries matched)"
 
 
@@ -111,7 +122,7 @@ def list_cmd(
         Optional[str],
         typer.Option(
             "--sleeve",
-            help="Filter to one sleeve: crypto | equity | macro.",
+            help="Filter to one sleeve: crypto | equity | macro | prices.",
         ),
     ] = None,
     json_out: Annotated[
@@ -123,8 +134,15 @@ def list_cmd(
     ] = DEFAULT_WATCHLIST_PATH,
 ) -> None:
     """Show watchlist assets by sleeve."""
-    if sleeve is not None and sleeve not in {"crypto", "equity", "equities", "macro"}:
-        raise typer.BadParameter("--sleeve must be crypto, equity, or macro.")
+    if sleeve is not None and sleeve not in {
+        "crypto",
+        "equity",
+        "equities",
+        "macro",
+        "prices",
+        "yahoo",
+    }:
+        raise typer.BadParameter("--sleeve must be crypto, equity, macro, or prices.")
     wl = _load_or_exit(config)
     if json_out:
         payload: dict[str, Any] = {}
@@ -146,6 +164,16 @@ def list_cmd(
         if sleeve in (None, "macro"):
             payload["macro"] = [
                 {"series_id": m.series_id, "name": m.name} for m in wl.macro
+            ]
+        if sleeve in (None, "prices", "yahoo"):
+            payload["yahoo_price_targets"] = [
+                {
+                    "symbol": target.symbol,
+                    "name": target.name,
+                    "role": target.role,
+                    "asset_class": target.asset_class,
+                }
+                for target in wl.yahoo_price_targets
             ]
         typer.echo(json.dumps(payload, indent=2, default=_json_default))
     else:
@@ -662,6 +690,24 @@ def _query_asset_gaps(wl: Watchlist) -> list[dict[str, Any]]:
                     "key": e.cik,
                     "source": "sec.filings",
                     "last_ts": last_dt.isoformat() if last_dt else None,
+                    "age_hours": round(age_h, 1) if age_h is not None else None,
+                }
+            )
+        # Price-only Yahoo targets -> yahoo.candles keyed by ticker.
+        for target in wl.yahoo_price_targets:
+            cur.execute(
+                "SELECT max(ts) FROM yahoo.candles WHERE ticker = %s",
+                [target.symbol],
+            )
+            last_ts = cur.fetchone()[0]
+            age_h = (now - last_ts).total_seconds() / 3600 if last_ts else None
+            out.append(
+                {
+                    "sleeve": "price",
+                    "asset": target.symbol,
+                    "key": target.symbol,
+                    "source": "yahoo.candles",
+                    "last_ts": last_ts.isoformat() if last_ts else None,
                     "age_hours": round(age_h, 1) if age_h is not None else None,
                 }
             )
