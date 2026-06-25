@@ -3,7 +3,7 @@ date: 2026-06-02
 asset: SUI
 sleeve: crypto-tactical
 horizon: months
-action: trim
+action: trim # grade against the ETH+SOL destination basket below
 reflection_benchmark:
   type: destination_basket
   label: 50/50 ETH+SOL destination basket
