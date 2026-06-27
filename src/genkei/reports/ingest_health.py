@@ -46,8 +46,10 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from genkei.common.freshness import DEFAULT_MAX_SNAPSHOT_AGE_HOURS
+
 DEFAULT_OUTPUT_DIR = Path("reports/health")
-DEFAULT_STALE_HOURS = 36.0
+DEFAULT_STALE_HOURS = DEFAULT_MAX_SNAPSHOT_AGE_HOURS
 
 
 def _run_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

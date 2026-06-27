@@ -513,3 +513,18 @@ Completed setup and implementation decisions for the Genkei Capital research pip
 ### ~~B-052 — "Open research questions" log~~
 - **Resolved:** 2026-06-24 (branch mission-queue, commit `74e3119`; shipped through the mission queue as the B-120 demonstration pass)
 - **Outcome:** Stood up `docs/research-questions.md` — a lightweight, append-only, newest-on-top scratch log for threads that surface mid-session and would otherwise evaporate. Documented a `### date — question` / `status` (`open`|`resolved`) / `context` / `outcome` block format with an agent-appends/user-triages contract, and seeded two real questions (CME-OI-vs-spot lead from B-104, `yahoo.candles` NOW magnitude from B-124) so the format is demonstrated, not just described. Wired a discoverability pointer into `prompts/research-methodology.md`'s shortcuts section. **Doc-and-convention only by deliberate scope** — no `genkei research-questions` CLI surface (the mission's explicit out-of-scope note; the zero-friction scratch log doesn't need tooling). It's the lightweight cousin of the decision log (`docs/research/decisions/`): no frontmatter validator, no reflection cycle. Suite green, no code touched.
+
+### ~~B-023 — Add data-freshness check + visible warning~~
+- **Resolved:** 2026-06-26 (branch missions-2026-06-26, commit `df06c91`)
+- **Outcome:** Added shared freshness helpers and read-path stale warnings for `prices`, `tvl`, and `macro`. `--max-snapshot-age-hours` defaults to the watchlist-health 36h cutoff; warnings stay on stderr so JSON stdout remains a bare row list. Macro uses the latest successful `fred/normalize` ingest run rather than observation dates because FRED series have mixed cadence.
+- **Evidence:** `src/genkei/common/freshness.py`, `src/genkei/cli/_helpers.py`, `src/genkei/cli/prices.py`, `src/genkei/cli/tvl.py`, `src/genkei/cli/macro.py`, `tests/common/test_freshness.py`, `tests/cli/test_freshness_cli.py`, and `missions/done/2026-06-24-b023-data-freshness-warning.md`.
+
+### ~~B-047 — CLI documentation in `docs/cli/`~~
+- **Resolved:** 2026-06-26 (branch missions-2026-06-26, commit `31b6b50`)
+- **Outcome:** Generated `docs/cli/` with 23 per-command reference pages plus a `README.md` index. Each page includes purpose, real `--help` flags, and worked human/JSON examples; examples that could not be live-captured are explicitly labelled illustrative.
+- **Evidence:** `docs/cli/README.md`, the 23 `docs/cli/*.md` command pages, and `missions/done/2026-06-24-b047-cli-docs.md`.
+
+### ~~B-053 — Periodic ingest-health summary~~
+- **Resolved:** 2026-06-27 (branch missions-2026-06-26, commit `311d285`)
+- **Outcome:** Added a periodic ingest-health report renderer with a build/render split, reusing the `watchlist health` query layer for source status and schema drift. The first artifact under `reports/health/` records every source, including healthy rows, with last-run timestamps traceable to `meta.ingest_runs`.
+- **Evidence:** `src/genkei/reports/ingest_health.py`, `tests/reports/test_ingest_health.py`, `reports/health/ingest-health-2026-06-27.md`, and `missions/done/2026-06-24-b053-ingest-health-summary.md`.

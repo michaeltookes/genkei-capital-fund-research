@@ -22,17 +22,20 @@ def _ts(hours_ago: float) -> str:
 
 
 class PricesFreshnessTests(unittest.TestCase):
-    def _run(self, rows, args):
+    def _run(self, rows, args, *, latest_ts=None):
         out, err = io.StringIO(), io.StringIO()
         with (
             patch(
                 "genkei.cli.prices._query_coingecko_market_data", return_value=rows
             ),
+            patch(
+                "genkei.cli.prices._query_coingecko_latest_ts", return_value=latest_ts
+            ) as latest,
             redirect_stdout(out),
             redirect_stderr(err),
         ):
             main(["prices", "--ticker", "BTC", *args])
-        return out.getvalue(), err.getvalue()
+        return out.getvalue(), err.getvalue(), latest
 
     def _row(self, hours_ago: float):
         return {
@@ -43,22 +46,24 @@ class PricesFreshnessTests(unittest.TestCase):
         }
 
     def test_fresh_emits_no_warning(self) -> None:
-        out, err = self._run([self._row(2)], [])
+        out, err, _latest = self._run([self._row(2)], [])
         self.assertIn("65,000", out)
         self.assertNotIn("STALE", err)
 
     def test_stale_warns_on_stderr_not_stdout(self) -> None:
-        out, err = self._run([self._row(100)], [])
+        out, err, _latest = self._run([self._row(100)], [])
         self.assertIn("STALE", err)
         self.assertNotIn("STALE", out)  # human banner is stderr-only
 
     def test_threshold_override_suppresses_warning(self) -> None:
         # 100h old, but a 200h threshold → silent.
-        _out, err = self._run([self._row(100)], ["--max-snapshot-age-hours", "200"])
+        _out, err, _latest = self._run(
+            [self._row(100)], ["--max-snapshot-age-hours", "200"]
+        )
         self.assertNotIn("STALE", err)
 
     def test_json_stdout_stays_a_bare_list_when_stale(self) -> None:
-        out, err = self._run([self._row(100)], ["--json"])
+        out, err, _latest = self._run([self._row(100)], ["--json"])
         parsed = json_mod.loads(out)
         # Contract: stdout is the bare row list, unwrapped.
         self.assertIsInstance(parsed, list)
@@ -69,7 +74,16 @@ class PricesFreshnessTests(unittest.TestCase):
         self.assertEqual(freshness["source"], "coingecko.market_data")
 
     def test_empty_result_emits_no_warning(self) -> None:
-        _out, err = self._run([], [])
+        _out, err, _latest = self._run([], [])
+        self.assertNotIn("STALE", err)
+
+    def test_historical_until_uses_unbounded_latest_row_for_freshness(self) -> None:
+        _out, err, latest = self._run(
+            [self._row(1000)],
+            ["--until", "2024-01-31"],
+            latest_ts=_ts(2),
+        )
+        latest.assert_called_once_with("bitcoin")
         self.assertNotIn("STALE", err)
 
 
@@ -85,6 +99,19 @@ class TvlFreshnessTests(unittest.TestCase):
             main(["tvl", "--chain", "Ethereum"])
         self.assertIn("STALE", err.getvalue())
         self.assertNotIn("STALE", out.getvalue())
+
+    def test_protocol_tvl_warning_uses_protocol_source_label(self) -> None:
+        rows = [{"ts": _ts(100), "chain": "Ethereum", "tvl_usd": 1_000_000}]
+        out, err = io.StringIO(), io.StringIO()
+        with (
+            patch("genkei.cli.tvl._query_protocol_tvl", return_value=rows),
+            redirect_stdout(out),
+            redirect_stderr(err),
+        ):
+            main(["tvl", "--protocol", "aave-v3"])
+        self.assertIn("STALE", err.getvalue())
+        self.assertIn("defillama.protocol_tvl", err.getvalue())
+        self.assertNotIn("defillama.chain_tvl", err.getvalue())
 
 
 class MacroFreshnessTests(unittest.TestCase):

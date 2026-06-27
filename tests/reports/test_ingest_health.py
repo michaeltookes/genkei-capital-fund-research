@@ -5,7 +5,12 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timezone
 
-from genkei.reports.ingest_health import render_health_report, write_report
+from genkei.common.freshness import DEFAULT_MAX_SNAPSHOT_AGE_HOURS
+from genkei.reports.ingest_health import (
+    DEFAULT_STALE_HOURS,
+    render_health_report,
+    write_report,
+)
 
 GEN = datetime(2026, 6, 26, 7, 13, 0, tzinfo=timezone.utc)
 
@@ -69,6 +74,11 @@ class HealthyRosterTests(unittest.TestCase):
     def test_header_has_generated_and_cutoff(self) -> None:
         self.assertIn("2026-06-26T07:13:00Z", self.md)
         self.assertIn("36h", self.md)
+
+
+class DefaultThresholdTests(unittest.TestCase):
+    def test_default_stale_hours_reuses_canonical_freshness_constant(self) -> None:
+        self.assertEqual(DEFAULT_STALE_HOURS, DEFAULT_MAX_SNAPSHOT_AGE_HOURS)
 
 
 class MixedRosterTests(unittest.TestCase):

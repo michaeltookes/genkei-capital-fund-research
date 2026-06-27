@@ -168,6 +168,35 @@ def _query_yahoo_candles(
     return out
 
 
+def _fetch_latest_ts(sql: str, params: list[Any]) -> Optional[datetime]:
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        row = cur.fetchone()
+    return row[0] if row and row[0] is not None else None
+
+
+def _query_coingecko_latest_ts(coingecko_id: str) -> Optional[datetime]:
+    return _fetch_latest_ts(
+        "SELECT ts FROM coingecko.market_data "
+        "WHERE coingecko_id = %s ORDER BY ts DESC LIMIT 1",
+        [coingecko_id],
+    )
+
+
+def _query_coinbase_latest_ts(product: str) -> Optional[datetime]:
+    return _fetch_latest_ts(
+        "SELECT ts FROM coinbase.candles WHERE product = %s ORDER BY ts DESC LIMIT 1",
+        [product],
+    )
+
+
+def _query_yahoo_latest_ts(ticker: str) -> Optional[datetime]:
+    return _fetch_latest_ts(
+        "SELECT ts FROM yahoo.candles WHERE ticker = %s ORDER BY ts DESC LIMIT 1",
+        [ticker],
+    )
+
+
 def _format_human(ticker: str, source: str, rows: list[dict[str, Any]]) -> str:
     if not rows:
         return (
@@ -351,11 +380,23 @@ def prices_cmd(
         "coinbase": "coinbase.candles",
         "yahoo": "yahoo.candles",
     }[source]
+    freshest_ts: Any = rows[0]["ts"] if rows else None
+    if rows and until_d is not None:
+        # A historical end date intentionally excludes recent candles; probe
+        # the unbounded latest row so the warning reflects ingest freshness.
+        if source == "coingecko":
+            assert crypto is not None
+            freshest_ts = _query_coingecko_latest_ts(crypto.coingecko_id)
+        elif source == "coinbase":
+            assert crypto is not None and crypto.coinbase_product is not None
+            freshest_ts = _query_coinbase_latest_ts(crypto.coinbase_product)
+        else:
+            freshest_ts = _query_yahoo_latest_ts(yahoo_symbol)
     freshness = (
         snapshot_freshness(
-            rows[0]["ts"], source=source_table, max_age_hours=max_snapshot_age_hours
+            freshest_ts, source=source_table, max_age_hours=max_snapshot_age_hours
         )
-        if rows
+        if freshest_ts
         else None
     )
 

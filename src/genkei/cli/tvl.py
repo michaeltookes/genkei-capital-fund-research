@@ -222,6 +222,7 @@ def tvl_cmd(
 
     if chain is not None:
         rows = _query_chain_tvl(chain, since=since_d, until=until_d, limit=limit)
+        source_label = "defillama.chain_tvl"
         if json_out:
             typer.echo(json.dumps(rows, indent=2, default=_json_default))
         else:
@@ -230,12 +231,14 @@ def tvl_cmd(
         rows = _query_protocol_tvl(
             protocol, chain=None, since=since_d, until=until_d, limit=limit
         )
+        source_label = "defillama.protocol_tvl"
         if json_out:
             typer.echo(json.dumps(rows, indent=2, default=_json_default))
         else:
             typer.echo(_format_protocol_tvl_human(protocol, rows))
     else:
         rows = _query_chains_overview(limit=limit)
+        source_label = "defillama.chain_tvl"
         if json_out:
             typer.echo(json.dumps(rows, indent=2, default=_json_default))
         else:
@@ -248,7 +251,7 @@ def tvl_cmd(
     freshness = (
         snapshot_freshness(
             freshest_ts,
-            source="defillama.chain_tvl",
+            source=source_label,
             max_age_hours=max_snapshot_age_hours,
         )
         if freshest_ts

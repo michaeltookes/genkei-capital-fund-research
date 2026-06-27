@@ -73,15 +73,6 @@ Migrate the existing MVP into the new foundation; it becomes the canonical patte
   - Normalizer reads keywords from config.
   - Existing tests still pass.
 
-### B-023 — Add data-freshness check + visible warning
-- **Status:** open — promoted to mission queue 2026-06-24 (`missions/pending/2026-06-24-b023-data-freshness-warning.md`, B-120)
-- **Priority:** medium
-- **Context:** If the latest snapshot is >N hours stale, the report (or any CLI query) should make that visible.
-- **Acceptance criteria:**
-  - Configurable `--max-snapshot-age-hours` (default e.g. 24).
-  - Report banner / CLI warning when stale.
-  - `meta.ingest_runs` queryable for staleness.
-
 ## Phase 2 — Free-data ingesters with backfill
 
 One backlog item per source. Each follows the DeFiLlama-refactored pattern: collect → land in Postgres → normalize → tests → backfill mode.
@@ -182,27 +173,10 @@ The interface the agent (and human user) uses to query the lake.
   - `--no-cache` flag.
   - Cache key includes all query parameters.
 
-### B-047 — CLI documentation in `docs/cli/`
-- **Status:** open — promoted to mission queue 2026-06-24 (`missions/pending/2026-06-24-b047-cli-docs.md`, B-120)
-- **Priority:** medium
-- **Context:** Every subcommand gets `--help` text + a worked example. The agent reads these when it doesn't know how to query.
-- **Acceptance criteria:**
-  - One markdown file per subcommand under `docs/cli/`.
-  - Examples include both human and `--json` output.
-
 ## Phase 4 — Agent layer
 
 Wires the data lake to the on-demand AI researcher.
 
-
-### B-053 — Periodic ingest-health summary
-- **Status:** open — promoted to mission queue 2026-06-24 (`missions/pending/2026-06-24-b053-ingest-health-summary.md`, B-120)
-- **Priority:** low
-- **Context:** Agent reports staleness per source, schema drift, anomalies — surfaces operational issues without manual checks.
-- **Acceptance criteria:**
-  - Daily or weekly cadence aligned with the Claude Code harness decision (D-017/R-030).
-  - Summary covers every active source.
-  - Anomalies link back to `meta.ingest_runs`.
 
 ## Phase 5 — Experiments framework
 
