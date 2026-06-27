@@ -4,6 +4,11 @@ Completed setup and implementation decisions for the Genkei Capital research pip
 
 ## Resolved
 
+### ~~B-127 — GDELT collect csv field-size-limit failure~~
+- **Resolved:** 2026-06-27 (branch gdelt-fix, commit `f2c83b4`)
+- **Outcome:** Fixed a live production failure that the brand-new B-053 ingest-health report surfaced on its first run: `gdelt collect` had been FAILing every cron with `_csv.Error: field larger than field limit (131072)`, silently dropping each 15-min GKG batch — a daily news/event data gap. **Root cause:** `parse_csv_rows` (`src/genkei/ingest/gdelt.py`) used `csv.reader` with no `csv.field_size_limit()` bump; GDELT GKG rows carry enhanced theme/location/person/org fields above Python csv's default 128 KB cap. **Fix:** `_raise_csv_field_size_limit()` lifts the cap (portable — halves on the OverflowError a 32-bit `long` throws for `sys.maxsize`) before each parse. **Validation:** regression test pins an oversized (~136 KB) field and asserts it parses; neutering the fix reproduces the exact error (so the guard genuinely catches a revert). **Live confirmation:** re-ran the collector against the lake — 97 files fetched, 430 rows written to `gdelt.gkg`, exit 0; `genkei watchlist health` flipped `gdelt collect` from FAIL to OK. No prior backlog row (audit-driven — discovered + fixed same session); filed here per the non-row convention. Full suite green, ruff clean.
+- **Evidence:** `src/genkei/ingest/gdelt.py` (`_raise_csv_field_size_limit` + call in `parse_csv_rows`), `tests/ingest/test_gdelt.py` (`test_oversized_field_parses_instead_of_dropping_batch`).
+
 ### R-001 — DeFiLlama-only MVP scaffold merged to main
 - **Resolved:** 2026-05-06
 - **Outcome:** The DeFiLlama branch was merged into `main`.
