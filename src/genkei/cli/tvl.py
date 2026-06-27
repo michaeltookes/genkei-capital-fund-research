@@ -266,17 +266,17 @@ def tvl_cmd(
         else:
             typer.echo(_format_chains_overview_human(rows))
 
-    # Freshness check on the freshest returned row (B-023). DeFiLlama TVL is
-    # a daily snapshot; the overview lists one row per chain (sorted by TVL,
-    # not ts) so take the newest ts across rows. Warning goes to stderr only.
-    freshest_ts = max((r["ts"] for r in rows if r.get("ts")), default=None)
-    if rows and until_d is not None:
-        # A historical end date intentionally excludes recent TVL rows; probe
-        # the unbounded latest row so the warning reflects ingest freshness.
-        if chain is not None:
-            freshest_ts = _query_chain_tvl_latest_ts(chain)
-        elif protocol is not None:
-            freshest_ts = _query_protocol_tvl_latest_ts(protocol)
+    # Freshness check on the current source state (B-023). DeFiLlama TVL is a
+    # daily snapshot; historical end dates intentionally exclude recent rows, so
+    # scoped historical queries probe the unbounded latest row instead.
+    historical_scope = rows and until_d is not None and (chain is not None or protocol is not None)
+    if historical_scope and chain is not None:
+        freshest_ts = _query_chain_tvl_latest_ts(chain)
+    elif historical_scope and protocol is not None:
+        freshest_ts = _query_protocol_tvl_latest_ts(protocol)
+    else:
+        # The overview lists one row per chain sorted by TVL, not timestamp.
+        freshest_ts = max((r["ts"] for r in rows if r.get("ts")), default=None)
     freshness = (
         snapshot_freshness(
             freshest_ts,
