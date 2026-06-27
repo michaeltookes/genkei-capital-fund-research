@@ -21,9 +21,14 @@ from typing import Annotated, Any, Optional
 
 import typer
 
+from genkei.cli._helpers import emit_freshness_warning
 from genkei.cli._helpers import json_default as _json_default
 from genkei.cli._helpers import parse_date as _parse_date
 from genkei.common import db
+from genkei.common.freshness import (
+    DEFAULT_MAX_SNAPSHOT_AGE_HOURS,
+    snapshot_freshness,
+)
 from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
     CryptoEntry,
@@ -216,6 +221,18 @@ def prices_cmd(
         typer.Option("--until", help="End date (YYYY-MM-DD)."),
     ] = None,
     limit: Annotated[int, typer.Option("--limit", help="Max rows.", min=1)] = 30,
+    max_snapshot_age_hours: Annotated[
+        float,
+        typer.Option(
+            "--max-snapshot-age-hours",
+            help=(
+                "Warn on stderr when the freshest returned row is older than "
+                "this many hours (default 36h, a daily-cadence cutoff). The "
+                "--json row list on stdout is never altered."
+            ),
+            min=1,
+        ),
+    ] = DEFAULT_MAX_SNAPSHOT_AGE_HOURS,
     json_out: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable JSON instead of human table."),
@@ -326,7 +343,24 @@ def prices_cmd(
             yahoo_symbol, since=since_d, until=until_d, limit=limit
         )
 
+    # Freshness check on the freshest returned row (B-023). Crypto + equity
+    # prices are daily, so the freshest candle should be ~a day old; older
+    # means the ingest likely stalled. Warning goes to stderr only.
+    source_table = {
+        "coingecko": "coingecko.market_data",
+        "coinbase": "coinbase.candles",
+        "yahoo": "yahoo.candles",
+    }[source]
+    freshness = (
+        snapshot_freshness(
+            rows[0]["ts"], source=source_table, max_age_hours=max_snapshot_age_hours
+        )
+        if rows
+        else None
+    )
+
     if json_out:
         typer.echo(json.dumps(rows, indent=2, default=_json_default))
     else:
         typer.echo(_format_human(ticker.upper(), source, rows))
+    emit_freshness_warning(freshness, json_out=json_out)

@@ -30,9 +30,14 @@ from typing import Annotated, Any, Optional
 
 import typer
 
+from genkei.cli._helpers import emit_freshness_warning
 from genkei.cli._helpers import json_default as _json_default
 from genkei.cli._helpers import parse_date as _parse_date
 from genkei.common import db
+from genkei.common.freshness import (
+    DEFAULT_MAX_SNAPSHOT_AGE_HOURS,
+    snapshot_freshness,
+)
 
 
 def _query_chain_tvl(
@@ -183,6 +188,18 @@ def tvl_cmd(
         typer.Option("--until", help="End date (YYYY-MM-DD)."),
     ] = None,
     limit: Annotated[int, typer.Option("--limit", help="Max rows.", min=1)] = 30,
+    max_snapshot_age_hours: Annotated[
+        float,
+        typer.Option(
+            "--max-snapshot-age-hours",
+            help=(
+                "Warn on stderr when the freshest returned TVL row is older "
+                "than this many hours (default 36h). The --json row list on "
+                "stdout is never altered."
+            ),
+            min=1,
+        ),
+    ] = DEFAULT_MAX_SNAPSHOT_AGE_HOURS,
     json_out: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable JSON instead of human table."),
@@ -223,3 +240,18 @@ def tvl_cmd(
             typer.echo(json.dumps(rows, indent=2, default=_json_default))
         else:
             typer.echo(_format_chains_overview_human(rows))
+
+    # Freshness check on the freshest returned row (B-023). DeFiLlama TVL is
+    # a daily snapshot; the overview lists one row per chain (sorted by TVL,
+    # not ts) so take the newest ts across rows. Warning goes to stderr only.
+    freshest_ts = max((r["ts"] for r in rows if r.get("ts")), default=None)
+    freshness = (
+        snapshot_freshness(
+            freshest_ts,
+            source="defillama.chain_tvl",
+            max_age_hours=max_snapshot_age_hours,
+        )
+        if freshest_ts
+        else None
+    )
+    emit_freshness_warning(freshness, json_out=json_out)

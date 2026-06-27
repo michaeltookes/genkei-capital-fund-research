@@ -24,8 +24,12 @@ from typing import Annotated, Any, Optional
 
 import typer
 
-from genkei.cli._helpers import json_default, parse_date
+from genkei.cli._helpers import emit_freshness_warning, json_default, parse_date
 from genkei.common import db
+from genkei.common.freshness import (
+    DEFAULT_MAX_SNAPSHOT_AGE_HOURS,
+    ingest_run_freshness,
+)
 from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
     MacroEntry,
@@ -189,6 +193,20 @@ def macro_cmd(
         ),
     ] = False,
     limit: Annotated[int, typer.Option("--limit", help="Max rows.", min=1)] = 30,
+    max_snapshot_age_hours: Annotated[
+        float,
+        typer.Option(
+            "--max-snapshot-age-hours",
+            help=(
+                "Warn on stderr when the FRED pipeline's last successful run "
+                "is older than this many hours (default 36h). Judged on the "
+                "ingest run, not the observation date — FRED series have mixed "
+                "cadence (daily/monthly/quarterly), so a weeks-old monthly "
+                "observation is not stale. The --json stdout is never altered."
+            ),
+            min=1,
+        ),
+    ] = DEFAULT_MAX_SNAPSHOT_AGE_HOURS,
     json_out: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable JSON instead of human table."),
@@ -226,6 +244,15 @@ def macro_cmd(
         limit=limit,
     )
     rows = _tag_rows(rows, horizon_tag)
+
+    # Freshness check on the FRED ingest pipeline (B-023). Observation ts is
+    # the wrong signal here — a monthly series' freshest observation is
+    # legitimately weeks old — so judge on the last successful fred normalize
+    # run instead. Warning goes to stderr only.
+    freshness = ingest_run_freshness(
+        "fred", "normalize", max_age_hours=max_snapshot_age_hours
+    )
+
     if json_out:
         typer.echo(json.dumps(rows, indent=2, default=json_default))
     else:
@@ -238,3 +265,4 @@ def macro_cmd(
                 horizon_tag=horizon_tag,
             )
         )
+    emit_freshness_warning(freshness, json_out=json_out)
