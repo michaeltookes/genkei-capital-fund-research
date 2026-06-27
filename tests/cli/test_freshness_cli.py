@@ -86,6 +86,32 @@ class PricesFreshnessTests(unittest.TestCase):
         latest.assert_called_once_with("bitcoin")
         self.assertNotIn("STALE", err)
 
+    def test_yahoo_uses_normalize_run_freshness_not_candle_age(self) -> None:
+        rows = [self._row(80)]
+        freshness = {
+            "source": "yahoo/normalize",
+            "last_ts": _ts(2),
+            "age_hours": 2.0,
+            "max_age_hours": 36.0,
+            "stale": False,
+            "kind": "ingest_run",
+        }
+        out, err = io.StringIO(), io.StringIO()
+        with (
+            patch("genkei.cli.prices._query_yahoo_candles", return_value=rows),
+            patch(
+                "genkei.cli.prices.ingest_run_freshness", return_value=freshness
+            ) as mocked,
+            redirect_stdout(out),
+            redirect_stderr(err),
+        ):
+            main(["prices", "--ticker", "AAPL"])
+        mocked.assert_called_once_with(
+            "yahoo", "normalize", max_age_hours=36.0
+        )
+        self.assertIn("AAPL prices", out.getvalue())
+        self.assertNotIn("STALE", err.getvalue())
+
 
 class TvlFreshnessTests(unittest.TestCase):
     def test_stale_chain_tvl_warns_on_stderr(self) -> None:
@@ -112,6 +138,36 @@ class TvlFreshnessTests(unittest.TestCase):
         self.assertIn("STALE", err.getvalue())
         self.assertIn("defillama.protocol_tvl", err.getvalue())
         self.assertNotIn("defillama.chain_tvl", err.getvalue())
+
+    def test_historical_chain_until_uses_unbounded_latest_row_for_freshness(self) -> None:
+        rows = [{"ts": _ts(1000), "tvl_usd": 73_500_000_000}]
+        out, err = io.StringIO(), io.StringIO()
+        with (
+            patch("genkei.cli.tvl._query_chain_tvl", return_value=rows),
+            patch("genkei.cli.tvl._query_chain_tvl_latest_ts", return_value=_ts(2)) as latest,
+            redirect_stdout(out),
+            redirect_stderr(err),
+        ):
+            main(["tvl", "--chain", "Ethereum", "--until", "2024-01-31"])
+        latest.assert_called_once_with("Ethereum")
+        self.assertIn("Ethereum TVL", out.getvalue())
+        self.assertNotIn("STALE", err.getvalue())
+
+    def test_historical_protocol_until_uses_unbounded_latest_row_for_freshness(self) -> None:
+        rows = [{"ts": _ts(1000), "chain": "Ethereum", "tvl_usd": 1_000_000}]
+        out, err = io.StringIO(), io.StringIO()
+        with (
+            patch("genkei.cli.tvl._query_protocol_tvl", return_value=rows),
+            patch(
+                "genkei.cli.tvl._query_protocol_tvl_latest_ts", return_value=_ts(2)
+            ) as latest,
+            redirect_stdout(out),
+            redirect_stderr(err),
+        ):
+            main(["tvl", "--protocol", "aave-v3", "--until", "2024-01-31"])
+        latest.assert_called_once_with("aave-v3")
+        self.assertIn("aave-v3 TVL", out.getvalue())
+        self.assertNotIn("STALE", err.getvalue())
 
 
 class MacroFreshnessTests(unittest.TestCase):

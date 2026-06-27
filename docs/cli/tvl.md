@@ -20,12 +20,16 @@ Usage: python -m genkei.cli tvl [OPTIONS]
 │                                                      (YYYY-MM-DD).           │
 │ --until                        TEXT                  End date (YYYY-MM-DD).  │
 │ --limit                        INTEGER RANGE [x>=1]  Max rows. [default: 30] │
-│ --max-snapshot-age-hou…        FLOAT RANGE [x>=1]    Warn on stderr when the │
-│                                                      freshest returned TVL   │
-│                                                      row is older than this  │
-│                                                      many hours (default     │
-│                                                      36h). The --json row    │
-│                                                      list on stdout is never │
+│ --max-snapshot-age-hou…        FLOAT RANGE [x>=1]    Warn on stderr when     │
+│                                                      current TVL freshness   │
+│                                                      is older than this many │
+│                                                      hours (default 36h).    │
+│                                                      Historical --until      │
+│                                                      windows probe the       │
+│                                                      latest row outside the  │
+│                                                      returned window. The    │
+│                                                      --json row list on      │
+│                                                      stdout is never         │
 │                                                      altered.                │
 │                                                      [default: 36.0]         │
 │ --json                                               Emit machine-readable   │

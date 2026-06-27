@@ -33,14 +33,17 @@ Usage: python -m genkei.cli prices [OPTIONS]
 │    --limit                       INTEGER RANGE [x>=1]  Max rows.             │
 │                                                        [default: 30]         │
 │    --max-snapshot-age-…          FLOAT RANGE [x>=1]    Warn on stderr when   │
-│                                                        the freshest returned │
-│                                                        row is older than     │
-│                                                        this many hours       │
-│                                                        (default 36h, a       │
-│                                                        daily-cadence         │
-│                                                        cutoff). The --json   │
-│                                                        row list on stdout is │
-│                                                        never altered.        │
+│                                                        the freshness signal  │
+│                                                        is older than this    │
+│                                                        many hours (default   │
+│                                                        36h). CoinGecko and   │
+│                                                        Coinbase use the      │
+│                                                        latest candle; Yahoo  │
+│                                                        uses the latest       │
+│                                                        normalize run. The    │
+│                                                        --json row list on    │
+│                                                        stdout is never       │
+│                                                        altered.              │
 │                                                        [default: 36.0]       │
 │    --json                                              Emit machine-readable │
 │                                                        JSON instead of human │

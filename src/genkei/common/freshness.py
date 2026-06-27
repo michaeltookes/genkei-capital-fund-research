@@ -5,14 +5,14 @@ second, divergent definition of "stale" can't creep in. Two freshness
 signals live here:
 
 * **snapshot freshness** — age of the freshest *data row* a read query
-  returned (``prices``, ``tvl``). The daily candle/TVL row should be ~a
-  day old; older means the ingest likely stalled.
+  returned (crypto ``prices``, ``tvl``). The daily candle/TVL row should
+  be ~a day old; older means the ingest likely stalled.
 * **ingest-run freshness** — age of the last successful *ingest run* for a
-  source (``macro``). FRED series have mixed cadence (DGS10 daily,
-  CPIAUCSL monthly, GDPC1 quarterly), so the freshest *observation* is
-  legitimately weeks old for a monthly series — judging staleness by
-  observation ts would false-positive. The right signal there is "when did
-  we last pull FRED", which is daily regardless of series cadence and lives
+  source (``macro``, Yahoo-backed ``prices``). FRED series have mixed
+  cadence (DGS10 daily, CPIAUCSL monthly, GDPC1 quarterly), and Yahoo
+  equities have legitimate weekend/holiday candle gaps, so the freshest
+  *observation* can be older even when the pipeline is healthy. The right
+  signal there is "when did we last run the source pipeline", which lives
   in ``meta.ingest_runs``.
 
 ``age_hours`` is the one place the ``(now - ts)`` arithmetic lives;

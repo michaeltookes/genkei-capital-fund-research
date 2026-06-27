@@ -100,6 +100,27 @@ def _query_protocol_tvl(
     ]
 
 
+def _fetch_latest_ts(sql: str, params: list[Any]) -> Optional[datetime]:
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        row = cur.fetchone()
+    return row[0] if row and row[0] is not None else None
+
+
+def _query_chain_tvl_latest_ts(chain: str) -> Optional[datetime]:
+    return _fetch_latest_ts(
+        "SELECT max(ts) FROM defillama.chain_tvl WHERE chain = %s",
+        [chain],
+    )
+
+
+def _query_protocol_tvl_latest_ts(slug: str) -> Optional[datetime]:
+    return _fetch_latest_ts(
+        "SELECT max(ts) FROM defillama.protocol_tvl WHERE slug = %s",
+        [slug],
+    )
+
+
 def _query_chains_overview(*, limit: int) -> list[dict[str, Any]]:
     """List chains by most recent TVL — a 'what's tracked' overview."""
     sql = (
@@ -193,9 +214,10 @@ def tvl_cmd(
         typer.Option(
             "--max-snapshot-age-hours",
             help=(
-                "Warn on stderr when the freshest returned TVL row is older "
-                "than this many hours (default 36h). The --json row list on "
-                "stdout is never altered."
+                "Warn on stderr when current TVL freshness is older than this "
+                "many hours (default 36h). Historical --until windows probe "
+                "the latest row outside the returned window. The --json row "
+                "list on stdout is never altered."
             ),
             min=1,
         ),
@@ -248,6 +270,13 @@ def tvl_cmd(
     # a daily snapshot; the overview lists one row per chain (sorted by TVL,
     # not ts) so take the newest ts across rows. Warning goes to stderr only.
     freshest_ts = max((r["ts"] for r in rows if r.get("ts")), default=None)
+    if rows and until_d is not None:
+        # A historical end date intentionally excludes recent TVL rows; probe
+        # the unbounded latest row so the warning reflects ingest freshness.
+        if chain is not None:
+            freshest_ts = _query_chain_tvl_latest_ts(chain)
+        elif protocol is not None:
+            freshest_ts = _query_protocol_tvl_latest_ts(protocol)
     freshness = (
         snapshot_freshness(
             freshest_ts,
