@@ -7,11 +7,31 @@ needs — JSON serialization that preserves Decimal precision, and the
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from decimal import Decimal
 from typing import Any, Optional
 
 import typer
+
+from genkei.common.freshness import stale_banner
+
+
+def emit_freshness_warning(freshness: Optional[dict[str, Any]], *, json_out: bool) -> None:
+    """Surface a stale-data warning on **stderr** (B-023). No-op when fresh.
+
+    Deliberately stderr-only so it never corrupts captured ``--json`` stdout
+    (the reflection cycle and other consumers parse ``genkei prices --json``
+    as a bare row list). In JSON mode the warning is itself a structured
+    ``{"freshness": {...}}`` object so an agent can capture stderr and branch
+    on ``stale`` / ``age_hours``; in human mode it's a one-line banner.
+    """
+    if not freshness or not freshness.get("stale"):
+        return
+    if json_out:
+        typer.echo(json.dumps({"freshness": freshness}, default=json_default), err=True)
+    else:
+        typer.echo(stale_banner(freshness), err=True)
 
 
 def json_default(value: Any) -> Any:

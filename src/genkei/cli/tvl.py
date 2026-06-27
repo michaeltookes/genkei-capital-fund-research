@@ -30,9 +30,14 @@ from typing import Annotated, Any, Optional
 
 import typer
 
+from genkei.cli._helpers import emit_freshness_warning
 from genkei.cli._helpers import json_default as _json_default
 from genkei.cli._helpers import parse_date as _parse_date
 from genkei.common import db
+from genkei.common.freshness import (
+    DEFAULT_MAX_SNAPSHOT_AGE_HOURS,
+    snapshot_freshness,
+)
 
 
 def _query_chain_tvl(
@@ -93,6 +98,27 @@ def _query_protocol_tvl(
         }
         for (ts, ch, tvl) in rows
     ]
+
+
+def _fetch_latest_ts(sql: str, params: list[Any]) -> Optional[datetime]:
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        row = cur.fetchone()
+    return row[0] if row and row[0] is not None else None
+
+
+def _query_chain_tvl_latest_ts(chain: str) -> Optional[datetime]:
+    return _fetch_latest_ts(
+        "SELECT max(ts) FROM defillama.chain_tvl WHERE chain = %s",
+        [chain],
+    )
+
+
+def _query_protocol_tvl_latest_ts(slug: str) -> Optional[datetime]:
+    return _fetch_latest_ts(
+        "SELECT max(ts) FROM defillama.protocol_tvl WHERE slug = %s",
+        [slug],
+    )
 
 
 def _query_chains_overview(*, limit: int) -> list[dict[str, Any]]:
@@ -183,6 +209,19 @@ def tvl_cmd(
         typer.Option("--until", help="End date (YYYY-MM-DD)."),
     ] = None,
     limit: Annotated[int, typer.Option("--limit", help="Max rows.", min=1)] = 30,
+    max_snapshot_age_hours: Annotated[
+        float,
+        typer.Option(
+            "--max-snapshot-age-hours",
+            help=(
+                "Warn on stderr when current TVL freshness is older than this "
+                "many hours (default 36h). Historical --until windows probe "
+                "the latest row outside the returned window. The --json row "
+                "list on stdout is never altered."
+            ),
+            min=1,
+        ),
+    ] = DEFAULT_MAX_SNAPSHOT_AGE_HOURS,
     json_out: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable JSON instead of human table."),
@@ -205,6 +244,7 @@ def tvl_cmd(
 
     if chain is not None:
         rows = _query_chain_tvl(chain, since=since_d, until=until_d, limit=limit)
+        source_label = "defillama.chain_tvl"
         if json_out:
             typer.echo(json.dumps(rows, indent=2, default=_json_default))
         else:
@@ -213,13 +253,37 @@ def tvl_cmd(
         rows = _query_protocol_tvl(
             protocol, chain=None, since=since_d, until=until_d, limit=limit
         )
+        source_label = "defillama.protocol_tvl"
         if json_out:
             typer.echo(json.dumps(rows, indent=2, default=_json_default))
         else:
             typer.echo(_format_protocol_tvl_human(protocol, rows))
     else:
         rows = _query_chains_overview(limit=limit)
+        source_label = "defillama.chain_tvl"
         if json_out:
             typer.echo(json.dumps(rows, indent=2, default=_json_default))
         else:
             typer.echo(_format_chains_overview_human(rows))
+
+    # Freshness check on the current source state (B-023). DeFiLlama TVL is a
+    # daily snapshot; historical end dates intentionally exclude recent rows, so
+    # scoped historical queries probe the unbounded latest row instead.
+    historical_scope = rows and until_d is not None and (chain is not None or protocol is not None)
+    if historical_scope and chain is not None:
+        freshest_ts = _query_chain_tvl_latest_ts(chain)
+    elif historical_scope and protocol is not None:
+        freshest_ts = _query_protocol_tvl_latest_ts(protocol)
+    else:
+        # The overview lists one row per chain sorted by TVL, not timestamp.
+        freshest_ts = max((r["ts"] for r in rows if r.get("ts")), default=None)
+    freshness = (
+        snapshot_freshness(
+            freshest_ts,
+            source=source_label,
+            max_age_hours=max_snapshot_age_hours,
+        )
+        if freshest_ts
+        else None
+    )
+    emit_freshness_warning(freshness, json_out=json_out)

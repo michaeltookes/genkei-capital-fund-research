@@ -50,6 +50,7 @@ from psycopg import sql
 from genkei.cli._helpers import json_default as _json_default
 from genkei.cli._helpers import parse_date as _parse_date
 from genkei.common import db
+from genkei.common.freshness import age_hours as _age_hours
 from genkei.common.schema_drift import check_natural_key_uniqueness, check_recent_blobs
 from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
@@ -342,7 +343,7 @@ def _query_source_health() -> list[dict[str, Any]]:
         for source, endpoint, status, started, finished, err in cur.fetchall():
             if endpoint not in RECURRING_ENDPOINTS.get(source, []):
                 continue  # one-shot endpoint — not part of cron health.
-            age_h = (now - started).total_seconds() / 3600 if started else None
+            age_h = _age_hours(started, now=now)
             out.append(
                 {
                     "source": source,
@@ -350,7 +351,7 @@ def _query_source_health() -> list[dict[str, Any]]:
                     "status": status,
                     "last_started_at": started.isoformat() if started else None,
                     "last_finished_at": finished.isoformat() if finished else None,
-                    "age_hours": round(age_h, 1) if age_h is not None else None,
+                    "age_hours": age_h,
                     "error": err if err else None,
                 }
             )
@@ -646,7 +647,7 @@ def _query_asset_gaps(wl: Watchlist) -> list[dict[str, Any]]:
                 [c.coingecko_id],
             )
             last_ts = cur.fetchone()[0]
-            age_h = (now - last_ts).total_seconds() / 3600 if last_ts else None
+            age_h = _age_hours(last_ts, now=now)
             out.append(
                 {
                     "sleeve": "crypto",
@@ -654,7 +655,7 @@ def _query_asset_gaps(wl: Watchlist) -> list[dict[str, Any]]:
                     "key": c.coingecko_id,
                     "source": "coingecko.market_data",
                     "last_ts": last_ts.isoformat() if last_ts else None,
-                    "age_hours": round(age_h, 1) if age_h is not None else None,
+                    "age_hours": age_h,
                 }
             )
         # Equity → sec.filings keyed by cik (skip entries without cik)
@@ -679,7 +680,7 @@ def _query_asset_gaps(wl: Watchlist) -> list[dict[str, Any]]:
             last_d = cur.fetchone()[0]
             if last_d is not None:
                 last_dt = datetime.combine(last_d, datetime.min.time(), tzinfo=timezone.utc)
-                age_h = (now - last_dt).total_seconds() / 3600
+                age_h = _age_hours(last_dt, now=now)
             else:
                 last_dt = None
                 age_h = None
@@ -690,7 +691,7 @@ def _query_asset_gaps(wl: Watchlist) -> list[dict[str, Any]]:
                     "key": e.cik,
                     "source": "sec.filings",
                     "last_ts": last_dt.isoformat() if last_dt else None,
-                    "age_hours": round(age_h, 1) if age_h is not None else None,
+                    "age_hours": age_h,
                 }
             )
         # Price-only Yahoo targets -> yahoo.candles keyed by ticker.
@@ -700,7 +701,7 @@ def _query_asset_gaps(wl: Watchlist) -> list[dict[str, Any]]:
                 [target.symbol],
             )
             last_ts = cur.fetchone()[0]
-            age_h = (now - last_ts).total_seconds() / 3600 if last_ts else None
+            age_h = _age_hours(last_ts, now=now)
             out.append(
                 {
                     "sleeve": "price",
@@ -708,7 +709,7 @@ def _query_asset_gaps(wl: Watchlist) -> list[dict[str, Any]]:
                     "key": target.symbol,
                     "source": "yahoo.candles",
                     "last_ts": last_ts.isoformat() if last_ts else None,
-                    "age_hours": round(age_h, 1) if age_h is not None else None,
+                    "age_hours": age_h,
                 }
             )
         # Macro → fred.observations keyed by series_id
@@ -718,7 +719,7 @@ def _query_asset_gaps(wl: Watchlist) -> list[dict[str, Any]]:
                 [m.series_id],
             )
             last_ts = cur.fetchone()[0]
-            age_h = (now - last_ts).total_seconds() / 3600 if last_ts else None
+            age_h = _age_hours(last_ts, now=now)
             out.append(
                 {
                     "sleeve": "macro",
@@ -726,7 +727,7 @@ def _query_asset_gaps(wl: Watchlist) -> list[dict[str, Any]]:
                     "key": m.series_id,
                     "source": "fred.observations",
                     "last_ts": last_ts.isoformat() if last_ts else None,
-                    "age_hours": round(age_h, 1) if age_h is not None else None,
+                    "age_hours": age_h,
                 }
             )
         # EIA energy series -> eia.observations keyed by series_id
@@ -739,7 +740,7 @@ def _query_asset_gaps(wl: Watchlist) -> list[dict[str, Any]]:
                 [entry.series_id],
             )
             last_ts = cur.fetchone()[0]
-            age_h = (now - last_ts).total_seconds() / 3600 if last_ts else None
+            age_h = _age_hours(last_ts, now=now)
             out.append(
                 {
                     "sleeve": "energy",
@@ -747,7 +748,7 @@ def _query_asset_gaps(wl: Watchlist) -> list[dict[str, Any]]:
                     "key": entry.series_id,
                     "source": eia_table,
                     "last_ts": last_ts.isoformat() if last_ts else None,
-                    "age_hours": round(age_h, 1) if age_h is not None else None,
+                    "age_hours": age_h,
                 }
             )
     return out
