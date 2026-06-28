@@ -6,7 +6,7 @@ horizon: months
 action: hold
 confidence: low
 status: pending
-trigger_reassessment: "DefiLlama Render Network BME fees/revenue (`render-network-bme`) show sustained growth (bull confirm: 30d fees materially above the current ~$82K baseline and quarterly revenue growing QoQ) or flat/declining usage (bear) OR RENDER's 90d relative strength vs SOL flips to >+15pp (idiosyncratic strength emerging) OR RENDER lags SOL by >20pp over 3 months (idiosyncratic breakdown) OR RENDER closes below the 2025-12 base (~$1.20) OR USD (DTWEXBGS) breaks above ~123 / VIX sustains >22 (high-beta-alt macro headwind)"
+trigger_reassessment: "DefiLlama Render Network BME fees/revenue (`render-network-bme`) show sustained growth (bull confirm: 30d fees materially above the current ~$82K baseline and quarterly revenue growing QoQ) or future deterioration (bear confirm: 30d fees remain below ~$60K for a full month, or Q3-2026 revenue declines again below Q2's ~$395K baseline) OR RENDER's 90d relative strength vs SOL flips to >+15pp (idiosyncratic strength emerging) OR RENDER lags SOL by >20pp over 3 months (idiosyncratic breakdown) OR RENDER closes below the 2025-12 base (~$1.20) OR USD (DTWEXBGS) breaks above ~123 / VIX sustains >22 (high-beta-alt macro headwind)"
 related:
   - decision: 2026-05-20-sui-position-assessment
   - data: coinbase.candles
@@ -96,7 +96,7 @@ Read: RENDER is a middle-of-the-pack tactical alt that *outperformed* its peers 
 
 **Top risks (counter-thesis distilled):** (1) the demand thesis never scales beyond today's modest BME fees — pure value trap; (2) DePIN-compute commoditizes / hyperscalers absorb the demand — Render captures little of a real trend; (3) macro stays hostile to high-beta (USD firming, VIX elevated) and the complex grinds lower, taking RENDER with it.
 
-**Trigger conditions for reassessment** (frontmatter): the **primary** trigger is *data* — DefiLlama Render BME fees/revenue (`render-network-bme`) materially above the current ~$82K 30d baseline with quarterly revenue growing QoQ (escalate) or flat/declining usage (stay sidelined / trim). Secondary price triggers: 90d rel-strength vs SOL flips >+15pp (idiosyncratic strength → escalate) or lags >20pp over 3m (breakdown → exit); a close below the ~$1.20 base (base failed → exit); USD >~123 or VIX sustained >22 (macro headwind → patience/trim).
+**Trigger conditions for reassessment** (frontmatter): the **primary** trigger is *data* — DefiLlama Render BME fees/revenue (`render-network-bme`) materially above the current ~$82K 30d baseline with quarterly revenue growing QoQ (escalate), or future deterioration via 30d fees remaining below ~$60K for a full month or Q3-2026 revenue declining again below Q2's ~$395K baseline (stay sidelined / trim). Secondary price triggers: 90d rel-strength vs SOL flips >+15pp (idiosyncratic strength → escalate) or lags >20pp over 3m (breakdown → exit); a close below the ~$1.20 base (base failed → exit); USD >~123 or VIX sustained >22 (macro headwind → patience/trim).
 
 **Backlog implication surfaced by this session (the highest-value follow-up):** this is no longer a source-discovery problem. The free source exists: DefiLlama's `render-network-bme` fees/revenue feed. The follow-up is narrower: add that slug to the DefiLlama protocol watchlist, run collect/normalize so it lands in `defillama.protocol_fees`, and wire future RENDER decisions to that series. Until then, use the direct DefiLlama page as the primary reassessment source and treat RENDER as a watchlist thesis, not a data-backed add.
 
