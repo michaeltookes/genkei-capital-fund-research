@@ -147,6 +147,23 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - If a free source emerges or a paid budget opens: schema + collector for cross-oracle TVS share over time, by protocol category (price feeds, randomness, CCIP-style cross-chain).
   - Pair with B-081 once both exist — would let `genkei query` join LINK's TVS share against competitors' over the same time series.
 
+### B-128 — Render Network usage / fees / BME-burn ingester (DePIN compute-demand metric)
+- **Status:** open
+- **Priority:** medium
+- **Context:** Surfaced by the 2026-06-28 RENDER /research decision (`docs/research/decisions/2026-06-28-render-depin-compute-thesis.md`). The lake carries RENDER **price / market-cap / volume** (CoinGecko + Coinbase) but **no network-usage, fees, or RNDR-burn metric** — confirmed empirically (no `render` slug in `defillama.protocol_fees`). That gap is load-bearing: token value in Render's **Burn-and-Mint Equilibrium (BME)** accrues from *network usage burns*, so the user's compute-demand thesis (spare GPU gets rented → Render captures demand → RNDR burns) is **unmeasurable today**. Every RENDER decision is low-confidence *by construction* until this lands — it is the **primary reassessment trigger** in that decision file. This is the RENDER analog of the SUI "no Sui-native protocol TVL" gap (B-087), but more load-bearing because here it's the *only* axis that can confirm or kill the thesis. Higher priority than the dormant survey items (B-084/B-104) because it backs an *active, freshly-taken* tactical position, not a hypothetical one.
+- **Unblock paths (in priority order — survey is the first deliverable):**
+  - **Render-published network stats** — the Render Network public dashboard / RNDR explorer (e.g. rendernetwork.com / renderfoundation.com) may expose frames-rendered, jobs, or burn figures in a scrapeable/structured form. Lowest cost if a stable endpoint exists.
+  - **On-chain Solana BME burn** — RENDER migrated to a Solana SPL; the burn/mint mechanism is on-chain. A Solana RPC collector against the burn address / mint program could land a usage-proxy timeseries directly (mirror the B-088 Sui-RPC pattern: public RPC, parse inline, forward-only if no historical method).
+  - **DefiLlama DePIN / fees coverage** — if/when DefiLlama lists Render under fees/DePIN, the existing `defillama` ingester + a watchlist `protocols:` slug would close it for free (and `revenue-divergence` would then light up RENDER price-vs-usage).
+  - **Paid DePIN data** (Messari / Token Terminal / a DePIN-specific provider) — out of scope per CLAUDE.md's free-sources-first stance until a private-data story exists; shares a trigger with B-084/B-115.
+- **Acceptance criteria:**
+  - Source survey (free + paid) with coverage + access assessment recorded in `docs/sources/render-usage.md` — that's the first deliverable (mirrors B-084).
+  - If a free source: a collector landing a usage / burn / fees timeseries into a new table (e.g. `onchain.render_usage` or a `depin.*` schema), following the standard `db.ingest_run(...)` / `db.bulk_upsert(...)` shape with `db.store_raw_blob(...)` and a `--backfill` path.
+  - `genkei watchlist health` monitors the new source.
+  - A query path / CLI surface returns the series with `--json`, mirroring existing patterns.
+  - Coverage limits documented (which metric is available vs paywalled), matching the SUI-unlocks / spot-ETF honesty notes.
+  - Once landed, note in the RENDER decision that its primary reassessment trigger is now measurable (escalate if usage is growing, exit if flat/declining).
+
 ### B-116 — Enable Chainlink v0.1 legacy Staking contract (B-086 follow-up)
 - **Status:** open
 - **Priority:** low
