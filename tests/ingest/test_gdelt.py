@@ -810,6 +810,36 @@ class ParseCsvRowsTests(unittest.TestCase):
         assert row.locations is not None
         self.assertEqual(row.locations[0]["country_code"], "US")
 
+    def test_oversized_field_parses_instead_of_dropping_batch(self) -> None:
+        # B-127: GKG rows carry fields above the csv module's default 128 KB
+        # cap. Before the field_size_limit bump, csv.reader raised
+        # `_csv.Error: field larger than field limit (131072)` and the whole
+        # 15-min batch was lost — a silent daily gap the B-053 health report
+        # caught. The oversized field must now parse cleanly.
+        huge_themes = "ECON_STOCKMARKET;" * 8000  # ~136 KB, over 131072
+        self.assertGreater(len(huge_themes), 131072)
+        csv_text = self._canonical_row_pads(
+            "20260609001500-9",
+            "20260609001500",
+            "1",
+            "example.com",
+            "https://example.com/huge",
+            "",
+            "",
+            huge_themes,  # 7 V1 themes — oversized
+            "",
+            "1#United States#US##37.0#-95.7#FID1",
+            "",
+            "tim cook",
+            "",
+            "Apple Inc.",  # 13 orgs — triggers AAPL match
+            "",
+            "-2.0,3.1,5.6,8.7,12.0,4.2,250",
+        )
+        rows = list(parse_csv_rows(csv_text, self._terms()))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].matched_assets, ["AAPL"])
+
     def test_unmatched_row_dropped(self) -> None:
         # No watchlist match → not yielded.
         csv_text = self._canonical_row_pads(

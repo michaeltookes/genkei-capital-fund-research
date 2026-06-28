@@ -433,6 +433,28 @@ def match_article(
     return sorted(hits)
 
 
+def _raise_csv_field_size_limit() -> None:
+    """Lift Python's csv field-size cap for GDELT's oversized GKG fields.
+
+    GKG rows carry enhanced theme / location / person / org fields that
+    routinely exceed the csv module's default 128 KB cap, so ``csv.reader``
+    raised ``_csv.Error: field larger than field limit (131072)`` and the
+    whole 15-min batch was dropped on the floor — a silent daily data gap
+    (B-127, surfaced by the B-053 ingest-health report). Raise the cap as
+    high as the platform's C long allows, halving on the OverflowError that
+    a 32-bit ``long`` (Windows) throws for ``sys.maxsize`` so this stays
+    portable. ``field_size_limit`` is process-global and only ever *raises*
+    the ceiling, so calling it before each parse is safe + idempotent.
+    """
+    limit = sys.maxsize
+    while True:
+        try:
+            csv.field_size_limit(limit)
+            return
+        except OverflowError:
+            limit //= 10
+
+
 def parse_csv_rows(
     csv_text: str, terms: list[_MatchTerm]
 ) -> Iterator[_ParsedRow]:
@@ -442,6 +464,7 @@ def parse_csv_rows(
     double quotes inside theme / org text intact — GDELT does not
     escape them per CSV convention.
     """
+    _raise_csv_field_size_limit()
     reader = csv.reader(
         io.StringIO(csv_text), delimiter="\t", quoting=csv.QUOTE_NONE
     )
