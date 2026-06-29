@@ -147,6 +147,17 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - If a free source emerges or a paid budget opens: schema + collector for cross-oracle TVS share over time, by protocol category (price feeds, randomness, CCIP-style cross-chain).
   - Pair with B-081 once both exist — would let `genkei query` join LINK's TVS share against competitors' over the same time series.
 
+### B-128 — Render Network BME fees watchlist wiring
+- **Status:** open
+- **Priority:** medium
+- **Context:** Surfaced by the 2026-06-28 RENDER /research decision (`docs/research/decisions/2026-06-28-render-depin-compute-thesis.md`). The lake already carries RENDER **price / market-cap / volume** (CoinGecko + Coinbase), and the free usage proxy already exists: DefiLlama's `render-network-bme` fees/revenue feed, derived from Render's Burn-and-Mint Equilibrium (BME) burns. The gap is local coverage, not source discovery — the DefiLlama protocol watchlist does not include that slug, so `defillama.protocol_fees` cannot answer the decision file's primary reassessment trigger. Higher priority than dormant survey items (B-084/B-104) because it backs a fresh tactical RENDER decision.
+- **What's required to ship:**
+  - Add `render-network-bme` to `src/genkei/data/watchlists.yml` under `protocols:` with the RENDER token mapping (`coingecko_id: render-token`), following the fee-bearing / TVL-empty precedent from `chainlink-requests`.
+  - Run the existing DefiLlama collect + normalize path, including any needed protocol-fees backfill, and verify rows land in `defillama.protocol_fees` for `render-network-bme`.
+  - Confirm `genkei watchlist health` reports the DefiLlama source fresh after the collect/normalize run.
+  - Ensure the existing query / `revenue-divergence` path can join RENDER price against the new BME fees/revenue series with `--json`; do not create a new schema or collector unless the DefiLlama feed stops covering the metric.
+  - Update the 2026-06-28 RENDER decision's backlog note once the series is measurable in the lake, with any coverage caveats recorded in `docs/sources/defillama.md`.
+
 ### B-116 — Enable Chainlink v0.1 legacy Staking contract (B-086 follow-up)
 - **Status:** open
 - **Priority:** low
