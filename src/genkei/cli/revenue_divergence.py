@@ -66,6 +66,7 @@ def _mapped_protocols(watchlist: Watchlist) -> list[ProtocolEntry]:
 
 def _compute_one(
     protocol: ProtocolEntry,
+    watchlist: Watchlist,
     *,
     since: Optional[date],
     until: Optional[date],
@@ -85,7 +86,7 @@ def _compute_one(
         snapshots,
         slug=protocol.slug,
         coingecko_id=protocol.coingecko_id or "",
-        horizon=_horizon_tag(protocol),
+        horizon=_horizon_tag(protocol, watchlist),
         window_days=window_days,
         lookback_days=lookback_days,
         significance_pct=significance_pct,
@@ -93,10 +94,24 @@ def _compute_one(
     return snapshots, report
 
 
-def _horizon_tag(protocol: ProtocolEntry) -> str:
-    sleeve = "core" if protocol.tier == "primary" else "tactical"
+def _horizon_tag(protocol: ProtocolEntry, watchlist: Optional[Watchlist] = None) -> str:
+    sleeve = _mapped_crypto_sleeve(protocol.coingecko_id, watchlist)
+    if sleeve is None:
+        sleeve = "core" if protocol.tier == "primary" else "tactical"
     category = (protocol.category or "uncategorized").lower().replace(" ", "-")
     return f"crypto:{sleeve}:{category}"
+
+
+def _mapped_crypto_sleeve(
+    coingecko_id: Optional[str], watchlist: Optional[Watchlist]
+) -> Optional[str]:
+    if coingecko_id is None or watchlist is None:
+        return None
+    target = coingecko_id.strip().lower()
+    for crypto in watchlist.crypto:
+        if crypto.coingecko_id.strip().lower() == target:
+            return crypto.sleeve or ("core" if crypto.tier == "primary" else "tactical")
+    return None
 
 
 def _snapshot_to_dict(snap: Snapshot) -> dict[str, Any]:
@@ -313,6 +328,7 @@ def revenue_divergence_cmd(
             )
         snapshots, report = _compute_one(
             protocol,
+            watchlist,
             since=since_d,
             until=until_d,
             window_days=window_days,
@@ -337,6 +353,7 @@ def revenue_divergence_cmd(
     for protocol in protocols:
         _, report = _compute_one(
             protocol,
+            watchlist,
             since=since_d,
             until=until_d,
             window_days=window_days,
