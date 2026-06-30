@@ -7,7 +7,7 @@ action: trim
 confidence: medium
 status: pending
 supersedes: 2026-06-28-render-depin-compute-thesis
-trigger_reassessment: "BME usage inflects up — last-30d fees exceed the prior-30d bucket for 2+ consecutive monthly checks OR monthly BME fees reclaim ~$200K (Q1-2026 level) [bull re-engage] OR RENDER 90d relative strength vs SOL flips >+15pp [idiosyncratic strength] OR price finally catches down to the usage decline so P/F compresses below ~400x with fees still at lows [confirm exit, trim remainder] OR USD (DTWEXBGS) >123 / VIX sustained >22 [macro headwind]"
+trigger_reassessment: "BME usage inflects up — last-30d fees exceed the prior-30d bucket for 2+ consecutive monthly checks OR monthly BME fees reclaim ~$140K (Q1-2026 run-rate) [bull re-engage] OR RENDER 90d relative strength vs SOL flips >+15pp [idiosyncratic strength] OR price finally catches down to the usage decline so P/F compresses below ~400x with fees still at lows [confirm exit, trim remainder] OR USD (DTWEXBGS) >123 / VIX sustained >22 [macro headwind]"
 related:
   - decision: 2026-05-20-sui-position-assessment
   - data: defillama.protocol_fees
@@ -101,7 +101,7 @@ Same structural limits as 06-28 (no SEC insiders for a token; no Render-specific
 
 **Top risks (what makes the trim wrong):** (1) BME fees inflect up within 1–2 months (trough was real) → re-engage; (2) usage is migrating to a metric BME doesn't capture (the trim sells a false-negative); (3) complex-wide alt recovery lifts RENDER on narrative regardless of burns.
 
-**Re-engage / reassessment triggers** (frontmatter): **bull** — last-30d fees exceed the prior-30d bucket for 2+ consecutive monthly checks, or monthly BME fees reclaim ~$200K (Q1-2026 level), or 90d rel-strength vs SOL flips >+15pp; **deeper-exit** — P/F compresses below ~400x with fees still at lows (price finally catches down → trim the stub too); **macro** — USD >123 or VIX sustained >22.
+**Re-engage / reassessment triggers** (frontmatter): **bull** — last-30d fees exceed the prior-30d bucket for 2+ consecutive monthly checks, or monthly BME fees reclaim ~$140K (Q1-2026 run-rate), or 90d rel-strength vs SOL flips >+15pp; **deeper-exit** — P/F compresses below ~400x with fees still at lows (price finally catches down → trim the stub too); **macro** — USD >123 or VIX sustained >22.
 
 **Supersession:** this replaces `2026-06-28-render-depin-compute-thesis` (action hold → **trim**; confidence low → medium). The 06-28 strict bear trigger ($60K/30d) had not fired; this call is made on the fuller monthly trajectory, which the single-snapshot 06-28 session could not see. **Meta-takeaway for `/reflect-decisions`:** this is the first decision the B-128 data made possible — and it flipped the call from "hold the lottery" to "trim it." If RENDER re-rates up anyway on a usage inflection, the lesson is that BME fees lag a leading price/narrative in early DePIN; if RENDER keeps bleeding with fees, the lesson is that wiring the fundamental metric (B-128) earned its keep by turning an unmeasurable hold into a data-backed trim.
 
