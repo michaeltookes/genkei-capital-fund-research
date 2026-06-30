@@ -5,7 +5,8 @@ sleeve: crypto-tactical
 horizon: months
 action: hold
 confidence: low
-status: pending
+status: resolved
+superseded_by: 2026-06-29-render-bme-usage-refresh
 trigger_reassessment: "DefiLlama Render Network BME fees/revenue (`render-network-bme`) show sustained growth (bull confirm: 30d fees materially above the current ~$82K baseline and quarterly revenue growing QoQ) or future deterioration (bear confirm: 30d fees remain below ~$60K for a full month, or Q3-2026 revenue declines again below Q2's ~$395K baseline) OR RENDER's 90d relative strength vs SOL flips to >+15pp (idiosyncratic strength emerging) OR RENDER lags SOL by >20pp over 3 months (idiosyncratic breakdown) OR RENDER closes below the 2025-12 base (~$1.20) OR USD (DTWEXBGS) breaks above ~123 / VIX sustains >22 (high-beta-alt macro headwind)"
 related:
   - decision: 2026-05-20-sui-position-assessment
@@ -104,4 +105,5 @@ Read: RENDER is a middle-of-the-pack tactical alt that *outperformed* its peers 
 
 ## Outcome (filled in by /reflect-decisions)
 
-(reserved — pending)
+- **Resolved:** 2026-06-29 (superseded, not horizon-paired) — **superseded by `2026-06-29-render-bme-usage-refresh`.**
+- **Why so fast:** this call's load-bearing limitation ("the thesis is unmeasurable") was removed one day later by B-128, which wired Render's BME fees into the lake. The refresh interpreted the full monthly trajectory (unavailable here — this session had only a single API snapshot) and found usage in sustained ~82% decline with real volume erosion, contradicting the demand thesis. The call moved **hold (low) → trim (medium)**. Note the *strict* numeric bear trigger here (30d fees <$60K) had not fired ($77K); the supersession was made on the trajectory shape, not a threshold. No benchmark alpha computed (replaced, not held to horizon).
