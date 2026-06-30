@@ -125,3 +125,13 @@ DeFiLlama snapshot as decision support:
   CLI-driven on-demand briefs exist.
 - **Per-protocol fees backlog** — extend the per-protocol fees fetch
   beyond the current watchlist as research demand grows.
+
+## DePIN fees: Render Network BME (B-128)
+
+`render-network-bme` (category DePIN, chain Solana) is a **fees-only**
+protocol slug — no TVL on DefiLlama, same shape as `chainlink-requests`.
+It carries Render's Burn-and-Mint Equilibrium fees+revenue as the
+compute-demand proxy for the RENDER thesis. The intuitive slugs
+(`render` / `render-network` / `rndr`) all 404 — pin `render-network-bme`.
+Full survey, coverage limits (fee-value not raw usage; history from
+~2025-06), and query examples live in `docs/sources/render-usage.md`.

@@ -34,6 +34,21 @@ protocols:
       category: DEX
 """
 
+TACTICAL_TOKEN_PROTOCOL_YAML = """
+crypto:
+  secondary:
+    - symbol: RENDER
+      name: Render
+      coingecko_id: render-token
+      sleeve: tactical
+protocols:
+  primary:
+    - slug: render-network-bme
+      name: Render Network BME
+      category: DePIN
+      coingecko_id: render-token
+"""
+
 
 def _watchlist_path(case: unittest.TestCase, body: str = PROTOCOL_YAML) -> Path:
     ctx = TemporaryDirectory()
@@ -292,6 +307,34 @@ class SingleSlugTests(unittest.TestCase):
         payload = json_mod.loads(out.getvalue())
         self.assertEqual(payload["kind"], "price-leads-up")
         self.assertEqual(payload["horizon_tag"], "crypto:core:oracle")
+
+    def test_horizon_uses_mapped_crypto_sleeve(self) -> None:
+        path = _watchlist_path(self, TACTICAL_TOKEN_PROTOCOL_YAML)
+        out = io.StringIO()
+        with (
+            patch(
+                "genkei.cli.revenue_divergence.load_fee_series",
+                return_value=_fake_fees(),
+            ),
+            patch(
+                "genkei.cli.revenue_divergence.load_price_series",
+                return_value=_fake_prices(),
+            ),
+            redirect_stdout(out),
+        ):
+            code = main(
+                [
+                    "revenue-divergence",
+                    "--slug",
+                    "render-network-bme",
+                    "--config",
+                    str(path),
+                    "--json",
+                ]
+            )
+        self.assertEqual(code, 0)
+        payload = json_mod.loads(out.getvalue())
+        self.assertEqual(payload["horizon_tag"], "crypto:tactical:depin")
 
 
 def _ramp_prices_after(flat_days: int, total_days: int = 180) -> list[PricePoint]:

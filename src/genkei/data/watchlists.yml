@@ -602,6 +602,25 @@ protocols:
         - JupSOL
       rationale: JupSOL liquid-staking TVL; captures Jupiter's share of Solana LST demand. Revenue/value-capture analysis maps to JUP, not the JupSOL receipt token.
 
+    # Render Network (B-128) — pairs with the RENDER crypto-tactical entry.
+    # Render is a DePIN GPU-compute marketplace, NOT a TVL protocol, so
+    # `/protocol/render-network-bme` carries no TVL — but its Burn-and-Mint
+    # Equilibrium (BME) fees ARE tracked by DefiLlama under this slug
+    # (category DePIN, chain Solana; verified 2026-06-29: ~392-day daily
+    # fees series, dailyFees + dailyRevenue both 200). Same fees-only shape
+    # as chainlink-requests: the `/protocol/` TVL fetch soft-fails and the
+    # `/summary/fees/` path carries the real signal. This is the
+    # load-bearing compute-demand proxy the 2026-06-28 RENDER research
+    # decision flagged as missing — fees-as-usage so the thesis is finally
+    # measurable. `coingecko_id: render-token` joins BME fees → RENDER
+    # price for `genkei revenue-divergence`. NOTE the slug is
+    # `render-network-bme`, not `render` / `render-network` (those 400).
+    - slug: render-network-bme
+      name: Render Network BME
+      category: DePIN
+      coingecko_id: render-token
+      rationale: Render's Burn-and-Mint Equilibrium fees — the DePIN compute-usage proxy and load-bearing demand signal for the RENDER thesis (B-128). Fees-only like chainlink-requests; no TVL on DefiLlama.
+
 # SEC 13F filers (institutional investment managers). One submissions
 # fetch per filer per day in the daily SEC pipeline; per-filing 13F-HR
 # information-table XML lands as a separate blob and is normalized into
