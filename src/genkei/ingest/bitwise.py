@@ -1,0 +1,484 @@
+"""Bitwise spot crypto ETF daily snapshot collector (B-113).
+
+Second-issuer expansion of the spot-crypto-ETF net-flow signal that B-107
+shipped for BlackRock/iShares. Lands one row per ``(ticker, snapshot_date)``
+in ``etf.fund_snapshots`` for each watchlist ``etf_tickers`` entry where
+``issuer == "Bitwise"``. v1 covers BITB (Bitwise Bitcoin ETF, ~$2.2B AUM) —
+see ``docs/sources/spot-etf-net-flow.md`` for the issuer survey that flagged
+Bitwise as the cleanest non-BlackRock path.
+
+**Why HTML, not JSON.** Unlike iShares' single product-screener JSON feed,
+Bitwise serves each fund on its own statically-generated (Next.js) product
+site (``bitbetf.com``). The fund financials — NAV, net assets, and shares
+outstanding — are server-rendered straight into the page HTML; there is no
+public JSON API behind it (the only client-side API calls are a Salesforce
+contact form + a Turnstile widget, neither carrying fund data). So this
+collector fetches the HTML and extracts the labeled values, anchoring every
+pattern on the **label text** (e.g. ``Shares Outstanding``) rather than the
+build-generated ``c-*`` CSS class names, which churn on every site rebuild.
+
+**Why store all three published values (vs deriving one).** iShares publishes
+NAV + total-net-assets and we *derive* shares = TNA / NAV. Bitwise publishes
+all three independently (NAV, net assets, AND shares outstanding), so we store
+each as published — and use their mutual reconciliation as the coherence gate:
+``nav x shares`` must reconcile to ``net_assets`` within ``RECONCILE_TOLERANCE``.
+This is the Bitwise analog of the iShares "navAmountAsOf must equal
+totalNetAssetsFundAsOf" check: the Bitwise page stamps only the NAV strike
+date inline, so instead of matching per-field dates we verify the three
+financials are internally consistent before trusting them as one snapshot.
+The observed reconciliation gap is ~0.01%; the 2% tolerance is generous
+headroom for a mid-update page where one field briefly lags.
+
+Daily net flow is NOT stored — it's computed at query time in
+``genkei etf-flows --net-flow`` via ``(shares - LAG(shares)) x nav`` exactly
+as for the iShares rows, so BITB joins the existing net-flow surface with no
+query change (the query filters by ``asset`` + watchlist ticker, not issuer).
+
+Modes:
+  - **incremental** (default) — fetch the current product page(s). The page
+    publishes the most recent NAV strike (T+1/T+2); idempotent via the
+    ``(ticker, snapshot_date)`` PK, so re-running the same day is a no-op
+    upsert. There is no backfill mode — the page carries only the current
+    snapshot (same constraint as iShares; historical backfill is the SEC
+    10-Q v2.1 follow-up, B-114).
+
+No API key required. The product site is unauthenticated, no Cloudflare
+challenge, no rate limit observed (verified 2026-06-30).
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import re
+import sys
+from dataclasses import dataclass
+from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
+from typing import Any
+
+import httpx
+
+from genkei.common import db
+from genkei.common.http import HttpClient, RateLimit
+from genkei.common.watchlist import (
+    DEFAULT_WATCHLIST_PATH,
+    EtfTickerEntry,
+    load_watchlist,
+)
+
+SOURCE_NAME = "bitwise"
+# "collect" matches the convention pinned by
+# test_every_source_expects_at_least_a_collect_endpoint in
+# tests/cli/test_watchlist_cmd.py — the single-step ingester parses the HTML
+# inline and writes directly to etf.fund_snapshots (no separate normalize).
+COLLECT_ENDPOINT_LABEL = "collect"
+ISSUER_FILTER = "Bitwise"
+
+# Per-ticker Bitwise product pages. Each spot-crypto ETF has its own
+# statically-generated product site that server-renders fund financials into
+# the HTML. Verified live 2026-06-30. A watchlist Bitwise ticker with no
+# entry here is soft-skipped with a WARNING (so adding ETHW etc. to the
+# watchlist before its URL is pinned here doesn't break the daily run).
+PRODUCT_URLS: dict[str, str] = {
+    "BITB": "https://bitbetf.com/",
+}
+
+# Published NAV x published shares must reconcile to published net assets
+# within this fraction, else the snapshot is internally inconsistent (a field
+# struck on a different day, or a parse drift) and is skipped rather than
+# stored. Observed gap is ~0.01%; 2% is generous headroom.
+RECONCILE_TOLERANCE = Decimal("0.02")
+
+# A browser User-Agent — the static site serves scripted requests fine, but a
+# default httpx UA invites future bot-walling; mirror a real browser.
+_BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
+
+# Polite ceiling for a daily-cron use case; the site has no observed limit.
+DEFAULT_RATE_LIMIT = RateLimit.per_second(1)
+
+LOGGER = logging.getLogger(__name__)
+
+_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+
+
+@dataclass(frozen=True)
+class _FundSnapshot:
+    """Normalized snapshot extracted from one Bitwise product page."""
+
+    ticker: str
+    snapshot_date: date
+    issuer: str
+    asset: str
+    cusip: str | None
+    isin: str | None
+    nav_per_share_usd: Decimal
+    total_net_assets_usd: Decimal
+    shares_outstanding: Decimal
+
+
+def _strip_html_comments(html: str) -> str:
+    """Drop ``<!-- -->`` comment nodes that Next.js sprinkles between text and
+    ``<span>`` values (e.g. ``NAV: <!-- --><span>$32.71</span>``). Removing
+    them up front lets every value pattern match clean adjacent markup."""
+    return _COMMENT_RE.sub("", html)
+
+
+def _safe_decimal(text: str, *, field: str) -> Decimal | None:
+    """``Decimal(text)`` where an unparseable number yields ``None`` silently
+    but any *unexpected* failure logs a WARNING instead of vanishing — in
+    unattended daily ingest a swallowed surprise is the difference between
+    noticing bad data and not (B-121)."""
+    try:
+        return Decimal(text)
+    except (ValueError, InvalidOperation):
+        return None
+    except Exception:  # pragma: no cover - defensive
+        LOGGER.warning(
+            "bitwise: unexpected error coercing %s=%r to Decimal",
+            field,
+            text,
+            exc_info=True,
+        )
+        return None
+
+
+def _parse_money(raw: str | None, *, field: str) -> Decimal | None:
+    """Parse a ``$1,234.56`` / ``1,234`` money string into a Decimal.
+
+    Strips a leading ``$`` and thousands separators. Empty / ``-`` → None.
+    """
+    if raw is None:
+        return None
+    cleaned = raw.replace("$", "").replace(",", "").strip()
+    if not cleaned or cleaned == "-":
+        return None
+    return _safe_decimal(cleaned, field=field)
+
+
+def _find_labeled_value(html: str, label: str) -> str | None:
+    """Pull the value cell of a ``<h4>LABEL</h4><p>VALUE</p>`` key-facts pair.
+
+    Anchored on the label *text*, so the build-generated ``class="c-..."``
+    attributes (which change on every Bitwise site rebuild) don't matter.
+    """
+    pattern = re.compile(
+        rf"<h4[^>]*>\s*{re.escape(label)}\s*</h4>\s*<p[^>]*>([^<]+)</p>",
+        re.IGNORECASE,
+    )
+    m = pattern.search(html)
+    if not m:
+        return None
+    return m.group(1).strip()
+
+
+def _find_nav(html: str) -> Decimal | None:
+    """Extract the NAV-per-share from the ``NAV: <span>$32.71</span>`` block.
+
+    ``html`` must already have comments stripped. Anchored on the ``NAV:``
+    label so the surrounding flex-layout class names are irrelevant. The
+    ``Market Price:`` value sits in an identical sibling span — the ``NAV:``
+    prefix (with no trailing letter) is what disambiguates the two.
+    """
+    m = re.search(r">\s*NAV:\s*<span[^>]*>\s*\$?([0-9,]+\.?[0-9]*)\s*<", html)
+    if not m:
+        return None
+    return _parse_money(m.group(1), field="nav")
+
+
+def _find_nav_as_of(html: str) -> date | None:
+    """Extract the NAV strike date from the NAV section's ``Data as of`` stamp.
+
+    Anchors on the NAV section header first, then takes the next
+    ``Data as of MM/DD/YYYY`` within a bounded window — so it can't pick up
+    the portfolio-characteristics or "as of December 31" marketing dates
+    elsewhere on the page. ``html`` must already have comments stripped.
+    """
+    header = re.search(
+        r"Net Asset Value \(NAV\)[^<]*</h4>", html, re.IGNORECASE
+    )
+    window = html[header.end() : header.end() + 400] if header else html
+    m = re.search(r"Data as of\s*(\d{2})/(\d{2})/(\d{4})", window, re.IGNORECASE)
+    if not m:
+        return None
+    month, day, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    try:
+        return date(year, month, day)
+    except ValueError:
+        LOGGER.warning("bitwise: unparseable NAV as-of date %s", m.group(0))
+        return None
+
+
+def _reconciles(
+    nav: Decimal, shares: Decimal, net_assets: Decimal, *, ticker: str
+) -> bool:
+    """True when published ``nav x shares`` is within tolerance of ``net_assets``.
+
+    Net assets of zero is a valid terminal state (fund fully redeemed) and
+    reconciles only if ``shares`` is also zero. A non-zero implied value
+    against zero reported net assets fails — that's an incoherent page.
+    """
+    implied = nav * shares
+    if net_assets == 0:
+        return implied == 0
+    gap = abs(implied - net_assets) / net_assets
+    if gap > RECONCILE_TOLERANCE:
+        LOGGER.warning(
+            "bitwise %s: NAV x shares (%.0f) vs net assets (%.0f) differ by "
+            "%.2f%% > %.0f%% tolerance — skipping incoherent snapshot",
+            ticker,
+            implied,
+            net_assets,
+            gap * 100,
+            RECONCILE_TOLERANCE * 100,
+        )
+        return False
+    return True
+
+
+def parse_snapshot(
+    html: str,
+    *,
+    ticker: str,
+    watchlist_entry: EtfTickerEntry,
+) -> _FundSnapshot | None:
+    """Decode one Bitwise product page into a snapshot row, or None.
+
+    Returns None (with a WARNING) when any required financial is missing,
+    non-positive, or the three published values fail to reconcile — the same
+    skip-rather-than-store-garbage discipline the iShares parser uses. The
+    ``cusip`` / ``isin`` identifiers are best-effort: absent ones become NULL
+    without dropping the row.
+    """
+    clean = _strip_html_comments(html)
+
+    shares = _parse_money(
+        _find_labeled_value(clean, "Shares Outstanding"), field="shares"
+    )
+    net_assets = _parse_money(
+        _find_labeled_value(clean, "Net Assets (AUM)"), field="net_assets"
+    )
+    nav = _find_nav(clean)
+    as_of = _find_nav_as_of(clean)
+
+    if shares is None or net_assets is None or nav is None or as_of is None:
+        LOGGER.warning(
+            "bitwise %s: missing required fields "
+            "(shares=%s net_assets=%s nav=%s as_of=%s) — skipping",
+            ticker,
+            shares,
+            net_assets,
+            nav,
+            as_of,
+        )
+        return None
+    if nav <= 0:
+        LOGGER.warning("bitwise %s: non-positive NAV %s — skipping", ticker, nav)
+        return None
+    if shares < 0 or net_assets < 0:
+        LOGGER.warning(
+            "bitwise %s: negative shares (%s) or net assets (%s) — skipping",
+            ticker,
+            shares,
+            net_assets,
+        )
+        return None
+    if not _reconciles(nav, shares, net_assets, ticker=ticker):
+        return None
+
+    return _FundSnapshot(
+        ticker=ticker.upper(),
+        snapshot_date=as_of,
+        issuer=watchlist_entry.issuer,
+        asset=watchlist_entry.asset.upper(),
+        cusip=_find_labeled_value(clean, "CUSIP"),
+        isin=_find_labeled_value(clean, "ISIN"),
+        nav_per_share_usd=nav,
+        total_net_assets_usd=net_assets,
+        shares_outstanding=shares.quantize(Decimal("0.0001")),
+    )
+
+
+def _snapshot_to_row(
+    snap: _FundSnapshot,
+    *,
+    ingest_run_id: int,
+    source_endpoint: str,
+    fetched_at: datetime,
+) -> dict[str, Any]:
+    """Convert a _FundSnapshot to a bulk_upsert row dict."""
+    return {
+        "ticker": snap.ticker,
+        "snapshot_date": snap.snapshot_date,
+        "issuer": snap.issuer,
+        "asset": snap.asset,
+        "cusip": snap.cusip,
+        "isin": snap.isin,
+        "nav_per_share_usd": snap.nav_per_share_usd,
+        "total_net_assets_usd": snap.total_net_assets_usd,
+        "shares_outstanding": snap.shares_outstanding,
+        "source_endpoint": source_endpoint,
+        "fetched_at": fetched_at,
+        "ingest_run_id": ingest_run_id,
+    }
+
+
+def collect(
+    config_path: Path = DEFAULT_WATCHLIST_PATH,
+    *,
+    http: HttpClient | None = None,
+) -> int:
+    """Run the Bitwise collector once. Returns the meta.ingest_runs id.
+
+    Iterates every watchlist ``etf_tickers`` entry with ``issuer == "Bitwise"``,
+    fetches its product page from ``PRODUCT_URLS``, and upserts the parsed
+    snapshot. A single fund's fetch/parse failure is soft — it's recorded as a
+    partial endpoint and the run continues to the next fund, so one fund's
+    site outage doesn't drop the others (the per-(slug, kind) soft-failure
+    discipline the DefiLlama collector uses).
+    """
+    watchlist = load_watchlist(config_path)
+    bitwise_etfs = [
+        e for e in watchlist.etf_tickers if e.issuer.strip().lower() == ISSUER_FILTER.lower()
+    ]
+    if not bitwise_etfs:
+        raise SystemExit(
+            "watchlists.yml has no etf_tickers with issuer=Bitwise — nothing to fetch."
+        )
+
+    owns_http = http is None
+    if http is None:
+        http = HttpClient(
+            SOURCE_NAME,
+            rate_limit=DEFAULT_RATE_LIMIT,
+            user_agent=_BROWSER_UA,
+        )
+
+    try:
+        with db.ingest_run(
+            SOURCE_NAME,
+            endpoint=COLLECT_ENDPOINT_LABEL,
+            metadata={"watchlist_etfs": [e.ticker for e in bitwise_etfs]},
+        ) as run:
+            snapshots: list[tuple[_FundSnapshot, str]] = []
+            partials: list[dict[str, str]] = []
+            for entry in bitwise_etfs:
+                ticker = entry.ticker.upper()
+                url = PRODUCT_URLS.get(ticker)
+                if url is None:
+                    LOGGER.warning(
+                        "bitwise %s: no product URL pinned in PRODUCT_URLS — skipping",
+                        ticker,
+                    )
+                    partials.append(
+                        {
+                            "name": f"{COLLECT_ENDPOINT_LABEL}:{ticker}",
+                            "url": "",
+                            "error": "no product URL pinned in PRODUCT_URLS",
+                        }
+                    )
+                    continue
+                try:
+                    html = http.get_text(url)
+                    fetched_at = datetime.now(timezone.utc)
+                except (
+                    httpx.TimeoutException,
+                    httpx.NetworkError,
+                    httpx.HTTPStatusError,
+                ) as exc:
+                    LOGGER.error("bitwise %s: fetch failed: %s", ticker, exc)
+                    partials.append(
+                        {
+                            "name": f"{COLLECT_ENDPOINT_LABEL}:{ticker}",
+                            "url": url,
+                            "error": str(exc),
+                        }
+                    )
+                    continue
+
+                # raw_blobs JSON-serializes its payload; HTML must be wrapped
+                # in a single-key object (db.store_raw_blob convention).
+                db.store_raw_blob(run.id, COLLECT_ENDPOINT_LABEL, url, {"html": html})
+                snap = parse_snapshot(html, ticker=ticker, watchlist_entry=entry)
+                if snap is None:
+                    partials.append(
+                        {
+                            "name": f"{COLLECT_ENDPOINT_LABEL}:{ticker}",
+                            "url": url,
+                            "error": "no usable snapshot parsed from product page",
+                        }
+                    )
+                    continue
+                snapshots.append((snap, url))
+
+            if partials:
+                db.record_partial_endpoints(run.id, partials)
+
+            if not snapshots:
+                LOGGER.warning(
+                    "bitwise: no usable snapshots for %s",
+                    [e.ticker for e in bitwise_etfs],
+                )
+                run.add_rows(0)
+                return run.id
+
+            rows = [
+                _snapshot_to_row(
+                    snap,
+                    ingest_run_id=run.id,
+                    source_endpoint=url,
+                    fetched_at=fetched_at,
+                )
+                for snap, url in snapshots
+            ]
+            with db.connection() as conn:
+                written = db.bulk_upsert(
+                    conn,
+                    "etf.fund_snapshots",
+                    rows,
+                    conflict_keys=("ticker", "snapshot_date"),
+                )
+            run.add_rows(written)
+            LOGGER.info(
+                "bitwise: +%s rows (%s snapshots, tickers=%s)",
+                written,
+                len(snapshots),
+                [s.ticker for s, _ in snapshots],
+            )
+            return run.id
+    finally:
+        if owns_http:
+            http.close()
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    """Parse CLI flags for the collector entry point."""
+    parser = argparse.ArgumentParser(
+        description=(
+            "Collect Bitwise spot crypto ETF daily snapshots into etf.fund_snapshots."
+        )
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_WATCHLIST_PATH,
+        help="Watchlist path.",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the collector from ``python -m genkei.ingest.bitwise``."""
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    args = parse_args(argv if argv is not None else sys.argv[1:])
+    run_id = collect(args.config)
+    print(f"Bitwise collector wrote ingest_run_id={run_id}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
