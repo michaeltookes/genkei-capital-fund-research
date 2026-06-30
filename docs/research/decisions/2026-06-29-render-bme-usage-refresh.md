@@ -7,7 +7,7 @@ action: trim
 confidence: medium
 status: pending
 supersedes: 2026-06-28-render-depin-compute-thesis
-trigger_reassessment: "BME usage inflects up — trailing-30d fees rise above trailing-60d fees for 2+ consecutive months OR monthly BME fees reclaim ~$200K (Q1-2026 level) [bull re-engage] OR RENDER 90d relative strength vs SOL flips >+15pp [idiosyncratic strength] OR price finally catches down to the usage decline so P/F compresses below ~400x with fees still at lows [confirm exit, trim remainder] OR USD (DTWEXBGS) >123 / VIX sustained >22 [macro headwind]"
+trigger_reassessment: "BME usage inflects up — last-30d fees exceed the prior-30d bucket for 2+ consecutive monthly checks OR monthly BME fees reclaim ~$200K (Q1-2026 level) [bull re-engage] OR RENDER 90d relative strength vs SOL flips >+15pp [idiosyncratic strength] OR price finally catches down to the usage decline so P/F compresses below ~400x with fees still at lows [confirm exit, trim remainder] OR USD (DTWEXBGS) >123 / VIX sustained >22 [macro headwind]"
 related:
   - decision: 2026-05-20-sui-position-assessment
   - data: defillama.protocol_fees
@@ -45,18 +45,18 @@ This refreshes the 2026-06-28 RENDER call now that the load-bearing data it lack
 | 2026-05 | $92.2K | $1.96 |
 | 2026-06 (to 28th) | $74.5K | $1.70 |
 
-**Rolling fee windows — the decline is current, not historical** (`defillama.protocol_fees`):
+**Rolling fee windows — normalized to monthly run-rate** (`defillama.protocol_fees`):
 
-| window | BME fees |
-|---|---|
-| 90–180d ago | $417.0K |
-| 60–90d ago | $224.4K |
-| 30–60d ago | $89.5K |
-| **last 30d** | **$77.2K** |
+| window | cumulative BME fees | monthly run-rate |
+|---|---:|---:|
+| 90–180d ago | $417.0K over 90d | ~$139.0K/mo |
+| 60–90d ago | $224.4K over 30d | $224.4K/mo |
+| 30–60d ago | $89.5K over 30d | $89.5K/mo |
+| **last 30d** | **$77.2K over 30d** | **$77.2K/mo** |
 
 **Three findings, all cutting against the thesis:**
 
-1. **Usage is in sustained, monotonic decline — not a one-off dip.** Fees fall across *every* rolling window ($417K → $224K → $90K → $77K), ~82% top-to-bottom, now at series lows. The thesis predicts *rising* usage; the data shows the opposite over the entire measurable window. There was a brief Q1-2026 bounce ($181K Mar, $224K Apr) but it reversed hard (May $92K, Jun $75K).
+1. **Usage rolled over hard after the Q1/April bounce — not a one-off dip.** The 90–180d bucket is a 90-day sum, so the comparable monthly run-rate is ~$139K/mo rather than $417K/mo; the sequence is therefore ~$139K/mo → $224K/mo → $90K/mo → $77K/mo. The clean read is not a monotonic fall from $417K: it is a failed rebound, with last-30d usage ~66% below the 60–90d run-rate and ~84% below the Sep-2025 monthly peak. The thesis predicts sustained *rising* usage; the latest two 30d buckets show the opposite.
 
 2. **The decline is real usage erosion, not just a price-denomination artifact.** BME fees are USD-denominated, so some of the drop mechanically reflects RENDER's own lower price. But from the Sep-2025 fee peak to now, **fees fell −83.6% while price fell −53.6%** — a ~30 percentage-point residual that price can't explain. That residual is genuine *volume* decline: less compute is being paid for, not just paid for in a cheaper token.
 
@@ -69,13 +69,13 @@ Same structural limits as 06-28 (no SEC insiders for a token; no Render-specific
 ## Phase A — case for and case against
 
 **Case for holding / the thesis still working (steelmanned):**
-1. **Early-stage DePIN usage is lumpy; one declining year may be a trough.** The series is only ~13 months and we can't see Render's 2024-peak usage; Sep-2025 may have been a local high, and a true compute-demand wave could re-inflate burns.
+1. **Early-stage DePIN usage is lumpy; one weak year may be a trough.** The series is only ~13 months and we can't see Render's 2024-peak usage; Sep-2025 may have been a local high, and a true compute-demand wave could re-inflate burns.
 2. **BME fees ≠ all of Render's economic activity.** If compute volume is migrating to a billing rail or product the BME burn doesn't fully capture, fees understate usage. (No evidence of this — but it's a real unknown.)
 3. **Macro, not Render, may be capping it.** A firming-USD, high-VIX backdrop suppresses *all* high-beta alts; in a complex-wide alt recovery RENDER's AI-narrative beta could re-rate regardless of current burns.
 4. **Position is tiny and the entry is deep** (−88% from ATH). The downside is largely realized; a small lottery stub costs little.
 
 **Case against (the data-driven bear):**
-1. **The thesis's direct prediction is falsified over the measurable window.** "Compute demand rises → BME burns rise" — burns are *down 82%*, monotonically, at series lows. The single most thesis-relevant metric says usage is shrinking.
+1. **The thesis's direct prediction is falsified by the latest measured trajectory.** "Compute demand rises → BME burns rise" — burns are down ~84% from the Sep-2025 monthly peak and ~66% from the recent 60–90d run-rate, with the latest 30d bucket near series lows. The single most thesis-relevant metric says usage is shrinking again after the brief rebound.
 2. **~30pp of real volume erosion** beyond price effects — this is demand leaving, not just a cheaper token.
 3. **No valuation cushion** — P/F doubled to 785x; price hasn't caught down to fundamentals, so there's downside-to-fair-value risk, not deep value.
 4. **The 06-28 position rationale is invalidated.** That starter was justified by "plausible *but unmeasurable*." It's now measurable and points the wrong way. When the reason for a position is removed, you reduce it.
@@ -85,15 +85,15 @@ Same structural limits as 06-28 (no SEC insiders for a token; no Render-specific
 
 **Strongest case for being wrong (the bull I'm most likely under-weighting), per the desk's ValueAct/CRM lesson (don't dismiss a structural upside narrative):** decentralized-compute adoption is a multi-year secular shift, and early networks routinely show *declining* metrics in the trough right before an inflection — the burn could bottom here and re-rate as AI-compute scarcity finally routes to DePIN. Trimming on 13 months of declining fees could be selling the bottom of exactly the structural bet the tactical sleeve exists to take.
 
-**Why it tempers but does not overturn the call:** the CRM lesson warns against dismissing upside when the data merely *fails to confirm* a thesis. Here the data **actively contradicts** it — usage is not flat-and-ambiguous, it's down 82% with real volume erosion and a richening multiple. "Fees are about to inflect up" is precisely the unfalsifiable narrative that wiring this data (B-128) was meant to discipline; betting on it *against* the measured trend, with no catalyst in view, is faith, not analysis. The disciplined response to "thesis predicted X, data shows not-X" is to reduce exposure and demand the data confirm before re-engaging — which is exactly what the re-engage trigger encodes.
+**Why it tempers but does not overturn the call:** the CRM lesson warns against dismissing upside when the data merely *fails to confirm* a thesis. Here the data **actively contradicts** it — usage is not flat-and-ambiguous, it's rolled over hard after a failed rebound with real volume erosion and a richening multiple. "Fees are about to inflect up" is precisely the unfalsifiable narrative that wiring this data (B-128) was meant to discipline; betting on it *against* the measured trend, with no catalyst in view, is faith, not analysis. The disciplined response to "thesis predicted X, data shows not-X" is to reduce exposure and demand the data confirm before re-engaging — which is exactly what the re-engage trigger encodes.
 
-**Base rate:** AI/DePIN tokens with usage down 80%+ over a year in a hostile-macro complex — a minority trough-and-re-rate on the next narrative wave; the majority keep bleeding until a real catalyst. Base rate says "reduce and wait for confirmation," not "hold the full starter on faith."
+**Base rate:** AI/DePIN tokens with peak-to-current usage down 80%+ in a hostile-macro complex — a minority trough-and-re-rate on the next narrative wave; the majority keep bleeding until a real catalyst. Base rate says "reduce and wait for confirmation," not "hold the full starter on faith."
 
 **Calibration:** the desk's right calls have been the well-evidenced skeptical ones (SUI 2026-05-20 trimmed on compounding bear signals; trigger fired fast). This is the same shape: a thesis-relevant fundamental deteriorating with no offsetting signal. Confidence **medium** (clear, consistent data) rather than high (BME-as-sole-proxy + early-DePIN cyclicality are genuine unknowns).
 
 ## Conclusion
 
-**Recommendation: TRIM the RENDER starter toward a minimal lottery stub; do NOT add.** The 06-28 starter rested on "the thesis is plausible but unmeasurable." It is now measurable, and across the entire available window the data **contradicts** it: BME fees — the direct on-chain proxy for paid compute demand — are down ~82%, monotonically, at series lows, with ~30pp of real volume erosion beyond price, while the price-to-fees multiple has doubled (no valuation cushion). When the rationale for a position is invalidated by the data, you reduce it. This is *not* a full panic exit: RENDER is tactical-secondary, the position is small, DePIN is genuinely early, and the steelman (trough-before-inflection) is real enough to keep a minimal stub as a lottery on a future compute-demand wave.
+**Recommendation: TRIM the RENDER starter toward a minimal lottery stub; do NOT add.** The 06-28 starter rested on "the thesis is plausible but unmeasurable." It is now measurable, and the latest trajectory **contradicts** it: BME fees — the direct on-chain proxy for paid compute demand — are down ~84% from the Sep-2025 monthly peak and ~66% from the recent 60–90d run-rate, with ~30pp of real volume erosion beyond price, while the price-to-fees multiple has doubled (no valuation cushion). When the rationale for a position is invalidated by the data, you reduce it. This is *not* a full panic exit: RENDER is tactical-secondary, the position is small, DePIN is genuinely early, and the steelman (trough-before-inflection) is real enough to keep a minimal stub as a lottery on a future compute-demand wave.
 
 **Sleeve & horizon:** crypto-tactical, months. **Confidence: medium** — the data is clear and consistent across windows, but BME fees may not capture all usage and early-DePIN series are cyclical, so not high. (Up from the 06-28 "low," because there is now real evidence — it just points the other way.)
 
@@ -101,7 +101,7 @@ Same structural limits as 06-28 (no SEC insiders for a token; no Render-specific
 
 **Top risks (what makes the trim wrong):** (1) BME fees inflect up within 1–2 months (trough was real) → re-engage; (2) usage is migrating to a metric BME doesn't capture (the trim sells a false-negative); (3) complex-wide alt recovery lifts RENDER on narrative regardless of burns.
 
-**Re-engage / reassessment triggers** (frontmatter): **bull** — trailing-30d fees rise above trailing-60d for 2+ consecutive months, or monthly BME fees reclaim ~$200K (Q1-2026 level), or 90d rel-strength vs SOL flips >+15pp; **deeper-exit** — P/F compresses below ~400x with fees still at lows (price finally catches down → trim the stub too); **macro** — USD >123 or VIX sustained >22.
+**Re-engage / reassessment triggers** (frontmatter): **bull** — last-30d fees exceed the prior-30d bucket for 2+ consecutive monthly checks, or monthly BME fees reclaim ~$200K (Q1-2026 level), or 90d rel-strength vs SOL flips >+15pp; **deeper-exit** — P/F compresses below ~400x with fees still at lows (price finally catches down → trim the stub too); **macro** — USD >123 or VIX sustained >22.
 
 **Supersession:** this replaces `2026-06-28-render-depin-compute-thesis` (action hold → **trim**; confidence low → medium). The 06-28 strict bear trigger ($60K/30d) had not fired; this call is made on the fuller monthly trajectory, which the single-snapshot 06-28 session could not see. **Meta-takeaway for `/reflect-decisions`:** this is the first decision the B-128 data made possible — and it flipped the call from "hold the lottery" to "trim it." If RENDER re-rates up anyway on a usage inflection, the lesson is that BME fees lag a leading price/narrative in early DePIN; if RENDER keeps bleeding with fees, the lesson is that wiring the fundamental metric (B-128) earned its keep by turning an unmeasurable hold into a data-backed trim.
 
