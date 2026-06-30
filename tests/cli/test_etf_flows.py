@@ -470,7 +470,10 @@ class FormatNetFlowHumanTests(unittest.TestCase):
         ]
         out = _format_net_flow_human("ETH", rows, "etf:crypto:eth")
         self.assertIn("horizon=etf:crypto:eth", out)
-        self.assertIn("BlackRock ETF", out)
+        # Header is issuer-neutral now that net flow spans multiple issuers
+        # (BlackRock + Bitwise, B-113) — the per-row issuer column carries the
+        # issuer, not the header.
+        self.assertIn("spot ETF | signed net flow", out)
 
 
 if __name__ == "__main__":  # pragma: no cover

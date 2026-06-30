@@ -381,7 +381,7 @@ def _format_net_flow_human(asset: str, rows: list[dict[str, Any]], horizon_tag: 
             "`python3 -m genkei.ingest.bitwise` (BITB) to populate."
         )
     header = (
-        f"{asset} BlackRock ETF | signed net flow | "
+        f"{asset} spot ETF | signed net flow | "
         f"horizon={horizon_tag} | {len(rows)} row{'s' if len(rows) != 1 else ''}"
     )
     lines = [header, "-" * len(header)]

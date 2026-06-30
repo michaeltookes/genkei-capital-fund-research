@@ -349,6 +349,24 @@ def collect(
         raise SystemExit(
             "watchlists.yml has no etf_tickers with issuer=Bitwise — nothing to fetch."
         )
+    # PRODUCT_URLS defines v1 coverage. A watchlist Bitwise ticker without a
+    # pinned URL (e.g. ETHW before its page is verified) is simply out of
+    # scope — not a failure — so it's logged once at INFO and excluded, never
+    # recorded as a partial-endpoint (which would flag the daily run as
+    # perpetually degraded over work that hasn't been built yet).
+    covered = [e for e in bitwise_etfs if e.ticker.upper() in PRODUCT_URLS]
+    uncovered = [e.ticker for e in bitwise_etfs if e.ticker.upper() not in PRODUCT_URLS]
+    if uncovered:
+        LOGGER.info(
+            "bitwise: %s watchlist ticker(s) not yet covered (no pinned product URL): %s",
+            len(uncovered),
+            uncovered,
+        )
+    if not covered:
+        raise SystemExit(
+            "No Bitwise watchlist ticker has a pinned product URL in PRODUCT_URLS — "
+            f"nothing to fetch (watchlist Bitwise tickers: {[e.ticker for e in bitwise_etfs]})."
+        )
 
     owns_http = http is None
     if http is None:
@@ -366,22 +384,9 @@ def collect(
         ) as run:
             snapshots: list[tuple[_FundSnapshot, str]] = []
             partials: list[dict[str, str]] = []
-            for entry in bitwise_etfs:
+            for entry in covered:
                 ticker = entry.ticker.upper()
-                url = PRODUCT_URLS.get(ticker)
-                if url is None:
-                    LOGGER.warning(
-                        "bitwise %s: no product URL pinned in PRODUCT_URLS — skipping",
-                        ticker,
-                    )
-                    partials.append(
-                        {
-                            "name": f"{COLLECT_ENDPOINT_LABEL}:{ticker}",
-                            "url": "",
-                            "error": "no product URL pinned in PRODUCT_URLS",
-                        }
-                    )
-                    continue
+                url = PRODUCT_URLS[ticker]
                 try:
                     html = http.get_text(url)
                     fetched_at = datetime.now(timezone.utc)
@@ -421,7 +426,7 @@ def collect(
             if not snapshots:
                 LOGGER.warning(
                     "bitwise: no usable snapshots for %s",
-                    [e.ticker for e in bitwise_etfs],
+                    [e.ticker for e in covered],
                 )
                 run.add_rows(0)
                 return run.id
