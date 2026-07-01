@@ -116,6 +116,7 @@ def read_sql_rows(
     """
     safe_sql = _validate_read_only_sql(sql)
     if conn is not None:
+        _set_transaction_read_only(conn)
         return _fetch_dicts(conn, safe_sql, params)
     with db.connection() as owned:
         _set_transaction_read_only(owned)
@@ -285,11 +286,29 @@ def read_sql_df(
 ) -> pd.DataFrame:
     """Run a read-only query and return a pandas ``DataFrame``.
 
-    Requires the ``[notebooks]`` extra (pandas). Builds the frame from
-    ``read_sql_rows`` so the column set is preserved even for an empty result.
+    Requires the ``[notebooks]`` extra (pandas). Reuses the row-fetching path
+    so the column set is preserved even for an empty result.
     """
     pd = _require_pandas()
-    rows = read_sql_rows(sql, params, conn=conn)
+    safe_sql = _validate_read_only_sql(sql)
+    if conn is not None:
+        _set_transaction_read_only(conn)
+        return _read_sql_df_on_connection(safe_sql, params, conn=conn, pd=pd)
+    with db.connection() as owned:
+        _set_transaction_read_only(owned)
+        return _read_sql_df_on_connection(safe_sql, params, conn=owned, pd=pd)
+
+
+def _read_sql_df_on_connection(
+    sql: str,
+    params: list[Any] | tuple[Any, ...] | None,
+    *,
+    conn: Any,
+    pd: Any | None = None,
+) -> pd.DataFrame:
+    """Build a DataFrame using a connection already guarded as read-only."""
+    pd = pd or _require_pandas()
+    rows = _fetch_dicts(conn, sql, params)
     if not rows:
         # Preserve column names on an empty result so downstream .empty checks
         # and column references don't KeyError. psycopg gives us the columns
@@ -349,7 +368,7 @@ class NotebookSession:
     ) -> list[dict[str, Any]]:
         """Query, returning column-keyed dict rows (pandas-free)."""
         try:
-            return read_sql_rows(sql, params, conn=self._conn)
+            return _fetch_dicts(self._conn, sql, params)
         except Exception:
             self._recover_read_only_transaction()
             raise
@@ -359,7 +378,7 @@ class NotebookSession:
     ) -> pd.DataFrame:
         """Query, returning a pandas ``DataFrame`` (needs the notebooks extra)."""
         try:
-            return read_sql_df(sql, params, conn=self._conn)
+            return _read_sql_df_on_connection(sql, params, conn=self._conn)
         except Exception:
             self._recover_read_only_transaction()
             raise

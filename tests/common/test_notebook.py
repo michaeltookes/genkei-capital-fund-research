@@ -90,6 +90,15 @@ def _cols(*names: str) -> list[tuple[str]]:
     return [(n,) for n in names]
 
 
+def _query_execs(cur: _FakeCursor) -> list[tuple[str, Any]]:
+    """Return user-query executions, ignoring the read-only transaction guard."""
+    return [
+        executed
+        for executed in cur.executed
+        if executed != ("SET TRANSACTION READ ONLY", None)
+    ]
+
+
 # ---------------------------------------------------------------------------
 # read_sql_rows — dict shaping + Decimal coercion
 # ---------------------------------------------------------------------------
@@ -109,7 +118,10 @@ class ReadSqlRowsTests(unittest.TestCase):
         """The SQL + params reach the cursor unchanged."""
         cur = _FakeCursor(_cols("x"), [(1,)])
         notebook.read_sql_rows("select %s", [7], conn=_FakeConn(cur))
-        self.assertEqual(cur.executed, [("select %s", [7])])
+        self.assertEqual(
+            cur.executed,
+            [("SET TRANSACTION READ ONLY", None), ("select %s", [7])],
+        )
 
     def test_no_description_returns_empty(self) -> None:
         """A read query with no cursor description yields empty, not a crash."""
@@ -169,7 +181,10 @@ class ReadSqlRowsTests(unittest.TestCase):
         cur = _FakeCursor(_cols("ingest_run_id", "ingest_run_id"), [(7, 8)])
         with self.assertRaisesRegex(ValueError, "duplicate column names.*ingest_run_id"):
             notebook.read_sql_rows("select ...", conn=_FakeConn(cur))
-        self.assertEqual(cur.executed, [("select ...", None)])
+        self.assertEqual(
+            cur.executed,
+            [("SET TRANSACTION READ ONLY", None), ("select ...", None)],
+        )
 
     def test_describe_columns_rejects_duplicate_names(self) -> None:
         """The empty-DataFrame describe path uses the same duplicate guard."""
@@ -269,7 +284,7 @@ class SnapshotManifestTests(unittest.TestCase):
         rows = notebook.snapshot_manifest(
             ingest_run_ids=[42, "42", Decimal("42")], conn=_FakeConn(cur)
         )
-        sql, params = cur.executed[0]
+        sql, params = _query_execs(cur)[0]
         self.assertIn("id = ANY", sql)
         self.assertNotIn("DISTINCT ON", sql)
         self.assertEqual(params[0], [42])
@@ -297,7 +312,7 @@ class SnapshotManifestTests(unittest.TestCase):
                 ingest_run_ids=[42, 99],
                 conn=_FakeConn(cur),
             )
-        sql, params = cur.executed[0]
+        sql, params = _query_execs(cur)[0]
         self.assertIn("id = ANY", sql)
         self.assertIn("source = ANY", sql)
         self.assertEqual(params, [[42, 99], ["coinbase"]])
@@ -306,7 +321,7 @@ class SnapshotManifestTests(unittest.TestCase):
         """Passing sources= narrows the query with a second array param."""
         cur = _FakeCursor(_cols("source"), [])
         notebook.snapshot_manifest(sources=["bitwise", "ishares"], conn=_FakeConn(cur))
-        sql, params = cur.executed[0]
+        sql, params = _query_execs(cur)[0]
         self.assertIn("source = ANY", sql)
         self.assertEqual(params[-1], ["bitwise", "ishares"])
 
@@ -314,7 +329,7 @@ class SnapshotManifestTests(unittest.TestCase):
         """The status filter pins to success/partial (never running/failed)."""
         cur = _FakeCursor(_cols("source"), [])
         notebook.snapshot_manifest(conn=_FakeConn(cur))
-        _sql, params = cur.executed[0]
+        _sql, params = _query_execs(cur)[0]
         self.assertEqual(params[0], ["success", "partial"])
 
 
@@ -385,7 +400,7 @@ class ManifestTests(unittest.TestCase):
             conn=_FakeConn(cur),
             captured_at=stamp,
         )
-        _sql, params = cur.executed[0]
+        _sql, params = _query_execs(cur)[0]
         self.assertEqual(params[0], [12, 8, 9])
         self.assertEqual(
             [run["ingest_run_id"] for run in manifest["snapshot_runs"]],
