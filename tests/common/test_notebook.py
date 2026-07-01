@@ -365,6 +365,23 @@ class ReadSqlRowsTests(unittest.TestCase):
         self.assertIn("SELECT DISTINCT ON", queries[1][0])
         self.assertTrue(pool.context.exited)
 
+    def test_session_methods_raise_after_close(self) -> None:
+        """A closed session must not keep using a returned pooled connection."""
+        cur = _FakeCursor(_cols("a"), [(1,)])
+        pool = _FakePool(_FakeConn(cur))
+        with patch("genkei.common.notebook.db.get_pool", return_value=pool):
+            session = notebook.get_session()
+            session.close()
+            with self.assertRaisesRegex(RuntimeError, "NotebookSession is closed"):
+                session.read_sql_rows("select a")
+            with self.assertRaisesRegex(RuntimeError, "NotebookSession is closed"):
+                session.read_sql_df("select a")
+            with self.assertRaisesRegex(RuntimeError, "NotebookSession is closed"):
+                session.snapshot_manifest()
+
+        self.assertEqual(cur.executed, [("SET TRANSACTION READ ONLY", None)])
+        self.assertTrue(pool.context.exited)
+
 
 # ---------------------------------------------------------------------------
 # snapshot_manifest — reproducibility pin

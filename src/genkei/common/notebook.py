@@ -418,15 +418,23 @@ class NotebookSession:
     query method is read-only.
     """
 
-    _conn: Any
+    _conn: Any | None
     _pool_ctx: Any = None
+
+    def _open_conn(self) -> Any:
+        if self._conn is None:
+            raise RuntimeError(
+                "NotebookSession is closed; create a new session with get_session()."
+            )
+        return self._conn
 
     def read_sql_rows(
         self, sql: str, params: list[Any] | tuple[Any, ...] | None = None
     ) -> list[dict[str, Any]]:
         """Query, returning column-keyed dict rows (pandas-free)."""
+        conn = self._open_conn()
         try:
-            return _fetch_dicts(self._conn, sql, params)
+            return _fetch_dicts(conn, sql, params)
         except Exception:
             self._recover_read_only_transaction()
             raise
@@ -435,23 +443,26 @@ class NotebookSession:
         self, sql: str, params: list[Any] | tuple[Any, ...] | None = None
     ) -> pd.DataFrame:
         """Query, returning a pandas ``DataFrame`` (needs the notebooks extra)."""
+        conn = self._open_conn()
         try:
-            return _read_sql_df_on_connection(sql, params, conn=self._conn)
+            return _read_sql_df_on_connection(sql, params, conn=conn)
         except Exception:
             self._recover_read_only_transaction()
             raise
 
     def _recover_read_only_transaction(self) -> None:
-        self._conn.rollback()
-        _set_transaction_read_only(self._conn)
+        conn = self._open_conn()
+        conn.rollback()
+        _set_transaction_read_only(conn)
 
     def snapshot_manifest(
         self, sources: list[str] | None = None
     ) -> list[dict[str, Any]]:
         """Manifest snapshot helper using this session connection."""
+        conn = self._open_conn()
         try:
             return _snapshot_manifest_on_connection(
-                sources=sources, ingest_run_ids=None, conn=self._conn
+                sources=sources, ingest_run_ids=None, conn=conn
             )
         except Exception:
             self._recover_read_only_transaction()
@@ -459,9 +470,11 @@ class NotebookSession:
 
     def close(self) -> None:
         """Return the underlying connection to the pool."""
-        if self._pool_ctx is not None:
-            self._pool_ctx.__exit__(None, None, None)
-            self._pool_ctx = None
+        ctx = self._pool_ctx
+        self._pool_ctx = None
+        self._conn = None
+        if ctx is not None:
+            ctx.__exit__(None, None, None)
 
     def __enter__(self) -> NotebookSession:
         return self
