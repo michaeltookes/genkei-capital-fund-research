@@ -52,6 +52,26 @@ class _FakeConn:
         return self._cursor
 
 
+class _FakePoolContext:
+    def __init__(self, conn: _FakeConn):
+        self._conn = conn
+        self.exited = False
+
+    def __enter__(self) -> _FakeConn:
+        return self._conn
+
+    def __exit__(self, *exc: object) -> None:
+        self.exited = True
+
+
+class _FakePool:
+    def __init__(self, conn: _FakeConn):
+        self.context = _FakePoolContext(conn)
+
+    def connection(self) -> _FakePoolContext:
+        return self.context
+
+
 def _cols(*names: str) -> list[tuple[str]]:
     """Build a psycopg-style description (only the name in slot 0 matters)."""
     return [(n,) for n in names]
@@ -79,9 +99,47 @@ class ReadSqlRowsTests(unittest.TestCase):
         self.assertEqual(cur.executed, [("select %s", [7])])
 
     def test_no_description_returns_empty(self) -> None:
-        """A non-SELECT (description None) yields an empty list, not a crash."""
+        """A read query with no cursor description yields empty, not a crash."""
         cur = _FakeCursor(None, [])
-        self.assertEqual(notebook.read_sql_rows("do nothing", conn=_FakeConn(cur)), [])
+        self.assertEqual(
+            notebook.read_sql_rows("SELECT pg_notify('chan', 'msg')", conn=_FakeConn(cur)),
+            [],
+        )
+
+    def test_rejects_write_sql_before_execute(self) -> None:
+        """Notebook query helpers refuse obvious writes."""
+        cur = _FakeCursor(_cols("x"), [])
+        with self.assertRaisesRegex(ValueError, "expected SELECT or WITH"):
+            notebook.read_sql_rows("UPDATE coinbase.candles SET close = close", conn=_FakeConn(cur))
+        self.assertEqual(cur.executed, [])
+
+    def test_rejects_writable_cte(self) -> None:
+        """Writable CTEs are rejected even when the top-level statement is WITH."""
+        cur = _FakeCursor(_cols("x"), [])
+        sql = """
+            WITH changed AS (
+                DELETE FROM coinbase.candles RETURNING product
+            )
+            SELECT * FROM changed
+        """
+        with self.assertRaisesRegex(ValueError, "prohibited token DELETE"):
+            notebook.read_sql_rows(sql, conn=_FakeConn(cur))
+        self.assertEqual(cur.executed, [])
+
+    def test_rejects_multi_statement_sql(self) -> None:
+        cur = _FakeCursor(_cols("x"), [])
+        with self.assertRaisesRegex(ValueError, "single read-only statement"):
+            notebook.read_sql_rows("SELECT 1; SELECT 2", conn=_FakeConn(cur))
+        self.assertEqual(cur.executed, [])
+
+    def test_ignores_write_words_inside_literals_and_comments(self) -> None:
+        """The validator does not flag keywords hidden in strings/comments."""
+        cur = _FakeCursor(_cols("note"), [("UPDATE is text",)])
+        rows = notebook.read_sql_rows(
+            "SELECT 'UPDATE is text' AS note -- DELETE is a comment",
+            conn=_FakeConn(cur),
+        )
+        self.assertEqual(rows, [{"note": "UPDATE is text"}])
 
     def test_one_shot_borrows_a_pooled_connection(self) -> None:
         """Without conn=, the helper borrows/returns via db.connection()."""
@@ -94,6 +152,21 @@ class ReadSqlRowsTests(unittest.TestCase):
         with patch("genkei.common.notebook.db.connection", fake_connection):
             rows = notebook.read_sql_rows("select a")
         self.assertEqual(rows, [{"a": 1}])
+        self.assertEqual(cur.executed[0], ("SET TRANSACTION READ ONLY", None))
+        self.assertEqual(cur.executed[1], ("select a", None))
+
+    def test_get_session_marks_connection_read_only(self) -> None:
+        """Session connections enter read-only mode before notebook queries."""
+        cur = _FakeCursor(_cols("a"), [(1,)])
+        pool = _FakePool(_FakeConn(cur))
+        with patch("genkei.common.notebook.db.get_pool", return_value=pool):
+            session = notebook.get_session()
+            rows = session.read_sql_rows("select a")
+            session.close()
+        self.assertEqual(rows, [{"a": 1}])
+        self.assertEqual(cur.executed[0], ("SET TRANSACTION READ ONLY", None))
+        self.assertEqual(cur.executed[1], ("select a", None))
+        self.assertTrue(pool.context.exited)
 
 
 # ---------------------------------------------------------------------------
@@ -107,16 +180,42 @@ class SnapshotManifestTests(unittest.TestCase):
     def test_isoformats_timestamps_and_shapes_rows(self) -> None:
         cur = _FakeCursor(
             _cols("source", "endpoint", "ingest_run_id", "status", "started_at",
-                  "finished_at", "rows_written"),
+                  "finished_at", "rows_written", "metadata"),
             [("bitwise", "collect", 1101, "success",
               datetime(2026, 6, 30, 13, 30, tzinfo=timezone.utc),
-              datetime(2026, 6, 30, 13, 31, tzinfo=timezone.utc), 1)],
+              datetime(2026, 6, 30, 13, 31, tzinfo=timezone.utc), 1,
+              {"source_run_id": 1100})],
         )
         rows = notebook.snapshot_manifest(conn=_FakeConn(cur))
         self.assertEqual(rows[0]["source"], "bitwise")
         self.assertEqual(rows[0]["ingest_run_id"], 1101)
+        self.assertEqual(rows[0]["metadata"], {"source_run_id": 1100})
         self.assertEqual(rows[0]["started_at"], "2026-06-30T13:30:00+00:00")
         self.assertEqual(rows[0]["finished_at"], "2026-06-30T13:31:00+00:00")
+
+    def test_exact_ingest_run_ids_query_specific_runs(self) -> None:
+        cur = _FakeCursor(
+            _cols("source", "endpoint", "ingest_run_id", "status", "started_at",
+                  "finished_at", "rows_written", "metadata"),
+            [("coinbase", "normalize", 42, "success",
+              datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc),
+              datetime(2026, 7, 1, 9, 1, tzinfo=timezone.utc), 3,
+              {"source_run_id": 41})],
+        )
+        rows = notebook.snapshot_manifest(
+            ingest_run_ids=[42, "42", Decimal("42")], conn=_FakeConn(cur)
+        )
+        sql, params = cur.executed[0]
+        self.assertIn("id = ANY", sql)
+        self.assertNotIn("DISTINCT ON", sql)
+        self.assertEqual(params[0], [42])
+        self.assertEqual(rows[0]["ingest_run_id"], 42)
+
+    def test_empty_exact_ingest_run_ids_skip_query(self) -> None:
+        cur = _FakeCursor(_cols("source"), [])
+        rows = notebook.snapshot_manifest(ingest_run_ids=[], conn=_FakeConn(cur))
+        self.assertEqual(rows, [])
+        self.assertEqual(cur.executed, [])
 
     def test_sources_filter_adds_param(self) -> None:
         """Passing sources= narrows the query with a second array param."""
@@ -159,7 +258,7 @@ class ManifestTests(unittest.TestCase):
     def _fake_conn(self) -> _FakeConn:
         return _FakeConn(_FakeCursor(_cols("source", "endpoint", "ingest_run_id",
                                             "status", "started_at", "finished_at",
-                                            "rows_written"), []))
+                                            "rows_written", "metadata"), []))
 
     def test_build_manifest_bundles_seed_config_and_snapshot(self) -> None:
         stamp = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)
@@ -170,6 +269,44 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(manifest["config"], {"window": 30})
         self.assertEqual(manifest["captured_at"], "2026-07-01T12:00:00+00:00")
         self.assertEqual(manifest["snapshot_runs"], [])
+
+    def test_build_manifest_extracts_run_ids_from_data(self) -> None:
+        stamp = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)
+        cur = _FakeCursor(_cols("source", "endpoint", "ingest_run_id",
+                                "status", "started_at", "finished_at",
+                                "rows_written", "metadata"), [])
+        manifest = notebook.build_manifest(
+            seed=7,
+            data=[
+                {"product": "BTC-USD", "latest_ingest_run_id": 12,
+                 "prior_ingest_run_id": 8},
+                {"product": "ETH-USD", "latest_ingest_run_id": 12,
+                 "prior_ingest_run_id": "9"},
+            ],
+            conn=_FakeConn(cur),
+            captured_at=stamp,
+        )
+        _sql, params = cur.executed[0]
+        self.assertEqual(params[0], [12, 8, 9])
+        self.assertEqual(manifest["snapshot_runs"], [])
+
+    def test_build_manifest_rejects_data_without_provenance_columns(self) -> None:
+        stamp = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)
+        with self.assertRaisesRegex(ValueError, "must include an ingest_run_id column"):
+            notebook.build_manifest(
+                seed=7,
+                data=[{"product": "BTC-USD"}],
+                conn=self._fake_conn(),
+                captured_at=stamp,
+            )
+
+    def test_ingest_run_ids_from_data_handles_plural_columns(self) -> None:
+        self.assertEqual(
+            notebook.ingest_run_ids_from_data(
+                [{"consumed_ingest_run_ids": [1, 2, 1], "product": "BTC-USD"}]
+            ),
+            [1, 2],
+        )
 
     def test_write_manifest_roundtrips_json(self) -> None:
         stamp = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)

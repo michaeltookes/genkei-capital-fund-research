@@ -58,23 +58,34 @@ from genkei.common.notebook import get_session, set_seeds, write_manifest
 
 seed = set_seeds(20260701)                       # deterministic random/numpy
 session = get_session()                           # pooled, read-only lake handle
-write_manifest(                                   # pins the snapshot you used
+df = session.read_sql_df("""
+    SELECT c.product, c.close, c.ingest_run_id AS price_ingest_run_id
+    FROM coinbase.candles c
+    WHERE c.product = ANY(%s)
+""", [["BTC-USD", "ETH-USD"]])
+write_manifest(                                   # pins the fact rows you used
     Path("manifest.json"),
     seed=seed,
     config={"window_days": 30, "assets": ["BTC-USD", "ETH-USD", "SOL-USD"]},
-    sources=["coinbase"],                         # omit to pin every source
+    data=df,                                      # extracts *_ingest_run_id columns
+    sources=["coinbase"],                         # optional guardrail/filter
 )
 ```
 
-`manifest.json` records the latest **successful** `meta.ingest_runs` id per
-`(source, endpoint)` at run time — so a later reader can tell whether a re-run
-saw the same data or newer data, and can join back to `meta.raw_blobs` for the
-exact bytes.
+`manifest.json` records the exact `meta.ingest_runs` rows referenced by
+`ingest_run_id` columns in the query result. Include `ingest_run_id` (or aliases
+ending in `_ingest_run_id`) for every fact table that contributes data. That
+lets a later reader trace from result rows to the normalizer run and then to the
+raw collector run via `metadata.source_run_id`. Calling
+`snapshot_manifest(sources=...)` without result data is still available as a
+coarse source-level fallback, but it is not precise enough for rolling-window
+experiments.
 
 ## Querying
 
 `genkei.common.notebook` wraps the CLI's read-path connection pool. Nothing
-here writes — every method is a plain `SELECT`.
+here writes: notebook SQL must be a single `SELECT` / `WITH` statement, and the
+real Postgres connection is placed in a read-only transaction.
 
 | call | returns | needs pandas |
 |---|---|---|
