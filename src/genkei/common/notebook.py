@@ -260,6 +260,11 @@ def _begin_supplied_read_only_transaction(conn: Any) -> bool:
     connection. That avoids leaking ``conn.read_only = True`` back into a pool.
     """
     if hasattr(conn, "read_only") and hasattr(conn, "pgconn"):
+        if getattr(conn, "autocommit", False) is True:
+            raise ValueError(
+                "Notebook SQL requires a transaction-bound read-only connection. "
+                "Disable autocommit before calling read_sql_rows/read_sql_df."
+            )
         if conn.read_only is True:
             return _is_idle_transaction(conn) is True
         if _is_idle_transaction(conn):

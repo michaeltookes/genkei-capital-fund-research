@@ -84,11 +84,13 @@ class _FakePsycopgConn(_FakeConn):
         cursor: _FakeCursor,
         *,
         read_only: bool | None = None,
+        autocommit: bool = False,
         transaction_status: pq.TransactionStatus = pq.TransactionStatus.IDLE,
     ):
         super().__init__(cursor)
         self.pgconn = _FakePgConn(transaction_status)
         self.read_only = read_only
+        self.autocommit = autocommit
 
 
 class _FakePoolContext:
@@ -217,6 +219,18 @@ class ReadSqlRowsTests(unittest.TestCase):
             notebook.read_sql_rows("select 1", conn=conn)
 
         self.assertEqual(cur.executed, [])
+        self.assertEqual(conn.rollbacks, 0)
+
+    def test_supplied_psycopg_connection_rejects_autocommit(self) -> None:
+        """Autocommit statements are not protected by SET TRANSACTION READ ONLY."""
+        cur = _FakeCursor(_cols("x"), [(1,)])
+        conn = _FakePsycopgConn(cur, autocommit=True)
+
+        with self.assertRaisesRegex(ValueError, "Disable autocommit"):
+            notebook.read_sql_rows("select 1", conn=conn)
+
+        self.assertEqual(cur.executed, [])
+        self.assertEqual(conn.commits, 0)
         self.assertEqual(conn.rollbacks, 0)
 
     def test_no_description_returns_empty(self) -> None:
