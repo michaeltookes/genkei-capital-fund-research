@@ -306,24 +306,37 @@ def _column_names_or_raise(description: Any) -> list[str]:
     return columns
 
 
-def _fetch_dicts(
+@dataclass(frozen=True)
+class _FetchedRows:
+    columns: list[str]
+    rows: list[dict[str, Any]]
+
+
+def _fetch_rows(
     conn: Any, sql: str, params: list[Any] | tuple[Any, ...] | None
-) -> list[dict[str, Any]]:
+) -> _FetchedRows:
     """Execute ``sql`` on ``conn`` and zip each row against the cursor's
     column names into a dict, coercing Decimals to floats."""
     safe_sql = _validate_read_only_sql(sql)
     with conn.cursor() as cur:
         cur.execute(safe_sql, params)
         if cur.description is None:
-            return []
+            return _FetchedRows(columns=[], rows=[])
         columns = _column_names_or_raise(cur.description)
         # Index-based rather than zip(..., strict=) — the runtime venv is
         # Python 3.9, where zip() has no strict kwarg. Column count and row
         # width always agree (both come from the same cursor).
-        return [
+        rows = [
             {columns[i]: _row_to_jsonable(val) for i, val in enumerate(row)}
             for row in cur.fetchall()
         ]
+        return _FetchedRows(columns=columns, rows=rows)
+
+
+def _fetch_dicts(
+    conn: Any, sql: str, params: list[Any] | tuple[Any, ...] | None
+) -> list[dict[str, Any]]:
+    return _fetch_rows(conn, sql, params).rows
 
 
 def read_sql_df(
@@ -358,13 +371,8 @@ def _read_sql_df_on_connection(
 ) -> pd.DataFrame:
     """Build a DataFrame using a connection already guarded as read-only."""
     pd = pd or _require_pandas()
-    rows = _fetch_dicts(conn, sql, params)
-    if not rows:
-        # Preserve column names on an empty result so downstream .empty checks
-        # and column references don't KeyError. psycopg gives us the columns
-        # via a describe-only pass.
-        return pd.DataFrame(columns=_describe_columns(sql, params, conn=conn))
-    return pd.DataFrame(rows)
+    result = _fetch_rows(conn, sql, params)
+    return pd.DataFrame(result.rows, columns=result.columns)
 
 
 def _describe_columns(

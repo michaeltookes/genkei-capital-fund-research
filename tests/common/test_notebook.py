@@ -618,12 +618,16 @@ class ReadSqlDfTests(unittest.TestCase):
         self.assertEqual(list(df.columns), ["ticker", "nav"])
         self.assertEqual(df.iloc[0]["ticker"], "BITB")
 
-    def test_empty_result_keeps_named_columns(self) -> None:
+    def test_empty_result_keeps_named_columns_without_rerunning_query(self) -> None:
         """An empty result still carries its column names (no KeyError later)."""
         cur = _FakeCursor(_cols("ticker", "nav"), [])
         df = notebook.read_sql_df("select ...", conn=_FakeConn(cur))
         self.assertTrue(df.empty)
         self.assertEqual(list(df.columns), ["ticker", "nav"])
+        self.assertEqual(
+            cur.executed,
+            [("SET TRANSACTION READ ONLY", None), ("select ...", None)],
+        )
 
 
 if __name__ == "__main__":
