@@ -1,0 +1,38 @@
+{
+  "captured_at": "2026-07-01T20:39:21.367280+00:00",
+  "seed": 20260701,
+  "config": {
+    "window_days": 30,
+    "assets": [
+      "BTC-USD",
+      "ETH-USD",
+      "SOL-USD"
+    ]
+  },
+  "snapshot_runs": [
+    {
+      "source": "coinbase",
+      "endpoint": "normalize",
+      "ingest_run_id": 1127,
+      "status": "success",
+      "started_at": "2026-07-01T09:26:23.411135-05:00",
+      "finished_at": "2026-07-01T09:26:23.437098-05:00",
+      "rows_written": 49,
+      "metadata": {
+        "source_run_id": 1126
+      }
+    },
+    {
+      "source": "coinbase",
+      "endpoint": "normalize",
+      "ingest_run_id": 318,
+      "status": "success",
+      "started_at": "2026-06-07T08:43:58.669529-05:00",
+      "finished_at": "2026-06-07T08:43:58.699039-05:00",
+      "rows_written": 49,
+      "metadata": {
+        "source_run_id": 317
+      }
+    }
+  ]
+}

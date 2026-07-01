@@ -112,9 +112,10 @@ Tracked as backlog items so they don't block forward motion:
 
 ## References
 
-- `docs/backlog.md` — 43 open items across 8 phases.
+- `docs/backlog.md` — 40 open items across 8 phases.
 - `docs/resolved.md` — completed milestones.
 - `docs/defillama-mvp.md` / `docs/defillama-daily-review.md` — existing slice's design + review standard.
+- `notebooks/README.md` — reproducible experiments layer (B-054/B-055): `genkei.common.notebook` (`get_session`/`read_sql_df`/`snapshot_manifest`/`new_experiment`) + dated experiment folders. Needs the `[notebooks]` extra (`pip install -e ".[notebooks]"`).
 - `docs/research/README.md` — investment-research decision log (append-only; `/research` + `/reflect-decisions` skills drive it).
 - `prompts/research-methodology.md` — the structured checklist `/research` walks per session.
 - `prompts/reflect-on-decisions.md` — the outcome-pairing cycle `/reflect-decisions` runs.
