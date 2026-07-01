@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import unittest
-from datetime import date
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import date, datetime, timezone
 from decimal import Decimal
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from genkei.common.watchlist import EtfTickerEntry
 from genkei.ingest.bitwise import (
@@ -15,7 +20,9 @@ from genkei.ingest.bitwise import (
     _find_labeled_value,
     _find_nav,
     _find_nav_as_of,
+    _FundSnapshot,
     _parse_money,
+    collect,
     parse_snapshot,
 )
 
@@ -58,6 +65,53 @@ BITB_WATCHLIST = EtfTickerEntry(
     issuer="Bitwise",
     launch_date="2024-01-11",
 )
+
+
+def _write_watchlist(case: unittest.TestCase, body: str) -> Path:
+    ctx = TemporaryDirectory()
+    case.addCleanup(ctx.cleanup)
+    path = Path(ctx.name) / "watchlists.yml"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+def _bitwise_watchlist(*tickers: str) -> str:
+    rows = ["etf_tickers:"]
+    for ticker in tickers:
+        asset = "ETH" if ticker.startswith("ETH") else "BTC"
+        rows.extend(
+            [
+                f"  - ticker: {ticker}",
+                f"    name: Bitwise {ticker} ETF",
+                f"    asset: {asset}",
+                "    issuer: Bitwise",
+                "    launch_date: 2024-01-11",
+            ]
+        )
+    return "\n".join(rows) + "\n"
+
+
+class _FakeRun:
+    id = 42
+
+    def __init__(self) -> None:
+        self.rows_written = 0
+
+    def add_rows(self, n: int) -> None:
+        self.rows_written += n
+
+
+class _FakeHttp:
+    def __init__(self, pages: dict[str, str]) -> None:
+        self.pages = pages
+
+    def get_text(self, url: str) -> str:
+        return self.pages[url]
+
+
+@contextmanager
+def _fake_ingest_run(*args: object, **kwargs: object) -> Iterator[_FakeRun]:
+    yield _FakeRun()
 
 
 # ---------------------------------------------------------------------------
@@ -231,6 +285,122 @@ class ParseSnapshotTests(unittest.TestCase):
     def test_reconciliation_tolerance_is_small(self) -> None:
         """The coherence gate is tight (a few percent), not permissive."""
         self.assertLessEqual(RECONCILE_TOLERANCE, Decimal("0.05"))
+
+
+class CollectTests(unittest.TestCase):
+    """Offline coverage for collect() orchestration."""
+
+    def test_rows_keep_each_snapshot_fetch_time(self) -> None:
+        """A future multi-ticker batch must not stamp all rows with the last fetch."""
+        first_fetched_at = datetime(2026, 6, 30, 12, 0, tzinfo=timezone.utc)
+        second_fetched_at = datetime(2026, 6, 30, 12, 5, tzinfo=timezone.utc)
+        timestamps = [first_fetched_at, second_fetched_at]
+        inserted_rows: list[dict[str, object]] = []
+
+        class FakeDateTime:
+            @classmethod
+            def now(cls, tz: timezone) -> datetime:
+                self.assertIs(tz, timezone.utc)
+                return timestamps.pop(0)
+
+        snaps = {
+            "BITB": _FundSnapshot(
+                ticker="BITB",
+                snapshot_date=date(2026, 6, 28),
+                issuer="Bitwise",
+                asset="BTC",
+                cusip=None,
+                isin=None,
+                nav_per_share_usd=Decimal("32.71"),
+                total_net_assets_usd=Decimal("2181609770"),
+                shares_outstanding=Decimal("66690000.0000"),
+            ),
+            "ETHW": _FundSnapshot(
+                ticker="ETHW",
+                snapshot_date=date(2026, 6, 28),
+                issuer="Bitwise",
+                asset="ETH",
+                cusip=None,
+                isin=None,
+                nav_per_share_usd=Decimal("24.00"),
+                total_net_assets_usd=Decimal("120000000"),
+                shares_outstanding=Decimal("5000000.0000"),
+            ),
+        }
+
+        def fake_parse_snapshot(
+            html: str,
+            *,
+            ticker: str,
+            watchlist_entry: EtfTickerEntry,
+        ) -> _FundSnapshot:
+            self.assertIn(ticker, html)
+            self.assertEqual(watchlist_entry.ticker, ticker)
+            return snaps[ticker]
+
+        @contextmanager
+        def fake_connection() -> Iterator[object]:
+            yield object()
+
+        def fake_bulk_upsert(
+            conn: object,
+            table: str,
+            rows: list[dict[str, object]],
+            conflict_keys: tuple[str, str],
+        ) -> int:
+            self.assertEqual(table, "etf.fund_snapshots")
+            self.assertEqual(conflict_keys, ("ticker", "snapshot_date"))
+            inserted_rows.extend(rows)
+            return len(rows)
+
+        product_urls = {
+            "BITB": "https://bitbetf.com/",
+            "ETHW": "https://ethwetf.com/",
+        }
+        path = _write_watchlist(self, _bitwise_watchlist("BITB", "ETHW"))
+        http = _FakeHttp(
+            {
+                "https://bitbetf.com/": "html for BITB",
+                "https://ethwetf.com/": "html for ETHW",
+            }
+        )
+
+        with (
+            patch("genkei.ingest.bitwise.PRODUCT_URLS", product_urls),
+            patch("genkei.ingest.bitwise.parse_snapshot", side_effect=fake_parse_snapshot),
+            patch("genkei.ingest.bitwise.datetime", FakeDateTime),
+            patch("genkei.ingest.bitwise.db.ingest_run", _fake_ingest_run),
+            patch("genkei.ingest.bitwise.db.store_raw_blob"),
+            patch("genkei.ingest.bitwise.db.connection", fake_connection),
+            patch("genkei.ingest.bitwise.db.bulk_upsert", side_effect=fake_bulk_upsert),
+            patch("genkei.ingest.bitwise.db.record_partial_endpoints") as partial,
+        ):
+            self.assertEqual(collect(path, http=http), 42)
+
+        partial.assert_not_called()
+        self.assertEqual([row["ticker"] for row in inserted_rows], ["BITB", "ETHW"])
+        self.assertEqual(inserted_rows[0]["fetched_at"], first_fetched_at)
+        self.assertEqual(inserted_rows[1]["fetched_at"], second_fetched_at)
+
+    def test_all_covered_parse_failures_fail_the_run(self) -> None:
+        """A zero-snapshot covered run must fail so retry/health surfaces it."""
+        path = _write_watchlist(self, _bitwise_watchlist("BITB"))
+        http = _FakeHttp({"https://bitbetf.com/": "<html>no financials</html>"})
+
+        with (
+            patch("genkei.ingest.bitwise.db.ingest_run", _fake_ingest_run),
+            patch("genkei.ingest.bitwise.db.store_raw_blob"),
+            patch("genkei.ingest.bitwise.db.record_partial_endpoints") as partial,
+            self.assertRaisesRegex(RuntimeError, "every covered ETF"),
+        ):
+            collect(path, http=http)
+
+        partial.assert_called_once()
+        self.assertEqual(partial.call_args.args[0], 42)
+        failure = partial.call_args.args[1][0]
+        self.assertEqual(failure["name"], "collect:BITB")
+        self.assertEqual(failure["url"], "https://bitbetf.com/")
+        self.assertIn("no usable snapshot", failure["error"])
 
 
 if __name__ == "__main__":

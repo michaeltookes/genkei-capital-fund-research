@@ -382,7 +382,7 @@ def collect(
             endpoint=COLLECT_ENDPOINT_LABEL,
             metadata={"watchlist_etfs": [e.ticker for e in bitwise_etfs]},
         ) as run:
-            snapshots: list[tuple[_FundSnapshot, str]] = []
+            snapshots: list[tuple[_FundSnapshot, str, datetime]] = []
             partials: list[dict[str, str]] = []
             for entry in covered:
                 ticker = entry.ticker.upper()
@@ -418,7 +418,7 @@ def collect(
                         }
                     )
                     continue
-                snapshots.append((snap, url))
+                snapshots.append((snap, url, fetched_at))
 
             if partials:
                 db.record_partial_endpoints(run.id, partials)
@@ -429,7 +429,10 @@ def collect(
                     [e.ticker for e in covered],
                 )
                 run.add_rows(0)
-                return run.id
+                raise RuntimeError(
+                    "Bitwise fetch/parse failed for every covered ETF; "
+                    "see meta.ingest_runs.metadata.partial_endpoints for details."
+                )
 
             rows = [
                 _snapshot_to_row(
@@ -438,7 +441,7 @@ def collect(
                     source_endpoint=url,
                     fetched_at=fetched_at,
                 )
-                for snap, url in snapshots
+                for snap, url, fetched_at in snapshots
             ]
             with db.connection() as conn:
                 written = db.bulk_upsert(
@@ -452,7 +455,7 @@ def collect(
                 "bitwise: +%s rows (%s snapshots, tickers=%s)",
                 written,
                 len(snapshots),
-                [s.ticker for s, _ in snapshots],
+                [s.ticker for s, _, _ in snapshots],
             )
             return run.id
     finally:
