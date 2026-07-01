@@ -610,6 +610,7 @@ class ExampleNotebookTests(unittest.TestCase):
         self.assertIn("JOIN latest l USING (product)", source)
         self.assertIn("c.ts <= l.ts_now - make_interval(days => %s)", source)
         self.assertIn("session.read_sql_df(SQL, [ASSETS, WINDOW_DAYS])", source)
+        self.assertIn("**Horizon tag:** crypto:core:years", source)
 
 
 class JsonDefaultTests(unittest.TestCase):
