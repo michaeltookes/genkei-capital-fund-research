@@ -25,6 +25,17 @@ dev = [
     "ruff>=0.5",
     "testcontainers[postgres]>=4.0",
 ]
+# Experiments / analysis layer (B-054/B-055). Kept OUT of the core deps on
+# purpose: the package, CLI, and offline test suite must install and run
+# without pandas/jupyter. `genkei.common.notebook` imports pandas lazily, so
+# read_sql_rows() + snapshot_manifest() work core-only; read_sql_df() and the
+# example notebooks need this extra. Install with: pip install -e ".[notebooks]"
+notebooks = [
+    "pandas>=2.0",
+    "jupyterlab>=4.0",
+    "ipykernel>=6.0",
+    "matplotlib>=3.7",
+]
 
 [project.scripts]
 genkei = "genkei.cli:main"
