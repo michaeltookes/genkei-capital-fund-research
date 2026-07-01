@@ -118,8 +118,9 @@ def read_sql_rows(
     """
     safe_sql = _validate_read_only_sql(sql)
     if conn is not None:
-        _ensure_supplied_connection_read_only(conn)
-        return _fetch_dicts(conn, safe_sql, params)
+        return _run_on_supplied_read_only_connection(
+            conn, lambda: _fetch_dicts(conn, safe_sql, params)
+        )
     with db.connection() as owned:
         _set_transaction_read_only(owned)
         return _fetch_dicts(owned, safe_sql, params)
@@ -251,25 +252,40 @@ def _is_idle_transaction(conn: Any) -> bool | None:
     return status == pq.TransactionStatus.IDLE
 
 
-def _ensure_supplied_connection_read_only(conn: Any) -> None:
-    """Guard a caller-supplied connection without reissuing SET inside a transaction.
+def _begin_supplied_read_only_transaction(conn: Any) -> bool:
+    """Guard a caller-supplied connection; return whether we should close it.
 
-    Psycopg's ``Connection.read_only`` configures future transactions and remains
-    attached to the connection, so a reused notebook connection can keep reading
-    without hitting Postgres' "SET TRANSACTION after first query" error.
+    For real psycopg connections that are idle at entry, use a transaction-local
+    read-only guard and close that helper-owned transaction before returning the
+    connection. That avoids leaking ``conn.read_only = True`` back into a pool.
     """
     if hasattr(conn, "read_only") and hasattr(conn, "pgconn"):
         if conn.read_only is True:
-            return
+            return _is_idle_transaction(conn) is True
         if _is_idle_transaction(conn):
-            conn.read_only = True
-            return
+            _set_transaction_read_only(conn)
+            return True
         raise ValueError(
             "Notebook SQL requires a read-only connection. The supplied connection "
             "is already in a transaction that was not marked read-only; commit or "
             "rollback it before calling read_sql_rows/read_sql_df."
         )
     _set_transaction_read_only(conn)
+    return False
+
+
+def _run_on_supplied_read_only_connection(conn: Any, query: Any) -> Any:
+    """Run ``query`` with a read-only guard on a caller-supplied connection."""
+    close_transaction = _begin_supplied_read_only_transaction(conn)
+    try:
+        result = query()
+    except Exception:
+        if close_transaction:
+            conn.rollback()
+        raise
+    if close_transaction:
+        conn.commit()
+    return result
 
 
 def _column_names_or_raise(description: Any) -> list[str]:
@@ -324,8 +340,10 @@ def read_sql_df(
     pd = _require_pandas()
     safe_sql = _validate_read_only_sql(sql)
     if conn is not None:
-        _ensure_supplied_connection_read_only(conn)
-        return _read_sql_df_on_connection(safe_sql, params, conn=conn, pd=pd)
+        return _run_on_supplied_read_only_connection(
+            conn,
+            lambda: _read_sql_df_on_connection(safe_sql, params, conn=conn, pd=pd),
+        )
     with db.connection() as owned:
         _set_transaction_read_only(owned)
         return _read_sql_df_on_connection(safe_sql, params, conn=owned, pd=pd)
@@ -587,9 +605,11 @@ def snapshot_manifest(
         return []
 
     if conn is not None:
-        _ensure_supplied_connection_read_only(conn)
-        return _snapshot_manifest_on_connection(
-            sources=sources, ingest_run_ids=exact_ids, conn=conn
+        return _run_on_supplied_read_only_connection(
+            conn,
+            lambda: _snapshot_manifest_on_connection(
+                sources=sources, ingest_run_ids=exact_ids, conn=conn
+            ),
         )
     with db.connection() as owned:
         _set_transaction_read_only(owned)

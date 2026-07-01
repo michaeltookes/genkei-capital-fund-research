@@ -58,10 +58,14 @@ class _FakeConn:
 
     def __init__(self, cursor: _FakeCursor):
         self._cursor = cursor
+        self.commits = 0
         self.rollbacks = 0
 
     def cursor(self) -> _FakeCursor:
         return self._cursor
+
+    def commit(self) -> None:
+        self.commits += 1
 
     def rollback(self) -> None:
         self.rollbacks += 1
@@ -145,17 +149,60 @@ class ReadSqlRowsTests(unittest.TestCase):
             [("SET TRANSACTION READ ONLY", None), ("select %s", [7])],
         )
 
-    def test_supplied_psycopg_connection_sets_read_only_once_for_reuse(self) -> None:
-        """Explicit psycopg connections use connection-level read-only mode."""
+    def test_supplied_psycopg_connection_uses_transaction_local_guard(self) -> None:
+        """Explicit psycopg connections do not leak read_only into the pool."""
         cur = _FakeCursor(_cols("x"), [(1,)])
         conn = _FakePsycopgConn(cur)
 
         notebook.read_sql_rows("select 1", conn=conn)
-        conn.pgconn.transaction_status = pq.TransactionStatus.INTRANS
         notebook.read_sql_rows("select 2", conn=conn)
 
-        self.assertIs(conn.read_only, True)
-        self.assertEqual(cur.executed, [("select 1", None), ("select 2", None)])
+        self.assertIsNone(conn.read_only)
+        self.assertEqual(conn.commits, 2)
+        self.assertEqual(conn.rollbacks, 0)
+        self.assertEqual(
+            cur.executed,
+            [
+                ("SET TRANSACTION READ ONLY", None),
+                ("select 1", None),
+                ("SET TRANSACTION READ ONLY", None),
+                ("select 2", None),
+            ],
+        )
+
+    def test_supplied_psycopg_connection_restores_prior_read_only_default(self) -> None:
+        """A pooled writer connection does not come back with read_only flipped."""
+        cur = _FakeCursor(_cols("x"), [(1,)])
+        conn = _FakePsycopgConn(cur, read_only=False)
+
+        notebook.read_sql_rows("select 1", conn=conn)
+
+        self.assertIs(conn.read_only, False)
+        self.assertEqual(conn.commits, 1)
+        self.assertEqual(
+            cur.executed,
+            [("SET TRANSACTION READ ONLY", None), ("select 1", None)],
+        )
+
+    def test_supplied_psycopg_connection_rolls_back_after_query_error(self) -> None:
+        """A failed helper-owned read-only transaction is cleaned up."""
+        cur = _FakeCursor(
+            _cols("x"),
+            [(1,)],
+            failures={"select broken": RuntimeError("syntax error")},
+        )
+        conn = _FakePsycopgConn(cur, read_only=False)
+
+        with self.assertRaisesRegex(RuntimeError, "syntax error"):
+            notebook.read_sql_rows("select broken", conn=conn)
+
+        self.assertIs(conn.read_only, False)
+        self.assertEqual(conn.commits, 0)
+        self.assertEqual(conn.rollbacks, 1)
+        self.assertEqual(
+            cur.executed,
+            [("SET TRANSACTION READ ONLY", None), ("select broken", None)],
+        )
 
     def test_supplied_psycopg_connection_rejects_active_writable_transaction(self) -> None:
         """Do not rollback caller-owned work to force read-only mode."""
