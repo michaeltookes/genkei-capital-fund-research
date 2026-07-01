@@ -13,6 +13,8 @@ from tempfile import TemporaryDirectory
 from typing import Any
 from unittest.mock import patch
 
+from psycopg import pq
+
 from genkei.common import notebook
 
 
@@ -63,6 +65,26 @@ class _FakeConn:
 
     def rollback(self) -> None:
         self.rollbacks += 1
+
+
+class _FakePgConn:
+    def __init__(self, transaction_status: pq.TransactionStatus):
+        self.transaction_status = transaction_status
+
+
+class _FakePsycopgConn(_FakeConn):
+    """A fake psycopg connection with connection-level read_only support."""
+
+    def __init__(
+        self,
+        cursor: _FakeCursor,
+        *,
+        read_only: bool | None = None,
+        transaction_status: pq.TransactionStatus = pq.TransactionStatus.IDLE,
+    ):
+        super().__init__(cursor)
+        self.pgconn = _FakePgConn(transaction_status)
+        self.read_only = read_only
 
 
 class _FakePoolContext:
@@ -122,6 +144,33 @@ class ReadSqlRowsTests(unittest.TestCase):
             cur.executed,
             [("SET TRANSACTION READ ONLY", None), ("select %s", [7])],
         )
+
+    def test_supplied_psycopg_connection_sets_read_only_once_for_reuse(self) -> None:
+        """Explicit psycopg connections use connection-level read-only mode."""
+        cur = _FakeCursor(_cols("x"), [(1,)])
+        conn = _FakePsycopgConn(cur)
+
+        notebook.read_sql_rows("select 1", conn=conn)
+        conn.pgconn.transaction_status = pq.TransactionStatus.INTRANS
+        notebook.read_sql_rows("select 2", conn=conn)
+
+        self.assertIs(conn.read_only, True)
+        self.assertEqual(cur.executed, [("select 1", None), ("select 2", None)])
+
+    def test_supplied_psycopg_connection_rejects_active_writable_transaction(self) -> None:
+        """Do not rollback caller-owned work to force read-only mode."""
+        cur = _FakeCursor(_cols("x"), [(1,)])
+        conn = _FakePsycopgConn(
+            cur,
+            read_only=None,
+            transaction_status=pq.TransactionStatus.INTRANS,
+        )
+
+        with self.assertRaisesRegex(ValueError, "already in a transaction"):
+            notebook.read_sql_rows("select 1", conn=conn)
+
+        self.assertEqual(cur.executed, [])
+        self.assertEqual(conn.rollbacks, 0)
 
     def test_no_description_returns_empty(self) -> None:
         """A read query with no cursor description yields empty, not a crash."""

@@ -50,6 +50,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from psycopg import pq
+
 from genkei.common import db
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
@@ -116,7 +118,7 @@ def read_sql_rows(
     """
     safe_sql = _validate_read_only_sql(sql)
     if conn is not None:
-        _set_transaction_read_only(conn)
+        _ensure_supplied_connection_read_only(conn)
         return _fetch_dicts(conn, safe_sql, params)
     with db.connection() as owned:
         _set_transaction_read_only(owned)
@@ -240,6 +242,36 @@ def _set_transaction_read_only(conn: Any) -> None:
         cur.execute("SET TRANSACTION READ ONLY")
 
 
+def _is_idle_transaction(conn: Any) -> bool | None:
+    """Return whether a psycopg connection is idle, or None for non-psycopg fakes."""
+    pgconn = getattr(conn, "pgconn", None)
+    status = getattr(pgconn, "transaction_status", None)
+    if status is None:
+        return None
+    return status == pq.TransactionStatus.IDLE
+
+
+def _ensure_supplied_connection_read_only(conn: Any) -> None:
+    """Guard a caller-supplied connection without reissuing SET inside a transaction.
+
+    Psycopg's ``Connection.read_only`` configures future transactions and remains
+    attached to the connection, so a reused notebook connection can keep reading
+    without hitting Postgres' "SET TRANSACTION after first query" error.
+    """
+    if hasattr(conn, "read_only") and hasattr(conn, "pgconn"):
+        if conn.read_only is True:
+            return
+        if _is_idle_transaction(conn):
+            conn.read_only = True
+            return
+        raise ValueError(
+            "Notebook SQL requires a read-only connection. The supplied connection "
+            "is already in a transaction that was not marked read-only; commit or "
+            "rollback it before calling read_sql_rows/read_sql_df."
+        )
+    _set_transaction_read_only(conn)
+
+
 def _column_names_or_raise(description: Any) -> list[str]:
     """Return result column names, rejecting names that would collide in dicts."""
     columns = [d[0] for d in description]
@@ -292,7 +324,7 @@ def read_sql_df(
     pd = _require_pandas()
     safe_sql = _validate_read_only_sql(sql)
     if conn is not None:
-        _set_transaction_read_only(conn)
+        _ensure_supplied_connection_read_only(conn)
         return _read_sql_df_on_connection(safe_sql, params, conn=conn, pd=pd)
     with db.connection() as owned:
         _set_transaction_read_only(owned)
@@ -555,7 +587,7 @@ def snapshot_manifest(
         return []
 
     if conn is not None:
-        _set_transaction_read_only(conn)
+        _ensure_supplied_connection_read_only(conn)
         return _snapshot_manifest_on_connection(
             sources=sources, ingest_run_ids=exact_ids, conn=conn
         )
