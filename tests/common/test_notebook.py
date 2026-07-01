@@ -126,6 +126,16 @@ class ReadSqlRowsTests(unittest.TestCase):
             notebook.read_sql_rows("UPDATE coinbase.candles SET close = close", conn=_FakeConn(cur))
         self.assertEqual(cur.executed, [])
 
+    def test_rejects_select_into_before_execute(self) -> None:
+        """Postgres SELECT INTO creates a table, so it is not notebook-read-only."""
+        cur = _FakeCursor(_cols("x"), [])
+        with self.assertRaisesRegex(ValueError, "prohibited token INTO"):
+            notebook.read_sql_rows(
+                "SELECT close INTO scratch_close FROM coinbase.candles",
+                conn=_FakeConn(cur),
+            )
+        self.assertEqual(cur.executed, [])
+
     def test_rejects_writable_cte(self) -> None:
         """Writable CTEs are rejected even when the top-level statement is WITH."""
         cur = _FakeCursor(_cols("x"), [])
@@ -271,6 +281,27 @@ class SnapshotManifestTests(unittest.TestCase):
         self.assertEqual(rows, [])
         self.assertEqual(cur.executed, [])
 
+    def test_exact_ingest_run_ids_raise_when_any_requested_run_is_missing(self) -> None:
+        """Exact provenance snapshots must not silently drop requested run ids."""
+        cur = _FakeCursor(
+            _cols("source", "endpoint", "ingest_run_id", "status", "started_at",
+                  "finished_at", "rows_written", "metadata"),
+            [("coinbase", "normalize", 42, "success",
+              datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc),
+              datetime(2026, 7, 1, 9, 1, tzinfo=timezone.utc), 3,
+              {"source_run_id": 41})],
+        )
+        with self.assertRaisesRegex(ValueError, "missing ingest_run_id.*99"):
+            notebook.snapshot_manifest(
+                sources=["coinbase"],
+                ingest_run_ids=[42, 99],
+                conn=_FakeConn(cur),
+            )
+        sql, params = cur.executed[0]
+        self.assertIn("id = ANY", sql)
+        self.assertIn("source = ANY", sql)
+        self.assertEqual(params, [[42, 99], ["coinbase"]])
+
     def test_sources_filter_adds_param(self) -> None:
         """Passing sources= narrows the query with a second array param."""
         cur = _FakeCursor(_cols("source"), [])
@@ -328,7 +359,21 @@ class ManifestTests(unittest.TestCase):
         stamp = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)
         cur = _FakeCursor(_cols("source", "endpoint", "ingest_run_id",
                                 "status", "started_at", "finished_at",
-                                "rows_written", "metadata"), [])
+                                "rows_written", "metadata"),
+                          [
+                              ("coinbase", "normalize", 12, "success",
+                               datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc),
+                               datetime(2026, 7, 1, 9, 1, tzinfo=timezone.utc),
+                               3, {}),
+                              ("coinbase", "normalize", 8, "success",
+                               datetime(2026, 6, 1, 9, 0, tzinfo=timezone.utc),
+                               datetime(2026, 6, 1, 9, 1, tzinfo=timezone.utc),
+                               3, {}),
+                              ("coinbase", "normalize", 9, "success",
+                               datetime(2026, 6, 2, 9, 0, tzinfo=timezone.utc),
+                               datetime(2026, 6, 2, 9, 1, tzinfo=timezone.utc),
+                               3, {}),
+                          ])
         manifest = notebook.build_manifest(
             seed=7,
             data=[
@@ -342,7 +387,10 @@ class ManifestTests(unittest.TestCase):
         )
         _sql, params = cur.executed[0]
         self.assertEqual(params[0], [12, 8, 9])
-        self.assertEqual(manifest["snapshot_runs"], [])
+        self.assertEqual(
+            [run["ingest_run_id"] for run in manifest["snapshot_runs"]],
+            [12, 8, 9],
+        )
 
     def test_build_manifest_rejects_data_without_provenance_columns(self) -> None:
         stamp = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)

@@ -80,6 +80,7 @@ _PROHIBITED_SQL_TOKENS = {
     "execute",
     "grant",
     "insert",
+    "into",
     "merge",
     "reindex",
     "refresh",
@@ -550,6 +551,19 @@ def snapshot_manifest(
         params.append(list(sources))
     sql += " ORDER BY source, endpoint, started_at DESC, id DESC"
     rows = read_sql_rows(sql, params, conn=conn)
+    if exact_ids is not None:
+        found_ids = {
+            run_id
+            for row in rows
+            if (run_id := _coerce_ingest_run_id(row.get("ingest_run_id"))) is not None
+        }
+        missing_ids = [run_id for run_id in exact_ids if run_id not in found_ids]
+        if missing_ids:
+            missing = ", ".join(str(run_id) for run_id in missing_ids)
+            raise ValueError(
+                "manifest snapshot missing ingest_run_id(s): "
+                f"{missing}. Check the sources filter and database contents."
+            )
     for row in rows:
         for key in ("started_at", "finished_at"):
             val = row.get(key)
