@@ -29,32 +29,7 @@ Daily briefs and reports are emergent UIs; **the data lake is the asset**.
 
 ## Open items
 
-### B-003 — Add manual run instructions for the DeFiLlama Daily Brief Action
-- **Status:** open
-- **Priority:** medium
-- **Context:** The workflow supports `workflow_dispatch`, but the repo should document the UI and CLI paths for triggering it.
-- **Acceptance criteria:**
-  - README includes GitHub UI steps.
-  - README includes `gh workflow run` command.
-  - README mentions where to find generated artifacts after the run.
-
-### B-004 — Watch first scheduled runs for data quality
-- **Status:** open
-- **Priority:** medium
-- **Context:** The initial live smoke test succeeded, but stablecoin chain data was unavailable in the generated snapshot.
-- **Acceptance criteria:**
-  - First 3 scheduled runs are reviewed.
-  - Any stablecoin-data gaps, schema drift, or missing target-chain rows are logged.
-  - Tuning items are added to this backlog when needed.
-
-### B-005 — Define daily report retention policy
-- **Status:** open
-- **Priority:** low
-- **Context:** Reports can accumulate quickly once committed to repo and Mission Control.
-- **Acceptance criteria:**
-  - Decide retention duration for repo artifacts.
-  - Decide whether Mission Control keeps all reports or summarized monthly rollups.
-  - Document the policy in README or docs.
+_B-003 / B-004 / B-005 were obsoleted by the DeFiLlama daily-brief retirement (B-025) and removed 2026-07-01 — see `docs/resolved.md`._
 
 ## Phase 0 — Foundation: Postgres + project scaffolding
 
@@ -64,14 +39,7 @@ The data lake doesn't exist yet; this phase makes it possible to land a single r
 
 Migrate the existing MVP into the new foundation; it becomes the canonical pattern for every future ingester.
 
-### B-020 — Move Bitcoin CEX/custody exclusion keywords to config
-- **Status:** open
-- **Priority:** medium
-- **Context:** Currently hardcoded in `scripts/normalize_defillama.py` (~19 name keywords, 4 category keywords). DeFiLlama relabels currently require code changes.
-- **Acceptance criteria:**
-  - `config/defillama.sources.json` gains a `bitcoin_excluded_keywords` section (name + category lists).
-  - Normalizer reads keywords from config.
-  - Existing tests still pass.
+_B-020 (move Bitcoin CEX/custody exclusion keywords to config) was obsoleted 2026-07-01 — its target `scripts/normalize_defillama.py` was deleted in the lake-shaped normalizer rewrite (B-016/B-051) and no such keyword logic exists in the current pipeline. See `docs/resolved.md`._
 
 ## Phase 2 — Free-data ingesters with backfill
 
@@ -187,20 +155,7 @@ _All Phase 5 items shipped 2026-07-01 (B-054 / B-055 / B-063) — see `docs/reso
 
 Once cross-source data is in, the system starts producing investable signals.
 
-### B-064 follow-ups — wire the remaining signal emitters
-
-The cross-source signal correlation engine (B-064, resolved 2026-05-28) shipped the store, the correlator, the starter rule pack, and one reference emitter (`insider_clusters`). The engine cannot fire a real stack until a **second** source is wired, because the correlator enforces `min_distinct_sources ≥ 2`. The four starter rules in `src/genkei/data/signal_rules.yml` are partial-fire until their component emitters land. Each emitter is ~150–200 lines following `src/genkei/experiments/emitters/insider_clusters_emitter.py`: adapt an existing Phase 5 experiment's output into `meta.signal_events`, resolve `asset` via the watchlist, wrap in `meta.ingest_runs` (`source='signal_emitter'`) so `genkei watchlist health` surfaces staleness, register the source in `cli/watchlist.py`, and chain the run into the relevant daily workflow. See the deferred-follow-ups paragraph in the B-064 entry of `docs/resolved.md` and `docs/experiments/cross-source-signals.md`.
-
-### ~~B-111 — Equity relative-strength emitter (generalize B-098 to equities vs SPY/QQQ)~~
-- **Status:** resolved 2026-06-06 (see `docs/resolved.md`)
-- **Priority:** medium
-- **Context:** Add an equity-side relative-strength emitter so cross-source rules can pair price leadership/laggard onsets with other equity signals.
-- **Acceptance criteria:**
-  - Emitter reads `yahoo.candles`, compares each watchlist equity against SPY over a trailing 30-day window, and emits one signal per laggard/leader crossing onset.
-  - Signal rules consume the new `equity_relative_strength` source for bullish and bearish confluence stacks.
-  - Daily Yahoo workflow runs the emitter after normalize, and `genkei watchlist health` monitors it as a recurring signal emitter.
-  - Tests pin thresholds, crossing behavior, event shape, watchlist routing, and UTC timestamp conversion.
-
+_B-064 follow-ups (wire the remaining signal emitters) shipped — all emitters landed and are chained into the daily workflows; removed 2026-07-01, see `docs/resolved.md`. B-111 (equity relative-strength emitter) also resolved 2026-06-06 and now lives only in `docs/resolved.md`._
 
 ### B-099 — Correlator: decay weighting by event age
 - **Status:** open
