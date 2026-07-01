@@ -238,6 +238,24 @@ def _set_transaction_read_only(conn: Any) -> None:
         cur.execute("SET TRANSACTION READ ONLY")
 
 
+def _column_names_or_raise(description: Any) -> list[str]:
+    """Return result column names, rejecting names that would collide in dicts."""
+    columns = [d[0] for d in description]
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for column in columns:
+        if column in seen and column not in duplicates:
+            duplicates.append(column)
+        seen.add(column)
+    if duplicates:
+        names = ", ".join(repr(name) for name in duplicates)
+        raise ValueError(
+            "Notebook SQL returned duplicate column names: "
+            f"{names}. Alias result columns to unique names."
+        )
+    return columns
+
+
 def _fetch_dicts(
     conn: Any, sql: str, params: list[Any] | tuple[Any, ...] | None
 ) -> list[dict[str, Any]]:
@@ -248,7 +266,7 @@ def _fetch_dicts(
         cur.execute(safe_sql, params)
         if cur.description is None:
             return []
-        columns = [d[0] for d in cur.description]
+        columns = _column_names_or_raise(cur.description)
         # Index-based rather than zip(..., strict=) — the runtime venv is
         # Python 3.9, where zip() has no strict kwarg. Column count and row
         # width always agree (both come from the same cursor).
@@ -291,7 +309,7 @@ def _describe_columns(
             cur.execute(safe_sql, params)
             if cur.description is None:
                 return []
-            return [d[0] for d in cur.description]
+            return _column_names_or_raise(cur.description)
 
     if conn is not None:
         return _cols(conn)
@@ -329,13 +347,25 @@ class NotebookSession:
         self, sql: str, params: list[Any] | tuple[Any, ...] | None = None
     ) -> list[dict[str, Any]]:
         """Query, returning column-keyed dict rows (pandas-free)."""
-        return read_sql_rows(sql, params, conn=self._conn)
+        try:
+            return read_sql_rows(sql, params, conn=self._conn)
+        except Exception:
+            self._recover_read_only_transaction()
+            raise
 
     def read_sql_df(
         self, sql: str, params: list[Any] | tuple[Any, ...] | None = None
     ) -> pd.DataFrame:
         """Query, returning a pandas ``DataFrame`` (needs the notebooks extra)."""
-        return read_sql_df(sql, params, conn=self._conn)
+        try:
+            return read_sql_df(sql, params, conn=self._conn)
+        except Exception:
+            self._recover_read_only_transaction()
+            raise
+
+    def _recover_read_only_transaction(self) -> None:
+        self._conn.rollback()
+        _set_transaction_read_only(self._conn)
 
     def snapshot_manifest(
         self, sources: list[str] | None = None

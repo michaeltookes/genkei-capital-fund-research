@@ -20,9 +20,15 @@ class _FakeCursor:
     """A minimal psycopg-cursor stand-in: records execute() args and replays
     a configured (description, rows) pair."""
 
-    def __init__(self, description: list[tuple[str]] | None, rows: list[tuple[Any, ...]]):
+    def __init__(
+        self,
+        description: list[tuple[str]] | None,
+        rows: list[tuple[Any, ...]],
+        failures: dict[str, Exception] | None = None,
+    ):
         self._description = description
         self._rows = rows
+        self._failures = failures or {}
         self.executed: list[tuple[str, Any]] = []
 
     @property
@@ -31,6 +37,9 @@ class _FakeCursor:
 
     def execute(self, sql: str, params: Any = None) -> None:
         self.executed.append((sql, params))
+        failure = self._failures.get(sql)
+        if failure is not None:
+            raise failure
 
     def fetchall(self) -> list[tuple[Any, ...]]:
         return list(self._rows)
@@ -47,9 +56,13 @@ class _FakeConn:
 
     def __init__(self, cursor: _FakeCursor):
         self._cursor = cursor
+        self.rollbacks = 0
 
     def cursor(self) -> _FakeCursor:
         return self._cursor
+
+    def rollback(self) -> None:
+        self.rollbacks += 1
 
 
 class _FakePoolContext:
@@ -141,6 +154,19 @@ class ReadSqlRowsTests(unittest.TestCase):
         )
         self.assertEqual(rows, [{"note": "UPDATE is text"}])
 
+    def test_rejects_duplicate_result_columns_before_dict_conversion(self) -> None:
+        """Duplicate result names would otherwise overwrite values in row dicts."""
+        cur = _FakeCursor(_cols("ingest_run_id", "ingest_run_id"), [(7, 8)])
+        with self.assertRaisesRegex(ValueError, "duplicate column names.*ingest_run_id"):
+            notebook.read_sql_rows("select ...", conn=_FakeConn(cur))
+        self.assertEqual(cur.executed, [("select ...", None)])
+
+    def test_describe_columns_rejects_duplicate_names(self) -> None:
+        """The empty-DataFrame describe path uses the same duplicate guard."""
+        cur = _FakeCursor(_cols("ticker", "ticker"), [])
+        with self.assertRaisesRegex(ValueError, "duplicate column names.*ticker"):
+            notebook._describe_columns("select ...", None, conn=_FakeConn(cur))
+
     def test_one_shot_borrows_a_pooled_connection(self) -> None:
         """Without conn=, the helper borrows/returns via db.connection()."""
         cur = _FakeCursor(_cols("a"), [(1,)])
@@ -166,6 +192,34 @@ class ReadSqlRowsTests(unittest.TestCase):
         self.assertEqual(rows, [{"a": 1}])
         self.assertEqual(cur.executed[0], ("SET TRANSACTION READ ONLY", None))
         self.assertEqual(cur.executed[1], ("select a", None))
+        self.assertTrue(pool.context.exited)
+
+    def test_session_recovers_read_only_transaction_after_query_error(self) -> None:
+        """A failed cell does not leave a long-lived session transaction aborted."""
+        cur = _FakeCursor(
+            _cols("a"),
+            [(1,)],
+            failures={"select broken": RuntimeError("syntax error")},
+        )
+        conn = _FakeConn(cur)
+        pool = _FakePool(conn)
+        with patch("genkei.common.notebook.db.get_pool", return_value=pool):
+            session = notebook.get_session()
+            with self.assertRaisesRegex(RuntimeError, "syntax error"):
+                session.read_sql_rows("select broken")
+            rows = session.read_sql_rows("select a")
+            session.close()
+        self.assertEqual(rows, [{"a": 1}])
+        self.assertEqual(conn.rollbacks, 1)
+        self.assertEqual(
+            cur.executed,
+            [
+                ("SET TRANSACTION READ ONLY", None),
+                ("select broken", None),
+                ("SET TRANSACTION READ ONLY", None),
+                ("select a", None),
+            ],
+        )
         self.assertTrue(pool.context.exited)
 
 
