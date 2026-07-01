@@ -32,3 +32,6 @@ venv/
 
 # Claude Code local settings (user-specific permissions, not shared)
 .claude/settings.local.json
+
+# Jupyter notebook checkpoints (B-054 experiments layer)
+.ipynb_checkpoints/
