@@ -256,6 +256,16 @@ class HttpClient:
         response.raise_for_status()
         return response.json()
 
+    def get_text(self, url: str, **kwargs: Any) -> str:
+        """GET a URL and return the decoded text body, raising on non-2xx.
+
+        The sibling of :meth:`get_json` for sources that serve HTML / CSV
+        rather than JSON (e.g. the Bitwise product pages parsed by
+        ``genkei.ingest.bitwise``)."""
+        response = self.get(url, **kwargs)
+        response.raise_for_status()
+        return response.text
+
     def _wait_after_retryable_status(self, response: httpx.Response, attempt: int) -> float:
         """Honor a valid ``Retry-After`` header when present; otherwise
         fall back to the policy's exponential backoff."""

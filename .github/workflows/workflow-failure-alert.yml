@@ -36,6 +36,7 @@ on:
       - "CFTC Weekly COT"
       - "GDELT GKG Daily Snapshot"
       - "iShares Daily ETF Snapshots"
+      - "Bitwise Daily ETF Snapshots"
       - "Etherscan Whale-Flow Daily Snapshot"
       - "Sui Staking Daily Snapshot"
       - "SUI Unlocks Daily Snapshot"

@@ -7,18 +7,21 @@ Two query modes, sharing the same ``--asset`` / ``--since`` / ``--until`` /
     every configured ETF in ``etf_tickers``. Data sourced from
     ``yahoo.candles`` via ``SUM(volume x close)``. A *magnitude proxy* for
     institutional activity, NOT signed net flow.
-  * **--net-flow (B-107 v2)** — signed daily net flow per BlackRock ETF
-    (IBIT, ETHA, ETHB) derived from the iShares product-screener feed in
-    ``etf.fund_snapshots``. ``net_flow_usd = (shares_today - shares_yesterday)
-    x nav_today`` computed via a SQL window function. This is the canonical
-    creations-vs-redemptions signal — see ``docs/sources/spot-etf-net-flow.md``
-    for the v2 investigation.
+  * **--net-flow (B-107 v2 / B-113)** — signed daily net flow per ETF from
+    ``etf.fund_snapshots``: BlackRock IBIT/ETHA/ETHB (iShares product-screener
+    feed, B-107) plus Bitwise BITB (product-page scrape, B-113).
+    ``net_flow_usd = (shares_today - shares_yesterday) x nav_today`` computed
+    via a SQL window function. This is the canonical creations-vs-redemptions
+    signal — see ``docs/sources/spot-etf-net-flow.md`` for the investigation.
 
 The default mode is preserved as the cross-issuer breadth view (covers all
-~14 spot crypto ETFs); ``--net-flow`` is the BlackRock-only deep view. The
-two are complementary, not redundant: dollar-volume tells you "is this ETF
-trading heavily today?", net flow tells you "are creations exceeding
-redemptions today?".
+~14 spot crypto ETFs); ``--net-flow`` is the deep view over whichever issuers
+have landed snapshots in ``etf.fund_snapshots`` (BlackRock + Bitwise today).
+The query filters by underlying asset + watchlist ticker, not by issuer, so a
+new issuer's collector surfaces here automatically. The two modes are
+complementary, not redundant: dollar-volume tells you "is this ETF trading
+heavily today?", net flow tells you "are creations exceeding redemptions
+today?".
 
 Usage:
   genkei etf-flows --asset BTC                           dollar-volume (default)
@@ -373,11 +376,12 @@ def _format_net_flow_human(asset: str, rows: list[dict[str, Any]], horizon_tag: 
     if not rows:
         return (
             f"No etf.fund_snapshots rows for {asset}. "
-            "Has the iShares collector run yet? "
-            "Try `python3 -m genkei.ingest.ishares` to populate."
+            "Has an ETF snapshot collector run yet? "
+            "Try `python3 -m genkei.ingest.ishares` (IBIT/ETHA/ETHB) or "
+            "`python3 -m genkei.ingest.bitwise` (BITB) to populate."
         )
     header = (
-        f"{asset} BlackRock ETF | signed net flow | "
+        f"{asset} spot ETF | signed net flow | "
         f"horizon={horizon_tag} | {len(rows)} row{'s' if len(rows) != 1 else ''}"
     )
     lines = [header, "-" * len(header)]
@@ -456,8 +460,9 @@ def etf_flows_cmd(
         typer.Option(
             "--net-flow",
             help=(
-                "Signed daily net flow per BlackRock ETF from etf.fund_snapshots "
-                "(IBIT/ETHA/ETHB only). Default mode is dollar-volume from yahoo.candles."
+                "Signed daily net flow per ETF from etf.fund_snapshots "
+                "(BlackRock IBIT/ETHA/ETHB + Bitwise BITB). Default mode is "
+                "dollar-volume from yahoo.candles."
             ),
         ),
     ] = False,

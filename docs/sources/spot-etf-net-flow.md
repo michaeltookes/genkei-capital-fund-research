@@ -1,6 +1,6 @@
 # Spot crypto ETF net flow — data-source investigation (B-107)
 
-**Status:** Phase 1 investigation complete (2026-06-07). Recommendation: **proceed to v2 implementation scoped to iShares (IBIT + ETHA + ETHB)**. Multi-issuer expansion deferred to v2.1.
+**Status:** Phase 1 investigation complete (2026-06-07); v2 shipped iShares (IBIT + ETHA + ETHB, B-107); **v2.1 added Bitwise BITB (B-113, 2026-06-30)** — see "B-113 — Bitwise expansion" below. Remaining issuers (FBTC / GBTC / ARKB) stay deferred behind their access walls.
 
 **Context:** B-105 v1 shipped "daily-dollar-volume per asset" via Yahoo OHLCV as a magnitude proxy for institutional ETF activity. The 2026-06-02 ETH / SOL / SUI research sessions explicitly named *signed net flow* (creations vs redemptions) as the canonical missing institutional-flow signal. B-107 pursues that signal via primary or near-primary sources, since the third-party paths (Farside, SoSoValue) are Cloudflare-walled and Yahoo `quoteSummary` is auth-gated.
 
@@ -97,9 +97,50 @@ Rationale:
 - New typed CLI subcommand `genkei etf-flows --asset BTC --since 2026-06-07` returning the snapshot rows + derived net flow. Aliases `--asset ETH` for ETHA and ETHB.
 - Unit tests pin the extractor for the JSON-keyed payload (one record per crypto-relevant key) and the shares-outstanding derivation arithmetic.
 
-## Deferred to v2.1 (filed as separate backlog items if pursued)
+## B-113 — Bitwise expansion (2026-06-30)
 
-1. **Multi-issuer expansion** — FBTC (Fidelity), BITB (Bitwise), GBTC (Grayscale), ARKB (ARK). Each needs its own URL discovery + Cloudflare evaluation. ARKB confirmed walled; GBTC rate-limited; FBTC and BITB plausible.
+The second issuer, landed as the concrete use-case raised by the 2026-06-30
+BTC research decision (which named the stale, volume-proxy ETF-flow signal as
+the single highest-value add to sharpen the BTC confirmation trigger).
+
+**Source — Bitwise product page HTML (free, no auth, no Cloudflare).** Unlike
+iShares' single JSON feed, Bitwise serves each fund on its own
+statically-generated (Next.js) product site. BITB lives at **`bitbetf.com`**;
+the fund financials are **server-rendered into the page HTML** — there is no
+public JSON API behind it (the only client-side calls are a Salesforce contact
+form + a Turnstile widget, neither carrying fund data). Verified live
+2026-06-30.
+
+| field | value (2026-06-28 strike) | source on page |
+|---|---|---|
+| Shares Outstanding | 66,690,000 | "Key Facts" grid |
+| Net Assets (AUM) | $2,181,609,770 | "Key Facts" grid |
+| NAV / share | $32.71 | "NAV and Market Price" block |
+| CUSIP / ISIN | 09174C104 / US09174C1045 | "Key Facts" grid |
+| as-of date | 06/28/2026 | "Data as of" in the NAV block |
+
+**Extractor design** (`src/genkei/ingest/bitwise.py`): every field is anchored
+on the **label text** (e.g. `Shares Outstanding`), never the build-generated
+`c-*` CSS class names — those churn on every Bitwise site rebuild, so a
+class-keyed parser would silently break. Bitwise publishes NAV, net assets,
+AND shares outstanding *independently* (iShares only publishes NAV + TNA, and
+we derive shares), so all three are stored as published and gated on **mutual
+reconciliation** — `nav × shares` must agree with `net_assets` within 2% (the
+analog of iShares' "navAmountAsOf must equal totalNetAssetsFundAsOf" check;
+the page stamps only the NAV strike date inline). Observed gap ≈ 0.01%.
+
+**No query change needed.** `genkei etf-flows --net-flow` already filters
+`etf.fund_snapshots` by underlying asset + watchlist ticker (not issuer), so
+BITB surfaces alongside the iShares rows automatically. Daily T+1/T+2 cron in
+`bitwise-daily.yml`, staggered 30 min behind `ishares-daily.yml`. Bitwise
+ETHW (their ETH ETF) is in the watchlist but not yet pinned in `PRODUCT_URLS`
+— logged as out-of-scope, a clean follow-up.
+
+## Deferred (filed as separate backlog items if pursued)
+
+1. **Remaining issuers** — FBTC (Fidelity), GBTC (Grayscale), ARKB (ARK), and
+   Bitwise ETHW. ARKB confirmed Cloudflare-walled; GBTC rate-limited; FBTC URL
+   not yet found; ETHW needs the same product-page spike BITB got.
 2. **Historical backfill** — quarterly checkpoints via SEC 10-Q shares-outstanding extraction. Useful for triangulation against the daily feed once running.
 3. **Reconciliation against Yahoo dollar-volume (B-105 v1)** — sanity-check that daily net flow direction matches the volume proxy.
 4. **Coinbase institutional product feed** — skipped in Phase 1; revisit if needed.

@@ -18,11 +18,11 @@ Usage: python -m genkei.cli etf-flows [OPTIONS]
 │ --limit              INTEGER RANGE [x>=1]  Max rows. [default: 60]           │
 │ --by-ticker                                Per-ETF rows instead of           │
 │                                            asset-level aggregate.            │
-│ --net-flow                                 Signed daily net flow per         │
-│                                            BlackRock ETF from                │
-│                                            etf.fund_snapshots                │
-│                                            (IBIT/ETHA/ETHB only). Default    │
-│                                            mode is dollar-volume from        │
+│ --net-flow                                 Signed daily net flow per ETF    │
+│                                            from etf.fund_snapshots          │
+│                                            (BlackRock IBIT/ETHA/ETHB +       │
+│                                            Bitwise BITB). Default mode is    │
+│                                            dollar-volume from               │
 │                                            yahoo.candles.                    │
 │ --json                                     Emit machine-readable JSON        │
 │                                            instead of human table.           │
