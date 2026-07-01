@@ -17,6 +17,7 @@ from genkei.ingest.bitwise import (
     PRODUCT_URLS,
     RECONCILE_TOLERANCE,
     SOURCE_NAME,
+    _find_fund_details_as_of,
     _find_labeled_value,
     _find_nav,
     _find_nav_as_of,
@@ -32,6 +33,8 @@ from genkei.ingest.bitwise import (
 # the label-anchored parser survives both (the c-* classes churn on every
 # site rebuild; the comments sit between "NAV:" and its value span).
 LIVE_FRAGMENT_HTML = """
+<section><h4 class="c-hakyQ">Fund Details</h4>
+  <p class="c-iAccHW"><!-- -->Data as of <!-- -->06/28/2026</p></section>
 <div class="c-bszhDB"><h4 class="c-AfGhm">Ticker</h4>
   <p class="c-cjWCAs">BITB</p></div>
 <div class="c-bszhDB"><h4 class="c-AfGhm">Fund Type</h4>
@@ -192,6 +195,17 @@ class FindNavTests(unittest.TestCase):
         self.assertEqual(nav, Decimal("32.71"))
 
 
+class FindFundDetailsAsOfTests(unittest.TestCase):
+    """The Fund Details parser must anchor on the section header."""
+
+    def test_extracts_fund_details_date(self) -> None:
+        """The shares/net-assets section date is parsed separately from NAV."""
+        from genkei.ingest.bitwise import _strip_html_comments
+
+        d = _find_fund_details_as_of(_strip_html_comments(LIVE_FRAGMENT_HTML))
+        self.assertEqual(d, date(2026, 6, 28))
+
+
 class FindNavAsOfTests(unittest.TestCase):
     """The as-of parser anchors on the NAV section's 'Data as of' stamp."""
 
@@ -263,9 +277,35 @@ class ParseSnapshotTests(unittest.TestCase):
             parse_snapshot(html, ticker="BITB", watchlist_entry=BITB_WATCHLIST)
         )
 
-    def test_missing_as_of_drops_row(self) -> None:
-        """No NAV strike date → None (we won't guess the snapshot_date)."""
-        html = LIVE_FRAGMENT_HTML.replace("Data as of <!-- -->06/28/2026", "")
+    def test_missing_fund_details_as_of_drops_row(self) -> None:
+        """No Fund Details date means shares/net-assets are not timestamped."""
+        html = LIVE_FRAGMENT_HTML.replace(
+            '<p class="c-iAccHW"><!-- -->Data as of <!-- -->06/28/2026</p></section>',
+            "</section>",
+        )
+        self.assertIsNone(
+            parse_snapshot(html, ticker="BITB", watchlist_entry=BITB_WATCHLIST)
+        )
+
+    def test_missing_nav_as_of_drops_row(self) -> None:
+        """No NAV strike date means we won't guess the snapshot_date."""
+        html = LIVE_FRAGMENT_HTML.replace(
+            '<p class="c-iAccHW"><!-- -->Data as of <!-- -->06/28/2026</p></div>\n'
+            "  <div><div><div>",
+            "<div><div><div>",
+        )
+        self.assertIsNone(
+            parse_snapshot(html, ticker="BITB", watchlist_entry=BITB_WATCHLIST)
+        )
+
+    def test_mismatched_section_dates_drop_row(self) -> None:
+        """Do not combine Fund Details values with a different NAV date."""
+        html = LIVE_FRAGMENT_HTML.replace(
+            "Fund Details</h4>\n"
+            '  <p class="c-iAccHW"><!-- -->Data as of <!-- -->06/28/2026',
+            "Fund Details</h4>\n"
+            '  <p class="c-iAccHW"><!-- -->Data as of <!-- -->06/29/2026',
+        )
         self.assertIsNone(
             parse_snapshot(html, ticker="BITB", watchlist_entry=BITB_WATCHLIST)
         )
@@ -370,7 +410,7 @@ class CollectTests(unittest.TestCase):
             patch("genkei.ingest.bitwise.parse_snapshot", side_effect=fake_parse_snapshot),
             patch("genkei.ingest.bitwise.datetime", FakeDateTime),
             patch("genkei.ingest.bitwise.db.ingest_run", _fake_ingest_run),
-            patch("genkei.ingest.bitwise.db.store_raw_blob"),
+            patch("genkei.ingest.bitwise.db.store_raw_blob") as store_blob,
             patch("genkei.ingest.bitwise.db.connection", fake_connection),
             patch("genkei.ingest.bitwise.db.bulk_upsert", side_effect=fake_bulk_upsert),
             patch("genkei.ingest.bitwise.db.record_partial_endpoints") as partial,
@@ -381,6 +421,10 @@ class CollectTests(unittest.TestCase):
         self.assertEqual([row["ticker"] for row in inserted_rows], ["BITB", "ETHW"])
         self.assertEqual(inserted_rows[0]["fetched_at"], first_fetched_at)
         self.assertEqual(inserted_rows[1]["fetched_at"], second_fetched_at)
+        self.assertEqual(
+            [call.args[1] for call in store_blob.call_args_list],
+            ["collect:BITB", "collect:ETHW"],
+        )
 
     def test_all_covered_parse_failures_fail_the_run(self) -> None:
         """A zero-snapshot covered run must fail so retry/health surfaces it."""

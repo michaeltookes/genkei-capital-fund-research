@@ -20,14 +20,12 @@ build-generated ``c-*`` CSS class names, which churn on every site rebuild.
 **Why store all three published values (vs deriving one).** iShares publishes
 NAV + total-net-assets and we *derive* shares = TNA / NAV. Bitwise publishes
 all three independently (NAV, net assets, AND shares outstanding), so we store
-each as published — and use their mutual reconciliation as the coherence gate:
-``nav x shares`` must reconcile to ``net_assets`` within ``RECONCILE_TOLERANCE``.
-This is the Bitwise analog of the iShares "navAmountAsOf must equal
-totalNetAssetsFundAsOf" check: the Bitwise page stamps only the NAV strike
-date inline, so instead of matching per-field dates we verify the three
-financials are internally consistent before trusting them as one snapshot.
-The observed reconciliation gap is ~0.01%; the 2% tolerance is generous
-headroom for a mid-update page where one field briefly lags.
+each as published — and use date + value coherence as the gate: Fund Details
+and NAV ``Data as of`` stamps must match, then ``nav x shares`` must reconcile
+to ``net_assets`` within ``RECONCILE_TOLERANCE``. This is the Bitwise analog
+of the iShares "navAmountAsOf must equal totalNetAssetsFundAsOf" check. The
+observed reconciliation gap is ~0.01%; the 2% tolerance is generous headroom
+after the section dates already agree.
 
 Daily net flow is NOT stored — it's computed at query time in
 ``genkei etf-flows --net-flow`` via ``(shares - LAG(shares)) x nav`` exactly
@@ -86,9 +84,10 @@ PRODUCT_URLS: dict[str, str] = {
 }
 
 # Published NAV x published shares must reconcile to published net assets
-# within this fraction, else the snapshot is internally inconsistent (a field
-# struck on a different day, or a parse drift) and is skipped rather than
-# stored. Observed gap is ~0.01%; 2% is generous headroom.
+# within this fraction, else the snapshot is internally inconsistent (usually
+# parse drift after the Fund Details and NAV as-of dates have already matched)
+# and is skipped rather than stored. Observed gap is ~0.01%; 2% is generous
+# headroom.
 RECONCILE_TOLERANCE = Decimal("0.02")
 
 # A browser User-Agent — the static site serves scripted requests fine, but a
@@ -190,27 +189,59 @@ def _find_nav(html: str) -> Decimal | None:
     return _parse_money(m.group(1), field="nav")
 
 
-def _find_nav_as_of(html: str) -> date | None:
-    """Extract the NAV strike date from the NAV section's ``Data as of`` stamp.
-
-    Anchors on the NAV section header first, then takes the next
-    ``Data as of MM/DD/YYYY`` within a bounded window — so it can't pick up
-    the portfolio-characteristics or "as of December 31" marketing dates
-    elsewhere on the page. ``html`` must already have comments stripped.
-    """
-    header = re.search(
-        r"Net Asset Value \(NAV\)[^<]*</h4>", html, re.IGNORECASE
-    )
-    window = html[header.end() : header.end() + 400] if header else html
-    m = re.search(r"Data as of\s*(\d{2})/(\d{2})/(\d{4})", window, re.IGNORECASE)
-    if not m:
-        return None
+def _parse_as_of_match(m: re.Match[str], *, section: str) -> date | None:
     month, day, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
     try:
         return date(year, month, day)
     except ValueError:
-        LOGGER.warning("bitwise: unparseable NAV as-of date %s", m.group(0))
+        LOGGER.warning("bitwise: unparseable %s as-of date %s", section, m.group(0))
         return None
+
+
+def _find_section_as_of(
+    html: str,
+    header_pattern: str,
+    *,
+    section: str,
+    window_chars: int = 500,
+) -> date | None:
+    """Extract the first ``Data as of MM/DD/YYYY`` after a section header."""
+    header = re.search(
+        rf"<h[1-6][^>]*>\s*{header_pattern}[^<]*</h[1-6]>",
+        html,
+        re.IGNORECASE,
+    )
+    if not header:
+        return None
+    window = html[header.end() : header.end() + window_chars]
+    m = re.search(r"Data as of\s*(\d{1,2})/(\d{1,2})/(\d{4})", window, re.IGNORECASE)
+    if not m:
+        return None
+    return _parse_as_of_match(m, section=section)
+
+
+def _find_fund_details_as_of(html: str) -> date | None:
+    """Extract the Fund Details section date for shares/net-assets fields."""
+    return _find_section_as_of(
+        html,
+        re.escape("Fund Details"),
+        section="Fund Details",
+    )
+
+
+def _find_nav_as_of(html: str) -> date | None:
+    """Extract the NAV strike date from the NAV section's ``Data as of`` stamp.
+
+    Anchors on the NAV section header first, then takes the next
+    ``Data as of MM/DD/YYYY`` within a bounded window so it can't pick up the
+    Fund Details, portfolio-characteristics, or marketing dates elsewhere on
+    the page. ``html`` must already have comments stripped.
+    """
+    return _find_section_as_of(
+        html,
+        r"Net Asset Value\s*\(NAV\)",
+        section="NAV",
+    )
 
 
 def _reconciles(
@@ -249,8 +280,9 @@ def parse_snapshot(
     """Decode one Bitwise product page into a snapshot row, or None.
 
     Returns None (with a WARNING) when any required financial is missing,
-    non-positive, or the three published values fail to reconcile — the same
-    skip-rather-than-store-garbage discipline the iShares parser uses. The
+    non-positive, struck on mixed section dates, or the three published values
+    fail to reconcile — the same skip-rather-than-store-garbage discipline the
+    iShares parser uses. The
     ``cusip`` / ``isin`` identifiers are best-effort: absent ones become NULL
     without dropping the row.
     """
@@ -263,16 +295,34 @@ def parse_snapshot(
         _find_labeled_value(clean, "Net Assets (AUM)"), field="net_assets"
     )
     nav = _find_nav(clean)
+    fund_details_as_of = _find_fund_details_as_of(clean)
     as_of = _find_nav_as_of(clean)
 
-    if shares is None or net_assets is None or nav is None or as_of is None:
+    if (
+        shares is None
+        or net_assets is None
+        or nav is None
+        or fund_details_as_of is None
+        or as_of is None
+    ):
         LOGGER.warning(
             "bitwise %s: missing required fields "
-            "(shares=%s net_assets=%s nav=%s as_of=%s) — skipping",
+            "(shares=%s net_assets=%s nav=%s fund_details_as_of=%s "
+            "nav_as_of=%s) — skipping",
             ticker,
             shares,
             net_assets,
             nav,
+            fund_details_as_of,
+            as_of,
+        )
+        return None
+    if fund_details_as_of != as_of:
+        LOGGER.warning(
+            "bitwise %s: Fund Details as-of %s does not match NAV as-of %s "
+            "- skipping mixed-date snapshot",
+            ticker,
+            fund_details_as_of,
             as_of,
         )
         return None
@@ -407,7 +457,12 @@ def collect(
 
                 # raw_blobs JSON-serializes its payload; HTML must be wrapped
                 # in a single-key object (db.store_raw_blob convention).
-                db.store_raw_blob(run.id, COLLECT_ENDPOINT_LABEL, url, {"html": html})
+                db.store_raw_blob(
+                    run.id,
+                    f"{COLLECT_ENDPOINT_LABEL}:{ticker}",
+                    url,
+                    {"html": html},
+                )
                 snap = parse_snapshot(html, ticker=ticker, watchlist_entry=entry)
                 if snap is None:
                     partials.append(
