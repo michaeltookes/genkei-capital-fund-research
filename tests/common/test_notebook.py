@@ -316,10 +316,11 @@ class ReadSqlRowsTests(unittest.TestCase):
         self.assertEqual(cur.executed[0], ("SET TRANSACTION READ ONLY", None))
         self.assertEqual(cur.executed[1], ("select a", None))
 
-    def test_get_session_marks_connection_read_only(self) -> None:
-        """Session connections enter read-only mode before notebook queries."""
+    def test_get_session_marks_each_query_read_only(self) -> None:
+        """Session reads enter read-only mode without holding the transaction."""
         cur = _FakeCursor(_cols("a"), [(1,)])
-        pool = _FakePool(_FakeConn(cur))
+        conn = _FakeConn(cur)
+        pool = _FakePool(conn)
         with patch("genkei.common.notebook.db.get_pool", return_value=pool):
             session = notebook.get_session()
             rows = session.read_sql_rows("select a")
@@ -327,10 +328,11 @@ class ReadSqlRowsTests(unittest.TestCase):
         self.assertEqual(rows, [{"a": 1}])
         self.assertEqual(cur.executed[0], ("SET TRANSACTION READ ONLY", None))
         self.assertEqual(cur.executed[1], ("select a", None))
+        self.assertEqual(conn.commits, 1)
         self.assertTrue(pool.context.exited)
 
     def test_session_recovers_read_only_transaction_after_query_error(self) -> None:
-        """A failed cell does not leave a long-lived session transaction aborted."""
+        """A failed cell rolls back before a later read starts a new transaction."""
         cur = _FakeCursor(
             _cols("a"),
             [(1,)],
@@ -346,6 +348,7 @@ class ReadSqlRowsTests(unittest.TestCase):
             session.close()
         self.assertEqual(rows, [{"a": 1}])
         self.assertEqual(conn.rollbacks, 1)
+        self.assertEqual(conn.commits, 1)
         self.assertEqual(
             cur.executed,
             [
@@ -357,10 +360,11 @@ class ReadSqlRowsTests(unittest.TestCase):
         )
         self.assertTrue(pool.context.exited)
 
-    def test_session_snapshot_reuses_existing_read_only_transaction(self) -> None:
-        """Session manifest reads do not reissue SET after earlier session queries."""
+    def test_session_snapshot_uses_a_separate_read_only_transaction(self) -> None:
+        """Session manifest reads do not hold an earlier query transaction open."""
         cur = _FakeCursor(_cols("source"), [])
-        pool = _FakePool(_FakeConn(cur))
+        conn = _FakeConn(cur)
+        pool = _FakePool(conn)
         with patch("genkei.common.notebook.db.get_pool", return_value=pool):
             session = notebook.get_session()
             session.read_sql_rows("select a")
@@ -372,8 +376,9 @@ class ReadSqlRowsTests(unittest.TestCase):
                 for executed in cur.executed
                 if executed == ("SET TRANSACTION READ ONLY", None)
             ],
-            [("SET TRANSACTION READ ONLY", None)],
+            [("SET TRANSACTION READ ONLY", None), ("SET TRANSACTION READ ONLY", None)],
         )
+        self.assertEqual(conn.commits, 2)
         queries = _query_execs(cur)
         self.assertEqual(queries[0], ("select a", None))
         self.assertIn("SELECT DISTINCT ON", queries[1][0])
@@ -393,7 +398,7 @@ class ReadSqlRowsTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "NotebookSession is closed"):
                 session.snapshot_manifest()
 
-        self.assertEqual(cur.executed, [("SET TRANSACTION READ ONLY", None)])
+        self.assertEqual(cur.executed, [])
         self.assertTrue(pool.context.exited)
 
 

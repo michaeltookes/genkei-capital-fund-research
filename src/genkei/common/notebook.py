@@ -418,9 +418,10 @@ class NotebookSession:
     """A read-only lake handle for a notebook or experiment script.
 
     Holds one pooled connection for the life of the session so a notebook
-    doesn't borrow/return a connection per cell. Use as a context manager
-    (``with get_session() as s:``) or call :meth:`close` when done. Every
-    query method is read-only.
+    doesn't borrow/return a connection per cell. Each read runs in its own
+    read-only transaction so an idle notebook does not hold table locks between
+    cells. Use as a context manager (``with get_session() as s:``) or call
+    :meth:`close` when done.
     """
 
     _conn: Any | None
@@ -433,45 +434,49 @@ class NotebookSession:
             )
         return self._conn
 
+    def _run_read_only_query(self, query: Any) -> Any:
+        conn = self._open_conn()
+        _set_transaction_read_only(conn)
+        try:
+            result = query(conn)
+        except Exception:
+            conn.rollback()
+            raise
+        conn.commit()
+        return result
+
     def read_sql_rows(
         self, sql: str, params: list[Any] | tuple[Any, ...] | None = None
     ) -> list[dict[str, Any]]:
         """Query, returning column-keyed dict rows (pandas-free)."""
-        conn = self._open_conn()
-        try:
-            return _fetch_dicts(conn, sql, params)
-        except Exception:
-            self._recover_read_only_transaction()
-            raise
+        self._open_conn()
+        safe_sql = _validate_read_only_sql(sql)
+        return self._run_read_only_query(
+            lambda conn: _fetch_dicts(conn, safe_sql, params)
+        )
 
     def read_sql_df(
         self, sql: str, params: list[Any] | tuple[Any, ...] | None = None
     ) -> pd.DataFrame:
         """Query, returning a pandas ``DataFrame`` (needs the notebooks extra)."""
-        conn = self._open_conn()
-        try:
-            return _read_sql_df_on_connection(sql, params, conn=conn)
-        except Exception:
-            self._recover_read_only_transaction()
-            raise
-
-    def _recover_read_only_transaction(self) -> None:
-        conn = self._open_conn()
-        conn.rollback()
-        _set_transaction_read_only(conn)
+        self._open_conn()
+        safe_sql = _validate_read_only_sql(sql)
+        pd = _require_pandas()
+        return self._run_read_only_query(
+            lambda conn: _read_sql_df_on_connection(
+                safe_sql, params, conn=conn, pd=pd
+            )
+        )
 
     def snapshot_manifest(
         self, sources: list[str] | None = None
     ) -> list[dict[str, Any]]:
         """Manifest snapshot helper using this session connection."""
-        conn = self._open_conn()
-        try:
-            return _snapshot_manifest_on_connection(
+        return self._run_read_only_query(
+            lambda conn: _snapshot_manifest_on_connection(
                 sources=sources, ingest_run_ids=None, conn=conn
             )
-        except Exception:
-            self._recover_read_only_transaction()
-            raise
+        )
 
     def close(self) -> None:
         """Return the underlying connection to the pool."""
@@ -492,13 +497,12 @@ def get_session() -> NotebookSession:
     """Open a :class:`NotebookSession` holding one pooled connection.
 
     ``with get_session() as s: s.read_sql_df("select ...")`` is the canonical
-    notebook entry point. The connection is read-only in practice — the helper
-    exposes only SELECT paths.
+    notebook entry point. The helper exposes only SELECT paths, and every read
+    method opens and closes a read-only transaction around the query.
     """
     pool = db.get_pool()
     ctx = pool.connection()
     conn = ctx.__enter__()
-    _set_transaction_read_only(conn)
     return NotebookSession(_conn=conn, _pool_ctx=ctx)
 
 
