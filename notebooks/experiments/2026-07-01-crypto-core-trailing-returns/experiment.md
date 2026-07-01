@@ -25,7 +25,8 @@ crypto-core majors (BTC, ETH, SOL) rank by return? Expectation (from the
 ## Method
 
 For each product, take the latest close and the last close on or before 30
-days earlier, and compute the simple return `latest / prior - 1`. The SQL
+days before that selected latest candle, and compute the simple return
+`latest / prior - 1`. The SQL
 selects both points' `ingest_run_id`s so the manifest records the exact
 normalizer runs behind the fact rows; the notebook renders the ranked result as
 a DataFrame.

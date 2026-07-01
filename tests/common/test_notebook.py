@@ -572,6 +572,27 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(on_disk["seed"], 1)
 
 
+class ExampleNotebookTests(unittest.TestCase):
+    def test_crypto_core_query_anchors_prior_to_latest_candle(self) -> None:
+        """The reference notebook must not let wall-clock time shift the lookback."""
+        path = (
+            Path(__file__).resolve().parents[2]
+            / "notebooks"
+            / "experiments"
+            / "2026-07-01-crypto-core-trailing-returns"
+            / "experiment.ipynb"
+        )
+        notebook_json = json.loads(path.read_text(encoding="utf-8"))
+        source = "\n".join(
+            "".join(cell.get("source", [])) for cell in notebook_json["cells"]
+        )
+
+        self.assertNotIn("now() - make_interval", source)
+        self.assertIn("JOIN latest l USING (product)", source)
+        self.assertIn("c.ts <= l.ts_now - make_interval(days => %s)", source)
+        self.assertIn("session.read_sql_df(SQL, [ASSETS, WINDOW_DAYS])", source)
+
+
 class JsonDefaultTests(unittest.TestCase):
     def test_serializes_dates_and_decimals(self) -> None:
         self.assertEqual(notebook._json_default(date(2026, 7, 1)), "2026-07-01")
