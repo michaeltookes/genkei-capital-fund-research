@@ -247,6 +247,28 @@ class ReadSqlRowsTests(unittest.TestCase):
         )
         self.assertTrue(pool.context.exited)
 
+    def test_session_snapshot_reuses_existing_read_only_transaction(self) -> None:
+        """Session manifest reads do not reissue SET after earlier session queries."""
+        cur = _FakeCursor(_cols("source"), [])
+        pool = _FakePool(_FakeConn(cur))
+        with patch("genkei.common.notebook.db.get_pool", return_value=pool):
+            session = notebook.get_session()
+            session.read_sql_rows("select a")
+            session.snapshot_manifest()
+            session.close()
+        self.assertEqual(
+            [
+                executed
+                for executed in cur.executed
+                if executed == ("SET TRANSACTION READ ONLY", None)
+            ],
+            [("SET TRANSACTION READ ONLY", None)],
+        )
+        queries = _query_execs(cur)
+        self.assertEqual(queries[0], ("select a", None))
+        self.assertIn("SELECT DISTINCT ON", queries[1][0])
+        self.assertTrue(pool.context.exited)
+
 
 # ---------------------------------------------------------------------------
 # snapshot_manifest — reproducibility pin

@@ -391,7 +391,13 @@ class NotebookSession:
         self, sources: list[str] | None = None
     ) -> list[dict[str, Any]]:
         """Manifest snapshot helper using this session connection."""
-        return snapshot_manifest(sources=sources, conn=self._conn)
+        try:
+            return _snapshot_manifest_on_connection(
+                sources=sources, ingest_run_ids=None, conn=self._conn
+            )
+        except Exception:
+            self._recover_read_only_transaction()
+            raise
 
     def close(self) -> None:
         """Return the underlying connection to the pool."""
@@ -548,6 +554,26 @@ def snapshot_manifest(
     if exact_ids is not None and not exact_ids:
         return []
 
+    if conn is not None:
+        _set_transaction_read_only(conn)
+        return _snapshot_manifest_on_connection(
+            sources=sources, ingest_run_ids=exact_ids, conn=conn
+        )
+    with db.connection() as owned:
+        _set_transaction_read_only(owned)
+        return _snapshot_manifest_on_connection(
+            sources=sources, ingest_run_ids=exact_ids, conn=owned
+        )
+
+
+def _snapshot_manifest_on_connection(
+    sources: list[str] | None,
+    ingest_run_ids: list[int] | None,
+    *,
+    conn: Any,
+) -> list[dict[str, Any]]:
+    """Capture manifest rows using a connection already guarded as read-only."""
+    exact_ids = ingest_run_ids
     if exact_ids is not None:
         sql = """
             SELECT source, endpoint, id AS ingest_run_id, status,
@@ -569,7 +595,7 @@ def snapshot_manifest(
         sql += " AND source = ANY(%s::text[])"
         params.append(list(sources))
     sql += " ORDER BY source, endpoint, started_at DESC, id DESC"
-    rows = read_sql_rows(sql, params, conn=conn)
+    rows = _fetch_dicts(conn, sql, params)
     if exact_ids is not None:
         found_ids = {
             run_id
