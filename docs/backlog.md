@@ -181,30 +181,7 @@ Wires the data lake to the on-demand AI researcher.
 
 First-class — the *point* of having the data lake.
 
-### B-054 — Notebooks directory + reproducibility pattern
-- **Status:** open
-- **Priority:** medium
-- **Context:** Experiments need deterministic seeds, snapshot pinning (which `ingest_runs` IDs were used), per-experiment notes.
-- **Acceptance criteria:**
-  - `notebooks/experiments/` with template structure.
-  - Each experiment captures snapshot IDs, seeds, config.
-  - `experiment.md` per experiment summarizes hypothesis, result, next steps.
-
-### B-055 — Notebook-to-Postgres connection pattern
-- **Status:** open
-- **Priority:** medium
-- **Context:** Standard helper for notebooks to query Postgres (via the CLI helpers or direct psycopg).
-- **Acceptance criteria:**
-  - Helper module with `get_session()` / `read_sql_df(...)`.
-  - One example notebook using it cleanly.
-
-### B-063 — Experiment template + cookiecutter
-- **Status:** open
-- **Priority:** low
-- **Context:** Standardize the shape of new experiments to reduce friction.
-- **Acceptance criteria:**
-  - Template captures hypothesis, data, method, snapshot IDs, results, next steps.
-  - One-command bootstrap.
+_All Phase 5 items shipped 2026-07-01 (B-054 / B-055 / B-063) — see `docs/resolved.md`._
 
 ## Phase 6 — Inefficiency-detection signals
 
