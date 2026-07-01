@@ -1,5 +1,5 @@
 {
-  "captured_at": "2026-07-01T00:00:00+00:00",
+  "captured_at": "2026-07-01T18:46:04.473655+00:00",
   "seed": 20260701,
   "config": {
     "window_days": 30,
@@ -12,30 +12,27 @@
   "snapshot_runs": [
     {
       "source": "coinbase",
-      "endpoint": "backfill",
-      "ingest_run_id": 108,
-      "status": "success",
-      "started_at": "2026-05-23T16:04:46.740566-05:00",
-      "finished_at": "2026-05-23T16:05:11.104691-05:00",
-      "rows_written": 105
-    },
-    {
-      "source": "coinbase",
-      "endpoint": "collect",
-      "ingest_run_id": 1126,
-      "status": "success",
-      "started_at": "2026-07-01T09:26:17.713353-05:00",
-      "finished_at": "2026-07-01T09:26:23.171347-05:00",
-      "rows_written": 7
-    },
-    {
-      "source": "coinbase",
       "endpoint": "normalize",
       "ingest_run_id": 1127,
       "status": "success",
       "started_at": "2026-07-01T09:26:23.411135-05:00",
       "finished_at": "2026-07-01T09:26:23.437098-05:00",
-      "rows_written": 49
+      "rows_written": 49,
+      "metadata": {
+        "source_run_id": 1126
+      }
+    },
+    {
+      "source": "coinbase",
+      "endpoint": "normalize",
+      "ingest_run_id": 318,
+      "status": "success",
+      "started_at": "2026-06-07T08:43:58.669529-05:00",
+      "finished_at": "2026-06-07T08:43:58.699039-05:00",
+      "rows_written": 49,
+      "metadata": {
+        "source_run_id": 317
+      }
     }
   ]
 }
