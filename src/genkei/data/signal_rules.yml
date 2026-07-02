@@ -185,3 +185,23 @@ rules:
       - source: relative_strength
         signal_kind: laggard_crossing
         weight: 1.0
+
+  - name: crypto_tvl_stress_combo_tactical
+    description: >-
+      Tactical-sleeve twin of `crypto_tvl_stress_combo`. The correlator
+      matches events by exact horizon, so the crypto:core rule above can
+      never fire for tactical-sleeve tokens (SUI / PYTH / RENDER) even when
+      both legs are present — this covers that sleeve. Same shape: TVL
+      drawdown stress + relative-strength laggard crossing within 30d.
+    direction: bearish
+    horizon: crypto:tactical
+    window_days: 30
+    min_score: 1.5
+    min_distinct_sources: 2
+    components:
+      - source: tvl_drawdown
+        signal_kind: tvl_drawdown_stress
+        weight: 1.0
+      - source: relative_strength
+        signal_kind: laggard_crossing
+        weight: 1.0
