@@ -331,7 +331,7 @@ class BuildEventTests(unittest.TestCase):
             "15",
         )
 
-    def test_ongoing_event_uses_episode_start_in_source_ref(self) -> None:
+    def test_ongoing_event_reuses_episode_source_ref(self) -> None:
         latest = _stress_row(ts=date(2024, 6, 30))
         event = _build_event(
             latest,
@@ -344,7 +344,7 @@ class BuildEventTests(unittest.TestCase):
         )
         self.assertEqual(event["ts"], datetime(2024, 6, 30, tzinfo=timezone.utc))
         self.assertEqual(event["payload"]["observed_at"], "2024-06-30")
-        self.assertEqual(event["source_ref"], "Ethereum:ongoing:2024-06-01")
+        self.assertEqual(event["source_ref"], "Ethereum:2024-06-01")
 
     def test_ongoing_event_requires_episode_start(self) -> None:
         with self.assertRaises(ValueError):
@@ -493,7 +493,7 @@ class EmitOrchestratorTests(unittest.TestCase):
         onset_ev, ongoing_ev = emitted[0], emitted[1]
         self.assertEqual(onset_ev["source_ref"], "Ethereum:2024-05-31")
         self.assertIs(onset_ev["payload"]["ongoing"], False)
-        self.assertEqual(ongoing_ev["source_ref"], "Ethereum:ongoing:2024-05-31")
+        self.assertEqual(ongoing_ev["source_ref"], "Ethereum:2024-05-31")
         self.assertIs(ongoing_ev["payload"]["ongoing"], True)
         # episodes_emitted reflects emit_signals_bulk's return (mocked to 1).
         self.assertEqual(result.episodes_emitted, 1)
@@ -664,11 +664,15 @@ class OngoingEmissionTests(unittest.TestCase):
         events = self._run([quiet, onset, latest])
         refs = sorted(e["source_ref"] for e in events)
         self.assertEqual(
-            refs, ["Ethereum:2026-01-02", "Ethereum:ongoing:2026-01-02"]
+            refs, ["Ethereum:2026-01-02", "Ethereum:2026-01-02"]
         )
         ongoing = next(e for e in events if e["payload"]["ongoing"])
         self.assertEqual(ongoing["payload"]["stress_type"], "sustained")
         self.assertEqual(ongoing["ts"], datetime(2026, 6, 30, tzinfo=timezone.utc))
+        self.assertEqual(
+            {e["source_ref"] for e in events},
+            {"Ethereum:2026-01-02"},
+        )
 
     def test_ongoing_source_ref_stays_stable_across_daily_runs(self) -> None:
         quiet = _sustained_row(ts=date(2026, 1, 1), drawdown_365=Decimal("10"))
@@ -681,8 +685,8 @@ class OngoingEmissionTests(unittest.TestCase):
 
         first_ongoing = next(e for e in first_events if e["payload"]["ongoing"])
         second_ongoing = next(e for e in second_events if e["payload"]["ongoing"])
-        self.assertEqual(first_ongoing["source_ref"], "Ethereum:ongoing:2026-01-02")
-        self.assertEqual(second_ongoing["source_ref"], "Ethereum:ongoing:2026-01-02")
+        self.assertEqual(first_ongoing["source_ref"], "Ethereum:2026-01-02")
+        self.assertEqual(second_ongoing["source_ref"], "Ethereum:2026-01-02")
         self.assertEqual(first_ongoing["ts"], datetime(2026, 6, 30, tzinfo=timezone.utc))
         self.assertEqual(second_ongoing["ts"], datetime(2026, 7, 1, tzinfo=timezone.utc))
 

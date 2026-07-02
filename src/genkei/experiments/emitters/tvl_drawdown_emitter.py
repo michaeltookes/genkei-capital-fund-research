@@ -179,14 +179,13 @@ def _build_event(
     onset); ``ongoing=True`` marks that the asset is *still* under stress at the
     latest observation, dated fresh — this is what keeps a months-long slow
     bleed inside the correlator's short (≤30-day) stacking window. Ongoing refs
-    use the active episode start so repeated daily observations remain one
-    source component for scoring. Onset refs keep the legacy ``chain:date``
-    shape so reruns do not duplicate existing onset rows.
+    reuse the active episode's legacy ``chain:date`` ref so onset and ongoing
+    rows remain one source component for scoring.
     """
     if ongoing:
         if episode_start is None:
             raise ValueError("ongoing TVL drawdown events require an episode_start")
-        source_ref = f"{chain}:ongoing:{episode_start.isoformat()}"
+        source_ref = f"{chain}:{episode_start.isoformat()}"
     else:
         source_ref = f"{chain}:{row.ts.isoformat()}"
     ts = _feature_ts(row)

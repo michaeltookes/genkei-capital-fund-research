@@ -155,16 +155,16 @@ events into `meta.signal_events` per chain. It detects stress two ways:
 but an onset can be months old — older than the correlator's ≤30-day stacking
 window, so it could never pair with recent price signals. So while an asset
 stays under stress the emitter also emits a fresh-dated **ongoing** event at the
-latest observation (distinct `:ongoing:` `source_ref`), keeping a live episode
-inside the correlator window. Onset refs keep the legacy `chain:date` shape,
-while ongoing refs carry the episode start date rather than the latest
-observation date, so reruns update the live state without counting as
-independent TVL evidence. Event strength is `max(acute, sustained)` so a deep
-slow bleed isn't diluted toward zero by the acute conditions it doesn't trip.
-Payload carries `stress_type` (`acute` / `sustained` / `both`) and
-`ongoing`. The `crypto_tvl_stress_combo` rules (core + tactical) pair these with
-a `relative_strength` laggard crossing — TVL demand contracting *and* price
-losing relative leadership at once.
+latest observation, keeping a live episode inside the correlator window. Onset
+and ongoing refs both use the episode's legacy `chain:date` shape, so the
+correlator scores one TVL source component whether the onset and ongoing rows
+both fall inside the same rule window or daily reruns add more fresh ongoing
+rows. Event strength is `max(acute, sustained)` so a deep slow bleed isn't
+diluted toward zero by the acute conditions it doesn't trip. Payload carries
+`stress_type` (`acute` / `sustained` / `both`) and `ongoing`. The
+`crypto_tvl_stress_combo` rules (core + tactical) pair these with a
+`relative_strength` laggard crossing — TVL demand contracting *and* price losing
+relative leadership at once.
 
 ## Open follow-ups
 
