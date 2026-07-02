@@ -122,7 +122,7 @@ Same sweep on the **test** period (2024-2026): every strict variant has zero sig
 The acceptance criteria says "**Logistic or simple ML baseline + a notebook**" and "**Out-of-sample validation**." What B-058 ships:
 
 - **Simple ML baseline ✓**: rule-based threshold classifier with explicit precision/recall/lift evaluation (instead of a logistic model — same evaluation surface, different functional form, chosen for project pattern consistency).
-- **Notebook ✗ / Module ✓**: the project doesn't have a `notebooks/` directory (B-054 + B-055 are open). Shipped as a deterministic Python module + CLI + writeup instead. When B-054 lands, the notebook can call this module's pure functions.
+- **Notebook / Module ✓**: shipped as a deterministic Python module + CLI + writeup. The `notebooks/` experiments layer (B-054 + B-055) has since landed, so a notebook can now call this module's pure functions directly (see `notebooks/README.md`).
 - **OOS validation ✓**: time-based train/test split, base-rate-relative lift, confusion matrix per period.
 
 ## Where the math lives
@@ -134,6 +134,34 @@ The acceptance criteria says "**Logistic or simple ML baseline + a notebook**" a
 | Orchestrator (`run_chain_evaluation`) | same |
 | CLI surface (`genkei tvl-drawdown`) | `src/genkei/cli/tvl_drawdown.py` |
 | Unit tests | `tests/experiments/test_tvl_drawdown.py` (16 tests across feature engineering / classifier / evaluator) |
+
+## The signal-events emitter (B-095 + slow-bleed fix)
+
+`src/genkei/experiments/emitters/tvl_drawdown_emitter.py` adapts this experiment
+into the cross-source correlation engine (B-064), emitting `tvl_drawdown_stress`
+events into `meta.signal_events` per chain. It detects stress two ways:
+
+- **Acute** — the B-058 `classifier_fires` three-condition AND above (30d change
+  + 90d-peak drawdown + 90d z-score). Catches fast crashes.
+- **Sustained** — `sustained_drawdown_fires`: drawdown past 30% of the trailing
+  **365-day** peak (`tvl_drawdown_from_peak_365d_pct`). This is the slow-bleed
+  fix. The acute rule's ≤90-day windows are structurally blind to a
+  multi-quarter decline — the reference peak keeps resetting downward — so the
+  emitter had produced **no events between 2018 and 2026** even as ETH TVL fell
+  ~60% off its 1-year peak. The 365-day window doesn't reset under a gradual
+  bleed, so it surfaces exactly the stress the acute rule misses.
+
+**Onset vs ongoing.** The emitter marks each episode *onset* (stress flips on),
+but an onset can be months old — older than the correlator's ≤30-day stacking
+window, so it could never pair with recent price signals. So while an asset
+stays under stress the emitter also emits a fresh-dated **ongoing** event at the
+latest observation (distinct `:ongoing:` `source_ref`), keeping a live episode
+inside the correlator window. Event strength is `max(acute, sustained)` so a
+deep slow bleed isn't diluted toward zero by the acute conditions it doesn't
+trip. Payload carries `stress_type` (`acute` / `sustained` / `both`) and
+`ongoing`. The `crypto_tvl_stress_combo` rules (core + tactical) pair these with
+a `relative_strength` laggard crossing — TVL demand contracting *and* price
+losing relative leadership at once.
 
 ## Open follow-ups
 
