@@ -209,7 +209,7 @@ class ClassifierFiresTests(unittest.TestCase):
 
 
 class SustainedDrawdownTests(unittest.TestCase):
-    """The slow-bleed detector the emitter uses (B-095 follow-up)."""
+    """The slow-bleed detector the emitter uses."""
 
     def _row(self, drawdown_365: Decimal | None) -> FeatureRow:
         return FeatureRow(

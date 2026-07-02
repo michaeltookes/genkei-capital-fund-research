@@ -76,10 +76,10 @@ DEFAULT_TVL_CHANGE_30D_THRESHOLD_PCT = Decimal("-10")
 DEFAULT_TVL_DRAWDOWN_THRESHOLD_PCT = Decimal("15")
 DEFAULT_TVL_ZSCORE_THRESHOLD = Decimal("-1")
 
-# Sustained-drawdown threshold for the emitter's slow-bleed detection (B-095
-# follow-up). The B-058 acute classifier above keys on a *90-day* peak, which
-# by construction can't see a multi-quarter decline — the reference peak keeps
-# resetting downward, so a slow bleed never registers as a large drawdown
+# Sustained-drawdown threshold for the emitter's slow-bleed detection. The B-058
+# acute classifier above keys on a *90-day* peak, which by construction can't
+# see a multi-quarter decline — the reference peak keeps resetting downward, so
+# a slow bleed never registers as a large drawdown
 # (this is why the emitter went dark 2018→2026 while ETH TVL fell ~60% off its
 # 1-year peak). ``tvl_drawdown_from_peak_365d_pct`` measures drawdown from the
 # trailing *365-day* peak; a value past this threshold is a sustained stress
@@ -125,9 +125,8 @@ class FeatureRow:
     tvl_drawdown_from_peak_90d_pct: Decimal | None
     tvl_zscore_90d: Decimal | None
     forward_drawdown_pct: Decimal | None
-    # Drawdown from the trailing 365-day peak — the slow-bleed feature the
-    # emitter uses (B-095 follow-up). Additive + defaulted so it does not
-    # disturb the B-058 acute classifier or its validated results, and so
+    # Drawdown from the trailing 365-day peak. Additive + defaulted so it does
+    # not disturb the B-058 acute classifier or its validated results, and so
     # existing FeatureRow constructions keep working unchanged.
     tvl_drawdown_from_peak_365d_pct: Decimal | None = None
 

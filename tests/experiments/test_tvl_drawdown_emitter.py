@@ -314,8 +314,6 @@ class BuildEventTests(unittest.TestCase):
         self.assertEqual(event["signal_kind"], "tvl_drawdown_stress")
         self.assertEqual(event["direction"], "bearish")
         self.assertEqual(event["ts"], datetime(2024, 6, 1, tzinfo=timezone.utc))
-        # onset events carry the ":onset:" ref-kind; ongoing events use
-        # ":ongoing:" so both persist under the same upsert key.
         self.assertEqual(event["source_ref"], "Ethereum:onset:2024-06-01")
         # Payload preserves the feature values + the thresholds (so a
         # consumer can see how the strength was derived).
@@ -332,6 +330,32 @@ class BuildEventTests(unittest.TestCase):
             event["payload"]["thresholds"]["tvl_drawdown_from_peak_90d_pct"],
             "15",
         )
+
+    def test_ongoing_event_uses_episode_start_in_source_ref(self) -> None:
+        latest = _stress_row(ts=date(2024, 6, 30))
+        event = _build_event(
+            latest,
+            chain="Ethereum",
+            asset="ethereum",
+            symbol="ETH",
+            horizon="crypto:core",
+            ongoing=True,
+            episode_start=date(2024, 6, 1),
+        )
+        self.assertEqual(event["ts"], datetime(2024, 6, 30, tzinfo=timezone.utc))
+        self.assertEqual(event["payload"]["observed_at"], "2024-06-30")
+        self.assertEqual(event["source_ref"], "Ethereum:ongoing:2024-06-01")
+
+    def test_ongoing_event_requires_episode_start(self) -> None:
+        with self.assertRaises(ValueError):
+            _build_event(
+                _stress_row(ts=date(2024, 6, 30)),
+                chain="Ethereum",
+                asset="ethereum",
+                symbol="ETH",
+                horizon="crypto:core",
+                ongoing=True,
+            )
 
     def test_source_ref_uses_chain_not_asset(self) -> None:
         # Multiple chains could in principle pin the same asset (e.g. if a
@@ -469,7 +493,7 @@ class EmitOrchestratorTests(unittest.TestCase):
         onset_ev, ongoing_ev = emitted[0], emitted[1]
         self.assertEqual(onset_ev["source_ref"], "Ethereum:onset:2024-05-31")
         self.assertIs(onset_ev["payload"]["ongoing"], False)
-        self.assertEqual(ongoing_ev["source_ref"], "Ethereum:ongoing:2024-06-01")
+        self.assertEqual(ongoing_ev["source_ref"], "Ethereum:ongoing:2024-05-31")
         self.assertIs(ongoing_ev["payload"]["ongoing"], True)
         # episodes_emitted reflects emit_signals_bulk's return (mocked to 1).
         self.assertEqual(result.episodes_emitted, 1)
@@ -640,11 +664,27 @@ class OngoingEmissionTests(unittest.TestCase):
         events = self._run([quiet, onset, latest])
         refs = sorted(e["source_ref"] for e in events)
         self.assertEqual(
-            refs, ["Ethereum:ongoing:2026-06-30", "Ethereum:onset:2026-01-02"]
+            refs, ["Ethereum:ongoing:2026-01-02", "Ethereum:onset:2026-01-02"]
         )
         ongoing = next(e for e in events if e["payload"]["ongoing"])
         self.assertEqual(ongoing["payload"]["stress_type"], "sustained")
         self.assertEqual(ongoing["ts"], datetime(2026, 6, 30, tzinfo=timezone.utc))
+
+    def test_ongoing_source_ref_stays_stable_across_daily_runs(self) -> None:
+        quiet = _sustained_row(ts=date(2026, 1, 1), drawdown_365=Decimal("10"))
+        onset = _sustained_row(ts=date(2026, 1, 2))
+        day_one = _sustained_row(ts=date(2026, 6, 30))
+        day_two = _sustained_row(ts=date(2026, 7, 1))
+
+        first_events = self._run([quiet, onset, day_one])
+        second_events = self._run([quiet, onset, day_one, day_two])
+
+        first_ongoing = next(e for e in first_events if e["payload"]["ongoing"])
+        second_ongoing = next(e for e in second_events if e["payload"]["ongoing"])
+        self.assertEqual(first_ongoing["source_ref"], "Ethereum:ongoing:2026-01-02")
+        self.assertEqual(second_ongoing["source_ref"], "Ethereum:ongoing:2026-01-02")
+        self.assertEqual(first_ongoing["ts"], datetime(2026, 6, 30, tzinfo=timezone.utc))
+        self.assertEqual(second_ongoing["ts"], datetime(2026, 7, 1, tzinfo=timezone.utc))
 
     def test_no_ongoing_event_when_latest_row_recovered(self) -> None:
         """If the latest row is no longer stressed, only the historical onset."""

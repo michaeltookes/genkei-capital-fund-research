@@ -171,6 +171,7 @@ def _build_event(
     symbol: str,
     horizon: str,
     ongoing: bool = False,
+    episode_start: date | None = None,
 ) -> dict[str, Any]:
     """Build one signal event row from a stress row.
 
@@ -178,12 +179,16 @@ def _build_event(
     onset); ``ongoing=True`` marks that the asset is *still* under stress at the
     latest observation, dated fresh — this is what keeps a months-long slow
     bleed inside the correlator's short (≤30-day) stacking window. The two use
-    distinct ``source_ref`` prefixes so both persist under the
-    ``(asset, ts, source, signal_kind, source_ref, horizon)`` upsert key.
+    distinct ``source_ref`` prefixes so both persist under the upsert key.
+    Ongoing refs use the active episode start so repeated daily observations
+    remain one source component for scoring.
     """
+    if ongoing and episode_start is None:
+        raise ValueError("ongoing TVL drawdown events require an episode_start")
     ts = _feature_ts(row)
     strength = _strength_from_features(row)
     ref_kind = "ongoing" if ongoing else "onset"
+    ref_date = episode_start if ongoing else row.ts
     payload: dict[str, Any] = {
         "chain": chain,
         "asset": asset,
@@ -229,7 +234,7 @@ def _build_event(
         "direction": "bearish",
         "strength": strength,
         "payload": payload,
-        "source_ref": f"{chain}:{ref_kind}:{row.ts.isoformat()}",
+        "source_ref": f"{chain}:{ref_kind}:{ref_date.isoformat()}",
     }
 
 
@@ -303,8 +308,14 @@ def emit_recent_drawdown_stress(
             # is itself the onset (that onset event is already fresh).
             onset_dates = {o.ts for o in onsets}
             latest = features[-1] if features else None
+            current_onset = (
+                next((onset for onset in reversed(onsets) if onset.ts <= latest.ts), None)
+                if latest is not None
+                else None
+            )
             if (
                 latest is not None
+                and current_onset is not None
                 and latest.ts not in onset_dates
                 and _is_under_stress(latest)
                 and (since is None or latest.ts >= since)
@@ -318,6 +329,7 @@ def emit_recent_drawdown_stress(
                         symbol=symbol,
                         horizon=horizon,
                         ongoing=True,
+                        episode_start=current_onset.ts,
                     )
                 )
 
