@@ -19,6 +19,7 @@ from genkei.experiments.tvl_drawdown import (
     engineer_features,
     evaluate,
     run_chain_evaluation,
+    sustained_drawdown_fires,
 )
 
 
@@ -205,6 +206,76 @@ class ClassifierFiresTests(unittest.TestCase):
                 tvl_zscore_threshold=Decimal("0"),
             )
         )
+
+
+class SustainedDrawdownTests(unittest.TestCase):
+    """The slow-bleed detector the emitter uses (B-095 follow-up)."""
+
+    def _row(self, drawdown_365: Decimal | None) -> FeatureRow:
+        return FeatureRow(
+            ts=date(2026, 6, 30),
+            tvl_usd=Decimal("40"),
+            price_usd=Decimal("100"),
+            tvl_change_7d_pct=Decimal("0"),
+            tvl_change_30d_pct=Decimal("-2"),  # benign 30d — a slow bleed
+            tvl_change_90d_pct=Decimal("-8"),
+            tvl_drawdown_from_peak_90d_pct=Decimal("9"),  # under the 15 acute bar
+            tvl_zscore_90d=Decimal("-0.4"),  # under the -1 acute bar
+            forward_drawdown_pct=None,
+            tvl_drawdown_from_peak_365d_pct=drawdown_365,
+        )
+
+    def test_fires_past_threshold(self) -> None:
+        """A 61% drawdown from the 1-year peak is sustained stress."""
+        self.assertTrue(sustained_drawdown_fires(self._row(Decimal("61"))))
+
+    def test_does_not_fire_below_threshold(self) -> None:
+        """A shallow 20% 1-year drawdown is below the 30% sustained bar."""
+        self.assertFalse(sustained_drawdown_fires(self._row(Decimal("20"))))
+
+    def test_none_feature_does_not_fire(self) -> None:
+        """A series too young for a 365d peak never claims sustained stress."""
+        self.assertFalse(sustained_drawdown_fires(self._row(None)))
+
+    def test_complements_acute_classifier_on_slow_bleed(self) -> None:
+        """The exact blind spot: a slow bleed the acute AND-rule misses but the
+        sustained detector catches."""
+        row = self._row(Decimal("61"))
+        self.assertFalse(classifier_fires(row))  # acute rule: benign 30d/90d
+        self.assertTrue(sustained_drawdown_fires(row))  # sustained: 61% off 1y peak
+
+
+class Engineer365dDrawdownTests(unittest.TestCase):
+    """engineer_features computes the trailing-365d-peak drawdown."""
+
+    def test_sustained_decline_registers_on_365d_but_stays_flat_on_90d(self) -> None:
+        """A gentle 400-day decline: the 365d-peak drawdown grows large while the
+        90d-peak drawdown stays modest (the reason the acute rule went blind)."""
+        # 400 days sliding from 100 down to 40 (a ~60% slow bleed).
+        days = 400
+        tvl_path = [
+            Decimal(100) - (Decimal(60) * Decimal(i) / Decimal(days - 1))
+            for i in range(days)
+        ]
+        aligned = _make_aligned(days, tvl_path=tvl_path)
+        features = engineer_features(aligned)
+        last = features[-1]
+        # 365d-peak drawdown is large (peak ~a year ago was much higher)...
+        self.assertIsNotNone(last.tvl_drawdown_from_peak_365d_pct)
+        self.assertGreater(last.tvl_drawdown_from_peak_365d_pct, Decimal("40"))
+        # ...and materially deeper than the 90d-peak drawdown (whose peak sits
+        # only ~90 days back on the same slope) — the exact reason the acute
+        # rule's 90d window is blind to the sustained decline.
+        self.assertGreater(
+            last.tvl_drawdown_from_peak_365d_pct,
+            last.tvl_drawdown_from_peak_90d_pct * Decimal("2"),
+        )
+
+    def test_gated_none_before_min_observations(self) -> None:
+        """Below the minimum observation count the 365d feature is None."""
+        aligned = _make_aligned(60, tvl_path=[Decimal(100) - Decimal(i) for i in range(60)])
+        features = engineer_features(aligned)
+        self.assertIsNone(features[-1].tvl_drawdown_from_peak_365d_pct)
 
 
 class EvaluateTests(unittest.TestCase):
