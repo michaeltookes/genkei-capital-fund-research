@@ -314,7 +314,7 @@ class BuildEventTests(unittest.TestCase):
         self.assertEqual(event["signal_kind"], "tvl_drawdown_stress")
         self.assertEqual(event["direction"], "bearish")
         self.assertEqual(event["ts"], datetime(2024, 6, 1, tzinfo=timezone.utc))
-        self.assertEqual(event["source_ref"], "Ethereum:onset:2024-06-01")
+        self.assertEqual(event["source_ref"], "Ethereum:2024-06-01")
         # Payload preserves the feature values + the thresholds (so a
         # consumer can see how the strength was derived).
         self.assertEqual(event["payload"]["chain"], "Ethereum")
@@ -491,7 +491,7 @@ class EmitOrchestratorTests(unittest.TestCase):
         self.assertEqual(len(emitted), 2)
         self.assertTrue(all(e["asset"] == "ethereum" for e in emitted))
         onset_ev, ongoing_ev = emitted[0], emitted[1]
-        self.assertEqual(onset_ev["source_ref"], "Ethereum:onset:2024-05-31")
+        self.assertEqual(onset_ev["source_ref"], "Ethereum:2024-05-31")
         self.assertIs(onset_ev["payload"]["ongoing"], False)
         self.assertEqual(ongoing_ev["source_ref"], "Ethereum:ongoing:2024-05-31")
         self.assertIs(ongoing_ev["payload"]["ongoing"], True)
@@ -664,7 +664,7 @@ class OngoingEmissionTests(unittest.TestCase):
         events = self._run([quiet, onset, latest])
         refs = sorted(e["source_ref"] for e in events)
         self.assertEqual(
-            refs, ["Ethereum:ongoing:2026-01-02", "Ethereum:onset:2026-01-02"]
+            refs, ["Ethereum:2026-01-02", "Ethereum:ongoing:2026-01-02"]
         )
         ongoing = next(e for e in events if e["payload"]["ongoing"])
         self.assertEqual(ongoing["payload"]["stress_type"], "sustained")
@@ -700,7 +700,7 @@ class OngoingEmissionTests(unittest.TestCase):
         latest_onset = _sustained_row(ts=date(2026, 6, 30))
         events = self._run([quiet, latest_onset])
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]["source_ref"], "Ethereum:onset:2026-06-30")
+        self.assertEqual(events[0]["source_ref"], "Ethereum:2026-06-30")
 
 
 if __name__ == "__main__":

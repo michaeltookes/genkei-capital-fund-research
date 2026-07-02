@@ -178,17 +178,19 @@ def _build_event(
     ``ongoing=False`` marks an episode *onset* (stress just began, dated at the
     onset); ``ongoing=True`` marks that the asset is *still* under stress at the
     latest observation, dated fresh — this is what keeps a months-long slow
-    bleed inside the correlator's short (≤30-day) stacking window. The two use
-    distinct ``source_ref`` prefixes so both persist under the upsert key.
-    Ongoing refs use the active episode start so repeated daily observations
-    remain one source component for scoring.
+    bleed inside the correlator's short (≤30-day) stacking window. Ongoing refs
+    use the active episode start so repeated daily observations remain one
+    source component for scoring. Onset refs keep the legacy ``chain:date``
+    shape so reruns do not duplicate existing onset rows.
     """
-    if ongoing and episode_start is None:
-        raise ValueError("ongoing TVL drawdown events require an episode_start")
+    if ongoing:
+        if episode_start is None:
+            raise ValueError("ongoing TVL drawdown events require an episode_start")
+        source_ref = f"{chain}:ongoing:{episode_start.isoformat()}"
+    else:
+        source_ref = f"{chain}:{row.ts.isoformat()}"
     ts = _feature_ts(row)
     strength = _strength_from_features(row)
-    ref_kind = "ongoing" if ongoing else "onset"
-    ref_date = episode_start if ongoing else row.ts
     payload: dict[str, Any] = {
         "chain": chain,
         "asset": asset,
@@ -234,7 +236,7 @@ def _build_event(
         "direction": "bearish",
         "strength": strength,
         "payload": payload,
-        "source_ref": f"{chain}:{ref_kind}:{ref_date.isoformat()}",
+        "source_ref": source_ref,
     }
 
 
