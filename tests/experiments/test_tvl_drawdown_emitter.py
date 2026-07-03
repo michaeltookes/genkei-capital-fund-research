@@ -19,6 +19,7 @@ from genkei.experiments.emitters.tvl_drawdown_emitter import (
     _detect_episode_starts,
     _feature_ts,
     _horizon_for_symbol,
+    _is_under_stress,
     _normalized_excess,
     _strength_from_features,
     emit_recent_drawdown_stress,
@@ -319,12 +320,42 @@ class BuildEventTests(unittest.TestCase):
         self.assertEqual(event["payload"]["chain"], "Ethereum")
         self.assertEqual(event["payload"]["asset"], "ethereum")
         self.assertEqual(event["payload"]["asset_symbol"], "ETH")
-        self.assertEqual(event["payload"]["episode_start"], "2024-06-01")
+        self.assertEqual(event["payload"]["observed_at"], "2024-06-01")
+        self.assertIs(event["payload"]["ongoing"], False)
+        # _stress_row breaches the three acute thresholds but has no 365d
+        # drawdown set, so it's classified acute (not sustained).
+        self.assertEqual(event["payload"]["stress_type"], "acute")
         self.assertEqual(event["payload"]["tvl_change_30d_pct"], "-15")
         self.assertEqual(
             event["payload"]["thresholds"]["tvl_drawdown_from_peak_90d_pct"],
             "15",
         )
+
+    def test_ongoing_event_reuses_episode_source_ref(self) -> None:
+        latest = _stress_row(ts=date(2024, 6, 30))
+        event = _build_event(
+            latest,
+            chain="Ethereum",
+            asset="ethereum",
+            symbol="ETH",
+            horizon="crypto:core",
+            ongoing=True,
+            episode_start=date(2024, 6, 1),
+        )
+        self.assertEqual(event["ts"], datetime(2024, 6, 30, tzinfo=timezone.utc))
+        self.assertEqual(event["payload"]["observed_at"], "2024-06-30")
+        self.assertEqual(event["source_ref"], "Ethereum:2024-06-01")
+
+    def test_ongoing_event_requires_episode_start(self) -> None:
+        with self.assertRaises(ValueError):
+            _build_event(
+                _stress_row(ts=date(2024, 6, 30)),
+                chain="Ethereum",
+                asset="ethereum",
+                symbol="ETH",
+                horizon="crypto:core",
+                ongoing=True,
+            )
 
     def test_source_ref_uses_chain_not_asset(self) -> None:
         # Multiple chains could in principle pin the same asset (e.g. if a
@@ -449,15 +480,22 @@ class EmitOrchestratorTests(unittest.TestCase):
             ):
                 result = emit_recent_drawdown_stress(config=path)
 
-        # Single ETH onset emitted; SOL had quiet features (no firing);
-        # Sui chain is in CHAIN_TO_CRYPTO_SYMBOL AND the watchlist fixture
-        # (the base WATCHLIST_YAML carries SUI) but the fake_load default
-        # branch returns [] for it → counted under chains_skipped_no_data.
+        # ETH: onset at 5/31, and because the series' last row (6/1) is still
+        # under stress, an "ongoing" event dated 6/1 too — that freshness event
+        # is the fix that keeps a live episode inside the correlator's window.
+        # SOL had quiet features (no firing); Sui chain is in
+        # CHAIN_TO_CRYPTO_SYMBOL AND the watchlist fixture (the base
+        # WATCHLIST_YAML carries SUI) but the fake_load default branch returns
+        # [] for it → counted under chains_skipped_no_data.
         emitted = emit_mock.call_args.args[0]
-        self.assertEqual(len(emitted), 1)
-        self.assertEqual(emitted[0]["asset"], "ethereum")
-        self.assertEqual(emitted[0]["payload"]["asset_symbol"], "ETH")
-        self.assertEqual(emitted[0]["source_ref"], "Ethereum:2024-05-31")
+        self.assertEqual(len(emitted), 2)
+        self.assertTrue(all(e["asset"] == "ethereum" for e in emitted))
+        onset_ev, ongoing_ev = emitted[0], emitted[1]
+        self.assertEqual(onset_ev["source_ref"], "Ethereum:2024-05-31")
+        self.assertIs(onset_ev["payload"]["ongoing"], False)
+        self.assertEqual(ongoing_ev["source_ref"], "Ethereum:2024-05-31")
+        self.assertIs(ongoing_ev["payload"]["ongoing"], True)
+        # episodes_emitted reflects emit_signals_bulk's return (mocked to 1).
         self.assertEqual(result.episodes_emitted, 1)
         self.assertEqual(result.chains_skipped_no_watchlist, 0)
         self.assertEqual(result.chains_skipped_no_data, 1)
@@ -509,6 +547,164 @@ class EmitOrchestratorTests(unittest.TestCase):
         self.assertEqual(result.episodes_emitted, 0)
         self.assertEqual(result.chains_skipped_no_data, 3)
         self.assertEqual(result.chains_skipped_no_watchlist, 0)
+
+
+def _sustained_row(*, ts: date, drawdown_365: Decimal = Decimal("55")) -> FeatureRow:
+    """A slow-bleed row: benign acute features, deep 365d-peak drawdown."""
+    return FeatureRow(
+        ts=ts,
+        tvl_usd=Decimal("40000000"),
+        price_usd=Decimal("100"),
+        tvl_change_7d_pct=Decimal("-1"),
+        tvl_change_30d_pct=Decimal("-3"),  # under the -10 acute bar
+        tvl_change_90d_pct=Decimal("-9"),
+        tvl_drawdown_from_peak_90d_pct=Decimal("8"),  # under the 15 acute bar
+        tvl_zscore_90d=Decimal("-0.4"),  # under the -1 acute bar
+        forward_drawdown_pct=None,
+        tvl_drawdown_from_peak_365d_pct=drawdown_365,
+    )
+
+
+class UnderStressTests(unittest.TestCase):
+    """_is_under_stress = acute OR sustained — the emitter's blind-spot fix."""
+
+    def test_acute_row_is_under_stress(self) -> None:
+        self.assertTrue(_is_under_stress(_stress_row(ts=date(2026, 6, 30))))
+
+    def test_sustained_only_row_is_under_stress(self) -> None:
+        """The slow bleed the acute AND-rule misses is still 'under stress'."""
+        self.assertTrue(_is_under_stress(_sustained_row(ts=date(2026, 6, 30))))
+
+    def test_quiet_row_is_not_under_stress(self) -> None:
+        self.assertFalse(
+            _is_under_stress(_sustained_row(ts=date(2026, 6, 30), drawdown_365=Decimal("10")))
+        )
+
+
+class SustainedStrengthTests(unittest.TestCase):
+    """A sustained-only event must carry real strength, not ~0."""
+
+    def test_sustained_only_row_has_meaningful_strength(self) -> None:
+        # 55% drawdown = 25pp past the 30 threshold / 40 saturation ≈ 0.625.
+        strength = _strength_from_features(_sustained_row(ts=date(2026, 6, 30)))
+        self.assertGreater(strength, Decimal("0.5"))
+
+    def test_deep_sustained_saturates_strength(self) -> None:
+        strength = _strength_from_features(
+            _sustained_row(ts=date(2026, 6, 30), drawdown_365=Decimal("80"))
+        )
+        self.assertEqual(strength, Decimal("1"))
+
+
+class OngoingEmissionTests(unittest.TestCase):
+    """A live episode must emit a fresh-dated 'ongoing' event so it lands in
+    the correlator's short window — the fix for months-stale onsets."""
+
+    _WATCHLIST = (
+        "crypto:\n"
+        "  primary:\n"
+        "    - symbol: ETH\n"
+        "      name: Ethereum\n"
+        "      coingecko_id: ethereum\n"
+        "      coinbase_product: ETH-USD\n"
+        "      sleeve: core\n"
+    )
+
+    def _run(self, features: list[FeatureRow]) -> list[dict]:
+        aligned = [AlignedRow(ts=features[0].ts, tvl_usd=Decimal("1"), price_usd=Decimal("1"))]
+
+        class FakeRun:
+            id = 9
+
+            def __enter__(self) -> FakeRun:
+                return self
+
+            def __exit__(self, *a: object) -> None:
+                return None
+
+            def add_rows(self, n: int) -> None:
+                return None
+
+        captured: list[dict] = []
+
+        def fake_emit(events: list[dict], *, ingest_run_id: int) -> int:
+            captured.extend(events)
+            return len(events)
+
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(self._WATCHLIST, encoding="utf-8")
+            with (
+                patch(
+                    "genkei.experiments.emitters.tvl_drawdown_emitter.db.ingest_run",
+                    return_value=FakeRun(),
+                ),
+                patch(
+                    "genkei.experiments.emitters.tvl_drawdown_emitter.load_aligned_series",
+                    side_effect=lambda chain, product, **_k: aligned if chain == "Ethereum" else [],
+                ),
+                patch(
+                    "genkei.experiments.emitters.tvl_drawdown_emitter.engineer_features",
+                    side_effect=lambda a, **_k: features if a is aligned else [],
+                ),
+                patch(
+                    "genkei.experiments.emitters.tvl_drawdown_emitter.emit_signals_bulk",
+                    side_effect=fake_emit,
+                ),
+            ):
+                emit_recent_drawdown_stress(config=path)
+        return captured
+
+    def test_emits_ongoing_event_when_latest_row_still_stressed(self) -> None:
+        """Onset months ago + still-stressed latest row → onset AND a fresh
+        ongoing event dated at the latest observation."""
+        quiet = _sustained_row(ts=date(2026, 1, 1), drawdown_365=Decimal("10"))
+        onset = _sustained_row(ts=date(2026, 1, 2))  # crosses into sustained stress
+        latest = _sustained_row(ts=date(2026, 6, 30))  # still stressed, months later
+        events = self._run([quiet, onset, latest])
+        refs = sorted(e["source_ref"] for e in events)
+        self.assertEqual(
+            refs, ["Ethereum:2026-01-02", "Ethereum:2026-01-02"]
+        )
+        ongoing = next(e for e in events if e["payload"]["ongoing"])
+        self.assertEqual(ongoing["payload"]["stress_type"], "sustained")
+        self.assertEqual(ongoing["ts"], datetime(2026, 6, 30, tzinfo=timezone.utc))
+        self.assertEqual(
+            {e["source_ref"] for e in events},
+            {"Ethereum:2026-01-02"},
+        )
+
+    def test_ongoing_source_ref_stays_stable_across_daily_runs(self) -> None:
+        quiet = _sustained_row(ts=date(2026, 1, 1), drawdown_365=Decimal("10"))
+        onset = _sustained_row(ts=date(2026, 1, 2))
+        day_one = _sustained_row(ts=date(2026, 6, 30))
+        day_two = _sustained_row(ts=date(2026, 7, 1))
+
+        first_events = self._run([quiet, onset, day_one])
+        second_events = self._run([quiet, onset, day_one, day_two])
+
+        first_ongoing = next(e for e in first_events if e["payload"]["ongoing"])
+        second_ongoing = next(e for e in second_events if e["payload"]["ongoing"])
+        self.assertEqual(first_ongoing["source_ref"], "Ethereum:2026-01-02")
+        self.assertEqual(second_ongoing["source_ref"], "Ethereum:2026-01-02")
+        self.assertEqual(first_ongoing["ts"], datetime(2026, 6, 30, tzinfo=timezone.utc))
+        self.assertEqual(second_ongoing["ts"], datetime(2026, 7, 1, tzinfo=timezone.utc))
+
+    def test_no_ongoing_event_when_latest_row_recovered(self) -> None:
+        """If the latest row is no longer stressed, only the historical onset."""
+        onset = _sustained_row(ts=date(2026, 1, 2))
+        recovered = _sustained_row(ts=date(2026, 6, 30), drawdown_365=Decimal("5"))
+        events = self._run([onset, recovered])
+        self.assertEqual([e["payload"]["ongoing"] for e in events], [False])
+
+    def test_latest_onset_not_double_emitted_as_ongoing(self) -> None:
+        """When stress begins on the latest row, the onset is already fresh —
+        no separate ongoing event for the same day."""
+        quiet = _sustained_row(ts=date(2026, 6, 29), drawdown_365=Decimal("10"))
+        latest_onset = _sustained_row(ts=date(2026, 6, 30))
+        events = self._run([quiet, latest_onset])
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["source_ref"], "Ethereum:2026-06-30")
 
 
 if __name__ == "__main__":

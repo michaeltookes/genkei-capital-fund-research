@@ -18,11 +18,13 @@ from genkei.experiments.signal_store import emit_signals_bulk
 from genkei.experiments.tvl_drawdown import (
     DEFAULT_TVL_CHANGE_30D_THRESHOLD_PCT,
     DEFAULT_TVL_DRAWDOWN_THRESHOLD_PCT,
+    DEFAULT_TVL_SUSTAINED_DRAWDOWN_THRESHOLD_PCT,
     DEFAULT_TVL_ZSCORE_THRESHOLD,
     FeatureRow,
     classifier_fires,
     engineer_features,
     load_aligned_series,
+    sustained_drawdown_fires,
 )
 
 EMITTER_SOURCE = "tvl_drawdown"
@@ -40,6 +42,10 @@ CHAIN_TO_CRYPTO_SYMBOL: dict[str, str] = {
 TVL_CHANGE_30D_SATURATION_RANGE_PCT = Decimal("30")
 TVL_DRAWDOWN_SATURATION_RANGE_PCT = Decimal("30")
 TVL_ZSCORE_SATURATION_RANGE = Decimal("2")
+# For a sustained-drawdown event, strength scales with how far past the
+# 30%-of-1y-peak threshold the drawdown runs; saturates 40pp beyond it
+# (i.e. a ~70% drawdown from the 1-year peak maxes the strength).
+TVL_SUSTAINED_DRAWDOWN_SATURATION_RANGE_PCT = Decimal("40")
 
 LOGGER = logging.getLogger(__name__)
 
@@ -85,8 +91,8 @@ def _normalized_excess(
     return Decimal("1") if saturated > Decimal("1") else saturated
 
 
-def _strength_from_features(row: FeatureRow) -> Decimal:
-    """Average the three TVL-stress condition excess scores."""
+def _acute_strength(row: FeatureRow) -> Decimal:
+    """Average the three acute TVL-stress condition excess scores."""
     change_excess = _normalized_excess(
         value=row.tvl_change_30d_pct,
         threshold=DEFAULT_TVL_CHANGE_30D_THRESHOLD_PCT,
@@ -108,56 +114,115 @@ def _strength_from_features(row: FeatureRow) -> Decimal:
     return (change_excess + drawdown_excess + zscore_excess) / Decimal("3")
 
 
+def _sustained_strength(row: FeatureRow) -> Decimal:
+    """Strength from the 365-day-peak drawdown alone (slow-bleed events)."""
+    return _normalized_excess(
+        value=row.tvl_drawdown_from_peak_365d_pct,
+        threshold=DEFAULT_TVL_SUSTAINED_DRAWDOWN_THRESHOLD_PCT,
+        saturation_range=TVL_SUSTAINED_DRAWDOWN_SATURATION_RANGE_PCT,
+        sign=+1,
+    )
+
+
+def _strength_from_features(row: FeatureRow) -> Decimal:
+    """Overall stress strength: the stronger of the acute and sustained reads.
+
+    A ``max`` (not average) so a deep slow bleed isn't diluted to near-zero by
+    the acute conditions it doesn't trip, and a sharp acute crash keeps its
+    full acute strength even before a 1-year drawdown has built."""
+    return max(_acute_strength(row), _sustained_strength(row))
+
+
+def _is_under_stress(row: FeatureRow) -> bool:
+    """A row is under TVL stress if the acute classifier fires OR a sustained
+    (multi-quarter) drawdown is in effect. The OR is the fix for the emitter's
+    2018→2026 blind spot: the acute rule's 90-day windows miss slow bleeds."""
+    return classifier_fires(row) or sustained_drawdown_fires(row)
+
+
 def _detect_episode_starts(
     features: Sequence[FeatureRow],
 ) -> list[FeatureRow]:
-    """Return rows where the classifier flips into a stress episode."""
+    """Return rows where stress flips on (acute OR sustained onset)."""
     onsets: list[FeatureRow] = []
     prev_fired = False
     for row in features:
-        fires = classifier_fires(row)
+        fires = _is_under_stress(row)
         if fires and not prev_fired:
             onsets.append(row)
         prev_fired = fires
     return onsets
 
 
+def _stress_type(row: FeatureRow) -> str:
+    """Label a stress row by which detector(s) fired, for payload/analysis."""
+    acute = classifier_fires(row)
+    sustained = sustained_drawdown_fires(row)
+    if acute and sustained:
+        return "both"
+    return "acute" if acute else "sustained"
+
+
 def _build_event(
-    onset: FeatureRow,
+    row: FeatureRow,
     *,
     chain: str,
     asset: str,
     symbol: str,
     horizon: str,
+    ongoing: bool = False,
+    episode_start: date | None = None,
 ) -> dict[str, Any]:
-    """Build one signal event row from a stress-episode onset."""
-    ts = _feature_ts(onset)
-    strength = _strength_from_features(onset)
+    """Build one signal event row from a stress row.
+
+    ``ongoing=False`` marks an episode *onset* (stress just began, dated at the
+    onset); ``ongoing=True`` marks that the asset is *still* under stress at the
+    latest observation, dated fresh — this is what keeps a months-long slow
+    bleed inside the correlator's short (≤30-day) stacking window. Ongoing refs
+    reuse the active episode's legacy ``chain:date`` ref so onset and ongoing
+    rows remain one source component for scoring.
+    """
+    if ongoing:
+        if episode_start is None:
+            raise ValueError("ongoing TVL drawdown events require an episode_start")
+        source_ref = f"{chain}:{episode_start.isoformat()}"
+    else:
+        source_ref = f"{chain}:{row.ts.isoformat()}"
+    ts = _feature_ts(row)
+    strength = _strength_from_features(row)
     payload: dict[str, Any] = {
         "chain": chain,
         "asset": asset,
         "asset_symbol": symbol,
         "horizon": horizon,
-        "episode_start": onset.ts.isoformat(),
-        "tvl_usd_at_onset": str(onset.tvl_usd),
-        "price_usd_at_onset": str(onset.price_usd),
+        "stress_type": _stress_type(row),
+        "ongoing": ongoing,
+        "observed_at": row.ts.isoformat(),
+        "tvl_usd": str(row.tvl_usd),
+        "price_usd": str(row.price_usd),
         "tvl_change_30d_pct": (
-            str(onset.tvl_change_30d_pct)
-            if onset.tvl_change_30d_pct is not None
-            else None
+            str(row.tvl_change_30d_pct) if row.tvl_change_30d_pct is not None else None
         ),
         "tvl_drawdown_from_peak_90d_pct": (
-            str(onset.tvl_drawdown_from_peak_90d_pct)
-            if onset.tvl_drawdown_from_peak_90d_pct is not None
+            str(row.tvl_drawdown_from_peak_90d_pct)
+            if row.tvl_drawdown_from_peak_90d_pct is not None
+            else None
+        ),
+        "tvl_drawdown_from_peak_365d_pct": (
+            str(row.tvl_drawdown_from_peak_365d_pct)
+            if row.tvl_drawdown_from_peak_365d_pct is not None
             else None
         ),
         "tvl_zscore_90d": (
-            str(onset.tvl_zscore_90d) if onset.tvl_zscore_90d is not None else None
+            str(row.tvl_zscore_90d) if row.tvl_zscore_90d is not None else None
         ),
         "thresholds": {
             "tvl_change_30d_pct": str(DEFAULT_TVL_CHANGE_30D_THRESHOLD_PCT),
             "tvl_drawdown_from_peak_90d_pct": str(DEFAULT_TVL_DRAWDOWN_THRESHOLD_PCT),
             "tvl_zscore_90d": str(DEFAULT_TVL_ZSCORE_THRESHOLD),
+            "tvl_drawdown_from_peak_365d_pct": str(
+                DEFAULT_TVL_SUSTAINED_DRAWDOWN_THRESHOLD_PCT
+            ),
         },
     }
     return {
@@ -170,7 +235,7 @@ def _build_event(
         "direction": "bearish",
         "strength": strength,
         "payload": payload,
-        "source_ref": f"{chain}:{onset.ts.isoformat()}",
+        "source_ref": source_ref,
     }
 
 
@@ -233,6 +298,39 @@ def emit_recent_drawdown_stress(
                         asset=asset_id,
                         symbol=symbol,
                         horizon=horizon,
+                    )
+                )
+
+            # Freshness: if the asset is STILL under stress at the latest
+            # observation, emit an "ongoing" event dated at that latest day.
+            # An episode onset can be months old — older than the correlator's
+            # ≤30-day stacking window — so without this a sustained bleed would
+            # never pair with recent price signals. Skipped when the latest day
+            # is itself the onset (that onset event is already fresh).
+            onset_dates = {o.ts for o in onsets}
+            latest = features[-1] if features else None
+            current_onset = (
+                next((onset for onset in reversed(onsets) if onset.ts <= latest.ts), None)
+                if latest is not None
+                else None
+            )
+            if (
+                latest is not None
+                and current_onset is not None
+                and latest.ts not in onset_dates
+                and _is_under_stress(latest)
+                and (since is None or latest.ts >= since)
+                and (until is None or latest.ts <= until)
+            ):
+                events.append(
+                    _build_event(
+                        latest,
+                        chain=chain,
+                        asset=asset_id,
+                        symbol=symbol,
+                        horizon=horizon,
+                        ongoing=True,
+                        episode_start=current_onset.ts,
                     )
                 )
 

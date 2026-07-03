@@ -76,6 +76,20 @@ DEFAULT_TVL_CHANGE_30D_THRESHOLD_PCT = Decimal("-10")
 DEFAULT_TVL_DRAWDOWN_THRESHOLD_PCT = Decimal("15")
 DEFAULT_TVL_ZSCORE_THRESHOLD = Decimal("-1")
 
+# Sustained-drawdown threshold for the emitter's slow-bleed detection. The B-058
+# acute classifier above keys on a *90-day* peak, which by construction can't
+# see a multi-quarter decline — the reference peak keeps resetting downward, so
+# a slow bleed never registers as a large drawdown
+# (this is why the emitter went dark 2018→2026 while ETH TVL fell ~60% off its
+# 1-year peak). ``tvl_drawdown_from_peak_365d_pct`` measures drawdown from the
+# trailing *365-day* peak; a value past this threshold is a sustained stress
+# state. Descriptive (not a forward predictor) — the correlator's second stack
+# leg (relative-strength laggard) supplies the "still weak" confirmation.
+DEFAULT_TVL_SUSTAINED_DRAWDOWN_THRESHOLD_PCT = Decimal("30")
+# Minimum trailing observations before a 365-day drawdown is meaningful — below
+# this a young series' "peak" is too shallow to call a sustained drawdown.
+_MIN_365D_OBSERVATIONS = 90
+
 
 # ---------------------------------------------------------------------------
 # Domain types
@@ -111,6 +125,10 @@ class FeatureRow:
     tvl_drawdown_from_peak_90d_pct: Decimal | None
     tvl_zscore_90d: Decimal | None
     forward_drawdown_pct: Decimal | None
+    # Drawdown from the trailing 365-day peak. Additive + defaulted so it does
+    # not disturb the B-058 acute classifier or its validated results, and so
+    # existing FeatureRow constructions keep working unchanged.
+    tvl_drawdown_from_peak_365d_pct: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -219,6 +237,21 @@ def engineer_features(
             else None
         )
 
+        # Drawdown from the trailing 365-day peak — the slow-bleed feature.
+        # Unlike the 90d peak above, a 1-year window doesn't reset under a
+        # multi-quarter decline, so a sustained bleed shows up here. Gated on
+        # a minimum observation count so a young series doesn't report a
+        # shallow-peak drawdown as "sustained".
+        lookback_365_start = row.ts - timedelta(days=365)
+        lookback_365_start_index = bisect_left(dates, lookback_365_start)
+        window_365 = [r.tvl_usd for r in aligned[lookback_365_start_index : i + 1]]
+        peak_365d = _max(window_365) if len(window_365) >= _MIN_365D_OBSERVATIONS else None
+        tvl_drawdown_365_pct = (
+            (Decimal("100") * (peak_365d - row.tvl_usd) / peak_365d)
+            if peak_365d is not None and peak_365d != 0
+            else None
+        )
+
         # 90d z-score: where does today's TVL sit in the trailing 90d
         # distribution? Negative = unusually low.
         window = [r.tvl_usd for r in aligned[lookback_90_start_index : i + 1]]
@@ -258,6 +291,7 @@ def engineer_features(
                 tvl_drawdown_from_peak_90d_pct=tvl_drawdown_pct,
                 tvl_zscore_90d=zscore,
                 forward_drawdown_pct=forward_drawdown_pct,
+                tvl_drawdown_from_peak_365d_pct=tvl_drawdown_365_pct,
             )
         )
     return out
@@ -294,6 +328,24 @@ def classifier_fires(
         and row.tvl_drawdown_from_peak_90d_pct > tvl_drawdown_threshold_pct
         and row.tvl_zscore_90d < tvl_zscore_threshold
     )
+
+
+def sustained_drawdown_fires(
+    row: FeatureRow,
+    *,
+    threshold_pct: Decimal = DEFAULT_TVL_SUSTAINED_DRAWDOWN_THRESHOLD_PCT,
+) -> bool:
+    """Descriptive slow-bleed check: is TVL meaningfully below its 1-year peak?
+
+    Single-condition (drawdown from the trailing 365-day peak past
+    ``threshold_pct``), complementary to the three-condition acute
+    ``classifier_fires``. Where the acute rule catches fast crashes (30d
+    change + 90d-peak drawdown + z-score all aligned), this catches the
+    multi-quarter grind the 90-day windows are blind to. Returns False when
+    the 365d feature is absent (series too young — see ``_MIN_365D_OBSERVATIONS``).
+    """
+    value = row.tvl_drawdown_from_peak_365d_pct
+    return value is not None and value > threshold_pct
 
 
 # ---------------------------------------------------------------------------
