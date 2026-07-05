@@ -157,16 +157,6 @@ Once cross-source data is in, the system starts producing investable signals.
 
 _B-064 follow-ups (wire the remaining signal emitters) shipped — all emitters landed and are chained into the daily workflows; removed 2026-07-01, see `docs/resolved.md`. B-111 (equity relative-strength emitter) also resolved 2026-06-06 and now lives only in `docs/resolved.md`._
 
-### B-130 — Surface crypto signal stacks buried under equities in `genkei signals`
-- **Status:** open
-- **Priority:** medium
-- **Context:** Surfaced 2026-07-02 while fixing the `tvl_drawdown` emitter. The correlator now produces **~964 stacks total**, the overwhelming majority equity (8-K / insider / relative-strength combinations that score up to ~6). Crypto stacks are real and correctly detected — e.g. `crypto_tvl_stress_combo_tactical` fires for SUI at score 2.72 — but rank *below the top ~100 by score*, so they never appear in the default `genkei signals` view (which sorts globally by score and truncates to `--top`). The crypto sleeve is exactly where the user's conviction sits, so a signal that's detected-but-invisible has little practical value. Workarounds today: `genkei signals --asset sui` or `--rule crypto_tvl_stress_combo_tactical` surface them; there is no per-asset-class view.
-- **Acceptance criteria:**
-  - `genkei signals` gains a way to see stacks per asset class / horizon — e.g. an `--asset-class crypto` (or `--horizon`) filter, and/or a per-asset-class top-N so crypto isn't crowded out by higher-scoring equity stacks.
-  - The weekly signal digest (`signal_digest`) groups or reserves space by asset class so crypto stacks always surface.
-  - Tests pin the filter/grouping behavior.
-- **Out of scope:** re-scoring so crypto competes with equities on a single scale (score is a legitimate cross-asset magnitude; the fix is presentation, not re-weighting).
-
 ### B-099 — Correlator: decay weighting by event age
 - **Status:** open
 - **Priority:** low
