@@ -415,5 +415,139 @@ class BenchmarkColumnTests(unittest.TestCase):
         self.assertEqual(data[0]["benchmark"]["abnormal_pct"], "2.5")
 
 
+_MIXED_RULES_YAML = """\
+version: 1
+rules:
+  - name: smart_money_buy
+    direction: bullish
+    horizon: equity:core
+    components:
+      - source: insider_clusters
+        signal_kind: buy_cluster
+        weight: 1.0
+      - source: crowding
+        signal_kind: crowding_add
+        weight: 1.0
+    window_days: 7
+    min_score: 1.5
+    min_distinct_sources: 2
+  - name: crypto_tvl_stress_combo_tactical
+    direction: bearish
+    horizon: crypto:tactical
+    components:
+      - source: tvl_drawdown
+        signal_kind: tvl_drawdown_stress
+        weight: 1.0
+      - source: relative_strength
+        signal_kind: laggard_crossing
+        weight: 1.0
+    window_days: 30
+    min_score: 1.5
+    min_distinct_sources: 2
+"""
+
+
+class AssetClassFilterTests(unittest.TestCase):
+    """B-130 — `--asset-class` / `--horizon` reliably isolate crypto stacks even
+    though equity flow dominates the correlator output."""
+
+    def _rules(self) -> Path:
+        ctx = TemporaryDirectory()
+        self.addCleanup(ctx.cleanup)
+        path = Path(ctx.name) / "rules.yml"
+        path.write_text(_MIXED_RULES_YAML, encoding="utf-8")
+        return path
+
+    def _crypto_event(self, *, ts: datetime, source: str, signal_kind: str) -> SignalEvent:
+        return SignalEvent(
+            asset="sui",
+            asset_class="crypto",
+            horizon="crypto:tactical",
+            ts=ts,
+            source=source,
+            signal_kind=signal_kind,
+            direction="bearish",
+            strength=Decimal("1.0"),
+            payload={},
+            source_ref=f"Sui:{ts.date().isoformat()}",
+        )
+
+    def _mixed_sample(self) -> list[SignalEvent]:
+        return [
+            # equity stack (smart_money_buy)
+            _event(ts=_dt(5), source="insider_clusters", signal_kind="buy_cluster"),
+            _event(ts=_dt(6), source="crowding", signal_kind="crowding_add"),
+            # crypto stack (crypto_tvl_stress_combo_tactical)
+            self._crypto_event(
+                ts=_dt(7), source="tvl_drawdown", signal_kind="tvl_drawdown_stress"
+            ),
+            self._crypto_event(
+                ts=_dt(8), source="relative_strength", signal_kind="laggard_crossing"
+            ),
+        ]
+
+    def _run(self, *args: str) -> tuple[int, str]:
+        out = io.StringIO()
+        with (
+            patch("genkei.cli.signals.query_events", return_value=self._mixed_sample()),
+            redirect_stdout(out),
+        ):
+            code = main(["signals", "--no-benchmark", "--rules-path", str(self._rules()), *args])
+        return code, out.getvalue()
+
+    def test_default_shows_both_classes(self) -> None:
+        code, text = self._run("--json")
+        self.assertEqual(code, 0)
+        classes = {row["asset_class"] for row in json_mod.loads(text)}
+        self.assertEqual(classes, {"equity", "crypto"})
+
+    def test_asset_class_crypto_isolates_crypto(self) -> None:
+        code, text = self._run("--asset-class", "crypto", "--json")
+        self.assertEqual(code, 0)
+        rows = json_mod.loads(text)
+        self.assertEqual([r["asset_class"] for r in rows], ["crypto"])
+        self.assertEqual(rows[0]["asset"], "sui")
+
+    def test_asset_class_equity_isolates_equity(self) -> None:
+        code, text = self._run("--asset-class", "equity", "--json")
+        self.assertEqual(code, 0)
+        rows = json_mod.loads(text)
+        self.assertEqual([r["asset_class"] for r in rows], ["equity"])
+
+    def test_horizon_filter_is_exact(self) -> None:
+        code, text = self._run("--horizon", "crypto:tactical", "--json")
+        self.assertEqual(code, 0)
+        rows = json_mod.loads(text)
+        self.assertEqual([r["horizon_tag"] for r in rows], ["crypto:tactical"])
+
+    def test_top_bounds_the_filtered_view(self) -> None:
+        """`--top` applies after the class filter, so it bounds the crypto
+        slice — not a global cut that equity would win."""
+        code, text = self._run("--asset-class", "crypto", "--top", "1", "--json")
+        self.assertEqual(code, 0)
+        rows = json_mod.loads(text)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["asset_class"], "crypto")
+
+    def test_invalid_asset_class_rejected(self) -> None:
+        buf = io.StringIO()
+        with (
+            patch("genkei.cli.signals.query_events", return_value=self._mixed_sample()),
+            redirect_stderr(buf),
+        ):
+            code = main(
+                ["signals", "--asset-class", "coin", "--rules-path", str(self._rules())]
+            )
+        self.assertEqual(code, 2)
+        self.assertIn("crypto", buf.getvalue())
+
+    def test_asset_class_filters_events_mode_too(self) -> None:
+        code, text = self._run("--events", "--asset-class", "crypto", "--json")
+        self.assertEqual(code, 0)
+        rows = json_mod.loads(text)
+        self.assertTrue(rows)
+        self.assertTrue(all(r["asset_class"] == "crypto" for r in rows))
+
+
 if __name__ == "__main__":
     unittest.main()

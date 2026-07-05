@@ -35,6 +35,7 @@ from genkei.experiments.signal_benchmark import (
 )
 from genkei.experiments.signal_rules import DEFAULT_RULES_PATH, load_rules
 from genkei.experiments.signal_store import (
+    ASSET_CLASSES,
     Stack,
     detect_stacks,
     query_events,
@@ -207,6 +208,28 @@ def signals_cmd(
             help="Filter to bullish / bearish / neutral.",
         ),
     ] = None,
+    asset_class: Annotated[
+        Optional[str],
+        typer.Option(
+            "--asset-class",
+            help=(
+                "Limit to one asset class (crypto / equity / protocol / macro). "
+                "Crypto stacks are sparse next to the equity flow, so "
+                "`--asset-class crypto` is the reliable way to focus on them "
+                "regardless of how many equity stacks are live (B-130)."
+            ),
+        ),
+    ] = None,
+    horizon: Annotated[
+        Optional[str],
+        typer.Option(
+            "--horizon",
+            help=(
+                "Limit to one exact horizon tag, e.g. `crypto:tactical` or "
+                "`equity:core` — finer than --asset-class."
+            ),
+        ),
+    ] = None,
     since: Annotated[
         Optional[str],
         typer.Option("--since", help="Earliest event date (YYYY-MM-DD)."),
@@ -273,15 +296,29 @@ def signals_cmd(
         raise typer.BadParameter(
             "--direction must be one of bullish / bearish / neutral."
         )
+    if asset_class is not None and asset_class not in ASSET_CLASSES:
+        raise typer.BadParameter(
+            f"--asset-class must be one of {', '.join(sorted(ASSET_CLASSES))}."
+        )
 
     if events:
+        # When a class/horizon filter is active, pull unbounded and post-filter
+        # so `--top` still yields up to N of the *filtered* events (a SQL LIMIT
+        # would truncate to the most-recent N overall before the filter).
+        post_filter = asset_class is not None or horizon is not None
         rows = query_events(
             asset=asset,
             direction=direction,
             since=_date_to_dt(since_d),
             until=_date_to_dt(until_d, end_of_day=True),
-            limit=top,
+            limit=None if post_filter else top,
         )
+        if asset_class is not None:
+            rows = [ev for ev in rows if ev.asset_class == asset_class]
+        if horizon is not None:
+            rows = [ev for ev in rows if ev.horizon == horizon]
+        if post_filter:
+            rows = rows[:top]
         if json_out:
             typer.echo(
                 json.dumps(
@@ -327,6 +364,13 @@ def signals_cmd(
         until=_date_to_dt(until_d, end_of_day=True),
     )
     stacks = detect_stacks(event_rows, rules)
+    if asset_class is not None:
+        stacks = [s for s in stacks if s.asset_class == asset_class]
+    if horizon is not None:
+        stacks = [s for s in stacks if s.horizon == horizon]
+    # Truncate AFTER the class/horizon filter so `--top` bounds the filtered
+    # view (e.g. the 30 most-recent *crypto* stacks), not a global slice that
+    # equity would dominate.
     stacks = stacks[:top]
 
     benchmark_contexts: Optional[list[StackBenchmarkContext]] = None
