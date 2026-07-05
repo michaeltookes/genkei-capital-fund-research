@@ -21,6 +21,18 @@ Usage: python -m genkei.cli signals [OPTIONS]
 │ --direction                              TEXT              Filter to bullish │
 │                                                            / bearish /       │
 │                                                            neutral.          │
+│ --asset-class                            TEXT              Limit to one      │
+│                                                            asset class       │
+│                                                            (crypto / equity  │
+│                                                            / protocol /      │
+│                                                            macro). The       │
+│                                                            reliable way to   │
+│                                                            focus on crypto   │
+│                                                            stacks (B-130).   │
+│ --horizon                                TEXT              Limit to one      │
+│                                                            exact horizon tag │
+│                                                            e.g.              │
+│                                                            crypto:tactical.  │
 │ --since                                  TEXT              Earliest event    │
 │                                                            date              │
 │                                                            (YYYY-MM-DD).     │
@@ -73,6 +85,14 @@ Usage: python -m genkei.cli signals [OPTIONS]
 ```
 
 ## Example
+
+> Equity signals dominate the correlator output; to reliably focus on the
+> (sparser) crypto sleeve, filter by asset class:
+>
+> ```console
+> $ genkei signals --asset-class crypto        # only crypto stacks
+> $ genkei signals --horizon crypto:tactical   # finer: one exact horizon
+> ```
 
 **Human output**
 
