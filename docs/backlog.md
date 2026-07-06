@@ -230,7 +230,7 @@ Reliability work that grows in importance as more sources go live.
 
 ## Epic E-001 — 2026-06-12 codebase-review findings
 
-A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the engineering layers in good shape but the research loop operationally unproven and its instructions drifted behind the shipped code. Six items, ordered by leverage. B-117 and B-118 (both resolved 2026-06-12, see `docs/resolved.md`) protected the integrity of the decision/reflection loop before the first real reflection cycle; the rest harden ops and code quality. B-119 (resolved 2026-06-13) closed the observability half of silent-staleness. Spin-offs filed along the way: B-123 (VEEV ingest) and B-124 (yahoo magnitude audit) from the B-118 dry run, and B-125 (ingest retry) from B-119 — all below.
+A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the engineering layers in good shape but the research loop operationally unproven and its instructions drifted behind the shipped code. Six items, ordered by leverage. B-117 and B-118 (both resolved 2026-06-12, see `docs/resolved.md`) protected the integrity of the decision/reflection loop before the first real reflection cycle; the rest harden ops and code quality. B-119 (resolved 2026-06-13) closed the observability half of silent-staleness. Spin-offs filed along the way: B-123 (VEEV ingest) from the B-118 dry run, and B-125 (ingest retry) from B-119 — all below (B-124 resolved, see `docs/resolved.md`).
 
 ### B-126 — Jupiter (JUP) token-unlock / emissions ingester
 - **Status:** deferred 2026-06-22 — stale by events. Reopen only if Jupiter resumes net-new emissions (see reopen criteria).

@@ -106,7 +106,7 @@ Before consuming Yahoo-derived equity signals:
 **Result: no bug. The data is accurate.** Spot-checking latest close against
 *current* (July 2026) external references — the load-bearing step, because the
 suspicion came from stale pre-2026 mental reference prices — every ticker
-matched, four of six to the penny:
+matched, three of six to the penny:
 
 | ticker | lake close (2026-07-02) | external reference | note |
 |---|---|---|---|
