@@ -97,6 +97,48 @@ Before consuming Yahoo-derived equity signals:
 6. **OHLC sanity** — `low <= open <= high` and `low <= close <= high`
    on every row.
 
+## Price-magnitude audit (B-124, 2026-07-05)
+
+**Trigger.** The B-118 dry run flagged ServiceNow (`NOW`) sitting at ~$106 in
+`yahoo.candles` where the analyst recalled it trading ~$1,000 — a suspected
+~10× mis-scale, filed as B-124 to check for a systematic split-adjustment bug.
+
+**Result: no bug. The data is accurate.** Spot-checking latest close against
+*current* (July 2026) external references — the load-bearing step, because the
+suspicion came from stale pre-2026 mental reference prices — every ticker
+matched, three of six to the penny:
+
+| ticker | lake close (2026-07-02) | external reference | note |
+|---|---|---|---|
+| NOW | 106.32 | $106.32 (7/3, Yahoo/CNBC/stockanalysis) | **not** mis-scaled — down ~31% YTD on AI-disruption fears |
+| MU | 975.56 | ~$976.63 (7/5, day range $950–1,073) | real: +814%/yr on HBM demand, hit $1T mcap 2026-05-26 |
+| TSM | 434.16 | $434.16 (7/4) | exact; +45% YTD on AI-chip demand |
+| AAPL | 308.63 | $308.63 (7/2) | exact |
+| CRM | 150–266 (2026) | 2021 high $310 / 2024 high $367 match | correct across full history |
+| NVDA | 194.83 | up 1.39% 7/2, ~$4.7T mcap | consistent |
+
+**Why the false alarm.** `NOW` ($106) and `MU` ($976) are *real* 2026
+AI-market prices — ServiceNow re-rated sharply lower on AI-disruption fears
+(52-week range now $81–210, consistent with a split plus decline), Micron
+mooned on AI-memory demand. The "10× off" perception was a stale-reference
+artifact: comparing correct, current, split-adjusted data against a pre-2026
+recollection of the *unadjusted* price. There is no discontinuity in `NOW`'s
+history and no per-ticker scaling error anywhere in the sample.
+
+**`adj_close` is correctly split *and* dividend adjusted** (a secondary check).
+Historical `adj_close < close` by the right amount per name — AAPL 2015-01-02
+close $27.33 vs adj_close $24.19 (0.885), XOM (high yield) 0.62 in 2015 rising
+toward 1.0 near present, MSFT similar; 139,624 / 218,167 rows have
+`close <> adj_close`. The two columns coincide only on each ticker's *latest*
+row (no dividend since), which is correct — not a collapse.
+
+**Action taken: none.** No code change, no re-backfill — the pipeline pulls
+Yahoo's split-adjusted series correctly and stores both raw-split `close` and
+fully-adjusted `adj_close`. The durable lesson: audit market data against
+**current** external references, never against remembered price levels — a
+stock that has split or re-rated will look "wrong" by an order of magnitude to
+a stale mental model while being perfectly correct.
+
 ## Follow-ups
 
 - **Stooq fallback** — documented in B-092 if Yahoo tightens UA

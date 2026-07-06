@@ -230,16 +230,7 @@ Reliability work that grows in importance as more sources go live.
 
 ## Epic E-001 — 2026-06-12 codebase-review findings
 
-A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the engineering layers in good shape but the research loop operationally unproven and its instructions drifted behind the shipped code. Six items, ordered by leverage. B-117 and B-118 (both resolved 2026-06-12, see `docs/resolved.md`) protected the integrity of the decision/reflection loop before the first real reflection cycle; the rest harden ops and code quality. B-119 (resolved 2026-06-13) closed the observability half of silent-staleness. Spin-offs filed along the way: B-123 (VEEV ingest) and B-124 (yahoo magnitude audit) from the B-118 dry run, and B-125 (ingest retry) from B-119 — all below.
-
-### B-124 — Audit yahoo.candles price magnitudes against external references
-- **Status:** open
-- **Priority:** low
-- **Context:** Surfaced by the B-118 dry run. `yahoo.candles` carries NOW (ServiceNow) at ~$101–118 across 2026, where the real-world security trades ~10× higher (~$1,000); the IPO-date row (2012-06-29) matches ServiceNow exactly, so it's the right instrument at the wrong magnitude. The 2026-06-05 SaaS decision already consumed the low number ($117.90), so it's internally consistent within the lake — and crucially, **reflection alpha is return-based, so a constant scaling offset cancels and does not corrupt outcomes** (this is why it's low priority, not blocking). But it could mislead any absolute-price logic (valuation screens, position sizing, alert thresholds). Worth a one-pass audit comparing a handful of watchlist equities' latest `adj_close` to a known external reference to confirm whether the Yahoo ingester is mis-scaling a subset (split-adjustment bug?) or this is isolated.
-- **Acceptance criteria:**
-  - Spot-check latest `adj_close` for ~5–10 watchlist equities (incl. NOW) against an external reference; record findings in `docs/sources/yahoo.md`.
-  - If a systematic mis-scaling is found, root-cause it in `src/genkei/ingest/yahoo.py` / `normalize/yahoo.py` and re-backfill the affected tickers.
-  - If isolated to NOW, document the discrepancy and decide keep-as-is vs re-pull.
+A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the engineering layers in good shape but the research loop operationally unproven and its instructions drifted behind the shipped code. Six items, ordered by leverage. B-117 and B-118 (both resolved 2026-06-12, see `docs/resolved.md`) protected the integrity of the decision/reflection loop before the first real reflection cycle; the rest harden ops and code quality. B-119 (resolved 2026-06-13) closed the observability half of silent-staleness. Spin-offs filed along the way: B-123 (VEEV ingest) from the B-118 dry run, and B-125 (ingest retry) from B-119 — all below (B-124 resolved, see `docs/resolved.md`).
 
 ### B-126 — Jupiter (JUP) token-unlock / emissions ingester
 - **Status:** deferred 2026-06-22 — stale by events. Reopen only if Jupiter resumes net-new emissions (see reopen criteria).
