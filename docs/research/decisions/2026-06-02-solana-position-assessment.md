@@ -3,6 +3,7 @@ date: 2026-06-02
 asset: SOL
 sleeve: crypto-core
 horizon: years
+action: add
 confidence: medium
 status: pending
 trigger_reassessment: "SOL/BTC 30d rel-strength flips back to laggard (≤−15pp) within 6 months OR Solana chain TVL breaks below $4B OR Solana chain TVL recovers above $7B OR SOL/BTC 90d rel-strength crosses into leader (≥+15pp) within 6 months"

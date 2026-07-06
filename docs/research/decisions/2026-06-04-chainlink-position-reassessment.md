@@ -5,6 +5,7 @@ sleeve: crypto-core
 horizon: years
 confidence: medium
 status: pending
+supersedes: 2026-05-17-link-position-assessment
 trigger_reassessment: "ETH chain TVL breaks below $35B (bear escalation; reduce or pause adds) OR LINK/ETH 30d rel-strength crosses +15pp leader_crossing (bull confirmation; deploy reserved tranche) OR LINK/ETH 30d rel-strength crosses laggard <-15pp (bear; pause additions) OR Chainlink-requests fees recover above $0.40M/month sustained (bull on demand-side) OR engine fires any leader_crossing or laggard_crossing on LINK (engine confirmation either direction)"
 related:
   - decision: 2026-05-17-link-position-assessment

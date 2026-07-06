@@ -3,8 +3,10 @@ date: 2026-05-17
 asset: LINK
 sleeve: crypto-core
 horizon: years
+action: hold
 confidence: low
-status: pending
+status: resolved
+superseded_by: 2026-06-04-chainlink-position-reassessment
 trigger_reassessment: "LINK underperforms ETH by another 15pp over next 6 months OR ETH chain TVL falls below $35B OR Chainlink-specific narrative break (cross-chain CCIP loses to LayerZero/Wormhole in measurable share, or Pyth/RedStone captures a flagship DeFi protocol that was using Chainlink)"
 related:
   - data: coingecko.market_data
@@ -139,6 +141,8 @@ ETH chain TVL is **down 20.6% over the last month and 25.5% YoY**, while ETH pri
 
 ---
 
-## Outcome (filled in by /reflect-decisions)
+## Outcome
 
-(reserved — pending; will resolve at 2027-05-17 or earlier on trigger)
+- **Resolved:** 2026-06-04 (early - superseded, not horizon-paired)
+- **Superseded by:** 2026-06-04-chainlink-position-reassessment
+- **Reflection:** The 2026-06-04 Chainlink reassessment replaced this low-confidence hold with a medium-confidence hold plus optional small add after new protocol TVL, fees, staking-flow, and relative-strength data closed most of the original data gaps. No benchmark alpha is computed because the May 17 call was carried forward into a successor decision rather than held to its 2027-05-17 horizon.
