@@ -3,6 +3,7 @@ date: 2026-06-02
 asset: ETH
 sleeve: crypto-core
 horizon: years
+action: add
 confidence: medium
 status: pending
 trigger_reassessment: "ETH/BTC 30d rel-strength crosses into laggard (≤−15pp) within 6 months OR Ethereum chain TVL breaks below $35B OR Ethereum chain TVL recovers above $55B OR ETH/BTC 90d rel-strength crosses into leader (≥+15pp) within 6 months"

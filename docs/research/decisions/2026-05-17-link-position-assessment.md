@@ -3,6 +3,7 @@ date: 2026-05-17
 asset: LINK
 sleeve: crypto-core
 horizon: years
+action: hold
 confidence: low
 status: pending
 trigger_reassessment: "LINK underperforms ETH by another 15pp over next 6 months OR ETH chain TVL falls below $35B OR Chainlink-specific narrative break (cross-chain CCIP loses to LayerZero/Wormhole in measurable share, or Pyth/RedStone captures a flagship DeFi protocol that was using Chainlink)"
