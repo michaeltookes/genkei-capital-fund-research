@@ -69,6 +69,23 @@ crypto:
       ecosystem: Sui
       sleeve: tactical
       rationale: Primary-tier coverage, tactical sleeve. Move-based L1 worth tracking closely.
+    - symbol: ZEC
+      name: Zcash
+      coingecko_id: zcash
+      coinbase_product: ZEC-USD
+      gdelt_terms:
+        - Zcash
+        - ZEC token
+        - Zcash privacy
+      ecosystem: Zcash
+      sleeve: core
+      rationale: >-
+        Long-term core. A BTC-analog by monetary design — 21M max supply, PoW,
+        halvings — but built around privacy (zk-SNARK shielded transactions).
+        The "BTC : ZEC :: HTTP : HTTPS" thesis: if a privacy layer for money
+        becomes load-bearing the way HTTPS did for the web, ZEC is the leading
+        candidate. Speculative, small starting size; held indefinitely to let
+        the narrative compound (buy-and-hold, not turnover-eligible).
   secondary:
     - symbol: PYTH
       name: Pyth Network

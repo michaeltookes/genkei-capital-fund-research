@@ -27,7 +27,7 @@ Operating *as if* a real fund — data hygiene, archival, audit trail at fund-gr
 ### Sleeves
 
 - **Equity core** — long-only, buy-and-hold quality companies (Buffett mentality: buy great, never sell while income covers expenses). **No short-term equity sleeve.**
-- **Crypto core (long-term hold)** — BTC, ETH, SOL, LINK, JUP. JUP (added 2026-06-17) is a deliberate DeFi-adoption bet — dominant Solana DEX aggregator + on-chain perps — tracked both as a token (price) and as a protocol (TVL/fees via the `protocols:` Solana section).
+- **Crypto core (long-term hold)** — BTC, ETH, SOL, LINK, JUP, ZEC. JUP (added 2026-06-17) is a deliberate DeFi-adoption bet — dominant Solana DEX aggregator + on-chain perps — tracked both as a token (price) and as a protocol (TVL/fees via the `protocols:` Solana section). ZEC (added 2026-07-06) is a privacy-narrative bet — a BTC-analog by monetary design (21M cap, PoW, halvings) around zk-SNARK shielded transactions; the "BTC : ZEC :: HTTP : HTTPS" thesis. Small speculative starting size, held indefinitely; price + news only (no DeFi/TVL, like BTC).
 - **Crypto tactical (turnover-eligible)** — SUI (primary watchlist), PYTH, RENDER (secondary watchlist), and any future alts.
 
 The **crypto watchlist** lives in `src/genkei/data/watchlists.yml`. Tier (primary/secondary) and sleeve (core/tactical) are orthogonal: tier is how much *coverage* the data lake gives an asset; sleeve is how the user *trades* it.
