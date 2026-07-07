@@ -40,10 +40,10 @@ For ZEC the "fundamentals" are its monetary design, price structure, and — cri
 | Coinbase-era high | ~$699 | 2025–26 narrative peak |
 | **today** | **$451** | −35% off the recent high |
 
-- **+11.6× in one year** ($38.74 → $451); the ZEC/BTC ratio went 0.36 → 7.24 (ZEC gained ~20× *on BTC* in a year). **`genkei relative-strength`: +90pp vs BTC over 90d** (ZEC +80% vs BTC −10%), +14.7pp over 30d.
+- **+11.6× in one year** ($38.74 → $451); the ZEC/BTC ratio went 0.36 → 7.24 (ZEC gained ~20× *on BTC* in a year). **`genkei relative-strength`: +90pp vs BTC over 90d** (ZEC +80%, roughly $251 → $451, vs BTC −10%), +14.7pp over 30d.
 - This is **not** a BTC-style beaten-down accumulation. It's a hot, extended, momentum asset **near recent highs after a parabolic year** — the inverse of the 2026-06-30 BTC setup (BTC at fresh lows, −53% from ATH). The entry math is entirely different.
 
-**Base rate — ZEC's actual history is serial pump-and-bleed (`coinbase.candles` annual):** 2021 ran to $320 → **bled 88% to $35 by 2022–23** → based at $18–24 for two years → 2025 privacy-narrative revival to $699 → 2026 range $197–673, now $451. ZEC does **not** "grow like bitcoin." BTC makes higher cycle highs and holds them; ZEC makes violent narrative spikes followed by 85–90% multi-year declines, and its 2016 ATH still stands ~85% above today even after an 11× run. Any "hold forever and it compounds like BTC" premise has to survive this record, and the record says *the pumps have not been durable*.
+**Base rate — ZEC's actual history is serial pump-and-bleed (`coinbase.candles` annual):** 2021 ran to $320 → **bled 88% to $35 by 2022–23** → based at $18–24 for two years → 2025 privacy-narrative revival to $699 → 2026 range $197–673, now $451. ZEC does **not** "grow like bitcoin." BTC makes higher cycle highs and holds them; ZEC makes violent narrative spikes followed by 85–90% multi-year declines, and its 2016 ATH is still roughly 565% above today (today remains ~85% below it) even after an 11× run. Any "hold forever and it compounds like BTC" premise has to survive this record, and the record says *the pumps have not been durable*.
 
 ## Flow & positioning
 
