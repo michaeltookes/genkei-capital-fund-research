@@ -415,6 +415,45 @@ class DecayScoringTests(unittest.TestCase):
         self.assertEqual(stack.event_count, 2)
         self.assertNotIn("late", [ev.source_ref for ev in stack.events])
 
+    def test_decay_prefix_emit_skips_rest_of_anchor_window(self) -> None:
+        rule = CorrelationRule(
+            name="wide",
+            description="",
+            direction="bullish",
+            components=[
+                RuleComponent(
+                    source="insider_clusters", signal_kind="buy_cluster", weight=_W("1.0")
+                ),
+                RuleComponent(source="crowding", signal_kind="crowding_add", weight=_W("1.0")),
+            ],
+            window_days=90,
+            min_score=Decimal("1.5"),
+            min_distinct_sources=2,
+            decay_half_life_days=Decimal("7"),
+        )
+        events = [
+            _ev(ts=_dt(1), source="insider_clusters", signal_kind="buy_cluster"),
+            _ev(ts=_dt(8), source="crowding", signal_kind="crowding_add"),
+            _ev(
+                ts=_dt(9),
+                source="insider_clusters",
+                signal_kind="buy_cluster",
+                source_ref="second-insider",
+            ),
+            _ev(
+                ts=_dt(16),
+                source="crowding",
+                signal_kind="crowding_add",
+                source_ref="second-crowding",
+            ),
+        ]
+        stacks = detect_stacks(events, [rule])
+
+        self.assertEqual(len(stacks), 1)
+        self.assertEqual(stacks[0].window_start, _dt(1))
+        self.assertEqual(stacks[0].window_end, _dt(8))
+        self.assertEqual(stacks[0].event_count, 2)
+
 
 class DetectStacksTests(unittest.TestCase):
     """End-to-end correlator behaviour on synthetic streams."""

@@ -254,7 +254,13 @@ def _scan_asset_events(
                     )
                     # With decay, later events can move the scoring
                     # reference forward and discount an already-qualified
-                    # prefix. Emit as soon as a prefix qualifies.
+                    # prefix. Emit as soon as a prefix qualifies, but keep
+                    # the greedy skip anchored to the full original window.
+                    while (
+                        j < n
+                        and (events[j].ts - anchor_ts).total_seconds() <= window_seconds
+                    ):
+                        j += 1
                     i = j
                     emitted = True
                     break
