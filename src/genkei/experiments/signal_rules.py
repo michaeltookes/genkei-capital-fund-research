@@ -15,6 +15,8 @@ Validation rules:
     ``signal_kind`` is optional (None = wildcard).
   * ``min_score`` and ``window_days`` get sensible defaults if absent
     but are validated to be positive.
+  * ``decay_half_life_days`` is optional (B-099). Absent → age-decay off
+    (flat scoring); when present it must be strictly positive.
 """
 
 from __future__ import annotations
@@ -110,6 +112,9 @@ def _parse_rule(raw: dict, *, idx: int, source: str) -> CorrelationRule:
     horizon = raw.get("horizon", "equity:core")
     if not isinstance(horizon, str) or not horizon.strip():
         raise ValueError(f"{source}: rule {name!r} horizon must be a non-empty string")
+    decay_half_life_days = _parse_optional_decay(
+        raw.get("decay_half_life_days"), rule_name=name, source=source
+    )
     return CorrelationRule(
         name=name,
         description=description,
@@ -119,6 +124,7 @@ def _parse_rule(raw: dict, *, idx: int, source: str) -> CorrelationRule:
         window_days=window_days,
         min_score=min_score,
         min_distinct_sources=min_distinct_sources,
+        decay_half_life_days=decay_half_life_days,
     )
 
 
@@ -155,6 +161,27 @@ def _parse_component(
         signal_kind=raw_kind,
         weight=weight,
     )
+
+
+def _parse_optional_decay(
+    value: object, *, rule_name: str, source: str
+) -> Decimal | None:
+    """Parse the optional ``decay_half_life_days`` field (B-099).
+
+    Absent / null → ``None`` (age-decay off, flat scoring). When present it
+    must parse as a strictly-positive number of days; a half-life of zero or
+    below has no meaning.
+    """
+    if value is None:
+        return None
+    half_life = _parse_decimal(
+        value, label="decay_half_life_days", rule_name=rule_name, source=source
+    )
+    if half_life <= Decimal("0"):
+        raise ValueError(
+            f"{source}: rule {rule_name!r} decay_half_life_days must be > 0"
+        )
+    return half_life
 
 
 def _parse_decimal(value: object, *, label: str, rule_name: str, source: str) -> Decimal:

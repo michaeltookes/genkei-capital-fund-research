@@ -65,6 +65,23 @@ SMART_MONEY_RULE = CorrelationRule(
     min_distinct_sources=2,
 )
 
+# Same two-source shape as SMART_MONEY_RULE but with a 7-day half-life and a
+# wide window, so B-099 age-decay actually bites. min_score/min_distinct kept
+# permissive so ScoreWindowTests can read the raw decayed score.
+DECAY_RULE = CorrelationRule(
+    name="decay_rule",
+    description="test rule with age-decay",
+    direction="bullish",
+    components=[
+        RuleComponent(source="insider_clusters", signal_kind="buy_cluster", weight=_W("1.0")),
+        RuleComponent(source="crowding", signal_kind="crowding_add", weight=_W("1.0")),
+    ],
+    window_days=90,
+    min_score=Decimal("0.1"),
+    min_distinct_sources=1,
+    decay_half_life_days=Decimal("7"),
+)
+
 
 class FilterByRuleTests(unittest.TestCase):
     def test_filters_to_components_and_direction(self) -> None:
@@ -274,6 +291,93 @@ class ScoreWindowTests(unittest.TestCase):
         score, sources = _score_window(events, rule)
         self.assertEqual(score, Decimal("1.1"))
         self.assertEqual(sources, 1)
+
+
+class DecayScoringTests(unittest.TestCase):
+    """B-099 — optional exponential age-decay within the scoring window."""
+
+    def test_default_off_preserves_flat_score(self) -> None:
+        # SMART_MONEY_RULE has no half-life: two events 7 days apart still
+        # each contribute their full weight, regardless of age.
+        events = [
+            _ev(ts=_dt(5), source="insider_clusters", signal_kind="buy_cluster"),
+            _ev(ts=_dt(12), source="crowding", signal_kind="crowding_add"),
+        ]
+        score, sources = _score_window(events, SMART_MONEY_RULE)
+        self.assertEqual(score, Decimal("2.0"))
+        self.assertEqual(sources, 2)
+
+    def test_freshest_event_is_undiscounted(self) -> None:
+        # A lone event is the window's freshest, so age 0 → full weight even
+        # when decay is on.
+        events = [_ev(ts=_dt(5), source="insider_clusters", signal_kind="buy_cluster")]
+        score, _ = _score_window(events, DECAY_RULE)
+        self.assertEqual(score, Decimal("1.0"))
+
+    def test_one_half_life_halves_the_older_leg(self) -> None:
+        # crowding@12 is freshest (full 1.0); insider@5 is exactly one
+        # half-life (7d) older → 0.5. Flat scoring would give 2.0.
+        events = [
+            _ev(ts=_dt(5), source="insider_clusters", signal_kind="buy_cluster"),
+            _ev(ts=_dt(12), source="crowding", signal_kind="crowding_add"),
+        ]
+        score, sources = _score_window(events, DECAY_RULE)
+        self.assertEqual(score, Decimal("1.5"))
+        self.assertEqual(sources, 2)
+
+    def test_reference_is_freshest_regardless_of_call_order(self) -> None:
+        # Same events fed newest-first: the reference is still max(ts), so
+        # the decayed score is identical to the sorted case.
+        events = [
+            _ev(ts=_dt(12), source="crowding", signal_kind="crowding_add"),
+            _ev(ts=_dt(5), source="insider_clusters", signal_kind="buy_cluster"),
+        ]
+        score, _ = _score_window(events, DECAY_RULE)
+        self.assertEqual(score, Decimal("1.5"))
+
+    def test_three_half_lives_quarters_then_eighths(self) -> None:
+        # insider@1 is 21 days (3 half-lives) behind crowding@22 → 0.125.
+        events = [
+            _ev(ts=_dt(1), source="insider_clusters", signal_kind="buy_cluster"),
+            _ev(ts=_dt(22), source="crowding", signal_kind="crowding_add"),
+        ]
+        score, _ = _score_window(events, DECAY_RULE)
+        self.assertEqual(score, Decimal("1.125"))
+
+    def test_decay_can_drop_a_wide_window_stack_below_min_score(self) -> None:
+        # The operational point of B-099. A 30-day-stale leg passes a flat
+        # rule but decay pulls the total under min_score so no stack emits.
+        rule = CorrelationRule(
+            name="wide",
+            description="",
+            direction="bullish",
+            components=[
+                RuleComponent(
+                    source="insider_clusters", signal_kind="buy_cluster", weight=_W("1.0")
+                ),
+                RuleComponent(source="crowding", signal_kind="crowding_add", weight=_W("1.0")),
+            ],
+            window_days=90,
+            min_score=Decimal("1.6"),
+            min_distinct_sources=2,
+            decay_half_life_days=Decimal("7"),
+        )
+        flat = CorrelationRule(
+            name="wide_flat",
+            description="",
+            direction="bullish",
+            components=rule.components,
+            window_days=90,
+            min_score=Decimal("1.6"),
+            min_distinct_sources=2,
+        )
+        events = [
+            _ev(ts=_dt(1), source="insider_clusters", signal_kind="buy_cluster"),
+            _ev(ts=_dt(22), source="crowding", signal_kind="crowding_add"),
+        ]
+        # Flat: 1.0 + 1.0 = 2.0 ≥ 1.6 → a stack. Decayed: 1.125 < 1.6 → none.
+        self.assertEqual(len(detect_stacks(events, [flat])), 1)
+        self.assertEqual(detect_stacks(events, [rule]), [])
 
 
 class DetectStacksTests(unittest.TestCase):
@@ -570,6 +674,45 @@ class LoadRulesTests(unittest.TestCase):
         with self.assertRaises(ValueError) as cm:
             load_rules(path)
         self.assertIn("not an integer", str(cm.exception))
+
+    def test_decay_half_life_absent_defaults_to_none(self) -> None:
+        # The default-off contract: no decay key → age-blind scoring.
+        rules = load_rules(self._write(GOOD_RULES_YAML))
+        self.assertIsNone(rules[0].decay_half_life_days)
+
+    def test_decay_half_life_parsed_when_present(self) -> None:
+        rules = parse_rules(
+            {
+                "version": 1,
+                "rules": [
+                    {
+                        "name": "r",
+                        "direction": "bullish",
+                        "decay_half_life_days": 30,
+                        "components": [{"source": "s", "weight": 1}],
+                    }
+                ],
+            }
+        )
+        self.assertEqual(rules[0].decay_half_life_days, Decimal("30"))
+
+    def test_rejects_non_positive_decay_half_life(self) -> None:
+        for bad in (0, -5):
+            with self.assertRaises(ValueError) as cm:
+                parse_rules(
+                    {
+                        "version": 1,
+                        "rules": [
+                            {
+                                "name": "r",
+                                "direction": "bullish",
+                                "decay_half_life_days": bad,
+                                "components": [{"source": "s", "weight": 1}],
+                            }
+                        ],
+                    }
+                )
+            self.assertIn("decay_half_life_days", str(cm.exception))
 
 
 if __name__ == "__main__":
