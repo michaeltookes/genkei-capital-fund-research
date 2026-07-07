@@ -84,6 +84,17 @@ class DetectAnomaliesTests(unittest.TestCase):
         # The early 0.30 (index 1) is gated; nothing after it is anomalous.
         self.assertEqual([a.ts for a in out], [])
 
+    def test_min_window_applies_to_sliced_lookback(self) -> None:
+        values = ["0.001" if i % 2 == 0 else "-0.001" for i in range(40)]
+        values.append("0.20")
+        out = detect_anomalies(
+            [_pt(i, v) for i, v in enumerate(values)],
+            min_window=30,
+            window=7,
+            threshold=Decimal("3.5"),
+        )
+        self.assertEqual(out, [])
+
     def test_majority_flat_window_uses_zscore_fallback(self) -> None:
         # A strict majority of the window equal the median → MAD == 0, but the
         # minority keep std > 0, so the detector falls back to the classic

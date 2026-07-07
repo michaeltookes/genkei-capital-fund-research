@@ -151,6 +151,8 @@ def detect_anomalies(
         if i < min_window:
             continue
         window_values = [p.value for p in points[max(0, i - window) : i]]
+        if len(window_values) < min_window:
+            continue
         scored = _score_point(point.value, window_values)
         if scored is None:
             continue
