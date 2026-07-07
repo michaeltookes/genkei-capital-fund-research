@@ -8,11 +8,14 @@ which cannot distinguish "the privacy narrative is becoming real adoption" from
 "a momentum pump on a story." This documents the free-source survey and the
 go/no-go.
 
-## Verdict: **GO** — scoped to a forward-only shielded-pool snapshot
+## Verdict: **GO → SHIPPED** (2026-07-07) — forward-only shielded-pool snapshot
 
 The single most important privacy metric — the **shielded share of supply** — is
 available free/keyless. The trade-off is that it's a *current snapshot* (no deep
-history, no transaction-level flow) from a single explorer.
+history, no transaction-level flow) from a single explorer. **Built and live:**
+`genkei.ingest.zcash_usage` → `zcash.shielded_pools`; `genkei zcash-usage`
+renders the trend + `--by-pool` breakdown; daily cron `zcash-usage-daily.yml`;
+health-monitored. First snapshot (2026-07-07): **26.3% shielded**, Orchard 22.4%.
 
 ## The winning source — zcashexplorer.app `blockchain-info`
 
