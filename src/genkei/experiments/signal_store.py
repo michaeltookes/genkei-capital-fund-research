@@ -235,8 +235,14 @@ def _scan_asset_events(
         window: list[SignalEvent] = []
         emitted = False
         while j < n and (events[j].ts - anchor_ts).total_seconds() <= window_seconds:
-            window.append(events[j])
-            j += 1
+            current_ts = events[j].ts
+            while (
+                j < n
+                and events[j].ts == current_ts
+                and (events[j].ts - anchor_ts).total_seconds() <= window_seconds
+            ):
+                window.append(events[j])
+                j += 1
             if rule.decay_half_life_days is not None:
                 score, distinct_sources = _score_window(window, rule)
                 if (

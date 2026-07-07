@@ -454,6 +454,35 @@ class DecayScoringTests(unittest.TestCase):
         self.assertEqual(stacks[0].window_end, _dt(8))
         self.assertEqual(stacks[0].event_count, 2)
 
+    def test_decay_prefix_emit_includes_same_timestamp_events(self) -> None:
+        rule = CorrelationRule(
+            name="same_time",
+            description="",
+            direction="bullish",
+            components=SMART_MONEY_RULE.components,
+            window_days=90,
+            min_score=Decimal("1.5"),
+            min_distinct_sources=2,
+            decay_half_life_days=Decimal("7"),
+        )
+        events = [
+            _ev(ts=_dt(5), source="crowding", signal_kind="crowding_add"),
+            _ev(ts=_dt(5), source="eight_k_impact", signal_kind="item_1_01"),
+            _ev(ts=_dt(5), source="insider_clusters", signal_kind="buy_cluster"),
+        ]
+        stacks = detect_stacks(events, [rule])
+
+        self.assertEqual(len(stacks), 1)
+        stack = stacks[0]
+        self.assertEqual(stack.window_start, _dt(5))
+        self.assertEqual(stack.window_end, _dt(5))
+        self.assertEqual(stack.event_count, 3)
+        self.assertEqual(stack.score, Decimal("2.6"))
+        self.assertEqual(
+            [ev.source for ev in stack.events],
+            ["crowding", "eight_k_impact", "insider_clusters"],
+        )
+
 
 class DetectStacksTests(unittest.TestCase):
     """End-to-end correlator behaviour on synthetic streams."""
