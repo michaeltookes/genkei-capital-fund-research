@@ -366,7 +366,6 @@ class ExpectationsRegistryTests(unittest.TestCase):
                 "eth_whale_flow",
                 "analytics",
                 "signal_emitter",
-                "anomaly_detector",
                 "cftc",
                 "ishares",
                 "bitwise",
@@ -377,6 +376,10 @@ class ExpectationsRegistryTests(unittest.TestCase):
                 "eia",
             },
         )
+
+    def test_sparse_anomaly_flags_are_not_primary_liveness(self) -> None:
+        self.assertNotIn("anomaly_detector", PRIMARY_TABLES)
+        self.assertEqual(RECURRING_ENDPOINTS["anomaly_detector"], ["anomaly_detection"])
 
     def test_every_source_expects_at_least_a_collect_endpoint(self) -> None:
         """Recurring endpoint coverage includes every source health checks expect."""
