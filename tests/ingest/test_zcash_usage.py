@@ -5,14 +5,18 @@ from __future__ import annotations
 import unittest
 from datetime import date
 from decimal import Decimal
+from unittest.mock import patch
 
 from genkei.ingest.zcash_usage import (
     BLOCKCHAIN_INFO_URL,
+    COLLECT_ENDPOINT_LABEL,
     SHIELDED_POOLS,
     SOURCE_NAME,
     _coerce_decimal,
+    collect,
     parse_value_pools,
 )
+from tests.helpers import FakeIngestRun
 
 # A realistic fragment of the zcashexplorer.app blockchain-info response
 # (shape + values verified live 2026-07-07). Includes the transparent pool,
@@ -123,6 +127,55 @@ class ParseValuePoolsTests(unittest.TestCase):
     def test_missing_value_pools_raises(self) -> None:
         with self.assertRaises(ValueError):
             parse_value_pools({"blocks": 1}, snapshot_date=self._SNAP)
+
+
+class CollectTests(unittest.TestCase):
+    _SNAP = date(2026, 7, 7)
+
+    def test_zero_usable_value_pools_fail_ingest_run(self) -> None:
+        payload = {
+            "blocks": 3404192,
+            "valuePools": [
+                {"id": "orchard", "chainValue": "not-a-number"},
+                {"id": "", "chainValue": 10},
+                "not-a-pool-object",
+            ],
+        }
+
+        class FakeHttp:
+            def get_json(self, url: str) -> object:
+                self.url = url
+                return payload
+
+        fake_run = FakeIngestRun(42)
+        http = FakeHttp()
+        with (
+            patch("genkei.ingest.zcash_usage.db.ingest_run", return_value=fake_run),
+            patch("genkei.ingest.zcash_usage.db.store_raw_blob") as store_blob,
+            patch("genkei.ingest.zcash_usage.db.record_partial_endpoints") as partial,
+            patch("genkei.ingest.zcash_usage.db.connection") as connection_cm,
+            patch("genkei.ingest.zcash_usage.db.bulk_upsert") as bulk_upsert,
+            self.assertRaisesRegex(RuntimeError, "no usable valuePools"),
+        ):
+            collect(http=http, snapshot_date=self._SNAP)
+
+        self.assertEqual(http.url, BLOCKCHAIN_INFO_URL)
+        store_blob.assert_called_once_with(
+            42, COLLECT_ENDPOINT_LABEL, BLOCKCHAIN_INFO_URL, payload
+        )
+        partial.assert_called_once_with(
+            42,
+            [
+                {
+                    "name": COLLECT_ENDPOINT_LABEL,
+                    "url": BLOCKCHAIN_INFO_URL,
+                    "error": "blockchain-info payload produced no usable valuePools",
+                }
+            ],
+        )
+        connection_cm.assert_not_called()
+        bulk_upsert.assert_not_called()
+        self.assertEqual(fake_run.rows_added, 0)
 
 
 if __name__ == "__main__":

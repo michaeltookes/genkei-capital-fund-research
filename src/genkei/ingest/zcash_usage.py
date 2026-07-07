@@ -207,11 +207,36 @@ def collect(*, http: HttpClient | None = None, snapshot_date: date | None = None
                 raise RuntimeError(f"zcash_usage fetch failed: {exc}") from exc
 
             db.store_raw_blob(run.id, COLLECT_ENDPOINT_LABEL, BLOCKCHAIN_INFO_URL, payload)
-            snapshots = parse_value_pools(payload, snapshot_date=snapshot_date)
+            try:
+                snapshots = parse_value_pools(payload, snapshot_date=snapshot_date)
+            except ValueError as exc:
+                LOGGER.error("zcash_usage blockchain-info parse failed: %s", exc)
+                db.record_partial_endpoints(
+                    run.id,
+                    [
+                        {
+                            "name": COLLECT_ENDPOINT_LABEL,
+                            "url": BLOCKCHAIN_INFO_URL,
+                            "error": str(exc),
+                        }
+                    ],
+                )
+                raise RuntimeError(f"zcash_usage parse failed: {exc}") from exc
+
             if not snapshots:
-                LOGGER.warning("zcash_usage: no value pools parsed from blockchain-info")
-                run.add_rows(0)
-                return run.id
+                error = "blockchain-info payload produced no usable valuePools"
+                LOGGER.error("zcash_usage: %s", error)
+                db.record_partial_endpoints(
+                    run.id,
+                    [
+                        {
+                            "name": COLLECT_ENDPOINT_LABEL,
+                            "url": BLOCKCHAIN_INFO_URL,
+                            "error": error,
+                        }
+                    ],
+                )
+                raise RuntimeError(f"zcash_usage parse failed: {error}")
 
             rows = [
                 _snapshot_to_row(

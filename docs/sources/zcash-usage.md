@@ -40,18 +40,20 @@ bulk of shielded value sits in **Orchard** (the newest, strongest-privacy pool)
 headline signal for the thesis is the **shielded-share trend over time**: is
 26.5% growing (privacy adoption real) or flat/shrinking (narrative-only)?
 
-## Proposed ingester shape (if built)
+## Ingester design (as built)
 
-A **forward-only daily snapshot**, structurally identical to the iShares/Bitwise
-ETF-NAV ingesters (B-107/B-113):
+The shipped collector is a **forward-only daily snapshot**, structurally
+identical to the iShares/Bitwise ETF-NAV ingesters (B-107/B-113):
 
-- New `genkei.ingest.zcash_usage` collector: one GET to `blockchain-info`, land
-  one row per `(pool, snapshot_date)` (or one wide row per `snapshot_date` with
-  a column per pool) into a new `zcash.shielded_pools` table, with derived
-  `shielded_total` + `shielded_share_pct`. Raw blob to `meta.raw_blobs`.
-- Idempotent on `(pool, snapshot_date)`; daily cron; `genkei watchlist health`
-  monitors it. A CLI surface (`genkei zcash-usage` or fold into `genkei prices`)
-  returns the shielded-share series.
+- `genkei.ingest.zcash_usage` makes one GET to `blockchain-info`, landing one
+  row per `(pool, snapshot_date)` into `zcash.shielded_pools`. Shielded totals
+  and shielded-share percentages are derived at query time. The raw payload is
+  preserved in `meta.raw_blobs`.
+- Writes are idempotent on `(pool, snapshot_date)`; the daily
+  `zcash-usage-daily.yml` cron runs the collector; `genkei watchlist health`
+  monitors the `zcash_usage/collect` ingest and `zcash.shielded_pools` table.
+  `genkei zcash-usage` returns the shielded-share series and optional per-pool
+  breakdown.
 - The series builds forward from day 1 — so the value compounds the longer it
   runs (the whole point is the *trend*).
 
