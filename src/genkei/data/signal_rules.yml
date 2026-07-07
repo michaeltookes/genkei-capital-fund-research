@@ -14,6 +14,15 @@
 # source. Exact-kind components win ties over wildcards when both are
 # configured for the same source.
 #
+# `decay_half_life_days` (optional, B-099) turns on exponential age-decay
+# within the window: each event's contribution is scaled by
+# `0.5 ** (age_days / half_life)`, measured back from the window's freshest
+# event, so recent corroboration counts for more and a stale signal on the
+# edge of a wide window can't prop up a stack alone. Omit it (the default)
+# for flat, age-blind scoring — the original behavior. Most useful on the
+# wide-window rules (`activist_position_take` 60d, `broad_exit` 90d) where
+# a two-month-old leg and a same-day one currently count identically.
+#
 # As of 2026-05-28 only the insider_clusters emitter is wired up (B-064
 # ships the reference emitter; B-064.1 / B-064.2 / B-064.3 will add the
 # crowding / 8-K / TVL-drawdown emitters). Rules below are pre-configured

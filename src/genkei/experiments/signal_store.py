@@ -95,6 +95,15 @@ class CorrelationRule:
     ``min_distinct_sources`` defaults to 2 — that's the load-bearing
     constraint that makes a "stack" actually multi-source rather than
     one noisy emitter firing twice.
+
+    ``decay_half_life_days`` is optional (B-099). When ``None`` (default)
+    every event inside the window contributes its full ``weight × strength``
+    regardless of age — the original flat behavior. When set to a positive
+    number of days, each event's contribution is multiplied by an
+    exponential age-decay factor ``0.5 ** (age_days / half_life)`` where
+    ``age_days`` is measured back from the window's most-recent event, so
+    fresher corroboration counts for more and a stale signal on the edge of
+    a wide window can't prop up a stack on its own.
     """
 
     name: str
@@ -105,6 +114,7 @@ class CorrelationRule:
     window_days: int = 7
     min_score: Decimal = Decimal("1.5")
     min_distinct_sources: int = 2
+    decay_half_life_days: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -223,24 +233,54 @@ def _scan_asset_events(
         # Collect every event whose ts falls inside the window.
         j = i
         window: list[SignalEvent] = []
+        emitted = False
         while j < n and (events[j].ts - anchor_ts).total_seconds() <= window_seconds:
-            window.append(events[j])
-            j += 1
+            current_ts = events[j].ts
+            while (
+                j < n
+                and events[j].ts == current_ts
+                and (events[j].ts - anchor_ts).total_seconds() <= window_seconds
+            ):
+                window.append(events[j])
+                j += 1
+            if rule.decay_half_life_days is not None:
+                score, distinct_sources = _score_window(window, rule)
+                if (
+                    score >= rule.min_score
+                    and distinct_sources >= rule.min_distinct_sources
+                ):
+                    out.append(
+                        _stack_from_window(
+                            asset=asset,
+                            window=window,
+                            rule=rule,
+                            score=score,
+                            distinct_sources=distinct_sources,
+                        )
+                    )
+                    # With decay, later events can move the scoring
+                    # reference forward and discount an already-qualified
+                    # prefix. Emit as soon as a prefix qualifies, but keep
+                    # the greedy skip anchored to the full original window.
+                    while (
+                        j < n
+                        and (events[j].ts - anchor_ts).total_seconds() <= window_seconds
+                    ):
+                        j += 1
+                    i = j
+                    emitted = True
+                    break
+        if emitted:
+            continue
         score, distinct_sources = _score_window(window, rule)
         if score >= rule.min_score and distinct_sources >= rule.min_distinct_sources:
             out.append(
-                Stack(
-                    rule_name=rule.name,
+                _stack_from_window(
                     asset=asset,
-                    asset_class=window[0].asset_class,
-                    direction=rule.direction,
-                    window_start=window[0].ts,
-                    window_end=window[-1].ts,
+                    window=window,
+                    rule=rule,
                     score=score,
                     distinct_sources=distinct_sources,
-                    event_count=len(window),
-                    horizon=rule.horizon,
-                    events=list(window),
                 )
             )
             # Greedy advance — skip past the window so a long burst of
@@ -251,13 +291,48 @@ def _scan_asset_events(
     return out
 
 
+def _stack_from_window(
+    *,
+    asset: str,
+    window: list[SignalEvent],
+    rule: CorrelationRule,
+    score: Decimal,
+    distinct_sources: int,
+) -> Stack:
+    return Stack(
+        rule_name=rule.name,
+        asset=asset,
+        asset_class=window[0].asset_class,
+        direction=rule.direction,
+        window_start=window[0].ts,
+        window_end=window[-1].ts,
+        score=score,
+        distinct_sources=distinct_sources,
+        event_count=len(window),
+        horizon=rule.horizon,
+        events=list(window),
+    )
+
+
 def _score_window(
     window: list[SignalEvent], rule: CorrelationRule
 ) -> tuple[Decimal, int]:
     """Sum (weight × strength) across components that matched, and count
-    the distinct sources that contributed at least one matching event."""
+    the distinct sources that contributed at least one matching event.
+
+    When ``rule.decay_half_life_days`` is set, each contribution is scaled
+    by an exponential age-decay factor measured back from the window's
+    most-recent event (see ``_decay_factor``). With it ``None`` the factor
+    is a flat 1.0 and scoring is the original unweighted-by-age sum.
+    """
     contributions: dict[tuple[str, str], Decimal] = {}
     distinct_sources: set[str] = set()
+    half_life = rule.decay_half_life_days
+    # Age is measured back from the freshest event in the window, so the
+    # newest corroboration is undiscounted and older events fade. Recompute
+    # the max here rather than trusting call-order — _score_window is public
+    # to the tests and gets hand-built windows.
+    reference_ts = max((ev.ts for ev in window), default=None) if half_life else None
     # For each event, find the matching component and add its contribution.
     # Wildcard (signal_kind=None) loses ties to exact-kind matches so a
     # rule can give a generic baseline weight to "any 8-K" while bumping
@@ -274,6 +349,8 @@ def _score_window(
             continue
         strength = ev.strength if ev.strength is not None else DEFAULT_STRENGTH_WHEN_NULL
         contribution = chosen.weight * strength
+        if half_life is not None and reference_ts is not None:
+            contribution *= _decay_factor(ev.ts, reference_ts, half_life)
         source_ref = _score_source_ref(ev, idx)
         key = (ev.source, source_ref)
         previous = contributions.get(key)
@@ -281,6 +358,25 @@ def _score_window(
             contributions[key] = contribution
         distinct_sources.add(ev.source)
     return sum(contributions.values(), Decimal("0")), len(distinct_sources)
+
+
+def _decay_factor(
+    ev_ts: datetime, reference_ts: datetime, half_life_days: Decimal
+) -> Decimal:
+    """Exponential age-decay: ``0.5 ** (age_days / half_life)``.
+
+    ``age_days`` is the whole-second gap from ``ev_ts`` back to
+    ``reference_ts`` (the window's freshest event), expressed in days.
+    An event at the reference gets 1.0; one half-life older gets 0.5, two
+    half-lives 0.25, and so on. Sub-second precision is dropped — a
+    half-life measured in days doesn't care about microseconds.
+    """
+    delta = reference_ts - ev_ts
+    age_seconds = delta.days * 86400 + delta.seconds
+    if age_seconds <= 0:
+        return Decimal("1")
+    age_days = Decimal(age_seconds) / Decimal(86400)
+    return Decimal("0.5") ** (age_days / half_life_days)
 
 
 def _score_source_ref(ev: SignalEvent, idx: int) -> str:
