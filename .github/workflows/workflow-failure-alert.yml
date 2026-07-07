@@ -41,6 +41,7 @@ on:
       - "Sui Staking Daily Snapshot"
       - "SUI Unlocks Daily Snapshot"
       - "On-chain Staking Daily Snapshot"
+      - "Zcash Usage Daily Snapshot"
       - "Weekly Signal Digest"
       - "Watchlist Scoring Daily"
       - "Ingest Staleness Check"

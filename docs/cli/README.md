@@ -45,3 +45,4 @@ commands read `GENKEI_DATABASE_URL` from the environment.
 | [`tvl-drawdown`](tvl-drawdown.md) | TVL drawdown early-warning (B-058) — does TVL stress predict price drawdowns? |
 | [`watchlist`](watchlist.md) | Watchlist coverage + data-lake health (list / health / drift / score / gaps). |
 | [`whales`](whales.md) | ETH whale-address daily flow aggregate (--category or --address). |
+| [`zcash-usage`](zcash-usage.md) | Zcash shielded-pool adoption — shielded share of supply + trend. |
