@@ -21,9 +21,14 @@ Newest entries on top. One entry per question:
 
 ## Log
 
-### 2026-06-24 — Is the `yahoo.candles` NOW (ServiceNow) magnitude bug isolated, or does it affect other tickers?
+### 2026-07-06 — Does the "BTC : ZEC :: HTTP : HTTPS" privacy thesis hold up, and does ZEC trade as a BTC-analog?
 - **status:** open
+- **context:** ZEC added to the crypto-core watchlist 2026-07-06 (primary tier, buy-and-hold) — a BTC-analog by monetary design (21M cap, PoW, halvings) around zk-SNARK privacy. Questions for a `/research` session: (1) **correlation** — how much of ZEC's move is BTC beta vs idiosyncratic privacy-narrative alpha (currently +14.7% rel-strength vs BTC over 30d; ZEC $453, mcap rank ~15, $7.6B)? (2) **adoption signal** — is there measurable usage (shielded-pool share, tx counts) beyond price to validate the thesis, or is it pure narrative? (3) **bear case** — regulatory / privacy-coin delisting risk (several exchanges have delisted ZEC historically; Coinbase currently lists it). Data now in the lake at full crypto parity: `coingecko.market_data` + `coinbase.candles` (2020-12→present) + GDELT news via `gdelt_terms`.
+
+### 2026-06-24 — Is the `yahoo.candles` NOW (ServiceNow) magnitude bug isolated, or does it affect other tickers?
+- **status:** resolved
 - **context:** Surfaced by the B-118 reflection dry run and tracked as backlog **B-124**. `yahoo.candles` carries NOW at ~$101–118 across 2026 where the real security trades ~10× higher (~$1,000); the IPO-date row matches exactly, so it's the right instrument at the wrong magnitude. Return-based reflection alpha cancels a constant scaling offset (why B-124 is low priority), but any absolute-price logic (valuation screens, position sizing, alert thresholds) would be misled. Worth a spot-check of ~5–10 watchlist equities' latest `adj_close` vs an external reference to tell "isolated to NOW" from "systematic split-adjustment bug."
+- **outcome:** Neither isolated nor systematic — **there was no bug** (B-124 audit, 2026-07-05, `docs/sources/yahoo.md`). Spot-checked 6 equities vs *current* external references: NOW ($106) and MU ($976) are real 2026 AI-market prices; 4 of 6 matched to the penny. The "10× off" was a stale-reference artifact — comparing correct current data to a pre-2026 recollection. `adj_close` is correctly split + dividend adjusted. No code change, no re-backfill.
 
 ### 2026-06-24 — Does CME futures open interest lead spot crypto on institutional rotation?
 - **status:** open
