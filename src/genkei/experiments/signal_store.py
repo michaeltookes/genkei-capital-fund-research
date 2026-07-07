@@ -233,24 +233,42 @@ def _scan_asset_events(
         # Collect every event whose ts falls inside the window.
         j = i
         window: list[SignalEvent] = []
+        emitted = False
         while j < n and (events[j].ts - anchor_ts).total_seconds() <= window_seconds:
             window.append(events[j])
             j += 1
+            if rule.decay_half_life_days is not None:
+                score, distinct_sources = _score_window(window, rule)
+                if (
+                    score >= rule.min_score
+                    and distinct_sources >= rule.min_distinct_sources
+                ):
+                    out.append(
+                        _stack_from_window(
+                            asset=asset,
+                            window=window,
+                            rule=rule,
+                            score=score,
+                            distinct_sources=distinct_sources,
+                        )
+                    )
+                    # With decay, later events can move the scoring
+                    # reference forward and discount an already-qualified
+                    # prefix. Emit as soon as a prefix qualifies.
+                    i = j
+                    emitted = True
+                    break
+        if emitted:
+            continue
         score, distinct_sources = _score_window(window, rule)
         if score >= rule.min_score and distinct_sources >= rule.min_distinct_sources:
             out.append(
-                Stack(
-                    rule_name=rule.name,
+                _stack_from_window(
                     asset=asset,
-                    asset_class=window[0].asset_class,
-                    direction=rule.direction,
-                    window_start=window[0].ts,
-                    window_end=window[-1].ts,
+                    window=window,
+                    rule=rule,
                     score=score,
                     distinct_sources=distinct_sources,
-                    event_count=len(window),
-                    horizon=rule.horizon,
-                    events=list(window),
                 )
             )
             # Greedy advance — skip past the window so a long burst of
@@ -259,6 +277,29 @@ def _scan_asset_events(
         else:
             i += 1
     return out
+
+
+def _stack_from_window(
+    *,
+    asset: str,
+    window: list[SignalEvent],
+    rule: CorrelationRule,
+    score: Decimal,
+    distinct_sources: int,
+) -> Stack:
+    return Stack(
+        rule_name=rule.name,
+        asset=asset,
+        asset_class=window[0].asset_class,
+        direction=rule.direction,
+        window_start=window[0].ts,
+        window_end=window[-1].ts,
+        score=score,
+        distinct_sources=distinct_sources,
+        event_count=len(window),
+        horizon=rule.horizon,
+        events=list(window),
+    )
 
 
 def _score_window(
