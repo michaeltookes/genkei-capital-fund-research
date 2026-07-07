@@ -78,6 +78,7 @@ from genkei.cli import (
     tvl_drawdown,
     watchlist,
     whales,
+    zcash_usage,
 )
 
 app = typer.Typer(
@@ -160,6 +161,10 @@ app.command(
         "(--category exchange|custodian|foundation|whale or --address)."
     ),
 )(whales.whales_cmd)
+app.command(
+    "zcash-usage",
+    help="Zcash shielded-pool adoption — shielded share of supply + trend (ZEC privacy signal).",
+)(zcash_usage.zcash_usage_cmd)
 app.command(
     "query",
     help="Ad-hoc SQL escape hatch (read-only, timeout + row cap enforced).",

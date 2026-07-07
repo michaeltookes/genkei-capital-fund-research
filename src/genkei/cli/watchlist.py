@@ -211,6 +211,7 @@ PRIMARY_TABLES: dict[str, list[str]] = {
     "cftc": ["cftc.cot_reports"],
     "ishares": ["etf.fund_snapshots"],
     "bitwise": ["etf.fund_snapshots"],
+    "zcash_usage": ["zcash.shielded_pools"],
     "gdelt": ["gdelt.gkg"],
     "bea": ["bea.observations"],
     "treasury": ["treasury.observations"],
@@ -266,6 +267,10 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
     # fetch parses inline + writes directly to etf.fund_snapshots alongside
     # the iShares rows. v1 covers BITB. Daily T+1/T+2 cadence.
     "bitwise": ["collect"],
+    # ZEC usage — daily snapshot of the Zcash node's valuePools (shielded
+    # share of supply) parsed inline into zcash.shielded_pools. Forward-only
+    # (current chain state; no backfill). See docs/sources/zcash-usage.md.
+    "zcash_usage": ["collect"],
     # B-033 GDELT GKG — incremental daily run pulls the last 24h of
     # 15-min CSV zips, filters to watchlist matches, writes directly
     # to gdelt.gkg, and stores raw CSV blobs for replay/cache.
