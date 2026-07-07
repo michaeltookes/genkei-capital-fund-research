@@ -36,7 +36,7 @@ For ZEC the "fundamentals" are its monetary design, price structure, and — cri
 |---|---|---|
 | 2y ago | $18.71 | multi-year bottom era |
 | 1y ago | $38.74 | pre-run |
-| 90d ago | $323 | mid-run |
+| 90d ago | ~$251 | prior consolidation shelf |
 | Coinbase-era high | ~$699 | 2025–26 narrative peak |
 | **today** | **$451** | −35% off the recent high |
 
@@ -47,7 +47,7 @@ For ZEC the "fundamentals" are its monetary design, price structure, and — cri
 
 ## Flow & positioning
 
-**Crypto-wide dry powder is shrinking, so this was a rotation, not an inflow** (`genkei stablecoin-flow --all-chains`): Ethereum stablecoin supply $154.3B (**Δ30d −$4.19B**), Tron −$0.79B, most chains flat/negative. ZEC's 11× happened *while* aggregate stablecoin supply contracted — meaning the move was funded by **capital rotating out of other crypto into ZEC**, not by fresh money entering the system. Rotation-driven narrative moves are the *least durable* kind: they reverse when the narrative cools and the rotation unwinds, with no fresh-liquidity tide to cushion the exit.
+**Crypto-wide dry powder is shrinking over the measured window, so the recent leg looks rotation-funded, not inflow-confirmed** (`genkei stablecoin-flow --all-chains`): Ethereum stablecoin supply $154.3B (**Δ30d −$4.19B**), Tron −$0.79B, most chains flat/negative. This 30-day snapshot does **not** prove the full 11× one-year move was funded by rotation, but it does show the current push is happening without a fresh-liquidity tide to cushion the exit. Recent rotation-driven narrative moves are fragile: they reverse when the narrative cools and the rotation unwinds.
 
 **The load-bearing data gap: there is no *usage* signal for ZEC in the lake.** The entire thesis is "privacy *adoption*," but the lake has only price + news — no shielded-pool share, no shielded-transaction counts, no active-address trend. So I **cannot distinguish "the privacy narrative is becoming real adoption" from "a speculative momentum pump on a privacy *story*."** Given the historical fact that most ZEC usage has been transparent, this is not a minor gap — it's the single piece of evidence that would move confidence, and it's dark. (Flagged for the backlog below.) No insider/13F analog exists for a crypto asset.
 
@@ -62,7 +62,7 @@ For ZEC the "fundamentals" are its monetary design, price structure, and — cri
 **Case against buying *here* (entry, not thesis):**
 1. **Extended and near highs after 11×** — the opposite of a discount. Fresh buyers at $451 are chasing momentum, not accumulating weakness.
 2. **Adverse base rate** — ZEC's every prior narrative pump (2016, 2021) was followed by an 85–90% multi-year bleed; the 2016 ATH is still unreclaimed. "This time is different" is the exact bet, and it's usually wrong.
-3. **Rotation-funded, not inflow-funded** (shrinking stablecoins) — the least durable kind of move.
+3. **Recent move lacks inflow confirmation** (30-day stablecoin supply is shrinking/flat) — a fragile backdrop for a narrative-driven leg.
 4. **No adoption evidence** — can't tell narrative from real usage; historically most ZEC txns aren't even shielded.
 5. **Structural regulatory/delisting risk** unique to privacy coins (see Phase B) that BTC simply doesn't carry.
 
@@ -78,11 +78,11 @@ For ZEC the "fundamentals" are its monetary design, price structure, and — cri
 
 ## Conclusion
 
-**Recommendation: initiate a *token* starter position now, do NOT chase, and reserve the bulk of even the (small) intended allocation for a pullback.** This is a legitimate small, years-horizon **optionality** hold on the privacy-money thesis — the thesis is real and the asymmetry favors *owning some* — but the entry is the inverse of a BTC-style discount: ZEC is +11× in a year, near recent highs, rotation-funded (not inflow-funded), with an adverse base rate (serial 85–90% post-pump bleeds; 2016 ATH never reclaimed) and **no adoption data to validate narrative-vs-hype**. So the discipline is *even more* patient than the 2026-06-30 BTC graduated-accumulation call, because BTC was cheap and ZEC is hot. Deploy a small first tranche (call it ~20–25% of the intended ZEC lottery-ticket size) now for the optionality, and add the rest on the violent pullback ZEC's own volatility all but guarantees (the ~$250–300 shelf) or on real shielded-usage confirmation.
+**Recommendation: initiate a *token* starter position now, do NOT chase, and reserve the bulk of even the (small) intended allocation for a pullback.** This is a legitimate small, years-horizon **optionality** hold on the privacy-money thesis — the thesis is real and the asymmetry favors *owning some* — but the entry is the inverse of a BTC-style discount: ZEC is +11× in a year and near recent highs, with no inflow confirmation for the recent leg, an adverse base rate (serial 85–90% post-pump bleeds; 2016 ATH never reclaimed), and **no adoption data to validate narrative-vs-hype**. So the discipline is *even more* patient than the 2026-06-30 BTC graduated-accumulation call, because BTC was cheap and ZEC is hot. Deploy a small first tranche (call it ~20–25% of the intended ZEC lottery-ticket size) now for the optionality, and add the rest on the violent pullback ZEC's own volatility all but guarantees (the ~$250–300 shelf) or on real shielded-usage confirmation.
 
 **Sleeve & horizon:** crypto-core, **years** — but explicitly the *most speculative* member of the sleeve, sized as a lottery ticket, not alongside BTC/ETH in conviction or weight.
 
-**Confidence: low.** The thesis is interesting and the optionality is real (which is why the call is "own some," not "avoid"), but four things argue against any conviction: the extended entry after an 11× run, the adverse base rate, the rotation-funded (fragile) flow, and — most of all — the *absence of any usage data* to tell adoption from narrative. Low confidence is the honest calibration; the desk's discipline is that narrative bets with no fundamental confirmation get lottery-ticket sizing and low confidence, full stop.
+**Confidence: low.** The thesis is interesting and the optionality is real (which is why the call is "own some," not "avoid"), but four things argue against any conviction: the extended entry after an 11× run, the adverse base rate, the fragile 30-day flow backdrop, and — most of all — the *absence of any usage data* to tell adoption from narrative. Low confidence is the honest calibration; the desk's discipline is that narrative bets with no fundamental confirmation get lottery-ticket sizing and low confidence, full stop.
 
 **Position-sizing:** keep the *entire* ZEC allocation small enough that a total loss is a portfolio non-event (true lottery ticket). Within that: ~20–25% deployed now, the rest reserved for a pullback or a usage-confirmation trigger. Do **not** average *up* into strength — this asset does not reward chasing.
 
