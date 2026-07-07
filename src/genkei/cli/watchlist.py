@@ -225,6 +225,9 @@ PRIMARY_TABLES: dict[str, list[str]] = {
     # emitters chained off the daily ingest workflows. RECURRING_ENDPOINTS
     # tracks each emitter individually below.
     "signal_emitter": ["meta.signal_events"],
+    # B-069 — per-series statistical-outlier flags. Its own derived source
+    # (not a signal_emitter endpoint) because it writes a different table.
+    "anomaly_detector": ["meta.anomalies"],
 }
 
 # Recurring (daily-cron) endpoints we expect to see in meta.ingest_runs
@@ -320,6 +323,10 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
         "macro_regime",
         "watchlist_scoring",
     ],
+    # B-069 — the anomaly detector runs on its own daily cron. Like the
+    # signal emitters it's a derived (compute-not-collect) source, so its
+    # endpoint isn't the classic 'collect'; the test exempts it accordingly.
+    "anomaly_detector": ["anomaly_detection"],
 }
 
 

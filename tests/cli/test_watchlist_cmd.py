@@ -366,6 +366,7 @@ class ExpectationsRegistryTests(unittest.TestCase):
                 "eth_whale_flow",
                 "analytics",
                 "signal_emitter",
+                "anomaly_detector",
                 "cftc",
                 "ishares",
                 "bitwise",
@@ -403,9 +404,12 @@ class ExpectationsRegistryTests(unittest.TestCase):
                 "treasury",
                 "eia",
                 "signal_emitter",
+                "anomaly_detector",
             },
         )
-        emitter_exempt = {"signal_emitter"}
+        # Derived (compute-not-collect) sources whose endpoints aren't the
+        # classic 'collect'/'normalize' pair.
+        emitter_exempt = {"signal_emitter", "anomaly_detector"}
         for source, eps in RECURRING_ENDPOINTS.items():
             if source in emitter_exempt:
                 self.assertTrue(eps, f"{source} should declare at least one emitter")
