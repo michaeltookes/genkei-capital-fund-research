@@ -157,14 +157,6 @@ Once cross-source data is in, the system starts producing investable signals.
 
 _B-064 follow-ups (wire the remaining signal emitters) shipped — all emitters landed and are chained into the daily workflows; removed 2026-07-01, see `docs/resolved.md`. B-111 (equity relative-strength emitter) also resolved 2026-06-06 and now lives only in `docs/resolved.md`._
 
-### B-099 — Correlator: decay weighting by event age
-- **Status:** open
-- **Priority:** low
-- **Context:** Today `detect_stacks` sums `weight × strength` equally for every event inside the window regardless of recency. A 7-day-old insider cluster and a same-day one contribute identically. Add an optional age-decay factor so fresher corroboration counts for more.
-- **Acceptance criteria:**
-  - Optional decay function (config-driven half-life) applied in `_score_window`; default off preserves current behavior.
-  - Unit tests pin decayed vs undecayed scores and the default-off contract.
-
 ### B-066 — Macro regime classifier integrated into queries
 - **Status:** open
 - **Priority:** low
