@@ -1,0 +1,58 @@
+name: Anomaly Detection Daily
+
+# B-069 — per-series return-anomaly detector. Reads each watchlist crypto
+# (coinbase.candles) and equity (yahoo.candles) close series, computes daily
+# returns, and flags rolling MAD-based outliers into meta.anomalies. Surfaced
+# via `genkei anomalies`. Runs on the self-hosted Beelink runner so it can
+# reach the homelab Postgres on mission_control_net.
+#
+# 13:00 UTC — an hour after the Coinbase (12:00) and Yahoo (12:15) price crons
+# so it scans fresh candles. Idempotent on (asset, metric, ts, method): the
+# detector recomputes stats over full history but `--since` bounds which
+# flagged dates get upserted, so a 120-day trailing window keeps writes small
+# while a missed/re-run day is harmless.
+
+on:
+  schedule:
+    - cron: "0 13 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: anomaly-daily-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pipeline:
+    name: Anomaly detection (Postgres-backed)
+    runs-on: [self-hosted, beelink]
+    timeout-minutes: 10
+    env:
+      GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+
+      - name: Apply database migrations
+        run: alembic upgrade head
+
+      - name: Detect return anomalies into meta.anomalies
+        run: |
+          bash scripts/ci/retry.sh 3 10 -- \
+            python3 -m genkei.experiments.emitters.anomaly_emitter \
+              --since "$(date -u -d '120 days ago' '+%Y-%m-%d')"
