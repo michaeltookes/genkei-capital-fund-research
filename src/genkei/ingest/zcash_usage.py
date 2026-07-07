@@ -101,7 +101,8 @@ def parse_value_pools(
 
     Reads ``payload.valuePools`` (the node's ``getblockchaininfo`` output) and
     ``payload.blocks`` (best-block height, for provenance). Skips any pool whose
-    ``chainValue`` is missing or negative, logging a WARNING — in unattended
+    ``chainValue`` is missing or negative, logging a WARNING, and rejects any
+    otherwise usable pool whose ``monitored`` flag is not true. In unattended
     daily ingest a swallowed surprise is the difference between noticing bad
     data and not (B-121).
     """
@@ -132,6 +133,11 @@ def parse_value_pools(
                 entry.get("chainValue"),
             )
             continue
+        if entry.get("monitored") is not True:
+            raise ValueError(
+                f"blockchain-info valuePool {pool_id!r} is not monitored; "
+                "refusing untrusted chainValue"
+            )
         out.append(
             _PoolSnapshot(
                 pool=pool_id,

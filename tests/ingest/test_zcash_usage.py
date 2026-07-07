@@ -108,15 +108,39 @@ class ParseValuePoolsTests(unittest.TestCase):
         payload = {
             "blocks": 1,
             "valuePools": [
-                {"id": "transparent", "chainValue": 100.0},
+                {"id": "transparent", "chainValue": 100.0, "monitored": True},
                 {"id": "orchard", "chainValue": -5.0},  # bad → skipped
             ],
         }
         snaps = parse_value_pools(payload, snapshot_date=self._SNAP)
         self.assertEqual([s.pool for s in snaps], ["transparent"])
 
+    def test_rejects_unmonitored_pool_value(self) -> None:
+        payload = {
+            "blocks": 1,
+            "valuePools": [
+                {"id": "orchard", "chainValue": 10.0, "monitored": False},
+            ],
+        }
+        with self.assertRaisesRegex(ValueError, "not monitored"):
+            parse_value_pools(payload, snapshot_date=self._SNAP)
+
+    def test_rejects_missing_monitored_flag(self) -> None:
+        payload = {
+            "blocks": 1,
+            "valuePools": [
+                {"id": "orchard", "chainValue": 10.0},
+            ],
+        }
+        with self.assertRaisesRegex(ValueError, "not monitored"):
+            parse_value_pools(payload, snapshot_date=self._SNAP)
+
     def test_missing_block_height_is_none(self) -> None:
-        payload = {"valuePools": [{"id": "orchard", "chainValue": 10.0}]}
+        payload = {
+            "valuePools": [
+                {"id": "orchard", "chainValue": 10.0, "monitored": True},
+            ]
+        }
         snaps = parse_value_pools(payload, snapshot_date=self._SNAP)
         self.assertIsNone(snaps[0].block_height)
 
