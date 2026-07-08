@@ -69,6 +69,42 @@ BITB_WATCHLIST = EtfTickerEntry(
     launch_date="2024-01-11",
 )
 
+# A trimmed fragment of the live ethwetf.com HTML (Bitwise Ethereum ETF,
+# verified 2026-07-07, B-129). Same page shape as BITB, but captures the
+# real-world *one-day skew* between the NAV strike (07/05) and the Fund
+# Details / AUM refresh (07/06) — the case that motivated
+# MAX_SECTION_DATE_SKEW_DAYS. The values reconcile (12.83 x 14.92M ≈ $191.4M
+# vs $190.4M reported, ~0.5%), so only the strict date-equality that BITB
+# assumed would have (wrongly) dropped it.
+ETHW_FRAGMENT_HTML = """
+<section><h4 class="c-hakyQ">Fund Details</h4>
+  <p class="c-iAccHW"><!-- -->Data as of <!-- -->07/06/2026</p></section>
+<div class="c-bszhDB"><h4 class="c-AfGhm">Ticker</h4>
+  <p class="c-cjWCAs">ETHW</p></div>
+<div class="c-bszhDB"><h4 class="c-AfGhm">Shares Outstanding</h4>
+  <p class="c-cjWCAs">14,920,000</p></div>
+<div class="c-bszhDB"><h4 class="c-AfGhm">CUSIP</h4>
+  <p class="c-cjWCAs">091955104</p></div>
+<div class="c-bszhDB"><h4 class="c-AfGhm">ISIN</h4>
+  <p class="c-cjWCAs">US0919551046</p></div>
+<div class="c-bszhDB"><h4 class="c-AfGhm">Net Assets (AUM)</h4>
+  <p class="c-cjWCAs">$190,397,138</p></div>
+<div class="c-columns-2"><div><div><div>
+  <h4 class="c-hakyQ">Net Asset Value (NAV) and Market Price</h4>
+  <p class="c-iAccHW"><!-- -->Data as of <!-- -->07/05/2026</p></div>
+  <div><div><div>
+    <div>NAV: <span>$12.83</span></div>
+    <div>Market Price:<!-- --><span>$12.85</span></div></div></div>
+"""
+
+ETHW_WATCHLIST = EtfTickerEntry(
+    ticker="ETHW",
+    name="Bitwise Ethereum ETF",
+    asset="ETH",
+    issuer="Bitwise",
+    launch_date="2024-07-23",
+)
+
 
 def _write_watchlist(case: unittest.TestCase, body: str) -> Path:
     ctx = TemporaryDirectory()
@@ -137,6 +173,11 @@ class ModuleConstantsTests(unittest.TestCase):
         """The BITB product page URL must be pinned and on the bitbetf domain."""
         self.assertIn("BITB", PRODUCT_URLS)
         self.assertTrue(PRODUCT_URLS["BITB"].startswith("https://bitbetf.com"))
+
+    def test_ethw_product_url_pinned(self) -> None:
+        """B-129 — the ETHW (Bitwise Ethereum ETF) product URL is pinned."""
+        self.assertIn("ETHW", PRODUCT_URLS)
+        self.assertTrue(PRODUCT_URLS["ETHW"].startswith("https://ethwetf.com"))
 
 
 # ---------------------------------------------------------------------------
@@ -298,17 +339,56 @@ class ParseSnapshotTests(unittest.TestCase):
             parse_snapshot(html, ticker="BITB", watchlist_entry=BITB_WATCHLIST)
         )
 
-    def test_mismatched_section_dates_drop_row(self) -> None:
-        """Do not combine Fund Details values with a different NAV date."""
+    def test_large_section_date_gap_drops_row(self) -> None:
+        """A big gap between the sections signals parse drift → skip.
+
+        (A small day-or-two skew is normal ETF timing and is accepted — see
+        the ETHW tests below.) Here Fund Details is a month off the NAV date,
+        well beyond MAX_SECTION_DATE_SKEW_DAYS.
+        """
+        html = LIVE_FRAGMENT_HTML.replace(
+            "Fund Details</h4>\n"
+            '  <p class="c-iAccHW"><!-- -->Data as of <!-- -->06/28/2026',
+            "Fund Details</h4>\n"
+            '  <p class="c-iAccHW"><!-- -->Data as of <!-- -->07/28/2026',
+        )
+        self.assertIsNone(
+            parse_snapshot(html, ticker="BITB", watchlist_entry=BITB_WATCHLIST)
+        )
+
+    def test_small_section_date_skew_is_accepted_and_dated_by_fund_details(self) -> None:
+        """A one-day NAV/AUM skew is kept; the row is dated by Fund Details."""
         html = LIVE_FRAGMENT_HTML.replace(
             "Fund Details</h4>\n"
             '  <p class="c-iAccHW"><!-- -->Data as of <!-- -->06/28/2026',
             "Fund Details</h4>\n"
             '  <p class="c-iAccHW"><!-- -->Data as of <!-- -->06/29/2026',
         )
-        self.assertIsNone(
-            parse_snapshot(html, ticker="BITB", watchlist_entry=BITB_WATCHLIST)
+        snap = parse_snapshot(html, ticker="BITB", watchlist_entry=BITB_WATCHLIST)
+        assert snap is not None
+        # Fund Details (06/29), not the NAV strike (06/28), dates the row —
+        # shares_outstanding + net_assets come from the Fund Details section.
+        self.assertEqual(snap.snapshot_date, date(2026, 6, 29))
+
+
+class EthwParseTests(unittest.TestCase):
+    """B-129 — the Bitwise Ethereum ETF (ETHW) parses on the shared extractor."""
+
+    def test_extracts_ethw_snapshot_across_one_day_skew(self) -> None:
+        snap = parse_snapshot(
+            ETHW_FRAGMENT_HTML, ticker="ETHW", watchlist_entry=ETHW_WATCHLIST
         )
+        assert snap is not None
+        self.assertEqual(snap.ticker, "ETHW")
+        self.assertEqual(snap.asset, "ETH")
+        self.assertEqual(snap.issuer, "Bitwise")
+        # Dated by the Fund Details section (07/06), not the NAV strike (07/05).
+        self.assertEqual(snap.snapshot_date, date(2026, 7, 6))
+        self.assertEqual(snap.nav_per_share_usd, Decimal("12.83"))
+        self.assertEqual(snap.total_net_assets_usd, Decimal("190397138"))
+        self.assertEqual(snap.shares_outstanding, Decimal("14920000.0000"))
+        self.assertEqual(snap.cusip, "091955104")
+        self.assertEqual(snap.isin, "US0919551046")
 
     def test_incoherent_values_drop_row(self) -> None:
         """When nav x shares can't reconcile to net assets, skip the snapshot.
