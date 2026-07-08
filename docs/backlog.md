@@ -69,13 +69,12 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
 
 
 ### B-129 — Remaining spot-ETF net-flow issuers (B-113 follow-up)
-- **Status:** open
+- **Status:** open (breadth; blocked on access walls)
 - **Priority:** low
-- **Context:** B-113 (resolved 2026-06-30, see `docs/resolved.md`) added Bitwise BITB as the second net-flow issuer alongside BlackRock IBIT/ETHA/ETHB, satisfying the "at least one additional issuer" bar. The remaining major issuers stay behind their access walls (per the `docs/sources/spot-etf-net-flow.md` survey): **ARKB** Cloudflare-walled, **GBTC** rate-limits scripted access, **FBTC** URL not yet identified, plus **Bitwise ETHW** (their ETH ETF — in the watchlist but not yet pinned in `bitwise.PRODUCT_URLS`; needs the same product-page spike BITB got). Each needs its own scrape path or a paid feed; IBIT+BITB already capture the dominant share of spot-BTC-ETF AUM, so this is breadth, not a load-bearing gap.
+- **Context:** BITB (B-113) and **ETHW** (shipped 2026-07-07, see `docs/resolved.md`) added Bitwise as the second net-flow issuer on both the BTC *and* ETH surfaces, meeting the original "at least one additional issuer" bar. The three still-uncovered majors stay behind access walls (per `docs/sources/spot-etf-net-flow.md`): **ARKB** Cloudflare-walled, **GBTC** rate-limits scripted access, **FBTC** URL not yet identified. Each needs its own scrape path or a paid feed; IBIT+BITB+ETHW already capture the dominant share of spot-ETF AUM, so this is pure breadth, not a load-bearing gap. Reopen a concrete build only if one of the three surfaces a clean free path.
 - **Acceptance criteria:**
-  - Per-issuer ingester(s) / extra `PRODUCT_URLS` entries landing rows into the existing `etf.fund_snapshots` table (no schema changes).
-  - At least one of FBTC / GBTC / ARKB / ETHW landing daily NAV + shares-outstanding (or shares-outstanding alone, computed against `yahoo.candles` close).
-  - Watchlist health monitors each new issuer source; unit tests pin the per-issuer extractor.
+  - A pinned scrape path (or paid feed) for at least one of FBTC / GBTC / ARKB landing daily NAV + shares-outstanding into the existing `etf.fund_snapshots` table (no schema changes).
+  - Watchlist health monitors the new issuer source; a unit test pins the per-issuer extractor.
 - **Out of scope:**
   - 10-Q quarter-end shares-outstanding triangulation (B-114 owns that path).
 

@@ -20,12 +20,15 @@ build-generated ``c-*`` CSS class names, which churn on every site rebuild.
 **Why store all three published values (vs deriving one).** iShares publishes
 NAV + total-net-assets and we *derive* shares = TNA / NAV. Bitwise publishes
 all three independently (NAV, net assets, AND shares outstanding), so we store
-each as published — and use date + value coherence as the gate: Fund Details
-and NAV ``Data as of`` stamps must match, then ``nav x shares`` must reconcile
-to ``net_assets`` within ``RECONCILE_TOLERANCE``. This is the Bitwise analog
-of the iShares "navAmountAsOf must equal totalNetAssetsFundAsOf" check. The
-observed reconciliation gap is ~0.01%; the 2% tolerance is generous headroom
-after the section dates already agree.
+each as published — and use date + value coherence as the gate: the Fund
+Details and NAV ``Data as of`` stamps must agree within
+``MAX_SECTION_DATE_SKEW_DAYS``, with NAV not newer than Fund Details (a day or
+two of NAV lag is normal ETF timing — seen on ETHW — not parse drift), then
+``nav x shares`` must reconcile to ``net_assets`` within
+``RECONCILE_TOLERANCE``. That value reconciliation is the real coherence gate
+— the Bitwise analog of the iShares "navAmountAsOf must equal
+totalNetAssetsFundAsOf" check. The observed reconciliation gap is ~0.01% at a
+shared date and ~0.5% at a one-day NAV lag.
 
 Daily net flow is NOT stored — it's computed at query time in
 ``genkei etf-flows --net-flow`` via ``(shares - LAG(shares)) x nav`` exactly
@@ -76,19 +79,31 @@ ISSUER_FILTER = "Bitwise"
 
 # Per-ticker Bitwise product pages. Each spot-crypto ETF has its own
 # statically-generated product site that server-renders fund financials into
-# the HTML. Verified live 2026-06-30. A watchlist Bitwise ticker with no
-# entry here is soft-skipped with a WARNING (so adding ETHW etc. to the
-# watchlist before its URL is pinned here doesn't break the daily run).
+# the HTML. BITB verified live 2026-06-30; ETHW (Bitwise Ethereum ETF, B-129)
+# verified 2026-07-07 — same page shape, same labels. A watchlist Bitwise
+# ticker with no entry here is soft-skipped with a WARNING (so adding a new
+# ticker to the watchlist before its URL is pinned here doesn't break the run).
 PRODUCT_URLS: dict[str, str] = {
     "BITB": "https://bitbetf.com/",
+    "ETHW": "https://ethwetf.com/",
 }
 
 # Published NAV x published shares must reconcile to published net assets
-# within this fraction, else the snapshot is internally inconsistent (usually
-# parse drift after the Fund Details and NAV as-of dates have already matched)
-# and is skipped rather than stored. Observed gap is ~0.01%; 2% is generous
-# headroom.
+# within this fraction, else the snapshot is internally inconsistent (parse
+# drift, or a NAV struck too far from the shares/AUM refresh) and is skipped
+# rather than stored. Observed gap is ~0.01% when the sections share a date and
+# ~0.5% at a one-day NAV/AUM skew; 2% is generous headroom for both.
 RECONCILE_TOLERANCE = Decimal("0.02")
+
+# The NAV strike and the Fund Details (shares/AUM) section can carry dates a
+# day or two apart (seen on ETHW 2026-07-07: NAV as-of 7/5, Fund Details
+# as-of 7/6). A small NAV lag is normal ETF operational timing, not parse
+# drift; the value reconciliation above is the real coherence gate. A NAV date
+# newer than Fund Details is not accepted because ``snapshot_date`` is taken
+# from Fund Details, so storing a newer NAV there would overwrite the older
+# shares-date row while shares/AUM remain stale. BITB, whose sections share a
+# date, sees skew=0 -> no behavior change.
+MAX_SECTION_DATE_SKEW_DAYS = 3
 
 # A browser User-Agent — the static site serves scripted requests fine, but a
 # default httpx UA invites future bot-walling; mirror a real browser.
@@ -317,13 +332,25 @@ def parse_snapshot(
             as_of,
         )
         return None
-    if fund_details_as_of != as_of:
+    skew_days = (fund_details_as_of - as_of).days
+    if skew_days < 0:
         LOGGER.warning(
-            "bitwise %s: Fund Details as-of %s does not match NAV as-of %s "
-            "- skipping mixed-date snapshot",
+            "bitwise %s: NAV as-of %s is newer than Fund Details as-of %s "
+            "- skipping snapshot to avoid mixing newer NAV with stale shares/AUM",
+            ticker,
+            as_of,
+            fund_details_as_of,
+        )
+        return None
+    if skew_days > MAX_SECTION_DATE_SKEW_DAYS:
+        LOGGER.warning(
+            "bitwise %s: Fund Details as-of %s and NAV as-of %s differ by %s days "
+            "> %s tolerance — skipping mixed-date snapshot",
             ticker,
             fund_details_as_of,
             as_of,
+            skew_days,
+            MAX_SECTION_DATE_SKEW_DAYS,
         )
         return None
     if nav <= 0:
@@ -342,7 +369,10 @@ def parse_snapshot(
 
     return _FundSnapshot(
         ticker=ticker.upper(),
-        snapshot_date=as_of,
+        # Date by the Fund Details section — shares_outstanding + net_assets
+        # come from there; the NAV strike may lag by a day (see
+        # MAX_SECTION_DATE_SKEW_DAYS). Equal for BITB, so unchanged there.
+        snapshot_date=fund_details_as_of,
         issuer=watchlist_entry.issuer,
         asset=watchlist_entry.asset.upper(),
         cusip=_find_labeled_value(clean, "CUSIP"),

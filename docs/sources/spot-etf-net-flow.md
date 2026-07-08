@@ -132,15 +132,27 @@ the page stamps only the NAV strike date inline). Observed gap ≈ 0.01%.
 **No query change needed.** `genkei etf-flows --net-flow` already filters
 `etf.fund_snapshots` by underlying asset + watchlist ticker (not issuer), so
 BITB surfaces alongside the iShares rows automatically. Daily T+1/T+2 cron in
-`bitwise-daily.yml`, staggered 30 min behind `ishares-daily.yml`. Bitwise
-ETHW (their ETH ETF) is in the watchlist but not yet pinned in `PRODUCT_URLS`
-— logged as out-of-scope, a clean follow-up.
+`bitwise-daily.yml`, staggered 30 min behind `ishares-daily.yml`.
+
+**ETHW added (B-129, 2026-07-07).** Bitwise's Ethereum ETF is now pinned in
+`PRODUCT_URLS` at `https://ethwetf.com/` (same Next.js page shape, same
+labels) — the first non-BlackRock issuer on the *ETH* net-flow surface
+(alongside iShares ETHA/ETHB). One wrinkle it surfaced: ETHW publishes the NAV
+strike and the Fund Details (shares/AUM) section a day apart (NAV T+2, AUM
+T+1), where BITB stamps both the same day. The parser's strict date-equality
+would have silently dropped every NAV-lagged day, so it was relaxed to a
+bounded NAV lag (`MAX_SECTION_DATE_SKEW_DAYS = 3`) with the
+`nav × shares ≈ net_assets` reconciliation as the real coherence gate. NAV
+dates newer than Fund Details are still rejected so a rerun cannot rewrite an
+older shares-date row with a future NAV. Rows are now dated by the Fund Details
+section (where shares — the net-flow driver — lives). BITB, whose sections
+share a date, is unaffected (skew 0).
 
 ## Deferred (filed as separate backlog items if pursued)
 
-1. **Remaining issuers** — FBTC (Fidelity), GBTC (Grayscale), ARKB (ARK), and
-   Bitwise ETHW. ARKB confirmed Cloudflare-walled; GBTC rate-limited; FBTC URL
-   not yet found; ETHW needs the same product-page spike BITB got.
+1. **Remaining issuers** — FBTC (Fidelity), GBTC (Grayscale), ARKB (ARK).
+   ARKB confirmed Cloudflare-walled; GBTC rate-limited; FBTC URL not yet
+   found. (Bitwise ETHW shipped 2026-07-07, B-129 — see above.)
 2. **Historical backfill** — quarterly checkpoints via SEC 10-Q shares-outstanding extraction. Useful for triangulation against the daily feed once running.
 3. **Reconciliation against Yahoo dollar-volume (B-105 v1)** — sanity-check that daily net flow direction matches the volume proxy.
 4. **Coinbase institutional product feed** — skipped in Phase 1; revisit if needed.
