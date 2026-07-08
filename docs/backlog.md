@@ -182,15 +182,6 @@ _B-064 follow-ups (wire the remaining signal emitters) shipped — all emitters 
   - `meta.alerts` table.
   - Optional notification hook (Discord webhook, email, GH issue).
 
-### B-069 — Anomaly detection on per-series outliers
-- **Status:** open
-- **Priority:** low
-- **Context:** Z-score or MAD-based outlier detection per series — flags worth investigating.
-- **Acceptance criteria:**
-  - Per-series rolling z-score or MAD computed.
-  - Flags written to `meta.anomalies`.
-  - Surfaced via CLI.
-
 ## Phase 7 — Operations & hardening
 
 Reliability work that grows in importance as more sources go live.

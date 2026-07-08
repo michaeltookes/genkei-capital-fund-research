@@ -46,6 +46,7 @@ Subcommand surface (B-037):
 - ``genkei whales``    ETH whale-address daily flow (per category) [B-106 ✓]
 - ``genkei news-sentiment``
                         News tone vs forward returns — correlation     [B-056 ✓]
+- ``genkei anomalies`` Per-series return-anomaly flags          [B-069 ✓]
 """
 
 from __future__ import annotations
@@ -55,6 +56,7 @@ import sys
 import typer
 
 from genkei.cli import (
+    anomalies,
     backtest,
     cot,
     crowding,
@@ -165,6 +167,10 @@ app.command(
     "zcash-usage",
     help="Zcash shielded-pool adoption — shielded share of supply + trend (ZEC privacy signal).",
 )(zcash_usage.zcash_usage_cmd)
+app.command(
+    "anomalies",
+    help="Per-series return anomalies (B-069) — rolling MAD-based outlier flags.",
+)(anomalies.anomalies_cmd)
 app.command(
     "query",
     help="Ad-hoc SQL escape hatch (read-only, timeout + row cap enforced).",

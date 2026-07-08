@@ -66,6 +66,7 @@ from genkei.experiments.signal_store import Stack
 # historical stack the correlator can surface.
 DEFAULT_EQUITY_BENCHMARK = "SPY"
 DEFAULT_CRYPTO_BENCHMARK = "BTC"
+_UTC_DAY_SQL = "(ts AT TIME ZONE 'UTC')::date"
 
 # Asset-class → (loader-source, default-benchmark) map. Kept here so a
 # future asset class lands a single entry rather than threading through
@@ -149,25 +150,25 @@ def _load_yahoo_series(
 ) -> list[tuple[date, Decimal]]:
     """Load (ts, adj_close) from ``yahoo.candles`` for one ticker, ascending."""
     sql = (
-        "SELECT ts::date AS d, COALESCE(adj_close, close)::numeric "
+        f"SELECT {_UTC_DAY_SQL} AS d, COALESCE(adj_close, close)::numeric "
         "FROM yahoo.candles "
         "WHERE ticker = %s AND COALESCE(adj_close, close) IS NOT NULL"
     )
     params: list[Any] = [ticker]
     if since is not None:
         sql += (
-            " AND (ts::date >= %s OR ts::date = ("
-            "SELECT MAX(ts::date) FROM yahoo.candles "
+            f" AND ({_UTC_DAY_SQL} >= %s OR {_UTC_DAY_SQL} = ("
+            f"SELECT MAX({_UTC_DAY_SQL}) FROM yahoo.candles "
             "WHERE ticker = %s "
             "AND COALESCE(adj_close, close) IS NOT NULL "
-            "AND ts::date < %s"
+            f"AND {_UTC_DAY_SQL} < %s"
             "))"
         )
         params.extend([since, ticker, since])
     if until is not None:
-        sql += " AND ts::date <= %s"
+        sql += f" AND {_UTC_DAY_SQL} <= %s"
         params.append(until)
-    sql += " ORDER BY ts::date ASC"
+    sql += f" ORDER BY {_UTC_DAY_SQL} ASC"
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(sql, params)
         return [(d, Decimal(price)) for d, price in cur.fetchall()]
@@ -181,25 +182,25 @@ def _load_coinbase_series(
 ) -> list[tuple[date, Decimal]]:
     """Load (ts, close) from ``coinbase.candles`` for one product, ascending."""
     sql = (
-        "SELECT ts::date AS d, close::numeric "
+        f"SELECT {_UTC_DAY_SQL} AS d, close::numeric "
         "FROM coinbase.candles "
         "WHERE product = %s AND close IS NOT NULL"
     )
     params: list[Any] = [product]
     if since is not None:
         sql += (
-            " AND (ts::date >= %s OR ts::date = ("
-            "SELECT MAX(ts::date) FROM coinbase.candles "
+            f" AND ({_UTC_DAY_SQL} >= %s OR {_UTC_DAY_SQL} = ("
+            f"SELECT MAX({_UTC_DAY_SQL}) FROM coinbase.candles "
             "WHERE product = %s "
             "AND close IS NOT NULL "
-            "AND ts::date < %s"
+            f"AND {_UTC_DAY_SQL} < %s"
             "))"
         )
         params.extend([since, product, since])
     if until is not None:
-        sql += " AND ts::date <= %s"
+        sql += f" AND {_UTC_DAY_SQL} <= %s"
         params.append(until)
-    sql += " ORDER BY ts::date ASC"
+    sql += f" ORDER BY {_UTC_DAY_SQL} ASC"
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(sql, params)
         return [(d, Decimal(price)) for d, price in cur.fetchall()]

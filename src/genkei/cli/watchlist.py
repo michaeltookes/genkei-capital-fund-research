@@ -320,6 +320,10 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
         "macro_regime",
         "watchlist_scoring",
     ],
+    # B-069 — the anomaly detector runs on its own daily cron. It writes sparse
+    # flags into meta.anomalies, so health tracks this ingest-run heartbeat
+    # instead of table liveness; no flags on a quiet day is healthy.
+    "anomaly_detector": ["anomaly_detection"],
 }
 
 

@@ -377,6 +377,10 @@ class ExpectationsRegistryTests(unittest.TestCase):
             },
         )
 
+    def test_sparse_anomaly_flags_are_not_primary_liveness(self) -> None:
+        self.assertNotIn("anomaly_detector", PRIMARY_TABLES)
+        self.assertEqual(RECURRING_ENDPOINTS["anomaly_detector"], ["anomaly_detection"])
+
     def test_every_source_expects_at_least_a_collect_endpoint(self) -> None:
         """Recurring endpoint coverage includes every source health checks expect."""
         # All classic ingest sources have a `collect` endpoint. Some
@@ -403,9 +407,12 @@ class ExpectationsRegistryTests(unittest.TestCase):
                 "treasury",
                 "eia",
                 "signal_emitter",
+                "anomaly_detector",
             },
         )
-        emitter_exempt = {"signal_emitter"}
+        # Derived (compute-not-collect) sources whose endpoints aren't the
+        # classic 'collect'/'normalize' pair.
+        emitter_exempt = {"signal_emitter", "anomaly_detector"}
         for source, eps in RECURRING_ENDPOINTS.items():
             if source in emitter_exempt:
                 self.assertTrue(eps, f"{source} should declare at least one emitter")

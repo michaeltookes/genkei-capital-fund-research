@@ -22,6 +22,7 @@ commands read `GENKEI_DATABASE_URL` from the environment.
 
 | Command | Purpose |
 |---|---|
+| [`anomalies`](anomalies.md) | Per-series return anomalies (B-069) — rolling MAD-based outlier flags. |
 | [`backtest`](backtest.md) | Stack-outcome backtest (B-101) — do historical stacks predict forward returns? |
 | [`cot`](cot.md) | CFTC Commitments of Traders — weekly position breakdowns per market / trader category. |
 | [`crowding`](crowding.md) | 13F crowding monitor — top crowded watchlist names per quarter + deltas. |
