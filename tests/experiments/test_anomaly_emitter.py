@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import unittest
+from contextlib import redirect_stderr
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
@@ -110,9 +112,43 @@ class ParseArgsTests(unittest.TestCase):
 
         self.assertEqual(args.until, date(2026, 1, 5))
 
+    def test_rejects_window_below_min_window(self) -> None:
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as ctx:
+                parse_args(["--window", "7", "--min-window", "30"])
+
+        self.assertNotEqual(ctx.exception.code, 0)
+
 
 class RunAnomalyDetectionTests(unittest.TestCase):
     """Cover orchestration around cleanup plus optional upsert."""
+
+    def test_rejects_window_below_min_window_before_ingest_run(self) -> None:
+        with (
+            patch(
+                "genkei.experiments.emitters.anomaly_emitter._scan_targets"
+            ) as scan_targets,
+            patch(
+                "genkei.experiments.emitters.anomaly_emitter.db.ingest_run"
+            ) as ingest_run,
+            patch(
+                "genkei.experiments.emitters.anomaly_emitter.db.connection"
+            ) as connection,
+        ):
+            with self.assertRaisesRegex(
+                ValueError, "window must be greater than or equal to min_window"
+            ):
+                run_anomaly_detection(
+                    since=date(2026, 1, 3),
+                    until=date(2026, 1, 5),
+                    window=7,
+                    threshold=Decimal("999"),
+                    min_window=30,
+                )
+
+        scan_targets.assert_not_called()
+        ingest_run.assert_not_called()
+        connection.assert_not_called()
 
     def test_defaults_until_to_last_completed_utc_date(self) -> None:
         run = MagicMock()

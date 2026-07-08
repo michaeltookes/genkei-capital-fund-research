@@ -80,6 +80,15 @@ class TargetDetection:
     refresh_until: date | None
 
 
+def _validate_window_config(*, window: int, min_window: int) -> None:
+    if window <= 0:
+        raise ValueError("window must be a positive integer")
+    if min_window <= 0:
+        raise ValueError("min_window must be a positive integer")
+    if window < min_window:
+        raise ValueError("window must be greater than or equal to min_window")
+
+
 def _scan_targets() -> list[ScanTarget]:
     """Build the crypto + equity scan list from the watchlist."""
     watchlist = load_watchlist(DEFAULT_WATCHLIST_PATH)
@@ -211,6 +220,7 @@ def run_anomaly_detection(
     min_window: int = DEFAULT_MIN_WINDOW,
 ) -> EmitResult:
     """Scan every watchlist price series and upsert flagged outliers."""
+    _validate_window_config(window=window, min_window=min_window)
     effective_until = until or _last_completed_utc_date()
     targets = _scan_targets()
     with db.ingest_run(
@@ -303,7 +313,12 @@ def parse_args(argv: list[str]) -> Any:
     parser.add_argument("--threshold", type=Decimal, default=DEFAULT_THRESHOLD)
     parser.add_argument("--min-window", type=int, default=DEFAULT_MIN_WINDOW)
     parser.add_argument("--json", action="store_true")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    try:
+        _validate_window_config(window=args.window, min_window=args.min_window)
+    except ValueError as exc:
+        parser.error(str(exc))
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
