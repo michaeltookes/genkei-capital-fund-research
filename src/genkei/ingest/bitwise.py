@@ -22,12 +22,13 @@ NAV + total-net-assets and we *derive* shares = TNA / NAV. Bitwise publishes
 all three independently (NAV, net assets, AND shares outstanding), so we store
 each as published — and use date + value coherence as the gate: the Fund
 Details and NAV ``Data as of`` stamps must agree within
-``MAX_SECTION_DATE_SKEW_DAYS`` (a day or two of NAV/AUM refresh skew is normal
-ETF timing — seen on ETHW — not parse drift), then ``nav x shares`` must
-reconcile to ``net_assets`` within ``RECONCILE_TOLERANCE``. That value
-reconciliation is the real coherence gate — the Bitwise analog of the iShares
-"navAmountAsOf must equal totalNetAssetsFundAsOf" check. The observed
-reconciliation gap is ~0.01% at a shared date and ~0.5% at a one-day skew.
+``MAX_SECTION_DATE_SKEW_DAYS``, with NAV not newer than Fund Details (a day or
+two of NAV lag is normal ETF timing — seen on ETHW — not parse drift), then
+``nav x shares`` must reconcile to ``net_assets`` within
+``RECONCILE_TOLERANCE``. That value reconciliation is the real coherence gate
+— the Bitwise analog of the iShares "navAmountAsOf must equal
+totalNetAssetsFundAsOf" check. The observed reconciliation gap is ~0.01% at a
+shared date and ~0.5% at a one-day NAV lag.
 
 Daily net flow is NOT stored — it's computed at query time in
 ``genkei etf-flows --net-flow`` via ``(shares - LAG(shares)) x nav`` exactly
@@ -95,17 +96,13 @@ PRODUCT_URLS: dict[str, str] = {
 RECONCILE_TOLERANCE = Decimal("0.02")
 
 # The NAV strike and the Fund Details (shares/AUM) section can carry dates a
-# day or two apart — the per-share NAV is struck T+1 while the AUM/shares
-# refresh can lead or lag it by a day (seen on ETHW 2026-07-07: NAV as-of 7/5,
-# Fund Details as-of 7/6). A small skew is normal ETF operational timing, not
-# parse drift; the value reconciliation above is the real coherence gate. Only
-# a *large* gap — a stray date picked up from elsewhere on the page — should
-# void the snapshot. ``snapshot_date`` is taken from the Fund Details section
-# because shares_outstanding (the net-flow driver) and net_assets both come
-# from there, so the stored shares series is dated by its own refresh, not by
-# the NAV strike (which keeps net-flow's LAG(shares) sequencing correct when
-# the NAV date lags). BITB, whose sections share a date, sees skew=0 → no
-# behavior change.
+# day or two apart (seen on ETHW 2026-07-07: NAV as-of 7/5, Fund Details
+# as-of 7/6). A small NAV lag is normal ETF operational timing, not parse
+# drift; the value reconciliation above is the real coherence gate. A NAV date
+# newer than Fund Details is not accepted because ``snapshot_date`` is taken
+# from Fund Details, so storing a newer NAV there would overwrite the older
+# shares-date row while shares/AUM remain stale. BITB, whose sections share a
+# date, sees skew=0 -> no behavior change.
 MAX_SECTION_DATE_SKEW_DAYS = 3
 
 # A browser User-Agent — the static site serves scripted requests fine, but a
@@ -335,7 +332,16 @@ def parse_snapshot(
             as_of,
         )
         return None
-    skew_days = abs((fund_details_as_of - as_of).days)
+    skew_days = (fund_details_as_of - as_of).days
+    if skew_days < 0:
+        LOGGER.warning(
+            "bitwise %s: NAV as-of %s is newer than Fund Details as-of %s "
+            "- skipping snapshot to avoid mixing newer NAV with stale shares/AUM",
+            ticker,
+            as_of,
+            fund_details_as_of,
+        )
+        return None
     if skew_days > MAX_SECTION_DATE_SKEW_DAYS:
         LOGGER.warning(
             "bitwise %s: Fund Details as-of %s and NAV as-of %s differ by %s days "

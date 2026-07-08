@@ -71,8 +71,8 @@ BITB_WATCHLIST = EtfTickerEntry(
 
 # A trimmed fragment of the live ethwetf.com HTML (Bitwise Ethereum ETF,
 # verified 2026-07-07, B-129). Same page shape as BITB, but captures the
-# real-world *one-day skew* between the NAV strike (07/05) and the Fund
-# Details / AUM refresh (07/06) — the case that motivated
+# real-world *one-day NAV lag* between the NAV strike (07/05) and the Fund
+# Details / AUM refresh (07/06) - the case that motivated
 # MAX_SECTION_DATE_SKEW_DAYS. The values reconcile (12.83 x 14.92M ≈ $191.4M
 # vs $190.4M reported, ~0.5%), so only the strict date-equality that BITB
 # assumed would have (wrongly) dropped it.
@@ -369,6 +369,18 @@ class ParseSnapshotTests(unittest.TestCase):
         # Fund Details (06/29), not the NAV strike (06/28), dates the row —
         # shares_outstanding + net_assets come from the Fund Details section.
         self.assertEqual(snap.snapshot_date, date(2026, 6, 29))
+
+    def test_nav_newer_than_fund_details_drops_row(self) -> None:
+        """Do not rewrite a shares-date row with a newer NAV strike."""
+        html = LIVE_FRAGMENT_HTML.replace(
+            "Net Asset Value (NAV) and Market Price</h4>\n"
+            '  <p class="c-iAccHW"><!-- -->Data as of <!-- -->06/28/2026',
+            "Net Asset Value (NAV) and Market Price</h4>\n"
+            '  <p class="c-iAccHW"><!-- -->Data as of <!-- -->06/29/2026',
+        )
+        self.assertIsNone(
+            parse_snapshot(html, ticker="BITB", watchlist_entry=BITB_WATCHLIST)
+        )
 
 
 class EthwParseTests(unittest.TestCase):

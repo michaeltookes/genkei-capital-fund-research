@@ -140,11 +140,13 @@ labels) — the first non-BlackRock issuer on the *ETH* net-flow surface
 (alongside iShares ETHA/ETHB). One wrinkle it surfaced: ETHW publishes the NAV
 strike and the Fund Details (shares/AUM) section a day apart (NAV T+2, AUM
 T+1), where BITB stamps both the same day. The parser's strict date-equality
-would have silently dropped every skewed day, so it was relaxed to a bounded
-skew (`MAX_SECTION_DATE_SKEW_DAYS = 3`) with the `nav × shares ≈ net_assets`
-reconciliation as the real coherence gate, and the row is now dated by the
-Fund Details section (where shares — the net-flow driver — lives). BITB, whose
-sections share a date, is unaffected (skew 0).
+would have silently dropped every NAV-lagged day, so it was relaxed to a
+bounded NAV lag (`MAX_SECTION_DATE_SKEW_DAYS = 3`) with the
+`nav × shares ≈ net_assets` reconciliation as the real coherence gate. NAV
+dates newer than Fund Details are still rejected so a rerun cannot rewrite an
+older shares-date row with a future NAV. Rows are now dated by the Fund Details
+section (where shares — the net-flow driver — lives). BITB, whose sections
+share a date, is unaffected (skew 0).
 
 ## Deferred (filed as separate backlog items if pursued)
 
