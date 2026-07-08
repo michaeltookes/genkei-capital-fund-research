@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -101,6 +101,11 @@ def _scan_targets() -> list[ScanTarget]:
 def _ts(day: date) -> datetime:
     """A series date as a UTC-midnight timestamp for the TIMESTAMPTZ column."""
     return datetime.combine(day, time(0, 0, tzinfo=timezone.utc))
+
+
+def _last_completed_utc_date() -> date:
+    """Return the last fully completed UTC daily candle date."""
+    return datetime.now(timezone.utc).date() - timedelta(days=1)
 
 
 def _anomaly_to_row(
@@ -206,13 +211,14 @@ def run_anomaly_detection(
     min_window: int = DEFAULT_MIN_WINDOW,
 ) -> EmitResult:
     """Scan every watchlist price series and upsert flagged outliers."""
+    effective_until = until or _last_completed_utc_date()
     targets = _scan_targets()
     with db.ingest_run(
         SOURCE_NAME,
         endpoint=ENDPOINT,
         metadata={
             "since": since.isoformat() if since else None,
-            "until": until.isoformat() if until else None,
+            "until": effective_until.isoformat(),
             "window": window,
             "threshold": str(threshold),
             "min_window": min_window,
@@ -226,7 +232,7 @@ def run_anomaly_detection(
             detection = _detect_for_target(
                 target,
                 since=since,
-                until=until,
+                until=effective_until,
                 window=window,
                 threshold=threshold,
                 min_window=min_window,

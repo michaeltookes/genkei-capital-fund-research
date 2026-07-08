@@ -100,6 +100,51 @@ class DeleteRefreshedAnomaliesTests(unittest.TestCase):
 class RunAnomalyDetectionTests(unittest.TestCase):
     """Cover orchestration around cleanup plus optional upsert."""
 
+    def test_defaults_until_to_last_completed_utc_date(self) -> None:
+        run = MagicMock()
+        run.id = 42
+        run.__enter__.return_value = run
+        run.__exit__.return_value = None
+        target = ScanTarget(asset="bitcoin", asset_class="crypto")
+
+        with (
+            patch(
+                "genkei.experiments.emitters.anomaly_emitter._last_completed_utc_date",
+                return_value=date(2026, 1, 5),
+            ),
+            patch(
+                "genkei.experiments.emitters.anomaly_emitter._scan_targets",
+                return_value=[target],
+            ),
+            patch(
+                "genkei.experiments.emitters.anomaly_emitter._detect_for_target",
+                return_value=None,
+            ) as detect,
+            patch(
+                "genkei.experiments.emitters.anomaly_emitter.db.ingest_run",
+                return_value=run,
+            ) as ingest_run,
+        ):
+            result = run_anomaly_detection(
+                since=date(2026, 1, 3),
+                until=None,
+                window=3,
+                threshold=Decimal("999"),
+                min_window=1,
+            )
+
+        detect.assert_called_once_with(
+            target,
+            since=date(2026, 1, 3),
+            until=date(2026, 1, 5),
+            window=3,
+            threshold=Decimal("999"),
+            min_window=1,
+        )
+        self.assertEqual(ingest_run.call_args.kwargs["metadata"]["until"], "2026-01-05")
+        run.add_rows.assert_called_once_with(0)
+        self.assertEqual(result.targets_skipped_no_data, 1)
+
     def test_deletes_stale_rows_even_when_fresh_slice_has_no_flags(self) -> None:
         class FakeRun:
             id = 42
