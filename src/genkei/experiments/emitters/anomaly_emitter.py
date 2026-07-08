@@ -2,7 +2,7 @@
 
 Reads each watchlist asset's daily close series from the lake, converts it to
 daily returns, runs the pure ``anomaly_detection`` detector over the whole
-history, and upserts the flagged outliers into ``meta.anomalies``.
+history, and reconciles the refreshed flag slice into ``meta.anomalies``.
 ``genkei anomalies`` reads them back.
 
 Scope (v1): the metric is ``daily_return`` for every watchlist **crypto**
@@ -17,8 +17,10 @@ The detector runs over the **full** loaded history so the rolling median/MAD
 are well-formed, then ``--since`` / ``--until`` bound only which flagged dates
 get persisted — the same "compute over everything, write the recent slice"
 shape the TVL-drawdown emitter uses. Writes are idempotent on
-``(asset, metric, ts, method)``, so the daily cron can re-scan a trailing
-window harmlessly.
+``(asset, metric, ts, method)``, and stale rows in the refreshed
+asset/metric/date slice are deleted before fresh flags are inserted, so the
+daily cron can re-scan a trailing window harmlessly after source candles are
+corrected.
 """
 
 from __future__ import annotations
@@ -69,6 +71,15 @@ class EmitResult:
     targets_skipped_no_data: int
 
 
+@dataclass(frozen=True)
+class TargetDetection:
+    """Detection output plus the date slice refreshed for one target."""
+
+    anomalies: list[Anomaly]
+    refresh_since: date | None
+    refresh_until: date | None
+
+
 def _scan_targets() -> list[ScanTarget]:
     """Build the crypto + equity scan list from the watchlist."""
     watchlist = load_watchlist(DEFAULT_WATCHLIST_PATH)
@@ -112,6 +123,20 @@ def _anomaly_to_row(
     }
 
 
+def _refresh_bounds(
+    returns: list[SeriesPoint], *, since: date | None, until: date | None
+) -> tuple[date | None, date | None]:
+    """Return the inclusive date bounds that this run refreshed."""
+    dates = [
+        point.ts
+        for point in returns
+        if (since is None or point.ts >= since) and (until is None or point.ts <= until)
+    ]
+    if not dates:
+        return None, None
+    return dates[0], dates[-1]
+
+
 def _detect_for_target(
     target: ScanTarget,
     *,
@@ -120,21 +145,56 @@ def _detect_for_target(
     window: int,
     threshold: Decimal,
     min_window: int,
-) -> list[Anomaly] | None:
+) -> TargetDetection | None:
     """Load, transform, and detect for one target. ``None`` = no usable series."""
     closes = load_close_series(target.asset, target.asset_class, until=until)
     if len(closes) < min_window + 2:
         return None
     points = [SeriesPoint(ts=d, value=v) for d, v in closes]
     returns = to_returns(points)
+    refresh_since, refresh_until = _refresh_bounds(returns, since=since, until=until)
     anomalies = detect_anomalies(
         returns, window=window, threshold=threshold, min_window=min_window
     )
-    return [
-        a
-        for a in anomalies
-        if (since is None or a.ts >= since) and (until is None or a.ts <= until)
-    ]
+    return TargetDetection(
+        anomalies=[
+            a
+            for a in anomalies
+            if (since is None or a.ts >= since) and (until is None or a.ts <= until)
+        ],
+        refresh_since=refresh_since,
+        refresh_until=refresh_until,
+    )
+
+
+def _delete_refreshed_anomalies(
+    conn: Any, detections: list[tuple[ScanTarget, TargetDetection]]
+) -> int:
+    """Delete stale anomaly flags in each target's refreshed date slice."""
+    deleted = 0
+    with conn.cursor() as cur:
+        for target, detection in detections:
+            if detection.refresh_since is None or detection.refresh_until is None:
+                continue
+            cur.execute(
+                """
+                DELETE FROM meta.anomalies
+                WHERE asset = %s
+                  AND asset_class = %s
+                  AND metric = %s
+                  AND ts >= %s
+                  AND ts <= %s
+                """,
+                [
+                    target.asset,
+                    target.asset_class,
+                    METRIC_DAILY_RETURN,
+                    _ts(detection.refresh_since),
+                    _ts(detection.refresh_until),
+                ],
+            )
+            deleted += max(cur.rowcount or 0, 0)
+    return deleted
 
 
 def run_anomaly_detection(
@@ -160,9 +220,10 @@ def run_anomaly_detection(
         },
     ) as run:
         rows: list[dict[str, Any]] = []
+        detections: list[tuple[ScanTarget, TargetDetection]] = []
         skipped_no_data = 0
         for target in targets:
-            anomalies = _detect_for_target(
+            detection = _detect_for_target(
                 target,
                 since=since,
                 until=until,
@@ -170,7 +231,7 @@ def run_anomaly_detection(
                 threshold=threshold,
                 min_window=min_window,
             )
-            if anomalies is None:
+            if detection is None:
                 LOGGER.warning(
                     "anomaly_detector: %s (%s) has too little close history; skipping",
                     target.asset,
@@ -178,18 +239,24 @@ def run_anomaly_detection(
                 )
                 skipped_no_data += 1
                 continue
+            detections.append((target, detection))
             rows.extend(
-                _anomaly_to_row(target, a, ingest_run_id=run.id) for a in anomalies
+                _anomaly_to_row(target, a, ingest_run_id=run.id)
+                for a in detection.anomalies
             )
         written = 0
-        if rows:
+        if detections:
             with db.connection() as conn:
-                written = db.bulk_upsert(
-                    conn,
-                    "meta.anomalies",
-                    rows,
-                    conflict_keys=("asset", "metric", "ts", "method"),
-                )
+                deleted = _delete_refreshed_anomalies(conn, detections)
+                if deleted:
+                    LOGGER.info("anomaly_detector: deleted %s stale flags", deleted)
+                if rows:
+                    written = db.bulk_upsert(
+                        conn,
+                        "meta.anomalies",
+                        rows,
+                        conflict_keys=("asset", "metric", "ts", "method"),
+                    )
         run.add_rows(written)
         LOGGER.info(
             "anomaly_detector: +%s flags across %s targets (%s skipped no-data)",

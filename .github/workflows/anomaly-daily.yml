@@ -55,4 +55,5 @@ jobs:
         run: |
           bash scripts/ci/retry.sh 3 10 -- \
             python3 -m genkei.experiments.emitters.anomaly_emitter \
-              --since "$(date -u -d '120 days ago' '+%Y-%m-%d')"
+              --since "$(date -u -d '120 days ago' '+%Y-%m-%d')" \
+              --until "$(date -u -d 'yesterday' '+%Y-%m-%d')"
