@@ -44,6 +44,7 @@ on:
       - "Zcash Usage Daily Snapshot"
       - "Weekly Signal Digest"
       - "Watchlist Scoring Daily"
+      - "Anomaly Detection Daily"
       - "Ingest Staleness Check"
       - "Ingest Heartbeat"
     types: [completed]
