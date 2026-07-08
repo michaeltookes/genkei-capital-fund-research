@@ -14,11 +14,13 @@ Usage:
   genkei macro --series CPIAUCSL --since 2020 --until 2024
   genkei macro --series GDPC1 --as-of 2024-06-15         vintage as known
   genkei macro --series DGS10 --all-vintages --since 2024-01-01
+  genkei macro --series DGS10 --since 2024-01-01 --regime  regime per date
   genkei macro --series DGS10 --json
 """
 
 import json
-from datetime import date, datetime, timezone
+from bisect import bisect_right
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, Any, Optional
 
@@ -108,6 +110,75 @@ def _query_observations(
     ]
 
 
+# The regime view is anchored on DGS10 business days, so the prevailing regime
+# for a weekend / holiday / monthly-print observation date sits a few days
+# back. Load this many days before the earliest observation so even the first
+# row has a prior regime to carry forward.
+_REGIME_BACKFILL_DAYS = 10
+
+
+def _load_regime_calendar(
+    min_date: date, max_date: date
+) -> list[tuple[date, str]]:
+    """Load ``(ts, regime)`` from the regime view over a bounded window, ascending.
+
+    One view evaluation for the whole annotation — the view fully materializes
+    per call (~1s), so we must NOT re-query it per observation date.
+    """
+    sql = (
+        "SELECT ts, regime FROM analytics.macro_regime_per_date "
+        "WHERE ts >= %s AND ts <= %s ORDER BY ts ASC"
+    )
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, [min_date - timedelta(days=_REGIME_BACKFILL_DAYS), max_date])
+        return [(ts, regime) for ts, regime in cur.fetchall()]
+
+
+def _annotate_with_regime(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Attach each observation's prevailing macro regime (B-066).
+
+    Resolves every row's observation date against ``analytics.macro_regime_per_date``
+    (the B-059/B-096 view) *as-of* that date — the most recent regime label on
+    or before it. The as-of lookup (not exact-date match) is what makes this
+    correct for mixed-cadence FRED series: a monthly CPI print dated the 1st,
+    or a daily yield on a market holiday, still resolves to the regime that was
+    in force. Rows before the regime view's 2006 start get ``regime=None``.
+
+    Each row gains ``regime`` and ``regime_as_of`` (the date the label is from,
+    which lags the observation date whenever the regime is carried forward).
+    """
+    obs_dates = [
+        date.fromisoformat(r["ts"][:10]) for r in rows if r.get("ts")
+    ]
+    if not obs_dates:
+        return [{**r, "regime": None, "regime_as_of": None} for r in rows]
+    calendar = _load_regime_calendar(min(obs_dates), max(obs_dates))
+    calendar_ts = [ts for ts, _ in calendar]
+
+    def _asof(obs: date) -> tuple[Optional[str], Optional[date]]:
+        # Rightmost calendar entry with ts <= obs.
+        idx = bisect_right(calendar_ts, obs) - 1
+        if idx < 0:
+            return None, None
+        ts, regime = calendar[idx]
+        return regime, ts
+
+    annotated: list[dict[str, Any]] = []
+    for row in rows:
+        if not row.get("ts"):
+            annotated.append({**row, "regime": None, "regime_as_of": None})
+            continue
+        regime, regime_ts = _asof(date.fromisoformat(row["ts"][:10]))
+        annotated.append(
+            {
+                **row,
+                "regime": regime,
+                "regime_as_of": regime_ts.isoformat() if regime_ts is not None else None,
+            }
+        )
+    return annotated
+
+
 def _format_human(
     series_id: str,
     rows: list[dict[str, Any]],
@@ -115,6 +186,7 @@ def _format_human(
     as_of: Optional[date],
     all_vintages: bool,
     horizon_tag: Optional[str] = None,
+    with_regime: bool = False,
 ) -> str:
     if not rows:
         hint = (
@@ -134,15 +206,25 @@ def _format_human(
         f"{vintage_tag}{', horizon=' + horizon_tag if horizon_tag is not None else ''})"
     )
     lines = [header, "-" * len(header)]
+    regime_col = f"  {'regime':<18}" if with_regime else ""
     lines.append(
-        f"  {'ts':<12} {'realtime_start':<16} {'realtime_end':<16} {'value':>16}"
+        f"  {'ts':<12} {'realtime_start':<16} {'realtime_end':<16} {'value':>16}{regime_col}"
     )
     for r in rows:
         ts = r["ts"][:10] if r["ts"] else "-"  # date portion
         rs = r["realtime_start"] or "-"
         re = r["realtime_end"] or "-"
         val = f"{r['value']:>16,.4f}" if r["value"] is not None else f"{'n/a':>16}"
-        lines.append(f"  {ts:<12} {rs:<16} {re:<16} {val}")
+        regime_cell = ""
+        if with_regime:
+            label = r.get("regime") or "n/a"
+            # Flag when the label is carried forward from an earlier date (the
+            # regime view is anchored on business days; a holiday/weekend or a
+            # monthly print resolves to the prior in-force regime).
+            carried = r.get("regime_as_of") and r["regime_as_of"] != ts
+            suffix = f" (as of {r['regime_as_of']})" if carried else ""
+            regime_cell = f"  {label + suffix:<18}"
+        lines.append(f"  {ts:<12} {rs:<16} {re:<16} {val}{regime_cell}")
     return "\n".join(lines)
 
 
@@ -190,6 +272,17 @@ def macro_cmd(
         typer.Option(
             "--all-vintages",
             help="Return every revision row (no per-ts dedupe).",
+        ),
+    ] = False,
+    regime: Annotated[
+        bool,
+        typer.Option(
+            "--regime",
+            help=(
+                "Annotate each observation with the prevailing macro regime "
+                "(risk_on / risk_off / easing / tightening_stress / mixed) "
+                "as-of that date, from analytics.macro_regime_per_date."
+            ),
         ),
     ] = False,
     limit: Annotated[int, typer.Option("--limit", help="Max rows.", min=1)] = 30,
@@ -244,6 +337,8 @@ def macro_cmd(
         limit=limit,
     )
     rows = _tag_rows(rows, horizon_tag)
+    if regime:
+        rows = _annotate_with_regime(rows)
 
     # Freshness check on the FRED ingest pipeline (B-023). Observation ts is
     # the wrong signal here — a monthly series' freshest observation is
@@ -263,6 +358,7 @@ def macro_cmd(
                 as_of=as_of_d,
                 all_vintages=all_vintages,
                 horizon_tag=horizon_tag,
+                with_regime=regime,
             )
         )
     emit_freshness_warning(freshness, json_out=json_out)

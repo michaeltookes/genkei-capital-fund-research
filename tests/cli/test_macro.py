@@ -12,7 +12,12 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from genkei.cli import main
-from genkei.cli.macro import _format_human, _parse_date, _query_observations
+from genkei.cli.macro import (
+    _annotate_with_regime,
+    _format_human,
+    _parse_date,
+    _query_observations,
+)
 
 MACRO_YAML = (
     "macro_series:\n"
@@ -251,6 +256,142 @@ class QueryObservationsSqlShapeTests(unittest.TestCase):
             datetime(2024, 6, 30, 23, 59, 59, 999999, tzinfo=timezone.utc),
             params,
         )
+
+
+class AnnotateWithRegimeTests(unittest.TestCase):
+    """B-066 — as-of regime annotation over the loaded regime calendar."""
+
+    _CALENDAR = [
+        (date(2026, 6, 28), "mixed"),
+        (date(2026, 6, 29), "risk_on"),
+        (date(2026, 7, 1), "risk_on"),
+    ]
+
+    def _annotate(self, rows: list[dict]) -> list[dict]:
+        with patch(
+            "genkei.cli.macro._load_regime_calendar", return_value=self._CALENDAR
+        ):
+            return _annotate_with_regime(rows)
+
+    def test_exact_date_match(self) -> None:
+        out = self._annotate([{"ts": "2026-06-29T00:00:00+00:00", "value": 4.4}])
+        self.assertEqual(out[0]["regime"], "risk_on")
+        self.assertEqual(out[0]["regime_as_of"], "2026-06-29")
+
+    def test_carries_forward_when_no_row_that_day(self) -> None:
+        # 07/02 has no calendar entry → uses the prevailing 07/01 regime.
+        out = self._annotate([{"ts": "2026-07-02T00:00:00+00:00", "value": None}])
+        self.assertEqual(out[0]["regime"], "risk_on")
+        self.assertEqual(out[0]["regime_as_of"], "2026-07-01")
+
+    def test_before_calendar_start_is_none(self) -> None:
+        out = self._annotate([{"ts": "2026-06-01T00:00:00+00:00", "value": 4.0}])
+        self.assertIsNone(out[0]["regime"])
+        self.assertIsNone(out[0]["regime_as_of"])
+
+    def test_row_without_ts_is_tolerated(self) -> None:
+        out = self._annotate([{"ts": None, "value": None}])
+        self.assertIsNone(out[0]["regime"])
+
+    def test_empty_rows_short_circuit_without_db(self) -> None:
+        # No dates → no calendar load at all (helper must not touch the DB).
+        with patch("genkei.cli.macro._load_regime_calendar") as loader:
+            out = _annotate_with_regime([])
+        loader.assert_not_called()
+        self.assertEqual(out, [])
+
+
+class FormatWithRegimeTests(unittest.TestCase):
+    def test_regime_column_renders_with_carry_forward_suffix(self) -> None:
+        rows = [
+            {
+                "ts": "2026-07-02T00:00:00+00:00",
+                "realtime_start": "2026-07-03",
+                "realtime_end": "9999-12-31",
+                "value": 4.48,
+                "regime": "risk_on",
+                "regime_as_of": "2026-07-01",
+            }
+        ]
+        out = _format_human(
+            "DGS10", rows, as_of=None, all_vintages=False, with_regime=True
+        )
+        self.assertIn("regime", out)
+        # Carried-forward label flags the source date.
+        self.assertIn("risk_on (as of 2026-07-01)", out)
+
+    def test_no_regime_column_when_flag_off(self) -> None:
+        rows = [
+            {
+                "ts": "2026-07-02T00:00:00+00:00",
+                "realtime_start": "2026-07-03",
+                "realtime_end": "9999-12-31",
+                "value": 4.48,
+            }
+        ]
+        out = _format_human("DGS10", rows, as_of=None, all_vintages=False)
+        self.assertNotIn("regime", out)
+
+
+class MacroRegimeFlagTests(unittest.TestCase):
+    def test_regime_flag_annotates_output(self) -> None:
+        path = _watchlist_path(self)
+        rows = [
+            {
+                "ts": "2026-07-01T00:00:00+00:00",
+                "realtime_start": "2026-07-02",
+                "realtime_end": "9999-12-31",
+                "value": 4.49,
+            }
+        ]
+        out = io.StringIO()
+        with (
+            patch("genkei.cli.macro._query_observations", return_value=rows),
+            patch(
+                "genkei.cli.macro._load_regime_calendar",
+                return_value=[(date(2026, 7, 1), "risk_on")],
+            ),
+            redirect_stdout(out),
+        ):
+            code = main(
+                ["macro", "--series", "DGS10", "--config", str(path), "--regime"]
+            )
+        self.assertIn(code, (None, 0))
+        self.assertIn("risk_on", out.getvalue())
+
+    def test_regime_flag_json_includes_regime_fields(self) -> None:
+        path = _watchlist_path(self)
+        rows = [
+            {
+                "ts": "2026-07-01T00:00:00+00:00",
+                "realtime_start": "2026-07-02",
+                "realtime_end": "9999-12-31",
+                "value": 4.49,
+            }
+        ]
+        out = io.StringIO()
+        with (
+            patch("genkei.cli.macro._query_observations", return_value=rows),
+            patch(
+                "genkei.cli.macro._load_regime_calendar",
+                return_value=[(date(2026, 7, 1), "risk_on")],
+            ),
+            redirect_stdout(out),
+        ):
+            main(
+                [
+                    "macro",
+                    "--series",
+                    "DGS10",
+                    "--config",
+                    str(path),
+                    "--regime",
+                    "--json",
+                ]
+            )
+        parsed = json_mod.loads(out.getvalue())
+        self.assertEqual(parsed[0]["regime"], "risk_on")
+        self.assertEqual(parsed[0]["regime_as_of"], "2026-07-01")
 
 
 if __name__ == "__main__":
