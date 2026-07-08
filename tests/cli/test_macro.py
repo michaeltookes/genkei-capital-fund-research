@@ -334,6 +334,45 @@ class FormatWithRegimeTests(unittest.TestCase):
 
 
 class MacroRegimeFlagTests(unittest.TestCase):
+    def test_regime_rejects_as_of_until_regime_labels_are_vintage_aware(self) -> None:
+        path = _watchlist_path(self)
+        err = io.StringIO()
+        with redirect_stderr(err):
+            code = main(
+                [
+                    "macro",
+                    "--series",
+                    "DGS10",
+                    "--config",
+                    str(path),
+                    "--as-of",
+                    "2024-06-30",
+                    "--regime",
+                ]
+            )
+        self.assertEqual(code, 2)
+        self.assertIn("vintage-aware", err.getvalue())
+
+    def test_regime_rejects_all_vintages_until_regime_labels_are_vintage_aware(
+        self,
+    ) -> None:
+        path = _watchlist_path(self)
+        err = io.StringIO()
+        with redirect_stderr(err):
+            code = main(
+                [
+                    "macro",
+                    "--series",
+                    "DGS10",
+                    "--config",
+                    str(path),
+                    "--all-vintages",
+                    "--regime",
+                ]
+            )
+        self.assertEqual(code, 2)
+        self.assertIn("vintage-aware", err.getvalue())
+
     def test_regime_flag_annotates_output(self) -> None:
         path = _watchlist_path(self)
         rows = [

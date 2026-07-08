@@ -34,6 +34,7 @@ from genkei.common.freshness import (
     DEFAULT_MAX_SNAPSHOT_AGE_HOURS,
     ingest_run_freshness,
 )
+from genkei.common.macro_regime import load_macro_regime_labels
 from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
     MacroEntry,
@@ -125,13 +126,11 @@ def _load_regime_calendar(
     One view evaluation for the whole annotation — the view fully materializes
     per call (~1s), so we must NOT re-query it per observation date.
     """
-    sql = (
-        "SELECT ts, regime FROM analytics.macro_regime_per_date "
-        "WHERE ts >= %s AND ts <= %s ORDER BY ts ASC"
+    return load_macro_regime_labels(
+        since=min_date - timedelta(days=_REGIME_BACKFILL_DAYS),
+        until=max_date,
+        ascending=True,
     )
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, [min_date - timedelta(days=_REGIME_BACKFILL_DAYS), max_date])
-        return [(ts, regime) for ts, regime in cur.fetchall()]
 
 
 def _annotate_with_regime(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -317,6 +316,16 @@ def macro_cmd(
         raise typer.BadParameter("--since must be on or before --until.")
     if all_vintages and as_of_d is not None:
         raise typer.BadParameter("--all-vintages and --as-of are mutually exclusive.")
+    if regime and as_of_d is not None:
+        raise typer.BadParameter(
+            "--regime cannot be combined with --as-of until regime labels are "
+            "vintage-aware."
+        )
+    if regime and all_vintages:
+        raise typer.BadParameter(
+            "--regime cannot be combined with --all-vintages until regime labels "
+            "are vintage-aware."
+        )
 
     try:
         watchlist = load_watchlist(config)

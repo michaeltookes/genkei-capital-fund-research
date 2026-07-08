@@ -81,6 +81,10 @@ Annotates each observation with the prevailing macro regime *as-of* that date,
 resolved from `analytics.macro_regime_per_date` (the B-059/B-096 view). The
 as-of match carries the last in-force regime forward, so it works for
 mixed-cadence series (a monthly print or a market-holiday day still resolves).
+Because that regime view reflects the latest revised FRED inputs, `--regime`
+only works with the default latest-vintage observation mode. Combine it with
+neither `--as-of` nor `--all-vintages` until the regime pipeline is
+vintage-aware.
 
 ```console
 $ genkei macro --series DGS10 --since 2026-06-28 --limit 4 --regime

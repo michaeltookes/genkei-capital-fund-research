@@ -49,6 +49,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from genkei.common import db
+from genkei.common.macro_regime import load_macro_regime_labels
 from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH
 
 # Default return windows. Tuples are (label, days_offset_low,
@@ -529,17 +530,7 @@ def load_regime_for_dates(dates: Sequence[date]) -> dict[date, str]:
     Returns ``{date: regime}``. Dates outside coverage (pre-2006 or
     after the view's latest ts) are absent from the result.
     """
-    if not dates:
-        return {}
-    unique_dates = sorted(set(dates))
-    sql = (
-        "SELECT ts, regime FROM analytics.macro_regime_per_date "
-        "WHERE ts = ANY(%s)"
-    )
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, [unique_dates])
-        rows = cur.fetchall()
-    return {ts: regime for ts, regime in rows}
+    return dict(load_macro_regime_labels(dates=dates))
 
 
 # ---------------------------------------------------------------------------
