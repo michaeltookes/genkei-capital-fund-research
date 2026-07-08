@@ -151,6 +151,8 @@ def detect_anomalies(
         if i < min_window:
             continue
         window_values = [p.value for p in points[max(0, i - window) : i]]
+        # ``window`` can be shorter than ``min_window``; enforce the warm-up
+        # against the actual sliced lookback, not just the absolute index.
         if len(window_values) < min_window:
             continue
         scored = _score_point(point.value, window_values)
