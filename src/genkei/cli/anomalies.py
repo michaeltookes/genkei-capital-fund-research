@@ -26,6 +26,7 @@ from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist
 
 _VALID_CLASSES = {"crypto", "equity"}
 _VALID_DIRECTIONS = {"spike_up", "spike_down"}
+_ANOMALY_DAY_SQL = "(ts AT TIME ZONE 'UTC')::date"
 
 
 def _append_unique(values: list[str], value: str) -> None:
@@ -70,7 +71,8 @@ def _query(
     limit: int,
 ) -> list[dict[str, Any]]:
     sql = (
-        "SELECT asset, asset_class, metric, ts::date AS d, value, score, method, "
+        "SELECT asset, asset_class, metric, "
+        f"{_ANOMALY_DAY_SQL} AS d, value, score, method, "
         "direction, window_days, threshold, median, mad "
         "FROM meta.anomalies WHERE 1=1"
     )
@@ -87,10 +89,10 @@ def _query(
         sql += " AND direction = %s"
         params.append(direction)
     if since is not None:
-        sql += " AND ts::date >= %s"
+        sql += f" AND {_ANOMALY_DAY_SQL} >= %s"
         params.append(since)
     if until is not None:
-        sql += " AND ts::date <= %s"
+        sql += f" AND {_ANOMALY_DAY_SQL} <= %s"
         params.append(until)
     if min_score is not None:
         sql += " AND abs(score) >= %s"

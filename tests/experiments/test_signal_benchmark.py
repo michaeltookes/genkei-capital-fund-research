@@ -407,7 +407,11 @@ class LoaderSqlTests(unittest.TestCase):
                 "NVDA", since=date(2024, 3, 2), until=date(2024, 3, 4)
             )
         self.assertEqual(rows, [(date(2024, 3, 1), Decimal("100"))])
-        self.assertIn("SELECT MAX(ts::date) FROM yahoo.candles", cursor.sql)
+        self.assertIn("SELECT (ts AT TIME ZONE 'UTC')::date AS d", cursor.sql)
+        self.assertIn("SELECT MAX((ts AT TIME ZONE 'UTC')::date)", cursor.sql)
+        self.assertIn("AND (ts AT TIME ZONE 'UTC')::date <= %s", cursor.sql)
+        self.assertIn("ORDER BY (ts AT TIME ZONE 'UTC')::date ASC", cursor.sql)
+        self.assertNotIn("ts::date", cursor.sql)
         self.assertEqual(
             cursor.params,
             [
@@ -429,7 +433,11 @@ class LoaderSqlTests(unittest.TestCase):
                 "ETH-USD", since=date(2024, 3, 2), until=date(2024, 3, 4)
             )
         self.assertEqual(rows, [(date(2024, 3, 1), Decimal("100"))])
-        self.assertIn("SELECT MAX(ts::date) FROM coinbase.candles", cursor.sql)
+        self.assertIn("SELECT (ts AT TIME ZONE 'UTC')::date AS d", cursor.sql)
+        self.assertIn("SELECT MAX((ts AT TIME ZONE 'UTC')::date)", cursor.sql)
+        self.assertIn("AND (ts AT TIME ZONE 'UTC')::date <= %s", cursor.sql)
+        self.assertIn("ORDER BY (ts AT TIME ZONE 'UTC')::date ASC", cursor.sql)
+        self.assertNotIn("ts::date", cursor.sql)
         self.assertEqual(
             cursor.params,
             [
