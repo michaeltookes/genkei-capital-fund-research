@@ -22,9 +22,41 @@ import typer
 from genkei.cli._helpers import json_default as _json_default
 from genkei.cli._helpers import parse_date as _parse_date
 from genkei.common import db
+from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist
 
 _VALID_CLASSES = {"crypto", "equity"}
 _VALID_DIRECTIONS = {"spike_up", "spike_down"}
+
+
+def _append_unique(values: list[str], value: str) -> None:
+    stripped = value.strip()
+    if stripped and stripped not in values:
+        values.append(stripped)
+
+
+def _asset_filter_values(asset: Optional[str]) -> list[str]:
+    """Return stored asset IDs that should satisfy a user-facing asset filter."""
+    if asset is None:
+        return []
+    stripped = asset.strip()
+    if not stripped:
+        return []
+    values = [stripped]
+    try:
+        watchlist = load_watchlist(DEFAULT_WATCHLIST_PATH)
+    except (FileNotFoundError, ValueError):
+        return values
+
+    crypto = watchlist.find_crypto(stripped)
+    if crypto is not None:
+        _append_unique(values, crypto.symbol.upper())
+        _append_unique(values, crypto.coingecko_id)
+
+    equity = watchlist.find_equity(stripped)
+    if equity is not None:
+        _append_unique(values, equity.symbol.upper())
+
+    return values
 
 
 def _query(
@@ -43,9 +75,11 @@ def _query(
         "FROM meta.anomalies WHERE 1=1"
     )
     params: list[Any] = []
-    if asset is not None:
-        sql += " AND asset = %s"
-        params.append(asset)
+    asset_values = _asset_filter_values(asset)
+    if asset_values:
+        placeholders = ", ".join(["%s"] * len(asset_values))
+        sql += f" AND asset IN ({placeholders})"
+        params.extend(asset_values)
     if asset_class is not None:
         sql += " AND asset_class = %s"
         params.append(asset_class)
