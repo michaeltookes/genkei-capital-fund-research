@@ -294,7 +294,11 @@ def parse_args(argv: list[str]) -> Any:
         description="Detect per-series return anomalies into meta.anomalies."
     )
     parser.add_argument("--since", type=parse_date_arg("since"), default=None)
-    parser.add_argument("--until", type=parse_date_arg("until"), default=None)
+    parser.add_argument(
+        "--until",
+        type=parse_date_arg("until"),
+        default=_last_completed_utc_date(),
+    )
     parser.add_argument("--window", type=int, default=DEFAULT_WINDOW)
     parser.add_argument("--threshold", type=Decimal, default=DEFAULT_THRESHOLD)
     parser.add_argument("--min-window", type=int, default=DEFAULT_MIN_WINDOW)

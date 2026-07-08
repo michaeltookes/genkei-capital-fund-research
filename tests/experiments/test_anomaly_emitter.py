@@ -13,6 +13,7 @@ from genkei.experiments.emitters.anomaly_emitter import (
     TargetDetection,
     _delete_refreshed_anomalies,
     _detect_for_target,
+    parse_args,
     run_anomaly_detection,
 )
 
@@ -95,6 +96,19 @@ class DeleteRefreshedAnomaliesTests(unittest.TestCase):
 
         cursor.execute.assert_not_called()
         self.assertEqual(deleted, 0)
+
+
+class ParseArgsTests(unittest.TestCase):
+    """Cover CLI defaults that protect ad-hoc emitter runs."""
+
+    def test_until_defaults_to_last_completed_utc_date(self) -> None:
+        with patch(
+            "genkei.experiments.emitters.anomaly_emitter._last_completed_utc_date",
+            return_value=date(2026, 1, 5),
+        ):
+            args = parse_args([])
+
+        self.assertEqual(args.until, date(2026, 1, 5))
 
 
 class RunAnomalyDetectionTests(unittest.TestCase):
