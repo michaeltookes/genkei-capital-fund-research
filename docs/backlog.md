@@ -156,14 +156,6 @@ Once cross-source data is in, the system starts producing investable signals.
 
 _B-064 follow-ups (wire the remaining signal emitters) shipped — all emitters landed and are chained into the daily workflows; removed 2026-07-01, see `docs/resolved.md`. B-111 (equity relative-strength emitter) also resolved 2026-06-06 and now lives only in `docs/resolved.md`._
 
-### B-066 — Macro regime classifier integrated into queries
-- **Status:** open
-- **Priority:** low
-- **Context:** Output from B-059 surfaced as a Postgres view callable from any query.
-- **Acceptance criteria:**
-  - View `meta.regime_per_date` exists.
-  - CLI exposes regime context (`genkei macro --regime`).
-
 ### B-067 — Multi-day trend aggregations as Postgres views
 - **Status:** open
 - **Priority:** low
