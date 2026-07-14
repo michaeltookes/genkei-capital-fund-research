@@ -214,3 +214,66 @@ rules:
       - source: relative_strength
         signal_kind: laggard_crossing
         weight: 1.0
+
+  # Return-anomaly-corroborated stacks — the B-069 follow-up. A violent one-day
+  # DOWN move (return_anomaly / return_spike, bearish) is a corroborating leg,
+  # not a standalone signal: paired with on-chain demand contracting (crypto)
+  # or insiders selling (equity), it's "the price cracked AND <the fundamental
+  # is deteriorating>". min_distinct_sources=2 keeps a lone spike from firing.
+  # strength on the anomaly leg saturates at |score|≥5 (see anomaly_signal_emitter).
+
+  - name: crypto_price_anomaly_stress
+    description: >-
+      Return anomaly (sharp bearish price spike) + TVL drawdown stress on the
+      same crypto-core native token within 30d. The price-action confirmation
+      of `crypto_tvl_stress_combo`: on-chain demand contracting AND the price
+      breaking down hard on the same asset.
+    direction: bearish
+    horizon: crypto:core
+    window_days: 30
+    min_score: 1.4
+    min_distinct_sources: 2
+    components:
+      - source: return_anomaly
+        signal_kind: return_spike
+        weight: 1.0
+      - source: tvl_drawdown
+        signal_kind: tvl_drawdown_stress
+        weight: 1.0
+
+  - name: crypto_price_anomaly_stress_tactical
+    description: >-
+      Tactical-sleeve twin of `crypto_price_anomaly_stress` (exact-horizon
+      matching means the crypto:core rule can't fire for SUI / PYTH / RENDER).
+      Return anomaly + TVL drawdown stress within 30d.
+    direction: bearish
+    horizon: crypto:tactical
+    window_days: 30
+    min_score: 1.4
+    min_distinct_sources: 2
+    components:
+      - source: return_anomaly
+        signal_kind: return_spike
+        weight: 1.0
+      - source: tvl_drawdown
+        signal_kind: tvl_drawdown_stress
+        weight: 1.0
+
+  - name: equity_price_anomaly_exit
+    description: >-
+      Return anomaly (sharp bearish price spike) + insider sell cluster on the
+      same equity within 30d. The price-action companion to `broad_exit` /
+      `deterioration_stack`: the stock gapped down hard AND insiders aren't
+      waiting. A single bad-day gap alone (no insider leg) won't fire it.
+    direction: bearish
+    horizon: equity:core
+    window_days: 30
+    min_score: 1.4
+    min_distinct_sources: 2
+    components:
+      - source: return_anomaly
+        signal_kind: return_spike
+        weight: 1.0
+      - source: insider_clusters
+        signal_kind: sell_cluster
+        weight: 1.0

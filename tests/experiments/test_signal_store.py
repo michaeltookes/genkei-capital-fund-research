@@ -690,6 +690,66 @@ class LoadRulesTests(unittest.TestCase):
         # Names are unique by contract.
         self.assertEqual(len(rules), len({r.name for r in rules}))
 
+    def test_packaged_rules_include_return_anomaly_stacks(self) -> None:
+        # B-069 follow-up: the return-anomaly corroboration rules are wired.
+        names = {r.name for r in load_rules()}
+        self.assertIn("crypto_price_anomaly_stress", names)
+        self.assertIn("crypto_price_anomaly_stress_tactical", names)
+        self.assertIn("equity_price_anomaly_exit", names)
+
+    def test_return_anomaly_corroborates_tvl_stress_into_a_stack(self) -> None:
+        # A bearish return spike + a TVL-drawdown stress on the same crypto-core
+        # token within the window fire the anomaly-corroborated stack.
+        rule = next(
+            r for r in load_rules() if r.name == "crypto_price_anomaly_stress"
+        )
+        events = [
+            _ev(
+                asset="ethereum",
+                asset_class="crypto",
+                horizon="crypto:core",
+                ts=_dt(5),
+                source="return_anomaly",
+                signal_kind="return_spike",
+                direction="bearish",
+                strength=Decimal("0.85"),
+            ),
+            _ev(
+                asset="ethereum",
+                asset_class="crypto",
+                horizon="crypto:core",
+                ts=_dt(6),
+                source="tvl_drawdown",
+                signal_kind="tvl_drawdown_stress",
+                direction="bearish",
+                strength=Decimal("0.70"),
+            ),
+        ]
+        stacks = detect_stacks(events, [rule])
+        self.assertEqual(len(stacks), 1)
+        self.assertEqual(stacks[0].asset, "ethereum")
+        self.assertEqual(stacks[0].distinct_sources, 2)
+        self.assertEqual(stacks[0].direction, "bearish")
+
+    def test_lone_return_anomaly_does_not_stack(self) -> None:
+        # Min-distinct-sources guard: a spike with no corroborating leg is inert.
+        rule = next(
+            r for r in load_rules() if r.name == "crypto_price_anomaly_stress"
+        )
+        events = [
+            _ev(
+                asset="ethereum",
+                asset_class="crypto",
+                horizon="crypto:core",
+                ts=_dt(5),
+                source="return_anomaly",
+                signal_kind="return_spike",
+                direction="bearish",
+                strength=Decimal("1.0"),
+            ),
+        ]
+        self.assertEqual(detect_stacks(events, [rule]), [])
+
     def test_rejects_unknown_version(self) -> None:
         path = self._write("version: 99\nrules: []\n")
         with self.assertRaises(ValueError):
