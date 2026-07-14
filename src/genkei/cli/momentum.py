@@ -15,15 +15,45 @@ Usage:
 
 import json
 from datetime import date
+from pathlib import Path
 from typing import Annotated, Any, Optional
 
 import typer
 
 from genkei.cli._helpers import json_default as _json_default
 from genkei.common import db
+from genkei.common.watchlist import (
+    DEFAULT_WATCHLIST_PATH,
+    CryptoEntry,
+    EquityEntry,
+    Watchlist,
+    load_watchlist,
+)
 
 _VALID_CLASSES = {"crypto", "equity"}
 _WINDOW_COLUMN = {3: "ret_3d", 7: "ret_7d", 30: "ret_30d"}
+_HorizonMap = dict[tuple[str, str], str]
+
+
+def _crypto_horizon_tag(entry: CryptoEntry) -> str:
+    sleeve = entry.sleeve or "core"
+    return f"crypto:{sleeve}:{entry.tier}"
+
+
+def _equity_horizon_tag(entry: EquityEntry) -> str:
+    return f"equity:{entry.sleeve}:{entry.tier}"
+
+
+def _asset_horizons(watchlist: Watchlist) -> _HorizonMap:
+    horizons: _HorizonMap = {}
+    for entry in watchlist.crypto:
+        tag = _crypto_horizon_tag(entry)
+        horizons[("crypto", entry.symbol.upper())] = tag
+        if entry.coinbase_product:
+            horizons[("crypto", entry.coinbase_product.split("-", 1)[0].upper())] = tag
+    for entry in watchlist.equities:
+        horizons[("equity", entry.symbol.upper())] = _equity_horizon_tag(entry)
+    return horizons
 
 
 def _query(
@@ -32,6 +62,7 @@ def _query(
     asset_class: Optional[str],
     sort_window: int,
     limit: int,
+    asset_horizons: _HorizonMap,
 ) -> list[dict[str, Any]]:
     sort_col = _WINDOW_COLUMN[sort_window]
     sql = (
@@ -54,10 +85,12 @@ def _query(
         rows = cur.fetchall()
     out: list[dict[str, Any]] = []
     for asset_, cls, ts, close, r3, r7, r30 in rows:
+        key = (str(cls), str(asset_).upper())
         out.append(
             {
                 "asset": asset_,
                 "asset_class": cls,
+                "horizon_tag": asset_horizons.get(key, "unknown"),
                 "ts": ts.isoformat() if isinstance(ts, date) else None,
                 "close": float(close) if close is not None else None,
                 "ret_3d": float(r3) if r3 is not None else None,
@@ -84,13 +117,14 @@ def _format_human(rows: list[dict[str, Any]], *, sort_window: int) -> str:
     )
     lines = [header, "-" * len(header)]
     lines.append(
-        f"  {'asset':<8}{'class':<8}{'date':<12}{'close':>14}"
+        f"  {'asset':<8}{'class':<8}{'horizon':<28}{'date':<12}{'close':>14}"
         f"{'3d':>9}{'7d':>9}{'30d':>9}"
     )
     for r in rows:
         close = f"{r['close']:>14,.4f}" if r["close"] is not None else f"{'n/a':>14}"
         lines.append(
-            f"  {r['asset']:<8}{r['asset_class']:<8}{r['ts'] or '-':<12}{close}"
+            f"  {r['asset']:<8}{r['asset_class']:<8}{r.get('horizon_tag', 'unknown'):<28}"
+            f"{r['ts'] or '-':<12}{close}"
             f"{_fmt_pct(r['ret_3d'])}{_fmt_pct(r['ret_7d'])}{_fmt_pct(r['ret_30d'])}"
         )
     lines.append("")
@@ -119,17 +153,27 @@ def momentum_cmd(
         bool,
         typer.Option("--json", help="Emit machine-readable JSON."),
     ] = False,
+    config: Annotated[
+        Path,
+        typer.Option("--config", help="Watchlist path.", show_default=True),
+    ] = DEFAULT_WATCHLIST_PATH,
 ) -> None:
     """Trailing 3/7/30-day price momentum across the watchlist."""
     if asset_class is not None and asset_class not in _VALID_CLASSES:
         raise typer.BadParameter("--asset-class must be 'crypto' or 'equity'.")
     if window not in _WINDOW_COLUMN:
         raise typer.BadParameter("--window must be one of 3, 7, 30.")
+    try:
+        watchlist = load_watchlist(config)
+    except (FileNotFoundError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
     rows = _query(
         asset=asset,
         asset_class=asset_class,
         sort_window=window,
         limit=limit,
+        asset_horizons=_asset_horizons(watchlist),
     )
     if json_out:
         typer.echo(json.dumps(rows, indent=2, default=_json_default))

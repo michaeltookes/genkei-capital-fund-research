@@ -56,13 +56,17 @@ def _refresh_one(schema: str, matview: str) -> int:
     """
     ident = sql.Identifier(schema, matview)
     with db.connection() as conn:
+        original_autocommit = conn.autocommit
         conn.autocommit = True
-        with conn.cursor() as cur:
-            cur.execute(
-                sql.SQL("REFRESH MATERIALIZED VIEW CONCURRENTLY {}").format(ident)
-            )
-            cur.execute(sql.SQL("SELECT count(*) FROM {}").format(ident))
-            row = cur.fetchone()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    sql.SQL("REFRESH MATERIALIZED VIEW CONCURRENTLY {}").format(ident)
+                )
+                cur.execute(sql.SQL("SELECT count(*) FROM {}").format(ident))
+                row = cur.fetchone()
+        finally:
+            conn.autocommit = original_autocommit
     return int(row[0]) if row else 0
 
 

@@ -21,6 +21,7 @@ the lookback is the most recent close **at or before** `latest − N days`
 --window        INTEGER    Sort by this window's return: 3, 7, or 30. [default: 7]
 --limit         INTEGER    Max rows. [default: 50]
 --json                     Emit machine-readable JSON.
+--config        PATH       Watchlist path.
 --help                     Show this message and exit.
 ```
 
@@ -29,15 +30,15 @@ the lookback is the most recent close **at or before** `latest − N days`
 ```console
 $ genkei momentum --asset-class crypto --window 30
 Price momentum | 8 asset(s) | sorted by 30d return
-  asset   class   date                 close       3d       7d      30d
-  PYTH    crypto  2026-07-12          0.0486   +2.32%   +7.28%  +27.89%
-  ZEC     crypto  2026-07-12        505.9600   +1.71%  +11.83%  +20.27%
-  SOL     crypto  2026-07-12         75.8600   -2.83%   -7.36%  +10.10%
-  ETH     crypto  2026-07-12      1,767.5100   -1.57%   -1.72%   +5.19%
-  LINK    crypto  2026-07-12          7.9210   -0.54%   -1.22%   -0.76%
-  BTC     crypto  2026-07-12     62,379.3100   -2.73%   -2.54%   -3.18%
-  SUI     crypto  2026-07-12          0.7282   -1.38%   -2.84%   -5.21%
-  RENDER  crypto  2026-07-12          1.5110   -3.70%   -6.44%  -14.73%
+  asset   class   horizon                     date                 close       3d       7d      30d
+  PYTH    crypto  crypto:tactical:secondary   2026-07-12          0.0486   +2.32%   +7.28%  +27.89%
+  ZEC     crypto  crypto:core:primary         2026-07-12        505.9600   +1.71%  +11.83%  +20.27%
+  SOL     crypto  crypto:core:primary         2026-07-12         75.8600   -2.83%   -7.36%  +10.10%
+  ETH     crypto  crypto:core:primary         2026-07-12      1,767.5100   -1.57%   -1.72%   +5.19%
+  LINK    crypto  crypto:core:primary         2026-07-12          7.9210   -0.54%   -1.22%   -0.76%
+  BTC     crypto  crypto:core:primary         2026-07-12     62,379.3100   -2.73%   -2.54%   -3.18%
+  SUI     crypto  crypto:tactical:primary     2026-07-12          0.7282   -1.38%   -2.84%   -5.21%
+  RENDER  crypto  crypto:tactical:secondary   2026-07-12          1.5110   -3.70%   -6.44%  -14.73%
 ```
 
 ## Refresh

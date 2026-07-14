@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from genkei.cli import main
 from genkei.cli.momentum import _format_human
+from genkei.common.watchlist import CryptoEntry, EquityEntry, Watchlist
 
 
 class _FakeCursor:
@@ -59,6 +60,32 @@ _ROW = (
 )
 
 
+def _watchlist() -> Watchlist:
+    return Watchlist(
+        crypto=[
+            CryptoEntry(
+                symbol="PYTH",
+                name="Pyth Network",
+                coingecko_id="pyth-network",
+                tier="primary",
+                sleeve="tactical",
+                coinbase_product="PYTH-USD",
+            )
+        ],
+        equities=[
+            EquityEntry(
+                symbol="AAPL",
+                name="Apple Inc.",
+                cik="0000320193",
+                tier="primary",
+            )
+        ],
+        macro=[],
+        protocols=[],
+        filers=[],
+    )
+
+
 class MomentumCommandTests(unittest.TestCase):
     def _run(self, args: list[str], rows: list = (_ROW,)) -> tuple[str, dict]:
         store: dict = {}
@@ -68,6 +95,7 @@ class MomentumCommandTests(unittest.TestCase):
                 "genkei.cli.momentum.db.connection",
                 return_value=_FakeConn(store, list(rows)),
             ),
+            patch("genkei.cli.momentum.load_watchlist", return_value=_watchlist()),
             redirect_stdout(out),
         ):
             main(["momentum", *args])
@@ -76,6 +104,8 @@ class MomentumCommandTests(unittest.TestCase):
     def test_default_human_output(self) -> None:
         text, _ = self._run([])
         self.assertIn("PYTH", text)
+        self.assertIn("crypto:tactical:primary", text)
+        self.assertIn("horizon", text)
         self.assertIn("+27.89%", text)
         self.assertIn("Price momentum", text)
 
@@ -108,18 +138,10 @@ class MomentumCommandTests(unittest.TestCase):
         self.assertEqual(code, 2)
 
     def test_json_shape(self) -> None:
-        out = io.StringIO()
-        store: dict = {}
-        with (
-            patch(
-                "genkei.cli.momentum.db.connection",
-                return_value=_FakeConn(store, [_ROW]),
-            ),
-            redirect_stdout(out),
-        ):
-            main(["momentum", "--json"])
-        parsed = json_mod.loads(out.getvalue())
+        text, _ = self._run(["--json"])
+        parsed = json_mod.loads(text)
         self.assertEqual(parsed[0]["asset"], "PYTH")
+        self.assertEqual(parsed[0]["horizon_tag"], "crypto:tactical:primary")
         self.assertEqual(parsed[0]["ret_30d"], 27.89)
         self.assertEqual(parsed[0]["ts"], "2026-07-12")
 
@@ -135,6 +157,7 @@ class FormatHumanTests(unittest.TestCase):
             {
                 "asset": "NEWCOIN",
                 "asset_class": "crypto",
+                "horizon_tag": "unknown",
                 "ts": "2026-07-12",
                 "close": 1.23,
                 "ret_3d": 4.5,
