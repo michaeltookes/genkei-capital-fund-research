@@ -156,14 +156,6 @@ Once cross-source data is in, the system starts producing investable signals.
 
 _B-064 follow-ups (wire the remaining signal emitters) shipped — all emitters landed and are chained into the daily workflows; removed 2026-07-01, see `docs/resolved.md`. B-111 (equity relative-strength emitter) also resolved 2026-06-06 and now lives only in `docs/resolved.md`._
 
-### B-067 — Multi-day trend aggregations as Postgres views
-- **Status:** open
-- **Priority:** low
-- **Context:** 3-day, 7-day, 30-day momentum tables shouldn't be recomputed in every CLI call.
-- **Acceptance criteria:**
-  - Materialized views per source for common windows.
-  - Refresh cadence documented.
-
 ### B-068 — Threshold-based alert engine
 - **Status:** open
 - **Priority:** low

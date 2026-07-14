@@ -34,6 +34,7 @@ commands read `GENKEI_DATABASE_URL` from the environment.
 | [`insiders`](insiders.md) | SEC Form 4 insider transactions (--ticker issuer or --reporter-cik). |
 | [`macro`](macro.md) | FRED macro series observations, vintage-aware (--as-of / --all-vintages). |
 | [`macro-regime`](macro-regime.md) | Macro regime label per date (risk_on / risk_off / mixed / ...). |
+| [`momentum`](momentum.md) | Trailing 3/7/30-day price momentum per asset (B-067, materialized view). |
 | [`news`](news.md) | GDELT GKG article clusters — filter by watchlist asset / theme / topic / tone. |
 | [`news-sentiment`](news-sentiment.md) | News sentiment vs forward returns — Pearson/Spearman + quartiles (B-056). |
 | [`prices`](prices.md) | Crypto + equity prices from the lake (CoinGecko / Coinbase / Yahoo). |

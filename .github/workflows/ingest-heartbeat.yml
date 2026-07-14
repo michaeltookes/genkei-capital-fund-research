@@ -74,6 +74,7 @@ jobs:
             "zcash-usage-daily.yml:48"
             "watchlist-score-daily.yml:48"
             "anomaly-daily.yml:48"
+            "trend-views-daily.yml:48"
             "cftc-weekly.yml:216"
             "signal-digest-weekly.yml:216"
           )

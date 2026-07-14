@@ -113,9 +113,8 @@ class ParseArgsTests(unittest.TestCase):
         self.assertEqual(args.until, date(2026, 1, 5))
 
     def test_rejects_window_below_min_window(self) -> None:
-        with redirect_stderr(io.StringIO()):
-            with self.assertRaises(SystemExit) as ctx:
-                parse_args(["--window", "7", "--min-window", "30"])
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as ctx:
+            parse_args(["--window", "7", "--min-window", "30"])
 
         self.assertNotEqual(ctx.exception.code, 0)
 
@@ -133,18 +132,17 @@ class RunAnomalyDetectionTests(unittest.TestCase):
             ) as ingest_run,
             patch(
                 "genkei.experiments.emitters.anomaly_emitter.db.connection"
-            ) as connection,
+            ) as connection,self.assertRaisesRegex(
+            ValueError, "window must be greater than or equal to min_window"
+        )
         ):
-            with self.assertRaisesRegex(
-                ValueError, "window must be greater than or equal to min_window"
-            ):
-                run_anomaly_detection(
-                    since=date(2026, 1, 3),
-                    until=date(2026, 1, 5),
-                    window=7,
-                    threshold=Decimal("999"),
-                    min_window=30,
-                )
+            run_anomaly_detection(
+                since=date(2026, 1, 3),
+                until=date(2026, 1, 5),
+                window=7,
+                threshold=Decimal("999"),
+                min_window=30,
+            )
 
         scan_targets.assert_not_called()
         ingest_run.assert_not_called()

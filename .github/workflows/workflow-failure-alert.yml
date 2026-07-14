@@ -45,6 +45,7 @@ on:
       - "Weekly Signal Digest"
       - "Watchlist Scoring Daily"
       - "Anomaly Detection Daily"
+      - "Trend Views Daily Refresh"
       - "Ingest Staleness Check"
       - "Ingest Heartbeat"
     types: [completed]
