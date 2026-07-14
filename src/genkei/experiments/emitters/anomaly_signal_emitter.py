@@ -53,6 +53,7 @@ EMITTER_RUN_TAG = "signal_emitter"
 EMITTER_ENDPOINT = "return_anomaly"
 SIGNAL_KIND = "return_spike"
 METRIC = "daily_return"
+_ANOMALY_DAY_SQL = "(ts AT TIME ZONE 'UTC')::date"
 
 # |score| / SCORE_SATURATION clamped to [0, 1]. The detector's flag threshold is
 # 3.5, so at 3.5 → 0.7 and at ≥5 → 1.0 — a threshold-edge flag still carries
@@ -89,16 +90,16 @@ class EmitResult:
 
 def _load_flags(*, since: date | None, until: date | None) -> list[_AnomalyFlag]:
     sql = (
-        "SELECT asset, asset_class, ts::date AS d, value, score, method, "
+        f"SELECT asset, asset_class, {_ANOMALY_DAY_SQL} AS d, value, score, method, "
         "direction, window_days, threshold "
         "FROM meta.anomalies WHERE metric = %s"
     )
     params: list[Any] = [METRIC]
     if since is not None:
-        sql += " AND ts::date >= %s"
+        sql += f" AND {_ANOMALY_DAY_SQL} >= %s"
         params.append(since)
     if until is not None:
-        sql += " AND ts::date <= %s"
+        sql += f" AND {_ANOMALY_DAY_SQL} <= %s"
         params.append(until)
     sql += " ORDER BY d ASC, asset"
     with db.connection() as conn, conn.cursor() as cur:

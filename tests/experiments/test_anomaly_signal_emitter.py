@@ -63,6 +63,33 @@ def _ts(day: date) -> datetime:
     return datetime.combine(day, time(0, 0, tzinfo=timezone.utc))
 
 
+class LoadFlagsTests(unittest.TestCase):
+    def test_date_filters_use_utc_projection(self) -> None:
+        cursor = MagicMock()
+        cursor.fetchall.return_value = []
+        conn = MagicMock()
+        conn.cursor.return_value.__enter__.return_value = cursor
+        connection_cm = MagicMock()
+        connection_cm.__enter__.return_value = conn
+
+        with patch.object(ase.db, "connection", return_value=connection_cm):
+            flags = ase._load_flags(
+                since=date(2025, 1, 27),
+                until=date(2025, 1, 28),
+            )
+
+        sql, params = cursor.execute.call_args.args
+        self.assertIn("(ts AT TIME ZONE 'UTC')::date AS d", sql)
+        self.assertIn("AND (ts AT TIME ZONE 'UTC')::date >= %s", sql)
+        self.assertIn("AND (ts AT TIME ZONE 'UTC')::date <= %s", sql)
+        self.assertNotIn("ts::date", sql)
+        self.assertEqual(
+            params,
+            [ase.METRIC, date(2025, 1, 27), date(2025, 1, 28)],
+        )
+        self.assertEqual(flags, [])
+
+
 class StrengthTests(unittest.TestCase):
     def test_threshold_edge_carries_meaningful_strength(self) -> None:
         self.assertEqual(ase._strength_from_score(Decimal("3.5")), Decimal("0.70"))
