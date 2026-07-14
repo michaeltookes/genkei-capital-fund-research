@@ -374,12 +374,22 @@ class ExpectationsRegistryTests(unittest.TestCase):
                 "bea",
                 "treasury",
                 "eia",
+                "price_momentum",
             },
         )
 
     def test_sparse_anomaly_flags_are_not_primary_liveness(self) -> None:
         self.assertNotIn("anomaly_detector", PRIMARY_TABLES)
         self.assertEqual(RECURRING_ENDPOINTS["anomaly_detector"], ["anomaly_detection"])
+
+    def test_price_momentum_matview_has_both_liveness_and_refresh_heartbeat(
+        self,
+    ) -> None:
+        # The matview is always populated (one row per asset), so — unlike the
+        # sparse anomaly flags — liveness is a valid empty/dropped guard, and
+        # the daily refresh's ingest_run gives the staleness heartbeat.
+        self.assertEqual(PRIMARY_TABLES["price_momentum"], ["analytics.price_momentum"])
+        self.assertEqual(RECURRING_ENDPOINTS["price_momentum"], ["refresh"])
 
     def test_every_source_expects_at_least_a_collect_endpoint(self) -> None:
         """Recurring endpoint coverage includes every source health checks expect."""
@@ -408,11 +418,12 @@ class ExpectationsRegistryTests(unittest.TestCase):
                 "eia",
                 "signal_emitter",
                 "anomaly_detector",
+                "price_momentum",
             },
         )
         # Derived (compute-not-collect) sources whose endpoints aren't the
         # classic 'collect'/'normalize' pair.
-        emitter_exempt = {"signal_emitter", "anomaly_detector"}
+        emitter_exempt = {"signal_emitter", "anomaly_detector", "price_momentum"}
         for source, eps in RECURRING_ENDPOINTS.items():
             if source in emitter_exempt:
                 self.assertTrue(eps, f"{source} should declare at least one emitter")

@@ -47,6 +47,7 @@ Subcommand surface (B-037):
 - ``genkei news-sentiment``
                         News tone vs forward returns — correlation     [B-056 ✓]
 - ``genkei anomalies`` Per-series return-anomaly flags          [B-069 ✓]
+- ``genkei momentum``  Trailing 3/7/30-day price momentum        [B-067 ✓]
 """
 
 from __future__ import annotations
@@ -68,6 +69,7 @@ from genkei.cli import (
     insiders,
     macro,
     macro_regime,
+    momentum,
     news,
     news_sentiment,
     prices,
@@ -171,6 +173,10 @@ app.command(
     "anomalies",
     help="Per-series return anomalies (B-069) — rolling MAD-based outlier flags.",
 )(anomalies.anomalies_cmd)
+app.command(
+    "momentum",
+    help="Trailing 3/7/30-day price momentum per asset (B-067, materialized).",
+)(momentum.momentum_cmd)
 app.command(
     "query",
     help="Ad-hoc SQL escape hatch (read-only, timeout + row cap enforced).",

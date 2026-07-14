@@ -225,6 +225,12 @@ PRIMARY_TABLES: dict[str, list[str]] = {
     # emitters chained off the daily ingest workflows. RECURRING_ENDPOINTS
     # tracks each emitter individually below.
     "signal_emitter": ["meta.signal_events"],
+    # B-067 — trailing-momentum matview. Unlike meta.anomalies (which is
+    # legitimately often-empty, so it's RECURRING-only), the matview always
+    # carries one row per covered asset, so the liveness (EXISTS) check is a
+    # valid empty/dropped-matview guard here — and the daily refresh's
+    # ingest_run gives the staleness check below.
+    "price_momentum": ["analytics.price_momentum"],
 }
 
 # Recurring (daily-cron) endpoints we expect to see in meta.ingest_runs
@@ -324,6 +330,10 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
     # flags into meta.anomalies, so health tracks this ingest-run heartbeat
     # instead of table liveness; no flags on a quiet day is healthy.
     "anomaly_detector": ["anomaly_detection"],
+    # B-067 — the trailing-momentum matview refresh runs on its own daily cron.
+    # Endpoint is 'refresh' (not 'collect') since it recomputes a matview
+    # rather than ingesting; exempt from the collect-endpoint expectation.
+    "price_momentum": ["refresh"],
 }
 
 
