@@ -1,0 +1,56 @@
+name: Trend Views Daily Refresh
+
+# B-067 — refreshes the trailing-momentum materialized view(s)
+# (analytics.price_momentum: per-asset 3/7/30-day returns) so `genkei momentum`
+# reads a precomputed table instead of recomputing per call. Runs on the
+# self-hosted Beelink runner so it can reach the homelab Postgres on
+# mission_control_net.
+#
+# 13:30 UTC — after the Coinbase (12:00) and Yahoo (12:15) price crons land the
+# day's candles. The refresh runs inside a meta.ingest_runs row, so a failed or
+# missed run surfaces as STALE in `genkei watchlist health`. REFRESH ...
+# CONCURRENTLY (used by the module) doesn't block readers.
+
+on:
+  schedule:
+    - cron: "30 13 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trend-views-daily-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pipeline:
+    name: Refresh trend matviews (Postgres-backed)
+    runs-on: [self-hosted, beelink]
+    timeout-minutes: 10
+    env:
+      GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+
+      - name: Apply database migrations
+        run: alembic upgrade head
+
+      - name: Refresh trailing-momentum matview(s)
+        run: |
+          bash scripts/ci/retry.sh 3 10 -- \
+            python3 -m genkei.experiments.refresh_price_momentum
