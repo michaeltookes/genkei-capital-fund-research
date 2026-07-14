@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import unittest
-from datetime import date, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from genkei.common.watchlist import CryptoEntry, EquityEntry, Watchlist
 from genkei.experiments.emitters import anomaly_signal_emitter as ase
@@ -57,6 +57,10 @@ def _flag(**kw) -> ase._AnomalyFlag:
     )
     base.update(kw)
     return ase._AnomalyFlag(**base)
+
+
+def _ts(day: date) -> datetime:
+    return datetime.combine(day, time(0, 0, tzinfo=timezone.utc))
 
 
 class StrengthTests(unittest.TestCase):
@@ -132,6 +136,49 @@ class BuildEventTests(unittest.TestCase):
         self.assertEqual(ev["payload"]["return_pct"], "-10.500")
 
 
+class DeleteRefreshedSignalEventsTests(unittest.TestCase):
+    def test_deletes_return_anomaly_events_in_requested_slice(self) -> None:
+        cursor = MagicMock()
+        cursor.rowcount = 2
+        conn = MagicMock()
+        conn.cursor.return_value.__enter__.return_value = cursor
+
+        deleted = ase._delete_refreshed_signal_events(
+            conn, since=date(2026, 1, 3), until=date(2026, 1, 5)
+        )
+
+        sql, params = cursor.execute.call_args.args
+        self.assertIn("DELETE FROM meta.signal_events", sql)
+        self.assertIn("source = %s", sql)
+        self.assertIn("signal_kind = %s", sql)
+        self.assertIn("ts >= %s", sql)
+        self.assertIn("ts < %s", sql)
+        self.assertEqual(
+            params,
+            [
+                ase.EMITTER_SOURCE,
+                ase.SIGNAL_KIND,
+                _ts(date(2026, 1, 3)),
+                _ts(date(2026, 1, 5) + timedelta(days=1)),
+            ],
+        )
+        self.assertEqual(deleted, 2)
+
+    def test_unbounded_refresh_deletes_all_return_anomaly_events(self) -> None:
+        cursor = MagicMock()
+        cursor.rowcount = 4
+        conn = MagicMock()
+        conn.cursor.return_value.__enter__.return_value = cursor
+
+        deleted = ase._delete_refreshed_signal_events(conn, since=None, until=None)
+
+        sql, params = cursor.execute.call_args.args
+        self.assertNotIn("ts >=", sql)
+        self.assertNotIn("ts <", sql)
+        self.assertEqual(params, [ase.EMITTER_SOURCE, ase.SIGNAL_KIND])
+        self.assertEqual(deleted, 4)
+
+
 class EmitFlowTests(unittest.TestCase):
     def test_skips_flags_without_a_watchlist_horizon(self) -> None:
         flags = [
@@ -140,8 +187,9 @@ class EmitFlowTests(unittest.TestCase):
         ]
         captured: dict = {}
 
-        def fake_emit(events, *, ingest_run_id):
+        def fake_emit(events, *, ingest_run_id, conn=None):
             captured["events"] = events
+            captured["conn"] = conn
             return len(events)
 
         class _Run:
@@ -156,11 +204,19 @@ class EmitFlowTests(unittest.TestCase):
         def fake_ingest_run(*a, **k):
             yield _Run()
 
+        cursor = MagicMock()
+        cursor.rowcount = 0
+        conn = MagicMock()
+        conn.cursor.return_value.__enter__.return_value = cursor
+        connection_cm = MagicMock()
+        connection_cm.__enter__.return_value = conn
+
         with (
             patch.object(ase, "_load_flags", return_value=flags),
             patch.object(ase, "load_watchlist", return_value=_watchlist()),
             patch.object(ase, "emit_signals_bulk", side_effect=fake_emit),
             patch.object(ase.db, "ingest_run", fake_ingest_run),
+            patch.object(ase.db, "connection", return_value=connection_cm),
         ):
             result = ase.emit_return_anomaly_signals()
 
@@ -168,6 +224,52 @@ class EmitFlowTests(unittest.TestCase):
         self.assertEqual(result.flags_skipped_no_horizon, 1)
         self.assertEqual(result.events_emitted, 1)
         self.assertEqual(captured["events"][0]["asset"], "ethereum")
+        self.assertIs(captured["conn"], conn)
+
+    def test_deletes_refreshed_events_before_emitting(self) -> None:
+        calls: list[str] = []
+        db_conn = MagicMock()
+        connection_cm = MagicMock()
+        connection_cm.__enter__.return_value = db_conn
+
+        def fake_delete(conn_arg, *, since, until):
+            self.assertIs(conn_arg, db_conn)
+            self.assertEqual(since, date(2026, 6, 1))
+            self.assertEqual(until, date(2026, 6, 7))
+            calls.append("delete")
+            return 1
+
+        def fake_emit(events, *, ingest_run_id, conn=None):
+            self.assertIs(conn, db_conn)
+            calls.append("emit")
+            return len(events)
+
+        class _Run:
+            id = 11
+
+            def add_rows(self, n):
+                pass
+
+        from contextlib import contextmanager
+
+        @contextmanager
+        def fake_ingest_run(*a, **k):
+            yield _Run()
+
+        with (
+            patch.object(ase, "_load_flags", return_value=[_flag()]),
+            patch.object(ase, "load_watchlist", return_value=_watchlist()),
+            patch.object(ase, "_delete_refreshed_signal_events", side_effect=fake_delete),
+            patch.object(ase, "emit_signals_bulk", side_effect=fake_emit),
+            patch.object(ase.db, "ingest_run", fake_ingest_run),
+            patch.object(ase.db, "connection", return_value=connection_cm),
+        ):
+            result = ase.emit_return_anomaly_signals(
+                since=date(2026, 6, 1), until=date(2026, 6, 7)
+            )
+
+        self.assertEqual(calls, ["delete", "emit"])
+        self.assertEqual(result.events_emitted, 1)
 
 
 if __name__ == "__main__":

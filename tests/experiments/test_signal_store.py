@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from genkei.experiments.signal_rules import load_rules, parse_rules
 from genkei.experiments.signal_store import (
@@ -17,6 +18,7 @@ from genkei.experiments.signal_store import (
     _filter_by_rule,
     _score_window,
     detect_stacks,
+    emit_signals_bulk,
 )
 
 
@@ -81,6 +83,39 @@ DECAY_RULE = CorrelationRule(
     min_distinct_sources=1,
     decay_half_life_days=Decimal("7"),
 )
+
+
+class EmitSignalsBulkTests(unittest.TestCase):
+    def test_reuses_provided_connection(self) -> None:
+        conn = object()
+        event = {
+            "asset": "ethereum",
+            "asset_class": "crypto",
+            "horizon": "crypto:core",
+            "ts": _dt(5),
+            "source": "return_anomaly",
+            "signal_kind": "return_spike",
+            "direction": "bearish",
+            "strength": Decimal("0.8"),
+            "payload": {"metric": "daily_return"},
+            "source_ref": "ethereum:2026-05-05",
+        }
+
+        with (
+            patch("genkei.experiments.signal_store.db.connection") as connection,
+            patch(
+                "genkei.experiments.signal_store.db.bulk_upsert", return_value=1
+            ) as bulk_upsert,
+        ):
+            written = emit_signals_bulk([event], ingest_run_id=9, conn=conn)
+
+        self.assertEqual(written, 1)
+        connection.assert_not_called()
+        bulk_upsert.assert_called_once()
+        args = bulk_upsert.call_args.args
+        self.assertIs(args[0], conn)
+        self.assertEqual(args[1], "meta.signal_events")
+        self.assertEqual(args[2][0]["ingest_run_id"], 9)
 
 
 class FilterByRuleTests(unittest.TestCase):

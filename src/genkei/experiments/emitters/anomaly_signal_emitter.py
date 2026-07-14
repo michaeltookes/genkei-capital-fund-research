@@ -25,17 +25,19 @@ the flags and re-emits them in the signal-event shape:
                     sleeve and are skipped — signal events are for research
                     assets only.
 
-Idempotent via the signal-event UNIQUE key
+Reconciles stale projections by deleting ``return_anomaly`` signal events in the
+refreshed date slice before re-emitting the current flags. The write remains
+idempotent via the signal-event UNIQUE key
 ``(asset, ts, source, signal_kind, source_ref, horizon)`` — ``source_ref`` is
 ``"{asset}:{date}"``, so re-running over an overlapping ``--since`` window is a
-no-op upsert.
+replacement upsert.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -180,6 +182,25 @@ def _build_event(flag: _AnomalyFlag, *, horizon: str) -> dict[str, Any]:
     }
 
 
+def _delete_refreshed_signal_events(
+    conn: Any, *, since: date | None, until: date | None
+) -> int:
+    """Delete stale ``return_anomaly`` events in the refreshed date slice."""
+    sql = "DELETE FROM meta.signal_events WHERE source = %s AND signal_kind = %s"
+    params: list[Any] = [EMITTER_SOURCE, SIGNAL_KIND]
+    if since is not None:
+        sql += " AND ts >= %s"
+        params.append(datetime.combine(since, time(0, 0, tzinfo=timezone.utc)))
+    if until is not None:
+        sql += " AND ts < %s"
+        params.append(
+            datetime.combine(until + timedelta(days=1), time(0, 0, tzinfo=timezone.utc))
+        )
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
+        return max(cur.rowcount or 0, 0)
+
+
 def emit_return_anomaly_signals(
     *,
     since: date | None = None,
@@ -209,7 +230,13 @@ def emit_return_anomaly_signals(
                 skipped_no_horizon += 1
                 continue
             events.append(_build_event(flag, horizon=horizon))
-        rows_written = emit_signals_bulk(events, ingest_run_id=run.id)
+        with db.connection() as conn:
+            deleted = _delete_refreshed_signal_events(conn, since=since, until=until)
+            if deleted:
+                LOGGER.info(
+                    "return_anomaly emitter deleted %s stale signal events", deleted
+                )
+            rows_written = emit_signals_bulk(events, ingest_run_id=run.id, conn=conn)
         run.add_rows(rows_written)
         LOGGER.info(
             "return_anomaly emitter wrote %s events (%s flags, %s skipped no-horizon)",
