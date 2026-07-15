@@ -13,8 +13,9 @@ daily cron.
 |---|---|---|
 | Community v0.2 | `CommunityStakingPool` | `0xBc10f2E862ED4502144c7d632a3459F49DFCDB5e` |
 | Operator v0.2 | `OperatorStakingPool` | `0xa1d76a7ca72128541e9fcacafbda3a92ef94fdc5` |
+| Legacy v0.1 (B-116) | `Staking` | `0x3feB1e09b4bb0E7f0387CeE092a52e85797ab889` |
 
-Event topics tracked per pool:
+Event topics tracked per pool (v0.2):
 
 - `Staked`
 - `Unstaked`
@@ -22,9 +23,16 @@ Event topics tracked per pool:
 - `OperatorRemoved`
 - `Slashed`
 
+v0.1 (B-116) tracks `Staked` / `Unstaked` / `Migrated`. Its events differ
+from v0.2 in a load-bearing way — **the staker is not indexed** (it's in
+`data` word 0, not `topics[1]`) and the principal delta is `data` word 1 — and
+v0.1 `Unstaked` even shares v0.2's exact `topic0` with a different layout. So
+decoding is keyed **per pool** via `PoolConfig.events` (an `EventSpec` per
+`topic0`), not a global topic map. `Migrated` (principal leaving v0.1 for v0.2)
+is stored as its own `event_type` so the unwind stays legible.
+
 Pool configs live in `DEFAULT_POOLS` in
-`src/genkei/ingest/onchain_staking.py`. **B-116** tracks adding the
-v0.1 legacy `Staking` contract — different event sigs, deferred.
+`src/genkei/ingest/onchain_staking.py`.
 
 ## Endpoint contract
 
@@ -73,12 +81,18 @@ it), plus event-specific decoded fields.
   upsert directly. `meta.raw_blobs` stores the JSON page payloads for
   replay.
 - **`amount_token` stored in LINK units** — the collector decodes the
-  first event-data word and divides by 10^18 before writing. Query
-  formulas should use `amount_token` directly with an `event_type`
-  `CASE`, without an extra `/ 1e18` conversion.
-- **v0.1 legacy pool not covered (B-116)** — 0.46M LINK still staked
-  there (~3% of total). Different event topic shape; requires per-
-  pool topic override and event-data parser.
+  spec's event-data word (word 0 for v0.2, word 1 for v0.1) and divides by
+  10^18 before writing. Query formulas should use `amount_token` directly with
+  an `event_type` `CASE`, without an extra `/ 1e18` conversion.
+- **Principal vs. token balance** — `SUM(staked − unstaked − migrated −
+  operator_removed − slashed)` gives active *principal*, which is below the
+  contract's on-chain LINK balance by the residual reward reserve (funded
+  outside the principal events). Verified on v0.1 (2026-07-15): ~161k LINK
+  principal vs ~444k token balance; the ~283k gap is the reward reserve, not a
+  decode error. Reconcile on principal, not token balance.
+- **v0.1 `migrated` events are the v0.1→v0.2 migration record** — of ~24.05M
+  LINK ever staked into v0.1, ~23.82M migrated to v0.2 (7,642 `migrated`
+  events), leaving ~161k principal during the tail of the unwind.
 
 ## How it runs
 
@@ -124,8 +138,9 @@ Before consuming staking-event signals:
 
 ## Follow-ups
 
-- **B-116** — v0.1 legacy Staking contract. Different topics, requires
-  per-pool config + parser extension.
+- ~~**B-116** — v0.1 legacy Staking contract~~ → shipped 2026-07-15 (see
+  `docs/resolved.md`): per-pool `EventSpec` decoding + `chainlink-v01` in
+  `DEFAULT_POOLS`, backfilled from block 16083969.
 - **Lido / RocketPool / EigenLayer expansion** — same `DEFAULT_POOLS`
   config pattern; no schema migration.
 - **Daily cron** — wire when a research session asks for steady-state
