@@ -113,19 +113,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - If a free source emerges or a paid budget opens: schema + collector for cross-oracle TVS share over time, by protocol category (price feeds, randomness, CCIP-style cross-chain).
   - Pair with B-081 once both exist — would let `genkei query` join LINK's TVS share against competitors' over the same time series.
 
-### B-116 — Enable Chainlink v0.1 legacy Staking contract (B-086 follow-up)
-- **Status:** open
-- **Priority:** low
-- **Context:** B-086 (2026-06-07) mapped the full DefiLlama chainlink-staking surface as 3 contracts and shipped ingestion for the 2 v0.2 pools (Community + Operator). The third — the v0.1 legacy `Staking` contract at `0x3feB1e09b4bb0E7f0387CeE092a52e85797ab889` — is intentionally NOT in `DEFAULT_POOLS` because it emits different event signatures from v0.2 (the v0.2 Staked topic returns 0 results on the v0.1 address; verified live 2026-06-07). The contract still holds 0.46M LINK during unwind (~$3.5M, <1% of total chainlink-staking TVL), so its absence doesn't materially hurt the reconciliation — but the unwind dynamics themselves are interesting and would round out the surface.
-- **What's required to ship:**
-  - Pull the v0.1 contract's ABI from Etherscan; compute keccak256 of each Staked/Unstaked event signature.
-  - Extend `PoolConfig` with per-pool event-topic overrides (or a per-pool topic-to-event-type mapping), since v0.1 and v0.2 emit different shapes.
-  - Extend the parse path to accept v0.1's likely-different data field layout.
-  - Add `CHAINLINK_V01_POOL = PoolConfig(protocol_slug="chainlink-v01", ...)` to `DEFAULT_POOLS`.
-  - Run backfill from the v0.1 deployment block (16083969, Nov 2022).
-  - Update the docstring + tests.
-- **Out of scope:** generalizing to other protocols (Lido / RocketPool / EigenLayer) — that's a separate B-082 follow-up if pursued.
-
 ## Phase 3 — Custom CLI
 
 The interface the agent (and human user) uses to query the lake.

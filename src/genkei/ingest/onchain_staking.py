@@ -17,17 +17,27 @@ OperatorRemoved / Slashed when active operator principal is reduced
 outside the normal unbond -> unstake path; those topics are parsed as
 separate event types so active-principal queries can include them.
 
+The v0.1 legacy ``Staking`` contract
+(``0x3feB1e09b4bb0E7f0387CeE092a52e85797ab889``, ``chainlink-v01``) is now
+covered too (B-116). Its events differ from v0.2 — the staker is NOT indexed
+(it sits in ``data`` word 0, not ``topics[1]``), the principal delta is ``data``
+word 1, and it emits a ``Migrated`` event (principal exiting to v0.2) — so
+decoding is keyed **per pool** via ``PoolConfig.events`` (an ``EventSpec`` per
+topic0) rather than a global topic map. Notably v0.1 ``Unstaked`` shares v0.2's
+exact topic0 but a different layout, which is exactly why the map is per-pool.
+
 The schema (migration ``5d3e8b9c1a02``) is deliberately generic so
 adding Lido / RocketPool / EigenLayer in the future is a config
 change plus a contract-address constant, not a new schema.
 
-Not covered (filed as B-116 follow-up): the v0.1 legacy ``Staking``
-contract (``0x3feB1e09b4bb0E7f0387CeE092a52e85797ab889``). It still
-holds 0.46M LINK during unwind as of 2026-06-07 but emits DIFFERENT
-event signatures than v0.2 — wiring it up requires extending
-PoolConfig with per-pool event-topic overrides and a separate parse
-path. The two v0.2 pools together reconcile within ~3% of DefiLlama's
-chainlink-staking TVL so v0.1 is not load-bearing for v1.
+  **v0.1 reconciliation (verified live 2026-07-15).** ``SUM(staked − unstaked
+  − migrated)`` on ``newStake``/``principal`` (the incremental per-event word,
+  confirmed by tracing repeat stakers) = ~161k LINK of unmigrated principal;
+  the contract's on-chain LINK balance is ~444k, the ~283k difference being the
+  residual reward reserve (funded outside the principal events) — the same
+  principal-vs-token-balance gap the v0.2 pools have, not a decode error. Of
+  ~24.05M LINK ever staked into v0.1, ~23.82M migrated to v0.2 — so the v0.1
+  ``migrated`` series is itself the record of the v0.1→v0.2 migration.
 
 Signal-interpretation notes (learned from the B-082 + B-086 backfills):
 
@@ -143,15 +153,12 @@ CHAINLINK_V02_OPERATOR_POOL_ADDRESS = "0xa1d76a7ca72128541e9fcacafbda3a92ef94fdc
 CHAINLINK_V02_DEPLOYMENT_BLOCK = 18638000  # ~Nov 2023, safe lower bound
 LINK_DECIMALS = 18  # standard ERC-20
 
-# Chainlink v0.1 Staking contract — legacy pool, still holds 0.46M LINK
-# during unwind as of 2026-06-07. NOT in DEFAULT_POOLS because the v0.1
-# contract emits DIFFERENT event signatures than v0.2 (the v0.2 Staked
-# topic returns 0 results on the v0.1 contract — verified live 2026-06-07).
-# Wiring v0.1 up requires extending PoolConfig with per-pool event-topic
-# overrides and a separate parse path. Filed as a follow-up; the operator
-# + community pools together already reconcile within 3% of DefiLlama's
-# chainlink-staking TVL so v0.1 is not load-bearing for v1.
+# Chainlink v0.1 Staking contract — legacy pool, enabled by B-116. It emits
+# DIFFERENT event signatures / layout than v0.2 (non-indexed staker; see
+# V01_EVENTS), now handled via PoolConfig's per-pool events map. Deployed
+# 2022-11-30; events start at block 16083969.
 CHAINLINK_V01_POOL_ADDRESS = "0x3feB1e09b4bb0E7f0387CeE092a52e85797ab889"
+CHAINLINK_V01_DEPLOYMENT_BLOCK = 16083969  # 2022-11-30, staking v0.1 open
 
 # Event signatures (keccak256 of the canonical event sig) for the
 # Chainlink v0.2 Community Staking Pool. Verified live 2026-05-17 by
@@ -170,6 +177,25 @@ EVENT_TOPIC_UNBONDING_STARTED = "0x5b9cd1c6f24b416d2354b7b7ad07d92bc1c662a403180
 # decode_amount_token reads the first data word (principal / slashedAmount).
 EVENT_TOPIC_OPERATOR_REMOVED = "0xd8572c381824ffffebc7dcf1cc25a094eedc7498e31f3ddfd0a82d4ffa026e9d"
 EVENT_TOPIC_SLASHED = "0x23ee33e2cc85d581547d857dc227450a3e2ef8666fa2faa5b13f0a0893e4d4ad"
+
+# Chainlink v0.1 legacy Staking event signatures (topic0 = keccak256 of the
+# canonical sig; fetched from the deployed ABI + verified live 2026-07-15).
+# The load-bearing difference from v0.2: the v0.1 events DO NOT index the
+# staker — every param sits in ``data`` — so the staker is data word 0 and the
+# principal is data word 1 (not topic[1] / data word 0 as in v0.2). And note
+# V01 Unstaked shares v0.2's exact topic0 (identical 4-arg signature) despite
+# the different indexing/layout — which is precisely why decoding must be
+# per-pool, not by a global topic→type map.
+#   Staked(address staker, uint256 newStake, uint256 totalStake)
+#     → amount = newStake (word 1): verified INCREMENTAL per event (word 2 is
+#       the staker's running total), so SUM(newStake) = total ever staked.
+#   Unstaked(address staker, uint256 principal, uint256 baseReward, uint256 delegationReward)
+#     → principal = word 1.
+#   Migrated(address staker, uint256 principal, ...) — principal leaving v0.1
+#     for v0.2; a principal *reduction*, tracked as its own event_type so the
+#     unwind (migration vs plain withdrawal) stays legible.
+V01_TOPIC_STAKED = "0x1449c6dd7851abc30abf37f57715f492010519147cc2652fbc38202c18a6ee90"
+V01_TOPIC_MIGRATED = "0x667838b33bdc898470de09e0e746990f2adc11b965b7fe6828e502ebc39e0434"
 
 ETHERSCAN_API_KEY_ENV = "ETHERSCAN_API_KEY"
 
@@ -196,6 +222,43 @@ LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
+class EventSpec:
+    """How to decode one event topic for a given pool.
+
+    ``staker_source`` is ``"topic1"`` (v0.2 indexes the staker) or ``"data0"``
+    (v0.1 leaves it non-indexed in the first data word). ``amount_word`` is the
+    index of the 32-byte ``data`` word holding the principal delta, or ``None``
+    for a no-amount intent event (UnbondingPeriodStarted).
+    """
+
+    event_type: str
+    staker_source: str  # "topic1" | "data0"
+    amount_word: int | None
+
+
+# v0.2 pools index the staker as topic[1] and put the principal delta in data
+# word 0. Both v0.2 pools share this map (the operator-only OperatorRemoved /
+# Slashed topics are harmless on the community pool, which never emits them).
+V02_EVENTS: dict[str, EventSpec] = {
+    EVENT_TOPIC_STAKED.lower(): EventSpec("staked", "topic1", 0),
+    EVENT_TOPIC_UNSTAKED.lower(): EventSpec("unstaked", "topic1", 0),
+    EVENT_TOPIC_UNBONDING_STARTED.lower(): EventSpec("unbonding_started", "topic1", None),
+    EVENT_TOPIC_OPERATOR_REMOVED.lower(): EventSpec("operator_removed", "topic1", 0),
+    EVENT_TOPIC_SLASHED.lower(): EventSpec("slashed", "topic1", 0),
+}
+
+# v0.1 pool: staker is data word 0, principal is data word 1 (see the V01_TOPIC
+# comment above). Migrated is a principal exit to v0.2, kept as its own
+# event_type. Note the shared Unstaked topic0 resolves here to a DIFFERENT spec
+# than in V02_EVENTS — the whole reason decoding is keyed per-pool.
+V01_EVENTS: dict[str, EventSpec] = {
+    V01_TOPIC_STAKED.lower(): EventSpec("staked", "data0", 1),
+    EVENT_TOPIC_UNSTAKED.lower(): EventSpec("unstaked", "data0", 1),
+    V01_TOPIC_MIGRATED.lower(): EventSpec("migrated", "data0", 1),
+}
+
+
+@dataclass(frozen=True)
 class PoolConfig:
     """A staking pool we ingest events for."""
 
@@ -205,6 +268,7 @@ class PoolConfig:
     contract_address: str
     deployment_block: int  # for --backfill lower bound
     token_decimals: int
+    events: dict[str, EventSpec]  # topic0 (lowercase) → decode spec
 
 
 CHAINLINK_V02_POOL = PoolConfig(
@@ -214,6 +278,7 @@ CHAINLINK_V02_POOL = PoolConfig(
     contract_address=CHAINLINK_V02_POOL_ADDRESS,
     deployment_block=CHAINLINK_V02_DEPLOYMENT_BLOCK,
     token_decimals=LINK_DECIMALS,
+    events=V02_EVENTS,
 )
 # Operator-only counterpart to the community pool. Same v0.2 codebase,
 # same event signatures, same deployment block. Holds the node-operator
@@ -227,8 +292,28 @@ CHAINLINK_V02_OPERATOR_POOL = PoolConfig(
     contract_address=CHAINLINK_V02_OPERATOR_POOL_ADDRESS,
     deployment_block=CHAINLINK_V02_DEPLOYMENT_BLOCK,
     token_decimals=LINK_DECIMALS,
+    events=V02_EVENTS,
 )
-DEFAULT_POOLS: list[PoolConfig] = [CHAINLINK_V02_POOL, CHAINLINK_V02_OPERATOR_POOL]
+# v0.1 legacy pool (B-116). Different event layout from v0.2 (see V01_EVENTS) —
+# now decodable via the per-pool events map. Deployment block 16083969
+# (2022-11-30, staking v0.1 open). Still holds ~444k LINK during unwind as of
+# 2026-07-15 (of which ~161k is unmigrated principal by SUM(staked − unstaked −
+# migrated); the rest is the residual reward reserve, which no principal event
+# touches — the same principal-vs-token-balance distinction the v0.2 pools have).
+CHAINLINK_V01_POOL = PoolConfig(
+    chain="ethereum",
+    chain_id=ETHEREUM_CHAIN_ID,
+    protocol_slug="chainlink-v01",
+    contract_address=CHAINLINK_V01_POOL_ADDRESS,
+    deployment_block=CHAINLINK_V01_DEPLOYMENT_BLOCK,
+    token_decimals=LINK_DECIMALS,
+    events=V01_EVENTS,
+)
+DEFAULT_POOLS: list[PoolConfig] = [
+    CHAINLINK_V02_POOL,
+    CHAINLINK_V02_OPERATOR_POOL,
+    CHAINLINK_V01_POOL,
+]
 
 
 def resolve_api_key() -> str | None:
@@ -323,35 +408,37 @@ def hex_to_address(value: str) -> str:
     return "0x" + cleaned[-40:]
 
 
-def decode_amount_token(data_hex: str, decimals: int) -> Decimal:
-    """Decode the first 32-byte word of the log `data` field as a uint256
-    token amount and scale by ``10**decimals``.
+def _data_word_hex(data_hex: str, word: int) -> str:
+    """Return the ``word``-th 32-byte data word as a ``0x``-prefixed hex string.
+
+    ``0x`` (empty) when the data is too short — callers decode that to 0 / "".
     """
-    raw = hex_to_int(data_hex[:66] if len(data_hex) >= 66 else data_hex)
+    body = data_hex[2:] if data_hex.startswith("0x") else data_hex
+    chunk = body[word * 64 : (word + 1) * 64]
+    return "0x" + chunk if chunk else "0x"
+
+
+def decode_amount_token(data_hex: str, decimals: int, *, word: int = 0) -> Decimal:
+    """Decode the ``word``-th 32-byte word of the log `data` field as a uint256
+    token amount and scale by ``10**decimals``.
+
+    v0.2 carries the principal delta in word 0 (staker is indexed in a topic);
+    v0.1 leaves the staker in word 0, so its principal delta is word 1.
+    """
+    raw = hex_to_int(_data_word_hex(data_hex, word))
     return Decimal(raw) / (Decimal(10) ** decimals)
 
 
 def event_type_for_topic(topic0: str) -> str | None:
-    """Map a topic0 hash to a human event name we know how to decode.
+    """Map a v0.2 topic0 hash to the event name it decodes to, or None.
 
-    UnbondingPeriodStarted is captured as a separate event_type because
-    it's a meaningful intent signal (staker signaling unbond ~28d before
-    the actual Unstaked event lands). Amount is 0 for those rows since
-    the event carries no amount data; queries that compute net flow
-    should aggregate explicitly by event_type to avoid double-counting.
+    A convenience over ``V02_EVENTS`` (the v0.2 pools' topic map). Note this is
+    v0.2-scoped: v0.1 reuses the Unstaked topic0 with a different layout, so
+    the correct per-pool decode always goes through ``PoolConfig.events`` in
+    ``parse_log``, not this helper.
     """
-    t = topic0.lower()
-    if t == EVENT_TOPIC_STAKED.lower():
-        return "staked"
-    if t == EVENT_TOPIC_UNSTAKED.lower():
-        return "unstaked"
-    if t == EVENT_TOPIC_UNBONDING_STARTED.lower():
-        return "unbonding_started"
-    if t == EVENT_TOPIC_OPERATOR_REMOVED.lower():
-        return "operator_removed"
-    if t == EVENT_TOPIC_SLASHED.lower():
-        return "slashed"
-    return None
+    spec = V02_EVENTS.get(topic0.lower())
+    return spec.event_type if spec is not None else None
 
 
 def parse_log(
@@ -372,26 +459,30 @@ def parse_log(
     topics = log.get("topics")
     if not isinstance(topics, list) or not topics:
         return None
-    event_type = event_type_for_topic(str(topics[0]))
-    if event_type is None:
-        return None
-    # Most pool events index the staker as topic[1].
-    if len(topics) < 2:
-        return None
-    staker = hex_to_address(str(topics[1]))
-    if not staker:
+    spec = pool.events.get(str(topics[0]).lower())
+    if spec is None:
         return None
     data_hex = log.get("data")
     if not isinstance(data_hex, str):
         return None
-    # UnbondingPeriodStarted has no data payload — emit amount=0 so the
-    # row still records the intent signal. Other supported events carry
-    # their principal delta in the first data word; later words are
-    # post-event principal snapshots.
-    if event_type == "unbonding_started":
+    event_type = spec.event_type
+    # Staker location is per-pool: v0.2 indexes it as topic[1]; v0.1 leaves it
+    # non-indexed in data word 0.
+    if spec.staker_source == "topic1":
+        if len(topics) < 2:
+            return None
+        staker = hex_to_address(str(topics[1]))
+    else:  # "data0"
+        staker = hex_to_address(_data_word_hex(data_hex, 0))
+    if not staker:
+        return None
+    # UnbondingPeriodStarted (amount_word=None) has no principal payload — emit
+    # amount=0 so the row still records the intent signal. Other events carry
+    # their principal delta in the spec's data word.
+    if spec.amount_word is None:
         amount = Decimal(0)
     else:
-        amount = decode_amount_token(data_hex, pool.token_decimals)
+        amount = decode_amount_token(data_hex, pool.token_decimals, word=spec.amount_word)
     block_number_raw = log.get("blockNumber")
     timestamp_raw = log.get("timeStamp")
     tx_hash = log.get("transactionHash")

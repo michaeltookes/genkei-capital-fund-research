@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from genkei.ingest.onchain_staking import (
     BLOCK_CHUNK_SIZE,
+    CHAINLINK_V01_POOL,
     CHAINLINK_V01_POOL_ADDRESS,
     CHAINLINK_V02_OPERATOR_POOL,
     CHAINLINK_V02_OPERATOR_POOL_ADDRESS,
@@ -23,6 +24,8 @@ from genkei.ingest.onchain_staking import (
     EVENT_TOPIC_UNBONDING_STARTED,
     EVENT_TOPIC_UNSTAKED,
     LINK_DECIMALS,
+    V01_TOPIC_MIGRATED,
+    V01_TOPIC_STAKED,
     _insert_rows,
     collect,
     decode_amount_token,
@@ -722,6 +725,83 @@ class _MockHttp:
         pass
 
 
+def _build_v01_log(
+    *,
+    topic0: str,
+    staker: str = "0xaabbccddeeff00112233445566778899aabbccdd",
+    principal_wei: int = 7000 * 10**18,
+    extra_words: int = 2,
+    block_number: int = 0x10_00_00,
+    timestamp: int = 0x63_88_00_00,
+    tx_hash: str = "0xv01tx",
+    log_index: int = 0x2,
+) -> dict[str, object]:
+    """A v0.1-shaped log: staker NOT indexed (data word 0), principal word 1.
+
+    ``extra_words`` pads the tail (v0.1 Unstaked/Migrated carry reward words +
+    a dynamic-bytes tail after the principal) to prove word-1 decoding is
+    unaffected by later data.
+    """
+    staker_word = format(int(staker, 16), "064x")
+    principal_word = format(principal_wei, "064x")
+    data = "0x" + staker_word + principal_word + ("00" * 32) * extra_words
+    return {
+        "topics": [topic0],  # no staker topic — the v0.1 distinction
+        "data": data,
+        "blockNumber": format(block_number, "#x"),
+        "timeStamp": format(timestamp, "#x"),
+        "transactionHash": tx_hash,
+        "logIndex": format(log_index, "#x"),
+    }
+
+
+class ParseLogV01Tests(unittest.TestCase):
+    """v0.1 legacy pool decoding — non-indexed staker, principal in word 1."""
+
+    def _parse(self, log: dict) -> dict | None:
+        return parse_log(
+            log,
+            pool=CHAINLINK_V01_POOL,
+            source_endpoint="https://api.etherscan.io/v2/api",
+            ingest_run_id=1,
+            fetched_at=NOW,
+        )
+
+    def test_parses_v01_staked_with_data0_staker_and_word1_amount(self) -> None:
+        row = self._parse(
+            _build_v01_log(topic0=V01_TOPIC_STAKED, principal_wei=7000 * 10**18)
+        )
+        assert row is not None
+        self.assertEqual(row["event_type"], "staked")
+        self.assertEqual(row["protocol_slug"], "chainlink-v01")
+        self.assertEqual(row["staker_address"], "0xaabbccddeeff00112233445566778899aabbccdd")
+        self.assertEqual(row["amount_token"], Decimal(7000))
+
+    def test_parses_v01_migrated_as_its_own_event_type(self) -> None:
+        row = self._parse(
+            _build_v01_log(topic0=V01_TOPIC_MIGRATED, principal_wei=1500 * 10**18)
+        )
+        assert row is not None
+        self.assertEqual(row["event_type"], "migrated")
+        self.assertEqual(row["amount_token"], Decimal(1500))
+
+    def test_v01_unstaked_shares_topic_but_decodes_word1(self) -> None:
+        # v0.1 Unstaked shares v0.2's topic0, but here the staker is in data
+        # word 0 and the principal in word 1 — the per-pool spec resolves it.
+        row = self._parse(
+            _build_v01_log(topic0=EVENT_TOPIC_UNSTAKED, principal_wei=42 * 10**18)
+        )
+        assert row is not None
+        self.assertEqual(row["event_type"], "unstaked")
+        self.assertEqual(row["amount_token"], Decimal(42))
+
+    def test_v01_ignores_v02_indexed_staked_topic(self) -> None:
+        # The v0.2 Staked topic is not in the v0.1 events map → skipped.
+        self.assertIsNone(
+            self._parse(_build_v01_log(topic0=EVENT_TOPIC_STAKED))
+        )
+
+
 # ---------------------------------------------------------------------------
 # DEFAULT_POOLS surface (B-086)
 # ---------------------------------------------------------------------------
@@ -732,17 +812,17 @@ class DefaultPoolsTests(unittest.TestCase):
 
     DefiLlama's chainlink-staking adapter lists exactly 3 LINK-balance owners
     (verified by fetching projects/chainlink/index.js from the DefiLlama-
-    Adapters repo on 2026-06-07). DEFAULT_POOLS covers the two v0.2 contracts
-    that share the same event signatures; the v0.1 legacy contract is tracked
-    as a constant (so the test can pin its identity) but is intentionally NOT
-    in DEFAULT_POOLS — wiring it up needs a parser extension because its event
-    signatures differ from v0.2. Filed as a separate follow-up.
+    Adapters repo on 2026-06-07). DEFAULT_POOLS now covers all three: the two
+    v0.2 contracts (shared event signatures) plus the v0.1 legacy contract
+    (B-116 — different, per-pool event layout via PoolConfig.events).
     """
 
-    def test_default_pools_carry_both_v02_contracts(self) -> None:
-        """v0.2 community + v0.2 operator both ship by default."""
+    def test_default_pools_carry_all_three_contracts(self) -> None:
+        """v0.2 community + v0.2 operator + v0.1 legacy all ship by default."""
         slugs = sorted(p.protocol_slug for p in DEFAULT_POOLS)
-        self.assertEqual(slugs, ["chainlink-v02", "chainlink-v02-operator"])
+        self.assertEqual(
+            slugs, ["chainlink-v01", "chainlink-v02", "chainlink-v02-operator"]
+        )
 
     def test_v02_pool_addresses_are_distinct(self) -> None:
         """A typo making both PoolConfig entries point at the same address would
@@ -796,17 +876,21 @@ class DefaultPoolsTests(unittest.TestCase):
             CHAINLINK_V02_OPERATOR_POOL_ADDRESS,
         )
 
-    def test_v01_address_is_constant_but_not_in_default_pools(self) -> None:
-        """v0.1 legacy contract is tracked but NOT enabled — pinned to make
-        the future B-116 enablement diff obvious in code review."""
+    def test_v01_pool_is_enabled_in_default_pools(self) -> None:
+        """B-116: v0.1 legacy contract is now wired into DEFAULT_POOLS."""
         self.assertEqual(
             CHAINLINK_V01_POOL_ADDRESS,
             "0x3feB1e09b4bb0E7f0387CeE092a52e85797ab889",
         )
         addresses_in_defaults = {p.contract_address.lower() for p in DEFAULT_POOLS}
-        self.assertNotIn(
-            CHAINLINK_V01_POOL_ADDRESS.lower(), addresses_in_defaults
-        )
+        self.assertIn(CHAINLINK_V01_POOL_ADDRESS.lower(), addresses_in_defaults)
+        v01 = next(p for p in DEFAULT_POOLS if p.protocol_slug == "chainlink-v01")
+        self.assertEqual(v01.deployment_block, 16083969)
+        # v0.1 uses the non-indexed-staker layout: staker in data word 0.
+        staked = v01.events[V01_TOPIC_STAKED.lower()]
+        self.assertEqual(staked.event_type, "staked")
+        self.assertEqual(staked.staker_source, "data0")
+        self.assertEqual(staked.amount_word, 1)
 
 
 if __name__ == "__main__":
