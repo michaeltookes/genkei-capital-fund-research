@@ -325,6 +325,10 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
         "equity_relative_strength",
         "macro_regime",
         "watchlist_scoring",
+        # B-069 follow-up — projects meta.anomalies flags into signal_events so
+        # a return spike can corroborate a stack. Chained after the anomaly
+        # detector in anomaly-daily.yml.
+        "return_anomaly",
     ],
     # B-069 — the anomaly detector runs on its own daily cron. It writes sparse
     # flags into meta.anomalies, so health tracks this ingest-run heartbeat

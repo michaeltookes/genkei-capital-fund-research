@@ -57,3 +57,14 @@ jobs:
             python3 -m genkei.experiments.emitters.anomaly_emitter \
               --since "$(date -u -d '120 days ago' '+%Y-%m-%d')" \
               --until "$(date -u -d 'yesterday' '+%Y-%m-%d')"
+
+      - name: Project anomaly flags into signal_events (correlator source)
+        # B-069 follow-up: reads the flags the step above just landed in
+        # meta.anomalies and re-emits them as return_anomaly/return_spike
+        # signal events so they stack in the correlator. Same trailing window;
+        # idempotent on the signal-event UNIQUE key.
+        run: |
+          bash scripts/ci/retry.sh 3 10 -- \
+            python3 -m genkei.experiments.emitters.anomaly_signal_emitter \
+              --since "$(date -u -d '120 days ago' '+%Y-%m-%d')" \
+              --until "$(date -u -d 'yesterday' '+%Y-%m-%d')"

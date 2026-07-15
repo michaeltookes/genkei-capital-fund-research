@@ -455,6 +455,7 @@ def emit_signals_bulk(
     events: list[dict[str, Any]],
     *,
     ingest_run_id: int,
+    conn: Any | None = None,
 ) -> int:
     """Insert many signal events in one round-trip; return inserted/updated count.
 
@@ -487,9 +488,24 @@ def emit_signals_bulk(
                 "ingest_run_id": ingest_run_id,
             }
         )
-    with db.connection() as conn:
+    if conn is not None:
         return db.bulk_upsert(
             conn,
+            "meta.signal_events",
+            rows,
+            conflict_keys=["asset", "ts", "source", "signal_kind", "source_ref", "horizon"],
+            update_cols=[
+                "direction",
+                "strength",
+                "payload",
+                "asset_class",
+                "computed_at",
+                "ingest_run_id",
+            ],
+        )
+    with db.connection() as owned_conn:
+        return db.bulk_upsert(
+            owned_conn,
             "meta.signal_events",
             rows,
             conflict_keys=["asset", "ts", "source", "signal_kind", "source_ref", "horizon"],
