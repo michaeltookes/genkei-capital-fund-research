@@ -297,6 +297,30 @@ class BuildMatchTermsTests(unittest.TestCase):
         # Single-token strip ("Inc." → "Uber") is dropped as too generic.
         self.assertNotIn("uber", terms)
 
+    def test_equity_ampersand_company_suffix_strips_connector(self) -> None:
+        wl = _empty_watchlist(
+            equities=[
+                EquityEntry(
+                    symbol="JPM",
+                    name="JPMorgan Chase & Co.",
+                    cik="0000019617",
+                    tier="primary",
+                )
+            ]
+        )
+        terms = build_match_terms(wl)
+        term_text = {t.term_lower for t in terms}
+        self.assertIn("jpmorgan chase", term_text)
+        self.assertNotIn("jpmorgan chase &", term_text)
+        hits = match_article(
+            themes=[],
+            persons=[],
+            organizations=["JPMorgan Chase"],
+            document_identifier="",
+            terms=terms,
+        )
+        self.assertEqual(hits, ["JPM"])
+
     def test_equity_gdelt_terms_match_article_end_to_end(self) -> None:
         wl = _empty_watchlist(
             equities=[

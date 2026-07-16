@@ -151,14 +151,15 @@ def _is_distinctive_stripped_name(name: str) -> bool:
 # (e.g. "Lyft") are dropped by the ≥2-token distinctiveness guard and must be
 # curated via ``gdelt_terms`` instead, keeping precision intact.
 _CORP_SUFFIX_RE = re.compile(
-    r"[,\s]+(?:inc|incorporated|corp|corporation|co|company|holdings?|"
+    r"(?:[,\s]+(?:&|and)\s+|[,\s]+)"
+    r"(?:inc|incorporated|corp|corporation|co|company|holdings?|"
     r"ltd|limited|plc|llc|l\.l\.c|lp|l\.p|s\.a|sa|ag|nv|group)\.?$",
     re.IGNORECASE,
 )
 
 
 def _strip_corporate_suffix(name: str) -> str:
-    """Drop a single trailing corporate suffix (", Inc." / " Corporation" / …)."""
+    """Drop a trailing legal suffix, including connector forms like "& Co."."""
     return _CORP_SUFFIX_RE.sub("", name).strip()
 
 
