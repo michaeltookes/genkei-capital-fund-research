@@ -59,6 +59,24 @@ the record matched — PK CHECK constraint requires non-empty),
   and never enter the lake. Adding a new asset to the watchlist =>
   new rows in tomorrow's window onward, **NOT** retroactive (would
   need a `--backfill` re-fetch).
+- **Equity matching (equity-news unlock)** — equities match via
+  `build_match_terms`, which prefers a curated `gdelt_terms` override,
+  else the company name with corporate suffixes stripped (`Uber
+  Technologies, Inc.` → also `Uber Technologies`) so it hits GDELT's
+  normalized org names. Curate `gdelt_terms` when the brand GDELT tags
+  differs from the legal name (`GOOGL` → `Google`, not `Alphabet`) or a
+  bare single-word name is safe (`Lyft`) — single-token stripped names
+  are dropped as too generic, so they *must* be curated. Same
+  forward-only caveat: a new/changed term only matches future windows
+  unless re-ingested with `--backfill`. `genkei news --ticker <T>` reads
+  the result (crypto uses `--asset`).
+  - **Precision caveat for ubiquitous brands.** Substring-matching a
+    ubiquitous short brand (`Uber`, `Google`) inherently catches incidental /
+    slang mentions ("uber-competitive"), so those tickers carry more news
+    noise than distinctive multi-word terms (`Amazon Web Services`). Prefer the
+    most distinctive term that still has recall; the per-name `gdelt_terms`
+    list is the tuning knob. Cluster aggregation + tone in `genkei news` still
+    lets the real signal surface above the noise.
 - **Backfill cache** — re-running `--backfill --since YYYY-MM-DD` on
   failure picks up cleanly without re-fetching already-stored windows
   (`meta.raw_blobs.endpoint_name = gdelt_<window_ts>`).
