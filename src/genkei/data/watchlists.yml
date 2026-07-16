@@ -328,6 +328,13 @@ equities:
       sector: Mobility
       sleeve: core
       rationale: Mobility + delivery network; profitable scale, AV optionality.
+    - symbol: LYFT
+      cik: "0001759509"
+      cusip: "55087P104"
+      name: Lyft, Inc.
+      sector: Mobility
+      sleeve: core
+      rationale: Pure-play #2 US/Canada rideshare; relative-value + Waymo-AV-partnership thesis vs UBER.
     - symbol: CCJ
       cik: "0001009001"
       cusip: "13321L108"
