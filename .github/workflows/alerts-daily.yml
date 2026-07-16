@@ -1,0 +1,66 @@
+name: Threshold Alerts Daily
+
+# B-068 — the threshold-based alert engine. Runs the B-064 correlator over
+# meta.signal_events, evaluates every rule in alert_rules.yml against the
+# detected stacks, and lands one row per (alert-rule, stack) that clears its
+# page threshold into meta.alerts. `--notify` posts the *newly-created* rows to
+# the Discord webhook (no-op when the secret is unset — the persisted rows are
+# the durable record; Discord is the ping, B-119). Surfaced via `genkei alerts`.
+#
+# 14:00 UTC — after the signal emitters that feed the correlator (the anomaly
+# detector + its signal projection run at 13:00), so the engine sees the day's
+# fresh stacks. Idempotent on the alert fingerprint: a stack's window_end is
+# stable, so a re-run over the trailing window inserts nothing and notifies
+# nothing for stacks already seen. The 120-day window keeps the correlator read
+# bounded while comfortably covering the widest rule window (broad_exit, 90d).
+#
+# Runs on the self-hosted Beelink runner so it can reach the homelab Postgres
+# on mission_control_net.
+
+on:
+  schedule:
+    - cron: "0 14 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alerts-daily-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pipeline:
+    name: Threshold alert engine (Postgres-backed)
+    runs-on: [self-hosted, beelink]
+    timeout-minutes: 10
+    env:
+      GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+
+      - name: Apply database migrations
+        run: alembic upgrade head
+
+      - name: Evaluate threshold alerts into meta.alerts + notify
+        run: |
+          bash scripts/ci/retry.sh 3 10 -- \
+            python3 -m genkei.experiments.alert_engine \
+              --since "$(date -u -d '120 days ago' '+%Y-%m-%d')" \
+              --until "$(date -u -d 'yesterday' '+%Y-%m-%d')" \
+              --notify
