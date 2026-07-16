@@ -61,6 +61,12 @@ class EquityEntry:
     # has carried this field for every equity entry since the watchlist
     # was first populated; B-112 connects it through to the dataclass.
     sector: str | None = None
+    # Optional GDELT news-matching override (equity-news unlock). When set,
+    # these terms replace the legal-name variants for matching articles in
+    # gdelt.gkg — needed when the brand GDELT tags differs from the legal name
+    # (GOOGL → "Google", not "Alphabet") or a bare single-word name is safe
+    # ("Lyft"). Empty → the ingester derives suffix-stripped name variants.
+    gdelt_terms: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -578,6 +584,7 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                         sleeve=str(entry.get("sleeve") or "core"),
                         cusip=cusip,
                         sector=_optional_string(entry.get("sector")),
+                        gdelt_terms=_optional_string_tuple(entry.get("gdelt_terms")),
                     )
                 )
 

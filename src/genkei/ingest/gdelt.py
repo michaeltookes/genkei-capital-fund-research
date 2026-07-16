@@ -143,6 +143,25 @@ def _is_distinctive_stripped_name(name: str) -> bool:
     return len(tokens) >= 2
 
 
+# Trailing corporate suffixes to strip when deriving a match variant. GDELT's
+# organizations field normalizes to short names ("Uber Technologies", "Amazon.com")
+# without the legal ", Inc." / " Corporation" tail, so the full legal name in the
+# watchlist ("Uber Technologies, Inc.") fails to substring-match. Stripping the
+# suffix recovers the match generically for every equity. Single-token results
+# (e.g. "Lyft") are dropped by the ≥2-token distinctiveness guard and must be
+# curated via ``gdelt_terms`` instead, keeping precision intact.
+_CORP_SUFFIX_RE = re.compile(
+    r"[,\s]+(?:inc|incorporated|corp|corporation|co|company|holdings?|"
+    r"ltd|limited|plc|llc|l\.l\.c|lp|l\.p|s\.a|sa|ag|nv|group)\.?$",
+    re.IGNORECASE,
+)
+
+
+def _strip_corporate_suffix(name: str) -> str:
+    """Drop a single trailing corporate suffix (", Inc." / " Corporation" / …)."""
+    return _CORP_SUFFIX_RE.sub("", name).strip()
+
+
 def _watchlist_name_variants(name: str) -> list[str]:
     """Return display-name variants useful for news organization matching."""
     original = name.strip()
@@ -162,6 +181,15 @@ def _watchlist_name_variants(name: str) -> list[str]:
             former_name = content[len(prefix):].strip()
             if former_name:
                 candidates.append(former_name)
+
+    # Corporate-suffix-stripped variants of everything gathered so far, so
+    # "Amazon.com, Inc." → "Amazon.com" and "Uber Technologies, Inc." → "Uber
+    # Technologies" match GDELT's normalized org names. Guard on distinctiveness
+    # (≥2 tokens) so we don't emit a bare single-word term that would over-match.
+    for candidate in list(candidates):
+        stripped = _strip_corporate_suffix(candidate)
+        if stripped and stripped != candidate and _is_distinctive_stripped_name(stripped):
+            candidates.append(stripped)
 
     variants: list[str] = []
     seen: set[str] = set()
@@ -204,8 +232,15 @@ def build_match_terms(watchlist: Watchlist) -> list[_MatchTerm]:
         return False
 
     for entry in watchlist.equities:
-        for variant in _watchlist_name_variants(entry.name):
-            add(variant, entry.symbol.upper())
+        # Prefer a curated ``gdelt_terms`` override (needed when the brand
+        # differs from the legal name — GOOGL → "Google", or when a bare
+        # single-word name is safe to match, e.g. "Lyft"); otherwise fall back
+        # to the corporate-suffix-stripped name variants. No bare-ticker
+        # fallback: equity tickers (AMZN, LYFT) don't appear as standalone
+        # tokens in general news the way crypto symbols do, so it's noise.
+        candidates = entry.gdelt_terms or tuple(_watchlist_name_variants(entry.name))
+        for candidate in candidates:
+            add(candidate, entry.symbol.upper())
     for entry in watchlist.crypto:
         candidates = entry.gdelt_terms or (entry.name,)
         added = False

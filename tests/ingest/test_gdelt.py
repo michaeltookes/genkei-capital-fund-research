@@ -259,6 +259,66 @@ class BuildMatchTermsTests(unittest.TestCase):
         )
         self.assertEqual(hits, ["MSTR"])
 
+    def test_equity_gdelt_terms_override_replaces_name_variants(self) -> None:
+        # Equity-news unlock: a curated gdelt_terms overrides the legal name —
+        # needed when GDELT tags the brand ("Google"), not "Alphabet".
+        wl = _empty_watchlist(
+            equities=[
+                EquityEntry(
+                    symbol="GOOGL",
+                    name="Alphabet Inc. (Class A)",
+                    cik="0001652044",
+                    tier="primary",
+                    gdelt_terms=("Google", "Alphabet"),
+                )
+            ]
+        )
+        terms = {(t.term_lower, t.label) for t in build_match_terms(wl)}
+        self.assertIn(("google", "GOOGL"), terms)
+        self.assertIn(("alphabet", "GOOGL"), terms)
+        # The legal-name variant is NOT emitted when gdelt_terms is set.
+        self.assertNotIn(("alphabet inc. (class a)", "GOOGL"), terms)
+
+    def test_equity_corporate_suffix_stripped_variant_added(self) -> None:
+        # A multi-token stripped variant recovers the match against GDELT's
+        # normalized org names ("Uber Technologies", not "Uber Technologies, Inc.").
+        wl = _empty_watchlist(
+            equities=[
+                EquityEntry(
+                    symbol="UBER",
+                    name="Uber Technologies, Inc.",
+                    cik="0001543151",
+                    tier="primary",
+                )
+            ]
+        )
+        terms = {t.term_lower for t in build_match_terms(wl)}
+        self.assertIn("uber technologies", terms)
+        # Single-token strip ("Inc." → "Uber") is dropped as too generic.
+        self.assertNotIn("uber", terms)
+
+    def test_equity_gdelt_terms_match_article_end_to_end(self) -> None:
+        wl = _empty_watchlist(
+            equities=[
+                EquityEntry(
+                    symbol="LYFT",
+                    name="Lyft, Inc.",
+                    cik="0001759509",
+                    tier="primary",
+                    gdelt_terms=("Lyft",),
+                )
+            ]
+        )
+        terms = build_match_terms(wl)
+        hits = match_article(
+            themes=[],
+            persons=[],
+            organizations=["Lyft Inc"],
+            document_identifier="",
+            terms=terms,
+        )
+        self.assertEqual(hits, ["LYFT"])
+
     def test_crypto_name_promoted_to_term_labeled_by_symbol(self) -> None:
         wl = _empty_watchlist(
             crypto=[

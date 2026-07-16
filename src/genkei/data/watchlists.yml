@@ -131,6 +131,8 @@ equities:
       sector: Internet / cloud / AI
       sleeve: core
       rationale: Search cash flow + cloud + AI optionality; held alongside GOOGL.
+      # GDELT tags the brand ("Google"), not the legal name ("Alphabet").
+      gdelt_terms: [Google, Alphabet]
     - symbol: GOOGL
       cik: "0001652044"
       cusip: "02079K305"
@@ -138,6 +140,7 @@ equities:
       sector: Internet / cloud / AI
       sleeve: core
       rationale: Voting share class of Alphabet; same thesis as GOOG.
+      gdelt_terms: [Google, Alphabet]
     - symbol: AMZN
       cik: "0001018724"
       cusip: "023135106"
@@ -145,6 +148,9 @@ equities:
       sector: E-commerce / cloud
       sleeve: core
       rationale: AWS cash flow + retail margin recovery; long-term compounder.
+      # "Amazon.com" / "Amazon Web Services" — distinctive vs the bare word
+      # "Amazon" (which over-matches the rainforest/region in news).
+      gdelt_terms: [Amazon.com, Amazon Web Services]
     - symbol: META
       cik: "0001326801"
       cusip: "30303M102"
@@ -152,6 +158,8 @@ equities:
       sector: Internet / advertising / AI
       sleeve: core
       rationale: Advertising cash flow funding AI capex; durable user base.
+      # Products/brand, not bare "Meta" (which over-matches metadata/meta-analysis).
+      gdelt_terms: [Meta Platforms, Facebook, Instagram]
 
     # Semiconductors / AI compute
     - symbol: NVDA
@@ -321,6 +329,7 @@ equities:
       sector: EV / energy
       sleeve: core
       rationale: EV manufacturer with energy storage + AI/robotics optionality.
+      gdelt_terms: [Tesla]
     - symbol: UBER
       cik: "0001543151"
       cusip: "90353T100"
@@ -328,6 +337,7 @@ equities:
       sector: Mobility
       sleeve: core
       rationale: Mobility + delivery network; profitable scale, AV optionality.
+      gdelt_terms: [Uber Technologies, Uber]
     - symbol: LYFT
       cik: "0001759509"
       cusip: "55087P104"
@@ -335,6 +345,7 @@ equities:
       sector: Mobility
       sleeve: core
       rationale: Pure-play #2 US/Canada rideshare; relative-value + Waymo-AV-partnership thesis vs UBER.
+      gdelt_terms: [Lyft]
     - symbol: CCJ
       cik: "0001009001"
       cusip: "13321L108"
