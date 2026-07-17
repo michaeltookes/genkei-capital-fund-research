@@ -16,6 +16,15 @@ from genkei.experiments.alert_engine import Alert
 runner = CliRunner()
 
 
+def _combined_output(result: object) -> str:
+    stdout = getattr(result, "stdout", "")
+    try:
+        stderr = getattr(result, "stderr", "")
+    except ValueError:
+        return getattr(result, "output", stdout)
+    return stdout + stderr
+
+
 def _alert(*, asset: str = "NVDA", severity: str = "critical", notified: bool = False) -> Alert:
     return Alert(
         alert_id=1,
@@ -72,12 +81,12 @@ class AlertsCliTests(unittest.TestCase):
     def test_invalid_severity_rejected(self) -> None:
         result = runner.invoke(app, ["alerts", "--severity", "loud"])
         self.assertNotEqual(result.exit_code, 0)
-        self.assertIn("--severity must be one of", result.stdout)
+        self.assertIn("--severity must be one of", _combined_output(result))
 
     def test_invalid_status_rejected(self) -> None:
         result = runner.invoke(app, ["alerts", "--status", "snoozed"])
         self.assertNotEqual(result.exit_code, 0)
-        self.assertIn("--status must be one of", result.stdout)
+        self.assertIn("--status must be one of", _combined_output(result))
 
     def test_since_after_until_rejected(self) -> None:
         result = runner.invoke(
