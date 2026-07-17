@@ -29,6 +29,22 @@ class SafeDecimalTests(unittest.TestCase):
 
         self.assertIn("safe_decimal: unexpected error coercing nav=", logs.output[0])
 
+    def test_unexpected_failures_with_bad_repr_are_logged(self) -> None:
+        class BadStrAndRepr:
+            def __str__(self) -> str:
+                raise RuntimeError("boom")
+
+            def __repr__(self) -> str:
+                raise RuntimeError("repr boom")
+
+        with self.assertLogs("genkei.common.numeric", level="WARNING") as logs:
+            self.assertIsNone(safe_decimal(BadStrAndRepr(), field="nav"))
+
+        self.assertIn(
+            "safe_decimal: unexpected error coercing nav=<unrepresentable BadStrAndRepr>",
+            logs.output[0],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
