@@ -795,6 +795,9 @@ etf_tickers:
     issuer: BlackRock
     launch_date: 2024-01-11
     sleeve: tactical
+    # SEC CIK for the trust — enables the B-114 10-Q/10-K quarter-end
+    # shares-outstanding backfill into etf.fund_snapshots.
+    cik: "0001980994"
     rationale: Largest spot BTC ETF by AUM; primary institutional vehicle.
   - ticker: FBTC
     name: Fidelity Wise Origin Bitcoin Fund
@@ -881,6 +884,7 @@ etf_tickers:
     issuer: BlackRock
     launch_date: 2024-07-23
     sleeve: tactical
+    cik: "0002000638"
     rationale: BlackRock spot ETH ETF; parallel to IBIT.
   - ticker: ETHB
     name: iShares Staked Ethereum Trust ETF
@@ -888,6 +892,7 @@ etf_tickers:
     issuer: BlackRock
     launch_date: 2026-03-12
     sleeve: tactical
+    cik: "0002099103"
     rationale: BlackRock staked ETH ETF introduced on Nasdaq in March 2026.
   - ticker: FETH
     name: Fidelity Ethereum Fund

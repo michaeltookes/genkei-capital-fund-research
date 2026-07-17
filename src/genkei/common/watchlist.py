@@ -206,6 +206,11 @@ class EtfTickerEntry:
     sleeve: str = "tactical"
     launch_date: str | None = None
     rationale: str | None = None
+    # SEC CIK for the ETF trust, zero-padded to 10 digits. Present only for
+    # funds whose 10-Q/10-K XBRL shares-outstanding we backfill into
+    # etf.fund_snapshots (B-114). None → the fund isn't wired for the SEC
+    # quarter-end backfill (no CIK curated yet).
+    cik: str | None = None
 
 
 @dataclass(frozen=True)
@@ -798,6 +803,7 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                     sleeve=sleeve,
                     launch_date=launch_str,
                     rationale=_optional_string(entry.get("rationale")),
+                    cik=_normalize_filer_cik(entry.get("cik")),
                 )
             )
 
