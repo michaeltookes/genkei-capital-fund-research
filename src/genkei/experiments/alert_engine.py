@@ -15,7 +15,8 @@ Three halves, mirroring ``signal_store``:
     on synthetic stacks + rules.
   * **Persistence + orchestration** — :func:`persist_alerts` writes candidates
     idempotently (``ON CONFLICT (fingerprint) DO NOTHING``) and returns only
-    the *newly-created* rows so the caller knows what to page on;
+    the *newly-created* rows; notification reloads open, unnotified rows from
+    the current engine window so failed deliveries can be retried;
     :func:`run_alert_engine` ties load → correlate → evaluate → persist →
     (optional) notify together inside an ``ingest_run``.
 
@@ -293,6 +294,7 @@ def query_alerts(
     asset: str | None = None,
     severity: str | None = None,
     status: str | None = None,
+    notified: bool | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
     limit: int | None = None,
@@ -314,6 +316,10 @@ def query_alerts(
     if status is not None:
         sql += " AND status = %s"
         params.append(status)
+    if notified is True:
+        sql += " AND notified_at IS NOT NULL"
+    elif notified is False:
+        sql += " AND notified_at IS NULL"
     if since is not None:
         sql += " AND triggered_at >= %s"
         params.append(since)
@@ -397,9 +403,9 @@ def run_alert_engine(
 ) -> AlertRunResult:
     """Load rules → correlate → evaluate → persist → (optionally) notify.
 
-    ``notify`` posts newly-created alerts to the Discord webhook and stamps
-    ``notified_at``; it no-ops gracefully when no webhook URL is configured
-    (the persisted rows are the durable record, Discord is the ping — B-119).
+    ``notify`` posts open, unnotified alerts from the current engine window to
+    the Discord webhook and stamps ``notified_at``. That includes newly-created
+    rows plus rows persisted by an earlier run whose delivery failed.
     """
     # Local import so the pure evaluator + persistence don't pull yaml.
     from genkei.experiments.alert_rules import DEFAULT_ALERT_RULES_PATH, load_alert_rules
@@ -429,9 +435,19 @@ def run_alert_engine(
             conn.commit()
         run.add_rows(len(new_alerts))
 
+        alerts_to_notify = (
+            query_alerts(
+                status="open",
+                notified=False,
+                since=since_dt,
+                until=until_dt,
+            )
+            if notify
+            else []
+        )
         notified = 0
-        if notify and new_alerts:
-            notified = _notify(new_alerts, webhook_url=webhook_url)
+        if alerts_to_notify:
+            notified = _notify(alerts_to_notify, webhook_url=webhook_url)
 
         LOGGER.info(
             "alert engine: %s stacks, %s candidates, %s new alerts, %s notified",

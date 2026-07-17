@@ -7,13 +7,13 @@ Pins the persistence contract against a live TimescaleDB container:
   * ``mark_notified`` stamps ``notified_at`` once.
   * ``query_alerts`` honors the severity / status / asset filters.
   * ``run_alert_engine`` ties correlate → evaluate → persist together over
-    seeded ``meta.signal_events``.
+    seeded ``meta.signal_events`` and retries unnotified rows.
 """
 
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from genkei.common import db
@@ -192,7 +192,8 @@ class EngineEndToEndTests(PostgresTestCase):
 
         self._seed_stack()
         with patch(
-            "genkei.experiments.alert_engine.load_rules", return_value=_parse_rules(self._RULES)
+            "genkei.experiments.alert_engine.load_rules",
+            return_value=_parse_rules(self._RULES),
         ), patch(
             "genkei.experiments.alert_rules.load_alert_rules", return_value=self._ALERTS
         ):
@@ -203,12 +204,63 @@ class EngineEndToEndTests(PostgresTestCase):
         self.assertEqual(result.new_alerts[0].severity, "critical")
         # Re-run is idempotent — no new alerts the second time.
         with patch(
-            "genkei.experiments.alert_engine.load_rules", return_value=_parse_rules(self._RULES)
+            "genkei.experiments.alert_engine.load_rules",
+            return_value=_parse_rules(self._RULES),
         ), patch(
             "genkei.experiments.alert_rules.load_alert_rules", return_value=self._ALERTS
         ):
             again = run_alert_engine(since=None, until=None, notify=False)
         self.assertEqual(len(again.new_alerts), 0)
+
+    def test_run_engine_retries_unnotified_alerts_from_current_window(self) -> None:
+        from unittest.mock import patch
+
+        self._seed_stack()
+        since = date(2026, 7, 1)
+        until = date(2026, 7, 31)
+
+        with patch(
+            "genkei.experiments.alert_engine.load_rules",
+            return_value=_parse_rules(self._RULES),
+        ), patch(
+            "genkei.experiments.alert_rules.load_alert_rules", return_value=self._ALERTS
+        ):
+            first = run_alert_engine(
+                since=since,
+                until=until,
+                notify=True,
+                webhook_url=None,
+            )
+        self.assertEqual(len(first.new_alerts), 1)
+        self.assertEqual(first.notified, 0)
+        self.assertIsNone(query_alerts()[0].notified_at)
+
+        delivered_assets: list[str] = []
+
+        def _deliver(alerts: list[Alert], *, webhook_url: str | None) -> list[Alert]:
+            delivered_assets.extend(a.asset for a in alerts)
+            return list(alerts)
+
+        with patch(
+            "genkei.experiments.alert_engine.load_rules",
+            return_value=_parse_rules(self._RULES),
+        ), patch(
+            "genkei.experiments.alert_rules.load_alert_rules", return_value=self._ALERTS
+        ), patch(
+            "genkei.experiments.alert_notify.post_alert_batches",
+            side_effect=_deliver,
+        ):
+            again = run_alert_engine(
+                since=since,
+                until=until,
+                notify=True,
+                webhook_url="https://discord/webhook",
+            )
+
+        self.assertEqual(len(again.new_alerts), 0)
+        self.assertEqual(again.notified, 1)
+        self.assertEqual(delivered_assets, ["NVDA"])
+        self.assertIsNotNone(query_alerts()[0].notified_at)
 
 
 def _parse_rules(doc: dict) -> list:

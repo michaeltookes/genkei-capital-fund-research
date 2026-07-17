@@ -1,6 +1,6 @@
 # Threshold-Based Alert Engine
 
-**B-068.** The layer that turns the [cross-source correlator](cross-source-signals.md)'s passive "here's every stack that qualified" into a *pushed* "this one crossed the page threshold — act on it." One sentence: **the alert engine runs the B-064 correlator, evaluates the rules in `src/genkei/data/alert_rules.yml` against the detected stacks, and lands one row per (alert-rule, stack) that clears its threshold into `meta.alerts` — deduped per stack, with an optional Discord ping for the newly-fired rows.**
+**B-068.** The layer that turns the [cross-source correlator](cross-source-signals.md)'s passive "here's every stack that qualified" into a *pushed* "this one crossed the page threshold — act on it." One sentence: **the alert engine runs the B-064 correlator, evaluates the rules in `src/genkei/data/alert_rules.yml` against the detected stacks, and lands one row per (alert-rule, stack) that clears its threshold into `meta.alerts` — deduped per stack, with an optional Discord ping for open rows that have not yet been delivered.**
 
 ```text
 $ genkei alerts --severity critical --top 4
@@ -24,7 +24,7 @@ The split mirrors the emitter/CLI split elsewhere in the lake: the engine (`pyth
 1. **Correlate.** Load `signal_rules.yml`, query `meta.signal_events` over the window, run `detect_stacks` — identical to what `genkei signals` does.
 2. **Evaluate.** For each stack, walk every alert rule. A stack that clears a rule's `match` filters (`rules` / `asset_class` / `horizon` / `direction`, each an any-of list; omit = match any) AND its `min_score` / `min_distinct_sources` floors produces one candidate `Alert`. A single stack can trip several rules (a broad `info` catch-all and a narrow `critical` both), each with its own fingerprint.
 3. **Persist.** Insert candidates with `ON CONFLICT (fingerprint) DO NOTHING RETURNING`, so only the *newly-created* rows come back. The fingerprint is `{alert_rule}:{correlation_rule}:{asset}:{horizon}:{triggered_at date}` — a stack's `window_end` is stable, so a daily re-run over the trailing window inserts nothing for stacks already seen. A genuinely new stack on a later date gets a fresh fingerprint → a fresh alert.
-4. **Notify (optional).** With `--notify`, the newly-created rows are posted to the Discord webhook (`DISCORD_WEBHOOK_URL`) as a single severity-colored embed, and their `notified_at` is stamped. No webhook configured → graceful no-op; the persisted rows are the durable record, Discord is the ping (B-119). A non-2xx / transport error is a warning, not a failure — the alert is already in `meta.alerts`.
+4. **Notify (optional).** With `--notify`, open rows in the current engine window whose `notified_at` is still null are posted to the Discord webhook (`DISCORD_WEBHOOK_URL`) in Discord-sized batches, and delivered rows get `notified_at` stamped. No webhook configured → graceful no-op; the persisted rows are the durable record, Discord is the ping (B-119). A non-2xx / transport error is a warning, not a failure — the alert is already in `meta.alerts` and will be retried on the next run covering that window.
 
 ## Starter alert pack
 
