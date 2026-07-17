@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import unittest
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -14,6 +15,7 @@ from genkei.cli import app
 from genkei.experiments.alert_engine import Alert
 
 runner = CliRunner()
+_ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
 def _combined_output(result: object) -> str:
@@ -21,8 +23,8 @@ def _combined_output(result: object) -> str:
     try:
         stderr = getattr(result, "stderr", "")
     except ValueError:
-        return getattr(result, "output", stdout)
-    return stdout + stderr
+        return _ANSI_RE.sub("", getattr(result, "output", stdout))
+    return _ANSI_RE.sub("", stdout + stderr)
 
 
 def _alert(*, asset: str = "NVDA", severity: str = "critical", notified: bool = False) -> Alert:
