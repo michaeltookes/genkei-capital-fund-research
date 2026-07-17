@@ -38,7 +38,7 @@ import logging
 import sys
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +46,7 @@ import httpx
 
 from genkei.common import db
 from genkei.common.http import HttpClient, RateLimit
+from genkei.common.numeric import safe_decimal
 from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
     EtfTickerEntry,
@@ -105,14 +106,14 @@ def _coerce_decimal(raw: Any) -> Decimal | None:
     if isinstance(raw, dict):
         r = raw.get("r")
         if r is not None:
-            value = _safe_decimal(str(r), field="r")
+            value = safe_decimal(r, field="r")
             if value is not None:
                 return value
         d = raw.get("d")
         if isinstance(d, str):
             cleaned = d.replace(",", "").strip()
             if cleaned and cleaned != "-":
-                return _safe_decimal(cleaned, field="d")
+                return safe_decimal(cleaned, field="d")
         return None
     if isinstance(raw, (int, float)):
         return Decimal(str(raw))
@@ -120,27 +121,8 @@ def _coerce_decimal(raw: Any) -> Decimal | None:
         cleaned = raw.replace(",", "").strip()
         if not cleaned or cleaned == "-":
             return None
-        return _safe_decimal(cleaned, field="str")
+        return safe_decimal(cleaned, field="str")
     return None
-
-
-def _safe_decimal(text: str, *, field: str) -> Decimal | None:
-    """``Decimal(text)`` where an unparseable number yields ``None`` silently
-    but any *unexpected* failure logs a WARNING instead of vanishing — in
-    unattended daily ingest a swallowed surprise is the difference between
-    noticing bad data and not (B-121)."""
-    try:
-        return Decimal(text)
-    except (ValueError, InvalidOperation):
-        return None
-    except Exception:  # pragma: no cover - defensive
-        LOGGER.warning(
-            "ishares _coerce_decimal: unexpected error coercing %s=%r to Decimal",
-            field,
-            text,
-            exc_info=True,
-        )
-        return None
 
 
 def _coerce_string(raw: Any) -> str | None:

@@ -78,17 +78,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
 - **Out of scope:**
   - 10-Q quarter-end shares-outstanding triangulation (B-114 owns that path).
 
-### B-114 — SEC 10-Q quarter-end ETF shares-outstanding backfill (B-107 v2.1)
-- **Status:** open
-- **Priority:** low
-- **Context:** B-107 v1's iShares product-screener ingester only fetches the current daily snapshot — there's no backfill path from that endpoint. Historical daily NAV / shares-outstanding lives elsewhere (likely behind iShares's JS-rendered chart widgets or a paid feed). However, the SEC 10-Q quarterly filings DO contain point-in-time shares-outstanding at quarter end — 4 checkpoints per year per ETF, going back to inception (IBIT: 2024-01-11 → 10 quarters as of mid-2026). Extracting those would let us reconstruct historical AUM trajectory (not daily flows, but quarterly drift) and triangulate against the daily snapshots once they accumulate.
-- **Acceptance criteria:**
-  - 10-Q parser extracting shares-outstanding as of report-period-end for IBIT / ETHA / ETHB (and any future watchlist BlackRock ETFs).
-  - Lands rows in `etf.fund_snapshots` keyed on the report-period-end date (which is always quarter-end) with an explicit `source_endpoint` marker distinguishing 10-Q-derived rows from daily-feed rows.
-  - Unit tests pin the 10-Q XBRL extraction.
-- **Out of scope:**
-  - Backfilling daily NAV / TNA between quarter-end points — that's the gap a paid feed would fill; not pursuing today per the "free/open sources only" stance.
-
 ### B-115 — SUI unlock schedule for the 7 paywalled allocations (B-089 v2)
 - **Status:** open
 - **Priority:** low

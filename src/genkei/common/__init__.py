@@ -15,6 +15,7 @@ from genkei.common.http import (
     RateLimit,
     RetryPolicy,
 )
+from genkei.common.numeric import safe_decimal
 
 __all__ = [
     "RETRYABLE_STATUS_CODES",
@@ -28,4 +29,5 @@ __all__ = [
     "ingest_run",
     "load_env_file",
     "reset_pool",
+    "safe_decimal",
 ]

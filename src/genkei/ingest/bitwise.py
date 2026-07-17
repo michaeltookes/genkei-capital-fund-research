@@ -55,7 +55,7 @@ import re
 import sys
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +63,7 @@ import httpx
 
 from genkei.common import db
 from genkei.common.http import HttpClient, RateLimit
+from genkei.common.numeric import safe_decimal
 from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
     EtfTickerEntry,
@@ -142,25 +143,6 @@ def _strip_html_comments(html: str) -> str:
     return _COMMENT_RE.sub("", html)
 
 
-def _safe_decimal(text: str, *, field: str) -> Decimal | None:
-    """``Decimal(text)`` where an unparseable number yields ``None`` silently
-    but any *unexpected* failure logs a WARNING instead of vanishing — in
-    unattended daily ingest a swallowed surprise is the difference between
-    noticing bad data and not (B-121)."""
-    try:
-        return Decimal(text)
-    except (ValueError, InvalidOperation):
-        return None
-    except Exception:  # pragma: no cover - defensive
-        LOGGER.warning(
-            "bitwise: unexpected error coercing %s=%r to Decimal",
-            field,
-            text,
-            exc_info=True,
-        )
-        return None
-
-
 def _parse_money(raw: str | None, *, field: str) -> Decimal | None:
     """Parse a ``$1,234.56`` / ``1,234`` money string into a Decimal.
 
@@ -171,7 +153,7 @@ def _parse_money(raw: str | None, *, field: str) -> Decimal | None:
     cleaned = raw.replace("$", "").replace(",", "").strip()
     if not cleaned or cleaned == "-":
         return None
-    return _safe_decimal(cleaned, field=field)
+    return safe_decimal(cleaned, field=field)
 
 
 def _find_labeled_value(html: str, label: str) -> str | None:

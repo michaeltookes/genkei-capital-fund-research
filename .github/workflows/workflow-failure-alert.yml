@@ -37,6 +37,7 @@ on:
       - "GDELT GKG Daily Snapshot"
       - "iShares Daily ETF Snapshots"
       - "Bitwise Daily ETF Snapshots"
+      - "SEC ETF Shares Backfill Daily"
       - "Etherscan Whale-Flow Daily Snapshot"
       - "Sui Staking Daily Snapshot"
       - "SUI Unlocks Daily Snapshot"

@@ -273,6 +273,14 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
     # fetch parses inline + writes directly to etf.fund_snapshots alongside
     # the iShares rows. v1 covers BITB. Daily T+1/T+2 cadence.
     "bitwise": ["collect"],
+    # B-114 SEC 10-Q/10-K ETF quarter-end shares-outstanding backfill — one
+    # companyfacts XBRL fetch per CIK-tagged etf_ticker (IBIT/ETHA/ETHB),
+    # extracts period-end shares + net assets, derives NAV, and lands quarterly
+    # checkpoints into etf.fund_snapshots (source_endpoint='sec_10q_xbrl',
+    # DO NOTHING so it never clobbers the daily feed). Runs daily even though
+    # 10-Qs land quarterly — the run is a cheap idempotent no-op most days and
+    # keeps the heartbeat fresh.
+    "sec_etf_shares": ["collect"],
     # ZEC usage — daily snapshot of the Zcash node's valuePools (shielded
     # share of supply) parsed inline into zcash.shielded_pools. Forward-only
     # (current chain state; no backfill). See docs/sources/zcash-usage.md.

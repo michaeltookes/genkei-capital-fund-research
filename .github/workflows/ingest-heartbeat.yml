@@ -67,6 +67,7 @@ jobs:
             "gdelt-daily.yml:48"
             "ishares-daily.yml:48"
             "bitwise-daily.yml:48"
+            "sec-etf-shares-daily.yml:48"
             "etherscan-whales-daily.yml:48"
             "sui-staking-daily.yml:48"
             "sui-unlocks-daily.yml:48"

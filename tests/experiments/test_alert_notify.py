@@ -112,15 +112,14 @@ class PostTests(unittest.TestCase):
             alert_notify,
             "_chunk_alerts_for_embeds",
             return_value=[[first], [second]],
+        ), patch.object(
+            alert_notify.urllib.request,
+            "urlopen",
+            side_effect=[_response(204), urllib.error.URLError("boom")],
         ):
-            with patch.object(
-                alert_notify.urllib.request,
-                "urlopen",
-                side_effect=[_response(204), urllib.error.URLError("boom")],
-            ):
-                delivered = alert_notify.post_alert_batches(
-                    [first, second], webhook_url="https://discord/webhook"
-                )
+            delivered = alert_notify.post_alert_batches(
+                [first, second], webhook_url="https://discord/webhook"
+            )
 
         self.assertEqual(delivered, [first])
 

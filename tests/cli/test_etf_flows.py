@@ -345,23 +345,29 @@ class QueryNetFlowTests(unittest.TestCase):
         self.assertGreater(outer_marker, window_marker)
 
     def test_params_order(self) -> None:
-        """Bound params are [asset, tickers, since, until, limit]."""
+        """Bound params are [asset, tickers, source_marker, since, until, limit].
+
+        The third param is the sec_10q_xbrl exclusion marker (B-114) inside the
+        subquery — quarterly SEC checkpoints must not enter the daily-flow LAG.
+        """
         _, params = self._capture_query()
         self.assertEqual(params[0], "BTC")
         self.assertEqual(params[1], ["FBTC", "IBIT"])
-        self.assertEqual(params[2], date(2026, 1, 1))
-        self.assertEqual(params[3], date(2026, 6, 7))
-        self.assertEqual(params[4], 10)
+        self.assertEqual(params[2], "sec_10q_xbrl")
+        self.assertEqual(params[3], date(2026, 1, 1))
+        self.assertEqual(params[4], date(2026, 6, 7))
+        self.assertEqual(params[5], 10)
 
     def test_since_only_binds_since(self) -> None:
         """When only --since is set, no until param is bound."""
         _, params = self._capture_query(until=None)
-        # asset, tickers, since, limit only — until omitted
-        self.assertEqual(len(params), 4)
+        # asset, tickers, source_marker, since, limit only — until omitted
+        self.assertEqual(len(params), 5)
         self.assertEqual(params[0], "BTC")
         self.assertEqual(params[1], ["FBTC", "IBIT"])
-        self.assertEqual(params[2], date(2026, 1, 1))
-        self.assertEqual(params[3], 10)
+        self.assertEqual(params[2], "sec_10q_xbrl")
+        self.assertEqual(params[3], date(2026, 1, 1))
+        self.assertEqual(params[4], 10)
 
     def test_filters_by_asset_inside_subquery(self) -> None:
         """The asset filter goes INSIDE the subquery so the window is per-asset.
