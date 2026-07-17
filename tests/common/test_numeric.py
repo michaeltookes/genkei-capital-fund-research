@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import unittest
 from decimal import Decimal
 
@@ -9,6 +10,13 @@ from genkei.common.numeric import safe_decimal
 
 
 class SafeDecimalTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._logging_disable_level = logging.root.manager.disable
+        logging.disable(logging.NOTSET)
+
+    def tearDown(self) -> None:
+        logging.disable(self._logging_disable_level)
+
     def test_accepts_native_numeric_and_string_values(self) -> None:
         self.assertEqual(safe_decimal(33), Decimal("33"))
         self.assertEqual(safe_decimal(33.81), Decimal("33.81"))
