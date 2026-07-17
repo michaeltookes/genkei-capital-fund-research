@@ -74,6 +74,25 @@ class QueryCacheTests(unittest.TestCase):
             self._run(["query", "SELECT x FROM t", "--json"])
         self.assertEqual(mocked.call_count, 2)
 
+    def test_different_database_url_is_a_cache_miss(self) -> None:
+        with patch(
+            "genkei.cli.query.execute_readonly",
+            return_value=(["x"], [(1,)]),
+        ) as mocked:
+            with patch.dict(
+                "os.environ",
+                {"GENKEI_DATABASE_URL": "postgresql://user:pw@prod.example/research"},
+                clear=False,
+            ):
+                self._run(["query", "SELECT x FROM t"])
+            with patch.dict(
+                "os.environ",
+                {"GENKEI_DATABASE_URL": "postgresql://user:pw@test.example/research"},
+                clear=False,
+            ):
+                self._run(["query", "SELECT x FROM t"])
+        self.assertEqual(mocked.call_count, 2)
+
     def test_timeout_does_not_change_key(self) -> None:
         # --timeout-seconds can only affect whether a query errors, not the
         # content of a success, so it is excluded from the cache key.

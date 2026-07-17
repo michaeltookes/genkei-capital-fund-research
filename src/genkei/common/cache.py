@@ -46,7 +46,7 @@ _ENV_TTL = "GENKEI_CACHE_TTL"
 
 
 def cache_dir() -> Path:
-    """Return the query-cache directory, creating it if needed.
+    """Return the query-cache directory path, creating it if possible.
 
     Honors ``GENKEI_CACHE_DIR``; otherwise ``$XDG_CACHE_HOME/genkei`` or
     ``~/.cache/genkei``. The ``query`` subdir isolates this cache from any
@@ -59,8 +59,14 @@ def cache_dir() -> Path:
         xdg = os.environ.get("XDG_CACHE_HOME")
         base = (Path(xdg) if xdg else Path.home() / ".cache") / "genkei"
     directory = base / "query"
-    directory.mkdir(parents=True, exist_ok=True)
+    with contextlib.suppress(OSError):
+        directory.mkdir(parents=True, exist_ok=True)
     return directory
+
+
+def _usable_cache_dir() -> Path | None:
+    directory = cache_dir()
+    return directory if directory.is_dir() else None
 
 
 def default_ttl() -> int:
@@ -94,7 +100,10 @@ def load(key: str, *, ttl: int, now: float | None = None) -> str | None:
     read/parse error — a broken cache file must never break a query.
     """
     current = time.time() if now is None else now
-    path = cache_dir() / f"{key}.json"
+    directory = _usable_cache_dir()
+    if directory is None:
+        return None
+    path = directory / f"{key}.json"
     try:
         raw = path.read_text(encoding="utf-8")
     except OSError:
@@ -120,7 +129,9 @@ def store(key: str, value: str, *, now: float | None = None) -> None:
     optimization, never a correctness dependency.
     """
     current = time.time() if now is None else now
-    directory = cache_dir()
+    directory = _usable_cache_dir()
+    if directory is None:
+        return
     path = directory / f"{key}.json"
     payload = json.dumps({"stored_at": current, "value": value})
     try:
@@ -137,7 +148,9 @@ def store(key: str, value: str, *, now: float | None = None) -> None:
 
 def clear() -> int:
     """Delete every entry in the query cache; return the count removed."""
-    directory = cache_dir()
+    directory = _usable_cache_dir()
+    if directory is None:
+        return 0
     removed = 0
     for entry in directory.glob("*.json"):
         with contextlib.suppress(OSError):

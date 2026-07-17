@@ -52,6 +52,12 @@ class StoreLoadTests(CacheTestBase):
     def test_miss_returns_none(self) -> None:
         self.assertIsNone(cache.load("nope", ttl=300))
 
+    def test_unavailable_cache_dir_returns_miss(self) -> None:
+        bad_base = Path(self._tmp.name) / "not-a-directory"
+        bad_base.write_text("file, not directory", encoding="utf-8")
+        with patch.dict("os.environ", {"GENKEI_CACHE_DIR": str(bad_base)}, clear=False):
+            self.assertIsNone(cache.load("k1", ttl=300))
+
     def test_expired_entry_returns_none_and_unlinks(self) -> None:
         cache.store("k2", "stale", now=1000.0)
         # 301s later, ttl=300 → expired.
@@ -78,12 +84,25 @@ class StoreLoadTests(CacheTestBase):
         cache.store("k4", "v2", now=1001.0)
         self.assertEqual(cache.load("k4", ttl=300, now=1001.0), "v2")
 
+    def test_unavailable_cache_dir_makes_store_noop(self) -> None:
+        bad_base = Path(self._tmp.name) / "not-a-directory"
+        bad_base.write_text("file, not directory", encoding="utf-8")
+        with patch.dict("os.environ", {"GENKEI_CACHE_DIR": str(bad_base)}, clear=False):
+            cache.store("k5", "value", now=1000.0)
+        self.assertTrue(bad_base.is_file())
+
     def test_clear_removes_all(self) -> None:
         cache.store("a", "1", now=1000.0)
         cache.store("b", "2", now=1000.0)
         removed = cache.clear()
         self.assertEqual(removed, 2)
         self.assertIsNone(cache.load("a", ttl=300, now=1000.0))
+
+    def test_unavailable_cache_dir_makes_clear_noop(self) -> None:
+        bad_base = Path(self._tmp.name) / "not-a-directory"
+        bad_base.write_text("file, not directory", encoding="utf-8")
+        with patch.dict("os.environ", {"GENKEI_CACHE_DIR": str(bad_base)}, clear=False):
+            self.assertEqual(cache.clear(), 0)
 
 
 class CacheDirTests(CacheTestBase):

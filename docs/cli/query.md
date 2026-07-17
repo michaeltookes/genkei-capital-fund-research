@@ -60,7 +60,7 @@ $ genkei query "SELECT count(*) AS rows FROM coingecko.market_data" --json
 
 ## Result caching (B-046)
 
-Repeated identical queries in a session are served from a disk-backed cache instead of re-hitting Postgres. The cache key is `(SQL, --limit, format)` — any change in those is a fresh query. `--timeout-seconds` is deliberately **not** part of the key (it can only change whether a query errors, and errors are never cached).
+Repeated identical queries in a session are served from a disk-backed cache instead of re-hitting Postgres. The cache key is `(database namespace, SQL, --limit, format)` — any change in those is a fresh query. `--timeout-seconds` is deliberately **not** part of the key (it can only change whether a query errors, and errors are never cached).
 
 Why disk-backed and not in-memory: the CLI is one-shot per process, so each `genkei query` is a fresh interpreter — an in-memory cache could never see the previous invocation. The value the backlog wanted ("the agent issues the same query many times in a session") is many *separate* processes, so the cache lives on disk (see `genkei.common.cache`). A short default TTL (5 min) bounds staleness against the lake's daily-cron refresh.
 

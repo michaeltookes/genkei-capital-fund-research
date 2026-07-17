@@ -38,8 +38,9 @@ Output formats: ``table`` (default, human), ``json``, ``csv``.
 Result caching (B-046): identical queries within a session return a cached
 result instead of re-hitting Postgres. The cache is disk-backed (the CLI is
 one-shot per process, so an in-memory cache couldn't span invocations — see
-``genkei.common.cache``) and keyed by the SQL + ``--limit`` + format, with a
-short default TTL (5 min) that bounds staleness against the daily-cron refresh.
+``genkei.common.cache``) and keyed by the database namespace + SQL +
+``--limit`` + format, with a short default TTL (5 min) that bounds staleness
+against the daily-cron refresh.
 ``--no-cache`` forces a fresh read; ``--cache-ttl`` tunes freshness.
 
 Usage:
@@ -59,6 +60,7 @@ import re
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 import typer
 from psycopg import Error as PsycopgError
@@ -224,6 +226,26 @@ def execute_readonly(
         # No COMMIT — db.connection()'s context manager handles it. The
         # READ ONLY guarantee means there's nothing to commit anyway.
     return cols, rows
+
+
+def _cache_database_namespace() -> str:
+    """Return a stable DB namespace for cache keys without opening a connection."""
+    try:
+        resolved = db._resolve_url(None)
+    except RuntimeError:
+        return "<unconfigured>"
+
+    parsed = urlsplit(resolved)
+    if not parsed.netloc:
+        return resolved
+
+    userinfo, sep, hostinfo = parsed.netloc.rpartition("@")
+    if sep:
+        username = userinfo.split(":", 1)[0]
+        netloc = f"{username}@{hostinfo}" if username else hostinfo
+    else:
+        netloc = parsed.netloc
+    return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, ""))
 
 
 # ---------------------------------------------------------------------------
@@ -404,15 +426,21 @@ def query_cmd(
     raw_sql = _read_sql(sql, file)
     cleaned = _validate_sql(raw_sql)
 
-    # Cache key covers every parameter that changes the *rendered output*:
-    # the SQL, the row cap, and the format. --timeout-seconds is deliberately
-    # excluded — it can only change whether a query errors (errors are never
-    # cached), not the content of a successful result — so two invocations that
-    # differ only in timeout share a cache entry.
     use_cache = not no_cache
     ttl = cache_ttl if cache_ttl > 0 else cache.default_ttl()
-    cache_key = cache.make_key("query", cleaned, limit, output_format)
+    cache_key = ""
     if use_cache:
+        # Cache key covers every parameter that changes the *rendered output*:
+        # the database namespace, SQL, row cap, and format. --timeout-seconds is
+        # deliberately excluded — it can only change whether a query errors
+        # (errors are never cached), not the content of a successful result.
+        cache_key = cache.make_key(
+            "query",
+            _cache_database_namespace(),
+            cleaned,
+            limit,
+            output_format,
+        )
         cached = cache.load(cache_key, ttl=ttl)
         if cached is not None:
             typer.echo(cached)
