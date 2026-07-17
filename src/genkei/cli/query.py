@@ -35,12 +35,22 @@ Additional defenses:
 
 Output formats: ``table`` (default, human), ``json``, ``csv``.
 
+Result caching (B-046): identical queries within a session return a cached
+result instead of re-hitting Postgres. The cache is disk-backed (the CLI is
+one-shot per process, so an in-memory cache couldn't span invocations — see
+``genkei.common.cache``) and keyed by the database namespace + SQL +
+``--limit`` + format, with a short default TTL (5 min) that bounds staleness
+against the daily-cron refresh.
+``--no-cache`` forces a fresh read; ``--cache-ttl`` tunes freshness.
+
 Usage:
   genkei query "SELECT count(*) FROM sec.form4_transactions"
   genkei query --file analyses/insider_buys_2024.sql --json
   genkei query "SELECT * FROM sec.facts LIMIT 5" --format csv
   genkei query "SELECT 1" --timeout-seconds 5
   genkei query "SELECT * FROM big" --limit 5000
+  genkei query "SELECT now()" --no-cache        # always fresh
+  genkei query "SELECT now()" --cache-ttl 30     # 30s freshness window
 """
 
 import csv
@@ -50,12 +60,13 @@ import re
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 import typer
 from psycopg import Error as PsycopgError
 
 from genkei.cli._helpers import json_default as _json_default
-from genkei.common import db
+from genkei.common import cache, db
 
 DEFAULT_LIMIT = 100
 MAX_LIMIT = 100_000
@@ -217,6 +228,26 @@ def execute_readonly(
     return cols, rows
 
 
+def _cache_database_namespace() -> str:
+    """Return a stable DB namespace for cache keys without opening a connection."""
+    try:
+        resolved = db._resolve_url(None)
+    except RuntimeError:
+        return "<unconfigured>"
+
+    parsed = urlsplit(resolved)
+    if not parsed.netloc:
+        return resolved
+
+    userinfo, sep, hostinfo = parsed.netloc.rpartition("@")
+    if sep:
+        username = userinfo.split(":", 1)[0]
+        netloc = f"{username}@{hostinfo}" if username else hostinfo
+    else:
+        netloc = parsed.netloc
+    return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, ""))
+
+
 # ---------------------------------------------------------------------------
 # Output formatters
 # ---------------------------------------------------------------------------
@@ -356,6 +387,28 @@ def query_cmd(
             help="Shortcut for --format json (matches the convention in other subcommands).",
         ),
     ] = False,
+    no_cache: Annotated[
+        bool,
+        typer.Option(
+            "--no-cache",
+            help=(
+                "Bypass the query cache entirely — force a fresh DB read and do "
+                "not populate the cache (B-046)."
+            ),
+        ),
+    ] = False,
+    cache_ttl: Annotated[
+        int,
+        typer.Option(
+            "--cache-ttl",
+            help=(
+                "Cache freshness in seconds for repeated identical queries. "
+                "0 uses the default (GENKEI_CACHE_TTL env or "
+                f"{cache.DEFAULT_TTL_SECONDS}s). Ignored with --no-cache."
+            ),
+            min=0,
+        ),
+    ] = 0,
 ) -> None:
     """Run an ad-hoc SELECT against the data lake (read-only, capped, timeouted)."""
     if limit > MAX_LIMIT:
@@ -372,6 +425,26 @@ def query_cmd(
 
     raw_sql = _read_sql(sql, file)
     cleaned = _validate_sql(raw_sql)
+
+    use_cache = not no_cache
+    ttl = cache_ttl if cache_ttl > 0 else cache.default_ttl()
+    cache_key = ""
+    if use_cache:
+        # Cache key covers every parameter that changes the *rendered output*:
+        # the database namespace, SQL, row cap, and format. --timeout-seconds is
+        # deliberately excluded — it can only change whether a query errors
+        # (errors are never cached), not the content of a successful result.
+        cache_key = cache.make_key(
+            "query",
+            _cache_database_namespace(),
+            cleaned,
+            limit,
+            output_format,
+        )
+        cached = cache.load(cache_key, ttl=ttl)
+        if cached is not None:
+            typer.echo(cached)
+            return
 
     try:
         cols, rows = execute_readonly(
@@ -391,13 +464,19 @@ def query_cmd(
     rows = rows[:limit]
     try:
         if output_format == "json":
-            typer.echo(format_json(cols, rows))
+            output = format_json(cols, rows)
         elif output_format == "csv":
-            typer.echo(format_csv(cols, rows))
+            output = format_csv(cols, rows)
         else:
-            typer.echo(format_table(cols, rows, limit=limit, capped=capped))
+            output = format_table(cols, rows, limit=limit, capped=capped)
     except ValueError as exc:
         msg = str(exc).strip().splitlines()[0] if str(exc).strip() else "(no message)"
         msg = re.sub(r"\s+", " ", msg)
         typer.echo(f"query error [{type(exc).__name__}]: {msg}", err=True)
         raise typer.Exit(code=1) from exc
+
+    typer.echo(output)
+    # Only successful renders reach here — errors exit above and are never
+    # cached, so a transient failure can't poison the cache.
+    if use_cache:
+        cache.store(cache_key, output)

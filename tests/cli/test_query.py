@@ -298,6 +298,16 @@ class CliArgumentTests(unittest.TestCase):
 
 
 class CliExecutionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # Isolate the disk-backed query cache (B-046) per test so identical
+        # SQL across tests (with different mocked results) can't cross-
+        # contaminate via a shared on-disk entry.
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        env = patch.dict("os.environ", {"GENKEI_CACHE_DIR": tmp.name}, clear=False)
+        env.start()
+        self.addCleanup(env.stop)
+
     def test_default_format_renders_table(self) -> None:
         out = io.StringIO()
         with (
