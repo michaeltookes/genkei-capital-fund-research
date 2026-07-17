@@ -141,16 +141,7 @@ _All Phase 5 items shipped 2026-07-01 (B-054 / B-055 / B-063) — see `docs/reso
 
 Once cross-source data is in, the system starts producing investable signals.
 
-_B-064 follow-ups (wire the remaining signal emitters) shipped — all emitters landed and are chained into the daily workflows; removed 2026-07-01, see `docs/resolved.md`. B-111 (equity relative-strength emitter) also resolved 2026-06-06 and now lives only in `docs/resolved.md`._
-
-### B-068 — Threshold-based alert engine
-- **Status:** open
-- **Priority:** low
-- **Context:** Configurable thresholds emit events to `meta.alerts`. Agent surfaces these on demand.
-- **Acceptance criteria:**
-  - YAML-defined thresholds.
-  - `meta.alerts` table.
-  - Optional notification hook (Discord webhook, email, GH issue).
+_B-064 follow-ups (wire the remaining signal emitters) shipped — all emitters landed and are chained into the daily workflows; removed 2026-07-01, see `docs/resolved.md`. B-111 (equity relative-strength emitter) also resolved 2026-06-06 and now lives only in `docs/resolved.md`. B-068 (threshold alert engine) shipped 2026-07-16 — see `docs/resolved.md`._
 
 ## Phase 7 — Operations & hardening
 

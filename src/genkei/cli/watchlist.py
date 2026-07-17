@@ -338,6 +338,12 @@ RECURRING_ENDPOINTS: dict[str, list[str]] = {
     # Endpoint is 'refresh' (not 'collect') since it recomputes a matview
     # rather than ingesting; exempt from the collect-endpoint expectation.
     "price_momentum": ["refresh"],
+    # B-068 — the threshold alert engine runs on its own daily cron. Like the
+    # anomaly detector it writes sparse rows into meta.alerts (only stacks that
+    # clear a page threshold land), so health tracks this ingest-run heartbeat
+    # ('evaluate') rather than table liveness; no new alerts on a quiet day is
+    # healthy. Not in PRIMARY_TABLES for the same reason.
+    "alert_engine": ["evaluate"],
 }
 
 

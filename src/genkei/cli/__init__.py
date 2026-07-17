@@ -48,6 +48,7 @@ Subcommand surface (B-037):
                         News tone vs forward returns — correlation     [B-056 ✓]
 - ``genkei anomalies`` Per-series return-anomaly flags          [B-069 ✓]
 - ``genkei momentum``  Trailing 3/7/30-day price momentum        [B-067 ✓]
+- ``genkei alerts``    Threshold-based alert log                 [B-068 ✓]
 """
 
 from __future__ import annotations
@@ -57,6 +58,7 @@ import sys
 import typer
 
 from genkei.cli import (
+    alerts,
     anomalies,
     backtest,
     cot,
@@ -177,6 +179,10 @@ app.command(
     "momentum",
     help="Trailing 3/7/30-day price momentum per asset (B-067, materialized).",
 )(momentum.momentum_cmd)
+app.command(
+    "alerts",
+    help="Threshold-based alert log (B-068) — stacks that cleared a configured page threshold.",
+)(alerts.alerts_cmd)
 app.command(
     "query",
     help="Ad-hoc SQL escape hatch (read-only, timeout + row cap enforced).",

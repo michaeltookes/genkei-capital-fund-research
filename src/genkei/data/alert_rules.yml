@@ -1,0 +1,76 @@
+# Genkei Capital — threshold-based alert rules (B-068)
+#
+# The alert engine (`genkei.experiments.alert_engine`) runs the B-064
+# correlator to get cross-source signal *stacks*, then evaluates every alert
+# rule below against them. A stack that clears a rule's `match` filters AND its
+# `min_score` / `min_distinct_sources` floors lands one row in `meta.alerts`
+# (deduped per stack, so a daily re-run is idempotent). `genkei alerts` reads
+# them back; a daily workflow relays new rows to Discord / a GitHub issue.
+#
+# The split from signal_rules.yml is deliberate: correlation rules define what
+# a stack *is* (the floor at which multi-source agreement exists); alert rules
+# define what's worth *paging about* (an escalated bar on top). A rule with
+# `min_score: 0` alerts on any qualifying stack for its match filters; bump the
+# floor to page only on the strong ones and leave the weak stacks to the
+# weekly digest.
+#
+# match filters (all optional; omit = match any):
+#   rules:         list of correlation-rule names (from signal_rules.yml)
+#   asset_class:   list of equity / crypto / protocol / macro
+#   horizon:       list of exact horizon tags (e.g. crypto:tactical)
+#   direction:     list of bullish / bearish / neutral
+# thresholds (optional; default 0 = no extra floor beyond the stack existing):
+#   min_score:              escalated score floor (>= the correlation rule's)
+#   min_distinct_sources:   escalated distinct-source floor
+# severity (required): info / warning / critical — drives how loudly the
+#   notification hook pages.
+version: 1
+
+alerts:
+  # Bearish exits are the highest-value page — a multi-source agreement that
+  # smart money is leaving is the signal most likely to need same-day action
+  # on the equity-core sleeve. Escalated above the rule floor so only the
+  # strong stacks (two full-strength legs, score >= 1.8) page as critical.
+  - name: critical_equity_exit
+    description: >-
+      A strong bearish equity-core stack (insider selling + 13F exit, or a
+      hard price gap paired with either) — the "get out" page. Escalated above
+      the correlation-rule floor so a marginal two-source stack goes to the
+      digest, not the pager.
+    severity: critical
+    match:
+      asset_class: [equity]
+      direction: [bearish]
+    min_score: 1.8
+    min_distinct_sources: 2
+
+  # Bullish equity entries — smart money piling in. Warning, not critical:
+  # these inform the buy-and-hold equity-core sleeve on a slower clock, so
+  # they page but don't scream.
+  - name: equity_entry
+    description: >-
+      A bullish equity-core stack (insider buying + 13F crowding add / rel-
+      strength leader). Warning severity — actionable for the long-only
+      equity-core sleeve but not time-critical.
+    severity: warning
+    match:
+      asset_class: [equity]
+      direction: [bullish]
+    min_score: 1.6
+    min_distinct_sources: 2
+
+  # Crypto stress — on-chain demand contracting AND price breaking, on either
+  # the core or tactical sleeve. Warning: the tactical sleeve is turnover-
+  # eligible so these are the stacks most likely to drive a trim, but crypto
+  # stacks are sparse enough that any qualifying one is worth surfacing.
+  - name: crypto_stress
+    description: >-
+      A bearish crypto stack (TVL drawdown + rel-strength laggard, or a return
+      anomaly paired with either) on the core or tactical sleeve. Warning
+      severity — the clearest de-risk signal the crypto sleeves get.
+    severity: warning
+    match:
+      asset_class: [crypto]
+      direction: [bearish]
+    min_score: 1.5
+    min_distinct_sources: 2

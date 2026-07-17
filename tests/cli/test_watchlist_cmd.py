@@ -382,6 +382,13 @@ class ExpectationsRegistryTests(unittest.TestCase):
         self.assertNotIn("anomaly_detector", PRIMARY_TABLES)
         self.assertEqual(RECURRING_ENDPOINTS["anomaly_detector"], ["anomaly_detection"])
 
+    def test_sparse_alerts_are_heartbeat_not_primary_liveness(self) -> None:
+        # B-068 — like the anomaly detector, the alert engine writes sparse
+        # rows (only threshold-clearing stacks land), so it's a recurring
+        # ingest-run heartbeat on 'evaluate', not a table-liveness source.
+        self.assertNotIn("alert_engine", PRIMARY_TABLES)
+        self.assertEqual(RECURRING_ENDPOINTS["alert_engine"], ["evaluate"])
+
     def test_price_momentum_matview_has_both_liveness_and_refresh_heartbeat(
         self,
     ) -> None:
@@ -419,11 +426,17 @@ class ExpectationsRegistryTests(unittest.TestCase):
                 "signal_emitter",
                 "anomaly_detector",
                 "price_momentum",
+                "alert_engine",
             },
         )
         # Derived (compute-not-collect) sources whose endpoints aren't the
         # classic 'collect'/'normalize' pair.
-        emitter_exempt = {"signal_emitter", "anomaly_detector", "price_momentum"}
+        emitter_exempt = {
+            "signal_emitter",
+            "anomaly_detector",
+            "price_momentum",
+            "alert_engine",
+        }
         for source, eps in RECURRING_ENDPOINTS.items():
             if source in emitter_exempt:
                 self.assertTrue(eps, f"{source} should declare at least one emitter")
