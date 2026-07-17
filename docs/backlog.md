@@ -106,14 +106,7 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
 
 The interface the agent (and human user) uses to query the lake.
 
-### B-046 — CLI session caching
-- **Status:** open
-- **Priority:** low
-- **Context:** Agent often issues the same query multiple times in a session. Caching speeds it up.
-- **Acceptance criteria:**
-  - In-process cache with sensible TTL.
-  - `--no-cache` flag.
-  - Cache key includes all query parameters.
+_B-046 (CLI query caching) shipped 2026-07-17 — see `docs/resolved.md`._
 
 ## Phase 4 — Agent layer
 
