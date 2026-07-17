@@ -11,8 +11,8 @@ webhook. Same contract as the composite action —
     already in ``meta.alerts``; Discord is the real-time ping, not the ledger.
 
 Uses ``urllib.request`` (stdlib) rather than pulling ``requests`` into the
-experiments layer for one webhook POST, and so the single network call is
-trivially monkeypatched in tests.
+experiments layer for webhook POSTs, and so the network calls are trivially
+monkeypatched in tests.
 """
 
 from __future__ import annotations
@@ -40,29 +40,56 @@ _SEVERITY_EMOJI = {"critical": "🔴", "warning": "🟠", "info": "🔵"}
 _TITLE_MAX = 256
 _DESC_MAX = 4096
 _POST_TIMEOUT_S = 10
+_LINE_TRUNCATION = "..."
 
 
 def build_embed(alerts: list[Alert]) -> dict[str, Any]:
     """Build the Discord embed payload summarizing ``alerts``.
 
     Title reflects the loudest severity present; body lists one line per alert
-    (asset, direction, rule, score), truncated to Discord's field limits.
+    (asset, direction, rule, score). Callers batch alert sets to Discord's field
+    limits before posting.
     """
     severity = _loudest_severity(alerts)
     emoji = _SEVERITY_EMOJI.get(severity, "🔔")
     title = f"{emoji} {len(alerts)} new signal alert(s) — {severity}"
-    lines = [
-        f"**{a.asset}** {a.direction} · `{a.alert_rule}` "
-        f"(via `{a.correlation_rule}`, score {float(a.score):.2f}, "
-        f"{a.distinct_sources} sources) — {a.triggered_at.date().isoformat()}"
-        for a in alerts
-    ]
+    lines = [_alert_line(a) for a in alerts]
     description = "\n".join(lines)
     return {
         "title": title[:_TITLE_MAX],
-        "description": description[:_DESC_MAX],
+        "description": description,
         "color": _SEVERITY_COLOR.get(severity, _DEFAULT_COLOR),
     }
+
+
+def _alert_line(alert: Alert) -> str:
+    line = (
+        f"**{alert.asset}** {alert.direction} · `{alert.alert_rule}` "
+        f"(via `{alert.correlation_rule}`, score {float(alert.score):.2f}, "
+        f"{alert.distinct_sources} sources) — {alert.triggered_at.date().isoformat()}"
+    )
+    if len(line) <= _DESC_MAX:
+        return line
+    return line[: _DESC_MAX - len(_LINE_TRUNCATION)] + _LINE_TRUNCATION
+
+
+def _chunk_alerts_for_embeds(alerts: list[Alert]) -> list[list[Alert]]:
+    batches: list[list[Alert]] = []
+    current: list[Alert] = []
+    current_len = 0
+    for alert in alerts:
+        line_len = len(_alert_line(alert))
+        separator_len = 1 if current else 0
+        if current and current_len + separator_len + line_len > _DESC_MAX:
+            batches.append(current)
+            current = []
+            current_len = 0
+            separator_len = 0
+        current.append(alert)
+        current_len += separator_len + line_len
+    if current:
+        batches.append(current)
+    return batches
 
 
 def _loudest_severity(alerts: list[Alert]) -> str:
@@ -74,22 +101,51 @@ def _loudest_severity(alerts: list[Alert]) -> str:
     )
 
 
-def post_alerts(alerts: list[Alert], *, webhook_url: str | None) -> bool:
-    """Post ``alerts`` to the Discord webhook. Return ``True`` on a 2xx delivery.
+def post_alert_batches(alerts: list[Alert], *, webhook_url: str | None) -> list[Alert]:
+    """Post ``alerts`` in Discord-sized batches; return the delivered rows.
 
-    Returns ``False`` (never raises) when the webhook URL is empty or the POST
-    fails — the caller treats a failed ping as non-fatal because the alert rows
-    are already persisted.
+    The return value lets the engine stamp ``notified_at`` only for rows that
+    were actually included in a successful webhook POST.
     """
     if not alerts:
-        return False
+        return []
     if not webhook_url:
         LOGGER.info(
             "DISCORD_WEBHOOK_URL not set — skipping Discord notification "
             "(%s alert(s) still persisted to meta.alerts).",
             len(alerts),
         )
-        return False
+        return []
+    delivered: list[Alert] = []
+    batches = _chunk_alerts_for_embeds(alerts)
+    for idx, batch in enumerate(batches, start=1):
+        posted = _post_alert_batch(batch, webhook_url=webhook_url)
+        if not posted:
+            LOGGER.warning(
+                "Discord webhook delivery stopped at batch %s/%s; %s of %s alert(s) "
+                "were posted.",
+                idx,
+                len(batches),
+                len(delivered),
+                len(alerts),
+            )
+            break
+        delivered.extend(batch)
+    return delivered
+
+
+def post_alerts(alerts: list[Alert], *, webhook_url: str | None) -> bool:
+    """Post ``alerts`` to the Discord webhook. Return ``True`` when all deliver.
+
+    Returns ``False`` (never raises) when the webhook URL is empty or any POST
+    fails — the caller treats a failed ping as non-fatal because the alert rows
+    are already persisted.
+    """
+    delivered = post_alert_batches(alerts, webhook_url=webhook_url)
+    return bool(alerts) and len(delivered) == len(alerts)
+
+
+def _post_alert_batch(alerts: list[Alert], *, webhook_url: str) -> bool:
     payload = json.dumps({"embeds": [build_embed(alerts)]}).encode("utf-8")
     request = urllib.request.Request(
         webhook_url,

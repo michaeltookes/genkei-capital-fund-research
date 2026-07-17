@@ -5,10 +5,13 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timezone
 from decimal import Decimal
+from unittest.mock import MagicMock, patch
 
 from genkei.experiments.alert_engine import (
+    Alert,
     AlertRule,
     _fingerprint,
+    _notify,
     evaluate_alerts,
 )
 from genkei.experiments.signal_store import SignalEvent, Stack
@@ -57,6 +60,24 @@ def _stack(
         event_count=2,
         horizon=horizon,
         events=[_ev("insider_clusters", "sell_cluster", ts, direction)],
+    )
+
+
+def _alert_row(alert_id: int, asset: str = "NVDA") -> Alert:
+    return Alert(
+        alert_rule="critical_equity_exit",
+        correlation_rule="broad_exit",
+        asset=asset,
+        asset_class="equity",
+        horizon="equity:core",
+        direction="bearish",
+        severity="critical",
+        score=Decimal("2.0"),
+        distinct_sources=2,
+        triggered_at=_dt(10),
+        fingerprint=f"critical_equity_exit:broad_exit:{asset}:equity:core:2026-07-10",
+        payload={},
+        alert_id=alert_id,
     )
 
 
@@ -188,6 +209,35 @@ class FingerprintTests(unittest.TestCase):
         self.assertEqual(payload["distinct_sources"], 2)
         self.assertEqual(len(payload["events"]), 1)
         self.assertEqual(payload["events"][0]["source"], "insider_clusters")
+
+
+class NotifyTests(unittest.TestCase):
+    def test_notify_marks_only_delivered_alert_ids(self) -> None:
+        delivered = _alert_row(11, asset="NVDA")
+        undelivered = _alert_row(12, asset="AAPL")
+        conn = MagicMock()
+        cm = MagicMock()
+        cm.__enter__.return_value = conn
+        cm.__exit__.return_value = False
+
+        with patch(
+            "genkei.experiments.alert_notify.post_alert_batches",
+            return_value=[delivered],
+        ), patch(
+            "genkei.experiments.alert_engine.db.connection",
+            return_value=cm,
+        ), patch(
+            "genkei.experiments.alert_engine.mark_notified",
+            return_value=1,
+        ) as mock_mark:
+            notified = _notify(
+                [delivered, undelivered],
+                webhook_url="https://discord/webhook",
+            )
+
+        self.assertEqual(notified, 1)
+        mock_mark.assert_called_once_with(conn, [11])
+        conn.commit.assert_called_once()
 
 
 if __name__ == "__main__":

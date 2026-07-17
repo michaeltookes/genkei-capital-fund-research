@@ -454,10 +454,10 @@ def _notify(new_alerts: list[Alert], *, webhook_url: str | None) -> int:
     # Local import keeps urllib off the hot path for callers that never notify.
     from genkei.experiments import alert_notify
 
-    posted = alert_notify.post_alerts(new_alerts, webhook_url=webhook_url)
-    if not posted:
+    delivered = alert_notify.post_alert_batches(new_alerts, webhook_url=webhook_url)
+    if not delivered:
         return 0
-    ids = [a.alert_id for a in new_alerts if a.alert_id is not None]
+    ids = [a.alert_id for a in delivered if a.alert_id is not None]
     with db.connection() as conn:
         marked = mark_notified(conn, ids)
         conn.commit()
