@@ -3,6 +3,7 @@ date: 2026-06-05
 asset: "equity-core: SaaS sector (CRM + NOW + ADBE + WDAY + SNOW)"
 sleeve: equity-core
 horizon: months
+action: hold
 confidence: medium
 status: pending
 supersedes: 2025-12-05-valueact-crm-buy-cluster
