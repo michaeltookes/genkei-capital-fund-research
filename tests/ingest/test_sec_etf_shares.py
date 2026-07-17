@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 import unittest
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from typing import Any
+from unittest.mock import patch
 
 from genkei.common.watchlist import EtfTickerEntry
 from genkei.ingest import sec_etf_shares
@@ -37,6 +43,51 @@ def _entry(*, launch: str | None = "2024-01-11") -> EtfTickerEntry:
         launch_date=launch,
         cik="0001980994",
     )
+
+
+def _write_watchlist(case: unittest.TestCase) -> Path:
+    ctx = TemporaryDirectory()
+    case.addCleanup(ctx.cleanup)
+    path = Path(ctx.name) / "watchlists.yml"
+    path.write_text(
+        "\n".join(
+            [
+                "etf_tickers:",
+                "  - ticker: IBIT",
+                "    name: iShares Bitcoin Trust ETF",
+                "    asset: BTC",
+                "    issuer: BlackRock",
+                "    launch_date: 2024-01-11",
+                "    cik: '0001980994'",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+class _FakeRun:
+    id = 42
+
+    def __init__(self) -> None:
+        self.rows_written = 0
+
+    def add_rows(self, n: int) -> None:
+        self.rows_written += n
+
+
+class _FakeHttp:
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self.payload = payload
+
+    def get_json(self, url: str) -> dict[str, Any]:
+        return self.payload
+
+
+@contextmanager
+def _fake_ingest_run(*args: object, **kwargs: object) -> Iterator[_FakeRun]:
+    yield _FakeRun()
 
 
 class ExtractCheckpointsTests(unittest.TestCase):
@@ -149,6 +200,22 @@ class ModuleConstantsTests(unittest.TestCase):
 
     def test_source_name(self) -> None:
         self.assertEqual(sec_etf_shares.SOURCE_NAME, "sec_etf_shares")
+
+
+class CollectTests(unittest.TestCase):
+    def test_successful_payload_with_zero_checkpoints_fails_the_run(self) -> None:
+        path = _write_watchlist(self)
+        http = _FakeHttp({"facts": {"us-gaap": {}}})
+
+        with (
+            patch("genkei.ingest.sec_etf_shares.db.ingest_run", _fake_ingest_run),
+            patch("genkei.ingest.sec_etf_shares.db.store_raw_blob"),
+            patch("genkei.ingest.sec_etf_shares.db.record_partial_endpoints") as partial,
+            self.assertRaisesRegex(RuntimeError, "no SEC quarter-end checkpoints parsed"),
+        ):
+            sec_etf_shares.collect(path, http=http)
+
+        partial.assert_not_called()
 
 
 if __name__ == "__main__":

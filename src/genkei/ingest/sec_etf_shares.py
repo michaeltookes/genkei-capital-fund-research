@@ -49,7 +49,7 @@ import logging
 import sys
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +57,7 @@ import httpx
 
 from genkei.common import db
 from genkei.common.http import HttpClient, RateLimit
+from genkei.common.numeric import safe_decimal
 from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
     EtfTickerEntry,
@@ -107,13 +108,6 @@ class _QuarterEndSnapshot:
     shares_outstanding: Decimal
 
 
-def _safe_decimal(value: Any) -> Decimal | None:
-    try:
-        return Decimal(str(value))
-    except (InvalidOperation, TypeError, ValueError):
-        return None
-
-
 def _parse_end_date(raw: Any) -> date | None:
     if not isinstance(raw, str):
         return None
@@ -150,7 +144,7 @@ def extract_checkpoints(
                 continue
             end = _parse_end_date(row.get("end"))
             filed = row.get("filed")
-            value = _safe_decimal(row.get("val"))
+            value = safe_decimal(row.get("val"), field=f"{concept}.val")
             if end is None or not isinstance(filed, str) or value is None:
                 continue
             existing = best.get(end)
@@ -329,9 +323,15 @@ def collect(
                 len(all_rows),
                 len(funds),
             )
-            if partial and not all_rows:
+            if partial and len(partial) == len(funds) and not all_rows:
                 raise RuntimeError(
                     f"sec_etf_shares: all {len(funds)} companyfacts fetches failed"
+                )
+            if not all_rows:
+                raise RuntimeError(
+                    "sec_etf_shares: no SEC quarter-end checkpoints parsed for "
+                    f"{len(funds)} configured CIK-tagged fund(s); check SEC XBRL "
+                    "concept mappings"
                 )
             return run.id
     finally:
