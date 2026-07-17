@@ -54,6 +54,7 @@ from genkei.common.watchlist import (
     Watchlist,
     load_watchlist,
 )
+from genkei.ingest.sec_etf_shares import SOURCE_ENDPOINT_MARKER
 
 _ASSET_ALIASES: dict[str, str] = {
     "btc": "BTC",
@@ -312,6 +313,13 @@ def _query_net_flow(
     the filter window would lose its predecessor and report NULL even when
     the predecessor snapshot exists. The outer ``WHERE`` clause filters the
     output rows after the window has resolved.
+
+    SEC 10-Q/10-K quarter-end checkpoints (``source_endpoint = 'sec_10q_xbrl'``,
+    B-114) are excluded from the window entirely: they're a sparse quarterly
+    AUM series, not daily snapshots, so letting them into the ``LAG`` would
+    report a full quarter's share change as a single day's "flow" and would
+    spike the first daily row after a quarter-end checkpoint. Net flow is a
+    daily-feed concept; the quarterly checkpoints are for AUM-trajectory reads.
     """
     tickers = sorted({ticker.strip().upper() for ticker, _ in targets if ticker.strip()})
     if not tickers:
@@ -326,11 +334,12 @@ def _query_net_flow(
         "     - LAG(shares_outstanding) OVER (PARTITION BY ticker ORDER BY snapshot_date)) "
         "    * nav_per_share_usd AS net_flow_usd "
         "  FROM etf.fund_snapshots "
-        "  WHERE asset = %s AND ticker = ANY(%s::text[])"
+        "  WHERE asset = %s AND ticker = ANY(%s::text[]) "
+        "    AND source_endpoint <> %s"
         ") s "
         "WHERE 1=1"
     )
-    params: list[Any] = [asset, tickers]
+    params: list[Any] = [asset, tickers, SOURCE_ENDPOINT_MARKER]
     if since is not None:
         sql += " AND snapshot_date >= %s"
         params.append(since)

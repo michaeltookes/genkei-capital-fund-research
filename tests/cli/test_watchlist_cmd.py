@@ -418,6 +418,7 @@ class ExpectationsRegistryTests(unittest.TestCase):
                 "cftc",
                 "ishares",
                 "bitwise",
+                "sec_etf_shares",
                 "zcash_usage",
                 "gdelt",
                 "bea",

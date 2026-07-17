@@ -148,11 +148,53 @@ older shares-date row with a future NAV. Rows are now dated by the Fund Details
 section (where shares — the net-flow driver — lives). BITB, whose sections
 share a date, is unaffected (skew 0).
 
+## B-114 — SEC 10-Q/10-K quarter-end shares backfill (2026-07-16)
+
+The historical-backfill follow-up Path 1 flagged as a cross-check and B-107's
+recommendation filed as v2.1. The daily feed (iShares/Bitwise) only publishes
+the *current* snapshot, so `etf.fund_snapshots` starts the day the daily cron
+first ran (~2026-06). This fills the pre-feed history from primary SEC filings.
+
+**Source — XBRL companyfacts (free, no auth).** Each trust's entire XBRL fact
+history is one request: `https://data.sec.gov/api/xbrl/companyfacts/CIK<cik>.json`.
+For the BlackRock funds (IBIT / ETHA / ETHB) the relevant concepts are:
+
+| field | XBRL concept | notes |
+|---|---|---|
+| shares outstanding | `us-gaap:TemporaryEquitySharesOutstanding` | balance-sheet, at period-end (03-31/06-30/09-30/12-31) |
+| net assets (AUM) | `us-gaap:FairValueNetAssetLiability` | balance-sheet, same instant |
+| NAV / share | *derived* = net_assets / shares | the explicit `NetAssetValuePerShare` tag is sparse (only tagged from ~2026); deriving is uniform and reconciles to the tagged figure within rounding — IBIT 2024-12-31 derived $53.09 vs tagged $53.09 |
+
+The concept lists (`SHARE_CONCEPTS` / `NET_ASSET_CONCEPTS` in
+`src/genkei/ingest/sec_etf_shares.py`) are the extension point for a future
+issuer that tags shares/net-assets differently; an unmatched fund logs a
+warning and yields no rows rather than guessing.
+
+**Dedup — earliest-filed wins.** A period-end appears in its original filing
+*and* is repeated as a prior-period comparative in later filings (same `end`,
+later `filed`). Keeping the fact **first filed** for each `end` date resolves to
+the original current-period value with no calendar/fiscal-year assumption.
+10-K facts supply the year-end (Q4) checkpoint no 10-Q covers.
+
+**Precedence — daily wins, never clobbered.** Rows land with
+`source_endpoint = 'sec_10q_xbrl'` and are upserted
+`ON CONFLICT (ticker, snapshot_date) DO NOTHING`, so a quarter-end that
+coincides with an authoritative daily-feed date is skipped. The distinctive
+marker also lets `genkei etf-flows --net-flow` **exclude** these rows from the
+daily-flow `LAG` — they're a sparse quarterly AUM series, not daily flows;
+including them would report a whole quarter's share change as one day's "flow".
+
+**Verified live (2026-07-16):** 17 checkpoints landed — IBIT 9 (2024-03-31 →
+2026-03-31, e.g. 442M shares/$17.8B → 1.38B shares/$53.4B), ETHA 7, ETHB 1;
+re-run inserted 0 (idempotent); the net-flow view shows 0 pre-feed rows. Daily
+cron `sec-etf-shares-daily.yml` at 13:15 UTC; `watchlist health` tracks the
+`(sec_etf_shares, collect)` heartbeat.
+
 ## Deferred (filed as separate backlog items if pursued)
 
 1. **Remaining issuers** — FBTC (Fidelity), GBTC (Grayscale), ARKB (ARK).
    ARKB confirmed Cloudflare-walled; GBTC rate-limited; FBTC URL not yet
    found. (Bitwise ETHW shipped 2026-07-07, B-129 — see above.)
-2. **Historical backfill** — quarterly checkpoints via SEC 10-Q shares-outstanding extraction. Useful for triangulation against the daily feed once running.
+2. ~~**Historical backfill** — quarterly checkpoints via SEC 10-Q shares-outstanding extraction.~~ **Shipped B-114 (2026-07-16) — see above.** Note the non-BlackRock issuers (Bitwise BITB/ETHW, Grayscale GBTC) tag shares/net-assets under different XBRL concepts; extend `SHARE_CONCEPTS` / `NET_ASSET_CONCEPTS` to cover them.
 3. **Reconciliation against Yahoo dollar-volume (B-105 v1)** — sanity-check that daily net flow direction matches the volume proxy.
 4. **Coinbase institutional product feed** — skipped in Phase 1; revisit if needed.
