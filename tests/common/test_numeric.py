@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 from decimal import Decimal
+from unittest.mock import patch
 
 from genkei.common.numeric import safe_decimal
 
@@ -24,10 +25,35 @@ class SafeDecimalTests(unittest.TestCase):
             def __str__(self) -> str:
                 raise RuntimeError("boom")
 
-        with self.assertLogs("genkei.common.numeric", level="WARNING") as logs:
+        with patch("genkei.common.numeric.LOGGER.warning") as warning:
             self.assertIsNone(safe_decimal(BadStr(), field="nav"))
 
-        self.assertIn("safe_decimal: unexpected error coercing nav=", logs.output[0])
+        warning.assert_called_once()
+        args, kwargs = warning.call_args
+        self.assertEqual(
+            args[0],
+            "safe_decimal: unexpected error coercing %s=%s to Decimal",
+        )
+        self.assertEqual(args[1], "nav")
+        self.assertIn("BadStr", args[2])
+        self.assertIs(kwargs["exc_info"], True)
+
+    def test_unexpected_failures_with_bad_repr_are_logged(self) -> None:
+        class BadStrAndRepr:
+            def __str__(self) -> str:
+                raise RuntimeError("boom")
+
+            def __repr__(self) -> str:
+                raise RuntimeError("repr boom")
+
+        with patch("genkei.common.numeric.LOGGER.warning") as warning:
+            self.assertIsNone(safe_decimal(BadStrAndRepr(), field="nav"))
+
+        warning.assert_called_once()
+        args, kwargs = warning.call_args
+        self.assertEqual(args[1], "nav")
+        self.assertEqual(args[2], "<unrepresentable BadStrAndRepr>")
+        self.assertIs(kwargs["exc_info"], True)
 
 
 if __name__ == "__main__":

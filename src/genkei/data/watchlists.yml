@@ -160,6 +160,18 @@ equities:
       rationale: Advertising cash flow funding AI capex; durable user base.
       # Products/brand, not bare "Meta" (which over-matches metadata/meta-analysis).
       gdelt_terms: [Meta Platforms, Facebook, Instagram]
+    - symbol: IBM
+      cik: "0000051143"
+      cusip: "459200101"
+      name: International Business Machines Corporation
+      sector: IT infrastructure / software / consulting
+      sleeve: core
+      rationale: Added 2026-07-17 as a research target after the -25% Q2'26
+        preannouncement (worst day since 1968). Mainframe (z17) + software
+        deceleration vs an AI-capex rotation; dividend-aristocrat income screen.
+      # Multi-word terms — the bare 3-char ticker "IBM" is below GDELT's
+      # 4-char match floor and would over-match anyway.
+      gdelt_terms: [International Business Machines, IBM Corp]
 
     # Semiconductors / AI compute
     - symbol: NVDA
