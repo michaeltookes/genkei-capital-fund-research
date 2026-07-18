@@ -3,6 +3,7 @@ date: 2026-06-11
 asset: "cohort: VEEV vs CRM (life-sciences CRM split)"
 sleeve: equity-core
 horizon: years
+action: avoid
 confidence: low
 status: pending
 trigger_reassessment: "VEEV Q2 FY27 revenue YoY < 10% [bear escalation — growth deceleration confirms] OR VEEV Q2 FY27 revenue YoY ≥ 16% with raised FY27 guide [bull confirmation — Vault traction outweighs migration drag] OR any further named top-20 biopharma platform decision in either direction (e.g. Merck / J&J / BMS / Lilly / Sanofi commits publicly) [event-driven thesis test] OR Peter Gassner open-market buy of any size [first insider conviction signal in ~3.5 years] OR VEEV price breaks below $140 [-30% YTD, -55% from peak — extreme-asymmetry entry zone] OR Salesforce discloses Life Sciences Cloud / Agentforce Life Sciences segment revenue or ARR [first hard quantification of CRM's life-sciences capture]"

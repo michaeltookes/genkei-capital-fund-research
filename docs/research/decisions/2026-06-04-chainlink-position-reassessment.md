@@ -3,6 +3,7 @@ date: 2026-06-04
 asset: LINK
 sleeve: crypto-core
 horizon: years
+action: hold
 confidence: medium
 status: pending
 supersedes: 2026-05-17-link-position-assessment
