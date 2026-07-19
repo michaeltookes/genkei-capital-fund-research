@@ -135,6 +135,44 @@ class ParseValuePoolsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not monitored"):
             parse_value_pools(payload, snapshot_date=self._SNAP)
 
+    def test_skips_unmonitored_zero_value_pool(self) -> None:
+        # A pre-activation pool (monitored=false, chainValue 0 — e.g. `ironwood`
+        # staged for a future NU) must be skipped, NOT crash the run. Its zero
+        # value doesn't move the shielded ratio, so nothing is lost.
+        payload = {
+            "blocks": 1,
+            "valuePools": [
+                {"id": "transparent", "chainValue": 100.0, "monitored": True},
+                {"id": "ironwood", "chainValue": 0.0, "monitored": False},
+            ],
+        }
+        snaps = parse_value_pools(payload, snapshot_date=self._SNAP)
+        self.assertEqual([s.pool for s in snaps], ["transparent"])
+
+    def test_live_payload_with_ironwood_parses_monitored_pools(self) -> None:
+        # Regression for the 2026-07 ingest failure: the live feed added the
+        # `ironwood` pre-activation pool (monitored=false, value 0), which the
+        # old hard-raise turned into a total daily-snapshot failure. The 5
+        # active monitored pools must parse; ironwood is skipped.
+        payload = {
+            "blocks": 3418143,
+            "chain": "main",
+            "valuePools": [
+                {"id": "transparent", "chainValue": 12393785.79, "monitored": True},
+                {"id": "sprout", "chainValue": 25409.42, "monitored": True},
+                {"id": "sapling", "chainValue": 590707.05, "monitored": True},
+                {"id": "orchard", "chainValue": 3769627.16, "monitored": True},
+                {"id": "lockbox", "chainValue": 50952.0, "monitored": True},
+                {"id": "ironwood", "chainValue": 0.0, "monitored": False},
+            ],
+        }
+        snaps = parse_value_pools(payload, snapshot_date=self._SNAP)
+        self.assertEqual(
+            [s.pool for s in snaps],
+            ["transparent", "sprout", "sapling", "orchard", "lockbox"],
+        )
+        self.assertNotIn("ironwood", [s.pool for s in snaps])
+
     def test_missing_block_height_is_none(self) -> None:
         payload = {
             "valuePools": [
