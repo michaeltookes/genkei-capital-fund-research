@@ -101,10 +101,15 @@ def parse_value_pools(
 
     Reads ``payload.valuePools`` (the node's ``getblockchaininfo`` output) and
     ``payload.blocks`` (best-block height, for provenance). Skips any pool whose
-    ``chainValue`` is missing or negative, logging a WARNING, and rejects any
-    otherwise usable pool whose ``monitored`` flag is not true. In unattended
-    daily ingest a swallowed surprise is the difference between noticing bad
-    data and not (B-121).
+    ``chainValue`` is missing or negative, logging a WARNING. A pool whose
+    ``monitored`` flag is not true has an untrusted ``chainValue``: if that
+    value is **zero** it's a pre-activation pool staged for a future network
+    upgrade (e.g. ``ironwood`` on the live feed as of mid-2026 — monitored
+    false, value 0) and is skipped quietly; if it's **nonzero** it's genuinely
+    suspect (an unmonitored pool reporting real value) and we fail loud. In
+    unattended daily ingest a swallowed surprise is the difference between
+    noticing bad data and not (B-121) — but a benign, empty, not-yet-active
+    pool must not crash the whole daily snapshot.
     """
     if not isinstance(payload, dict):
         raise ValueError(
@@ -134,9 +139,25 @@ def parse_value_pools(
             )
             continue
         if entry.get("monitored") is not True:
+            # A non-monitored pool's chainValue is untrusted. A brand-new pool
+            # appears pre-activation as monitored=false with chainValue 0 (e.g.
+            # `ironwood`, staged for a future network upgrade) — nothing to trust
+            # or count (a zero-value pool doesn't move the shielded ratio), so
+            # skip it rather than fail the whole daily snapshot. A non-monitored
+            # pool reporting a *nonzero* value is genuinely suspect — the case
+            # this guard was built for — so still fail loud there. (If a future
+            # pool activates as a real privacy pool — monitored, nonzero — add it
+            # to SHIELDED_POOLS then.)
+            if value == 0:
+                LOGGER.info(
+                    "zcash_usage: pool %s is not monitored with zero value — "
+                    "pre-activation pool, skipping",
+                    pool_id,
+                )
+                continue
             raise ValueError(
-                f"blockchain-info valuePool {pool_id!r} is not monitored; "
-                "refusing untrusted chainValue"
+                f"blockchain-info valuePool {pool_id!r} is not monitored but "
+                f"reports nonzero chainValue {value}; refusing untrusted value"
             )
         out.append(
             _PoolSnapshot(
