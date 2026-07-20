@@ -172,3 +172,73 @@ A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the e
   - A CLI surface (e.g. `genkei unlocks --asset JUP`) returns the schedule with `--json`, mirroring the SUI pattern. (Note: no `genkei unlocks` query command exists today — SUI ships only the ingester + watchlist-health wiring — so this would create that surface.)
   - Coverage limits documented in `docs/sources/` (which allocations are visible vs paywalled), matching the SUI-unlocks honesty note.
   - Decide whether to generalize `sui_unlocks.py` into a shared unlock framework now or defer to a third source; record the call in this item.
+
+## Epic E-002 — Research cockpit (local web app)
+
+A scoping session on **2026-07-20** decided to build a second interface *beyond the existing TUI*: a **local web app on the homelab Beelink** that renders the lake and embeds a **Claude Agent SDK** chat panel — the "Cursor / Codex desktop" analog mapped onto the fund. Locked scope decisions from that session:
+
+1. **Scope = research cockpit only** — renders the lake + converses with the agent. **No brokerage wiring, read-only, free-sources-only.** (Portfolio/execution surfaces explicitly deferred.)
+2. **Agent = embedded panel backed by the Claude Agent SDK** — the *same engine* as Claude Code with a GUI front-end, **not** a hand-rolled LLM loop. Preserves the locked "Claude Code is the agent harness" decision.
+3. **Form factor = local web app served from the Beelink**, reachable from Mac + phone on the local network (not a native desktop app for v1).
+4. **Webull = evaluate-only, parked** — see B-134.
+
+**Keystone:** reuse the existing `genkei` CLI as the single tool surface via an MCP wrapper (B-130) feeding *both* Claude Code and the cockpit — no duplicated data logic. **Phasing:** B-130 (MCP wrapper) → B-131 + B-132 (read API + static cockpit) → B-133 (embedded agent panel + artifact contract). Each phase delivers standalone value before the next. **Nothing here is scheduled to build yet — these are user stories capturing the agreed design.**
+
+### B-130 — `genkei`-as-MCP server (cockpit keystone)
+- **Status:** open
+- **Priority:** medium (keystone; independently useful in Claude Code today)
+- **User story:** As the research agent — in Claude Code now and the cockpit later — I want the `genkei` CLI exposed as an MCP tool surface so that data-access logic lives in exactly one place and both front-ends share every fix.
+- **Context:** CLAUDE.md locks "the CLI is the agent's data interface." Wrapping it as an MCP server generalizes that from Bash-only to any MCP client. Immediately useful in current Claude Code sessions, independent of the web app — so it's the right first brick.
+- **Acceptance criteria:**
+  - MCP server exposes the `genkei` subcommands as tools (`prices`, `signals`, `tvl`, `zcash-usage`, `watchlist`, `query`, etc.), passing through each command's `--json` shape.
+  - Thin adapter — **no data logic duplicated**; delegates to the existing CLI/modules.
+  - Registerable in Claude Code as an MCP server and usable there before any frontend exists.
+  - Tool schemas documented; tests pin the subcommand→tool mapping for a representative sample.
+  - Record the call: shell the CLI as a subprocess vs import the `genkei` Python modules directly.
+
+### B-131 — FastAPI read layer over the lake
+- **Status:** open
+- **Priority:** low
+- **User story:** As the cockpit frontend, I want a deterministic HTTP read API over Postgres so that charts and tables render directly — without routing through the agent and burning tokens to draw a chart.
+- **Context:** The *visual* surface must not depend on the LLM. A thin FastAPI read layer on the Beelink is the deterministic spine the frontend queries; the agent panel (B-133) is additive on top, not in the critical path for rendering.
+- **Acceptance criteria:**
+  - FastAPI service on the Beelink exposing **read-only** endpoints: price series, watchlist, signal history, the weekly signal digest, the `docs/research/decisions/` log, and lake health.
+  - Queries Postgres directly or reuses `genkei query` modules; performs no writes.
+  - Runs on `mission_control_net` alongside existing infra; documented in `docs/infrastructure.md`.
+  - Auth posture recorded — local-network-only for v1, no public exposure.
+  - Endpoint contracts covered by tests against ephemeral fixtures (per B-024).
+
+### B-132 — Static cockpit frontend (workspace pane)
+- **Status:** open
+- **Priority:** low
+- **User story:** As Michael, I want a two-pane web cockpit that renders the lake's artifacts — price / TVL / signal charts, the watchlist, the weekly digest, and the decision log — so that I can review the fund visually instead of only through the TUI/CLI.
+- **Context:** This is the workspace half of the Cursor analog and delivers value with **zero agent work**. Charts render far better than a terminal; phone-reachability makes the weekly digest glanceable.
+- **Acceptance criteria:**
+  - Frontend served from the Beelink, reachable from Mac + phone on the local network.
+  - Renders: per-asset price series, TVL/signal history, the current weekly signal digest, and the decision log.
+  - Reads **exclusively** from the B-131 API; no agent dependency.
+  - Frontend-stack decision recorded (recommendation: React + a financial charting lib such as TradingView `lightweight-charts`; alternative: a Python-native UI) with rationale.
+  - Ships and is useful before B-133 exists.
+
+### B-133 — Embedded Claude Agent SDK panel + artifact contract
+- **Status:** open
+- **Priority:** low
+- **User story:** As Michael, I want an embedded chat panel that can query the lake and render results *into the workspace* so that asking "how's ZEC's shielded-pool adoption trending?" opens a chart pane — not a wall of text.
+- **Context:** The "Cursor moment" is the agent acting on the workspace, not just replying. That requires a small **typed artifact vocabulary** the frontend knows how to render. Must be backed by the Agent SDK (same engine as Claude Code) to stay inside the locked no-hand-rolled-framework decision.
+- **Acceptance criteria:**
+  - Chat panel backed by the **Claude Agent SDK** (Python backend, streamed to the UI) — not a hand-rolled LLM loop.
+  - Agent's tool surface **is the B-130 MCP server** — identical tools to Claude Code.
+  - Typed artifact contract: agent emits `chart` / `table` / `report-link` / `decision-draft` artifacts the frontend renders into the workspace pane.
+  - **Write posture:** read-only by default; any repo write (draft → `docs/research/decisions/`, commit a report) is gated behind explicit user approval. Record whether writes ship in v1 or defer.
+  - Streaming responses; conversation persists per session.
+
+### B-134 — Webull OpenAPI source evaluation (parked)
+- **Status:** deferred 2026-07-20 — evaluate-only; reopen on a concrete live-data gap (see trigger).
+- **Priority:** deferred
+- **User story:** As the fund, I want a recorded evaluation of Webull's OpenAPI so that when a live-data gap appears we can decide quickly whether it's worth opening the "private-data story."
+- **Context:** Surfaced during the E-002 scoping session (Michael uses Webull for individual stocks + select crypto prices). Webull OpenAPI offers **Trading**, **Market Data** (quotes / snapshots / OHLCV bars / screeners / fundamentals across US stocks, ETFs, futures, crypto; 300 req/min), **Broker**, and **Connect** (OAuth) APIs, plus an **official MCP server** (`webull-openapi-mcp`) that plugs into Claude Code, and a Python SDK. Requires a Webull **developer account + App Key/Secret + mobile 2FA**, and possibly a **paid market-data subscription**. **Key finding:** it's a **real-time + real-positions** source, **not a history source** (no documented deep backfill) — it *complements* the free ingesters, doesn't replace them. Because it's account-tied/semi-private, adopting it formally opens the "private-data story" deferred per CLAUDE.md (locked decision D: free/open sources only).
+- **Reopen / revisit trigger:** once the cockpit read layer + agent panel (B-131 / B-133) are live **and** a specific live-data gap is identifiable (real-time quotes, or actual positions / P&L, that free sources don't cover).
+- **Acceptance criteria (for reopen):**
+  - Confirm current pricing / tier for the *specific* data needed, and whether a paid market-data subscription is required.
+  - Decide the entry path and record the call: **official MCP server** (fastest, no new ingester — preferred) vs a **`genkei` lake ingester** (data lands in Postgres as system-of-record).
+  - If adopted, pair with **B-073** (secrets policy) and **B-075** (license / redistribution audit) — it would be the first private/account-tied source.
