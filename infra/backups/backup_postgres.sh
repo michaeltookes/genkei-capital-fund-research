@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Nightly pg_dump of genkeicapital-postgres (B-070).
+# Nightly pg_dump of genkeicapital-postgres (B-070, B-138).
 #
 # Designed to run on the Beelink that hosts the container (so the dump
 # is taken from inside the container's network namespace via `docker
@@ -7,9 +7,20 @@
 # with retention managed in-place. See docs/backups.md for the full
 # posture + restore runbook.
 #
+# Three observability hooks (B-138) make this safe to leave unattended:
+#   * On any failure it posts to DISCORD_WEBHOOK_URL (the same webhook
+#     the GitHub-Actions B-119 alerter uses) — the ran-and-errored case.
+#   * On success it writes a heartbeat row to meta.backup_runs, which
+#     backup-staleness-check.yml reads to catch the cron-silently-stopped
+#     case (the runner can't see this host's filesystem, only Postgres).
+#   * If OFFSITE_REMOTE is set it mirrors the dump to that rclone remote
+#     (Cloudflare R2 recommended) — the only defense against Beelink loss.
+#
 # Usage:
-#   ./backup_postgres.sh              # nightly run
+#   ./backup_postgres.sh                                   # nightly run
 #   BACKUP_DIR=/mnt/foo ./backup_postgres.sh
+#   OFFSITE_REMOTE=r2:genkei-backups ./backup_postgres.sh  # + off-site copy
+#   DISCORD_WEBHOOK_URL=https://... ./backup_postgres.sh   # + failure pings
 #
 # Exit codes:
 #   0  success (dump written, retention applied)
@@ -25,13 +36,57 @@ RETAIN_DAILY="${RETAIN_DAILY:-7}"
 RETAIN_WEEKLY="${RETAIN_WEEKLY:-4}"
 RETAIN_MONTHLY="${RETAIN_MONTHLY:-12}"
 
+# Off-site + alerting config. Both optional: unset keeps the historical
+# local-dump-only, silent behaviour so the script stays installable before
+# either is wired.
+OFFSITE_REMOTE="${OFFSITE_REMOTE:-}"          # rclone remote, e.g. r2:genkei-backups
+DISCORD_WEBHOOK_URL="${DISCORD_WEBHOOK_URL:-}" # same webhook as the B-119 alerter
+
 TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
 DOW=$(date -u +%u)   # 1=Mon..7=Sun
 DOM=$(date -u +%d)
 DUMP_FILE="$BACKUP_DIR/daily/genkei_capital_${TIMESTAMP}.pgcustom"
+HOST_SHORT="$(hostname -s 2>/dev/null || echo beelink)"
+
+# --- Failure alerting (B-138) -------------------------------------------------
+#
+# A single notification path: die() records why, and the EXIT trap posts to
+# Discord on any non-zero exit — whether from die() or an unhandled set -e
+# failure. Success sets BACKUP_OK=1 to suppress it. Mirrors the payload shape
+# of .github/actions/discord-notify so the alert reads the same in the channel.
+
+BACKUP_OK=0
+FAIL_MSG=""
 
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
-die() { log "FATAL: $*" >&2; exit "${2:-1}"; }
+die() { FAIL_MSG="$*"; log "FATAL: $*" >&2; exit "${2:-1}"; }
+
+notify_discord() {
+  # $1=title  $2=description  $3=color(decimal, default red)
+  [ -n "$DISCORD_WEBHOOK_URL" ] || return 0
+  local payload
+  payload="$(TITLE="$1" DESCRIPTION="$2" COLOR="${3:-15158332}" python3 - <<'PY' 2>/dev/null || true
+import json, os
+print(json.dumps({"embeds": [{
+    "title": os.environ["TITLE"][:256],
+    "description": os.environ["DESCRIPTION"][:4096],
+    "color": int(os.environ.get("COLOR") or "15158332"),
+}]}))
+PY
+)"
+  [ -n "$payload" ] || return 0
+  curl -sS -o /dev/null -H 'Content-Type: application/json' \
+    --data-raw "$payload" "$DISCORD_WEBHOOK_URL" || true
+}
+
+finish() {
+  local rc=$?
+  [ "$rc" -eq 0 ] && [ "$BACKUP_OK" -eq 1 ] && return 0
+  notify_discord "🔴 genkei backup FAILED on ${HOST_SHORT}" \
+    "\`${FAIL_MSG:-unexpected error (exit $rc)}\`
+Nightly \`pg_dump\` of \`${DB_NAME}\` did not complete. See \`/tmp/genkei-backup.log\` on the Beelink; no heartbeat row was written to \`meta.backup_runs\` for this run." 15158332
+}
+trap finish EXIT
 
 # --- Preflight ----------------------------------------------------------------
 
@@ -70,8 +125,10 @@ docker cp "$CONTAINER":/tmp/genkei_dump.pgcustom "$DUMP_FILE"
 docker exec "$CONTAINER" rm -f /tmp/genkei_dump.pgcustom
 
 END=$(date +%s)
+DURATION=$((END - START))
+DUMP_BYTES=$(stat -c%s "$DUMP_FILE" 2>/dev/null || stat -f%z "$DUMP_FILE")
 SIZE=$(du -h "$DUMP_FILE" | cut -f1)
-log "dump complete in $((END - START))s, size=$SIZE"
+log "dump complete in ${DURATION}s, size=$SIZE"
 
 # Quick sanity: dump TOC must parse.
 docker run --rm -v "$BACKUP_DIR/daily":/d timescale/timescaledb:latest-pg16 \
@@ -112,4 +169,57 @@ prune daily   "$RETAIN_DAILY"
 prune weekly  "$RETAIN_WEEKLY"
 prune monthly "$RETAIN_MONTHLY"
 
+# --- Off-site copy (B-138) ----------------------------------------------------
+#
+# Additive mirror to an rclone remote — Cloudflare R2 recommended (see
+# docs/backups.md "Off-site"). Local dumps defend against disk failure and
+# operator error; only an off-site copy survives Beelink loss (theft/fire).
+# Gated on OFFSITE_REMOTE so the script still runs local-dump-only until the
+# remote + rclone.conf are configured on the Beelink. copyto is additive: it
+# never deletes remote objects, so off-site retention is a bucket-lifecycle
+# concern, not something this script can accidentally wipe. Promotion days
+# also place the dump under weekly/ and monthly/ so the remote mirrors the
+# same tiering as local.
+
+OFFSITE_STATUS="skipped"
+if [ -n "$OFFSITE_REMOTE" ]; then
+  command -v rclone >/dev/null 2>&1 || die "OFFSITE_REMOTE set but rclone is not installed"
+  OFFSITE_STATUS="failed"   # flipped to uploaded only if every copy succeeds
+  base="$(basename "$DUMP_FILE")"
+  log "off-site: uploading $base → $OFFSITE_REMOTE/daily/"
+  rclone copyto "$DUMP_FILE" "$OFFSITE_REMOTE/daily/$base"   || die "off-site upload failed (daily)"
+  if [ "$DOW" = "7" ]; then
+    rclone copyto "$DUMP_FILE" "$OFFSITE_REMOTE/weekly/$base"  || die "off-site upload failed (weekly)"
+  fi
+  if [ "$DOM" = "01" ]; then
+    rclone copyto "$DUMP_FILE" "$OFFSITE_REMOTE/monthly/$base" || die "off-site upload failed (monthly)"
+  fi
+  OFFSITE_STATUS="uploaded"
+  log "off-site: upload OK"
+else
+  log "off-site: OFFSITE_REMOTE unset — skipping (local-dump-only)"
+fi
+
+# --- Heartbeat (B-138) --------------------------------------------------------
+#
+# Record the successful run in meta.backup_runs so backup-staleness-check.yml
+# (which reaches Postgres over the network but cannot see this host's
+# filesystem) can tell the cron is alive. Best-effort: a heartbeat write
+# failure must not fail an otherwise-good backup, so it only warns. The dump
+# itself already succeeded and was pg_restore --list-verified above.
+
+if docker exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -qtA \
+     -v started="$START" -v finished="$END" -v bytes="$DUMP_BYTES" -v dur="$DURATION" \
+     -v dumpfile="$(basename "$DUMP_FILE")" -v offsite="$OFFSITE_STATUS" -v host="$HOST_SHORT" \
+     -c "INSERT INTO meta.backup_runs
+           (started_at, finished_at, status, dump_file, dump_bytes, duration_seconds, offsite_status, host)
+         VALUES
+           (to_timestamp(:started), to_timestamp(:finished), 'ok', :'dumpfile', :bytes, :dur, :'offsite', :'host')" \
+     >/dev/null; then
+  log "heartbeat: wrote meta.backup_runs row (offsite=$OFFSITE_STATUS)"
+else
+  log "WARN: heartbeat write to meta.backup_runs failed (backup itself OK)"
+fi
+
+BACKUP_OK=1
 log "backup OK"
