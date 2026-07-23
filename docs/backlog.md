@@ -173,16 +173,10 @@ Reliability work that grows in importance as more sources go live.
   - Per-source quota tracked in `meta.api_usage`.
   - CLI + dashboard query.
 
-### B-138 — Verify/install nightly Postgres backup cron + wire the off-site layer
-- **Status:** open
-- **Priority:** **high** — the lake is the asset and may currently have zero automated backups.
-- **Context:** Found in the 2026-07-22 pre-cockpit audit. `docs/backups.md` (B-070, 2026-05-22) designed and **drilled** the full posture — `backup_postgres.sh` local nightly dump with 7/4/12 tiered retention, restore verified with 100% row-count parity — but its own status line says "No automated backups exist on the homelab yet. This doc + the scripts are the proposal; installing the cron … is a manual step on the Beelink." Nothing in the repo since indicates the cron was installed. Two months of ingest (~1.5M normalized rows, `meta.signals`, the irreplaceable `meta.ingest_runs` audit trail) may be sitting on a single Beelink SSD. The off-site layer (Cloudflare R2 recommended in the doc, ~$0.05/mo at current volume) was explicitly deferred and remains unwired — local dumps, once running, still don't cover Beelink theft/fire. Building a web cockpit **on top of** an unbacked-up lake inverts the risk order; this should land before or alongside E-002 work.
-- **Acceptance criteria:**
-  - Confirm on the Beelink whether the `backup_postgres.sh` cron is installed; if not, install per `docs/backups.md` "Install on the Beelink" and verify the first dump lands in `~/homelab-backups/genkei/daily/`.
-  - Pick and wire the off-site target (R2 per the doc's recommendation) — append the upload step to `backup_postgres.sh` after the local dump.
-  - Update `docs/backups.md`'s status line to reflect reality (installed date, off-site target).
-  - Backup failure alerts into the existing B-119 Discord/issue path (a silent-failing backup is the worst kind).
-  - Schedule the first quarterly restore drill date per the doc.
+### B-138 — Install the nightly backup on the Beelink + confirm first heartbeat
+- **Status:** open (manual homelab step; the repo half shipped 2026-07-22, see `docs/resolved.md`)
+- **Priority:** **high** — until this lands the lake has no *confirmed* automated backup.
+- **Remaining:** the one step the repo half can't do from CI (governance: no autonomous homelab changes). On the Beelink, per `docs/backups.md` → "Install on the Beelink": install the 04:00-UTC cron, add `rclone.conf` for the R2 remote, set `OFFSITE_REMOTE` + `DISCORD_WEBHOOK_URL` on the cron line, run one dump by hand, and confirm both a `meta.backup_runs` row and the off-site copy landed. `backup-staleness-check.yml` pages daily until then — by design, that alert *is* the acceptance gate. Then log the first quarterly restore-drill date (next due ~2026-08-22).
 
 ## Epic E-001 — 2026-06-12 codebase-review findings
 
