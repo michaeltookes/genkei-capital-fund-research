@@ -108,6 +108,25 @@ The interface the agent (and human user) uses to query the lake.
 
 _B-046 (CLI query caching) shipped 2026-07-17 — see `docs/resolved.md`._
 
+### B-135 — CLI never auto-loads `.env` (dead `load_env_file`)
+- **Status:** open
+- **Priority:** medium (small fix; on the B-130 critical path)
+- **Context:** Found in the 2026-07-22 pre-cockpit audit. `genkei.common.config.load_env_file()` exists and is re-exported from `genkei.common.__init__`, but **nothing calls it** — no CLI entry point, no ingester. Any local `genkei` invocation fails with "GENKEI_DATABASE_URL is not set" unless the user manually exports/sources `.env` first. CI never noticed because GH Actions injects secrets directly into the environment. This bites the B-130 MCP server hardest: an MCP client spawning the server won't inherit a shell that sourced `.env`, so env bootstrapping must be automatic.
+- **Acceptance criteria:**
+  - The CLI entry point calls `load_env_file()` (repo-root/cwd `.env`) before any DB/API access; existing env vars still win (the loader already respects them).
+  - `genkei watchlist health` works from a fresh shell in the repo with only `.env` present.
+  - A unit test pins the bootstrap (loader invoked, env precedence preserved).
+  - B-130's MCP server startup documents/reuses the same bootstrap path.
+
+### B-136 — CLI query surface for on-chain staking / SUI validators / SUI unlocks
+- **Status:** open
+- **Priority:** low (raise to medium when B-130 starts — MCP tool coverage derives from CLI subcommands)
+- **Context:** From the 2026-07-22 audit's CLI inventory: three ingested domains have no dedicated query subcommand — `onchain.staking_events`, `onchain.sui_validators`, and `onchain.sui_unlocks` (the last already flagged in B-126's notes: "no `genkei unlocks` query command exists today"). All are reachable via raw `genkei query` SQL, but the cockpit plan (E-002) turns CLI subcommands into the MCP tool surface, so domains without a subcommand become second-class for both the agent and the FastAPI read layer. Every other lake domain has full coverage (31 subcommands, all `--json`).
+- **Acceptance criteria:**
+  - `genkei unlocks --asset SUI` (schedule + realized batches) and a staking surface (e.g. `genkei staking [--validators]`) with `--json`, following the shared `_helpers` conventions.
+  - Human + JSON formatters in the same module per the standard subcommand shape.
+  - Unit tests per subcommand; B-130's tool mapping picks them up when it lands.
+
 ## Phase 4 — Agent layer
 
 Wires the data lake to the on-demand AI researcher.
@@ -154,6 +173,11 @@ Reliability work that grows in importance as more sources go live.
   - Per-source quota tracked in `meta.api_usage`.
   - CLI + dashboard query.
 
+### B-138 — Install the nightly backup on the Beelink + confirm first heartbeat
+- **Status:** open (manual homelab step; the repo half shipped 2026-07-22, see `docs/resolved.md`)
+- **Priority:** **high** — until this lands the lake has no *confirmed* automated backup.
+- **Remaining:** the one step the repo half can't do from CI (governance: no autonomous homelab changes). On the Beelink, per `docs/backups.md` → "Install on the Beelink": install the 04:00-UTC cron, add `rclone.conf` for the R2 remote, set `OFFSITE_REMOTE` + `DISCORD_WEBHOOK_URL` on the cron line, run one dump by hand, and confirm both a `meta.backup_runs` row and the off-site copy landed. `backup-staleness-check.yml` pages daily until then — by design, that alert *is* the acceptance gate. Then log the first quarterly restore-drill date (next due ~2026-08-22).
+
 ## Epic E-001 — 2026-06-12 codebase-review findings
 
 A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the engineering layers in good shape but the research loop operationally unproven and its instructions drifted behind the shipped code. Six items, ordered by leverage. B-117 and B-118 (both resolved 2026-06-12, see `docs/resolved.md`) protected the integrity of the decision/reflection loop before the first real reflection cycle; the rest harden ops and code quality. B-119 (resolved 2026-06-13) closed the observability half of silent-staleness. Spin-offs filed along the way: B-123 (VEEV ingest) from the B-118 dry run, and B-125 (ingest retry) from B-119 — all below (B-124 resolved, see `docs/resolved.md`).
@@ -172,3 +196,84 @@ A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the e
   - A CLI surface (e.g. `genkei unlocks --asset JUP`) returns the schedule with `--json`, mirroring the SUI pattern. (Note: no `genkei unlocks` query command exists today — SUI ships only the ingester + watchlist-health wiring — so this would create that surface.)
   - Coverage limits documented in `docs/sources/` (which allocations are visible vs paywalled), matching the SUI-unlocks honesty note.
   - Decide whether to generalize `sui_unlocks.py` into a shared unlock framework now or defer to a third source; record the call in this item.
+
+## Epic E-002 — Research cockpit (local web app)
+
+A scoping session on **2026-07-20** decided to build a second interface *beyond the existing TUI*: a **local web app on the homelab Beelink** that renders the lake and embeds a **Claude Agent SDK** chat panel — the "Cursor / Codex desktop" analog mapped onto the fund. Locked scope decisions from that session:
+
+1. **Scope = research cockpit only** — renders the lake + converses with the agent. **No brokerage wiring, read-only, free-sources-only.** (Portfolio/execution surfaces explicitly deferred.)
+2. **Agent = embedded panel backed by the Claude Agent SDK** — the *same engine* as Claude Code with a GUI front-end, **not** a hand-rolled LLM loop. Preserves the locked "Claude Code is the agent harness" decision.
+3. **Form factor = local web app served from the Beelink**, reachable from Mac + phone on the local network (not a native desktop app for v1).
+4. **Webull = evaluate-only, parked** — see B-134.
+
+**Keystone:** reuse the existing `genkei` CLI as the single tool surface via an MCP wrapper (B-130) feeding *both* Claude Code and the cockpit — no duplicated data logic. **Phasing:** B-130 (MCP wrapper) → B-131 + B-132 (read API + static cockpit) → B-133 (embedded agent panel + artifact contract). Each phase delivers standalone value before the next. **Nothing here is scheduled to build yet — these are user stories capturing the agreed design.**
+
+### B-130 — `genkei`-as-MCP server (cockpit keystone)
+- **Status:** open
+- **Priority:** medium (keystone; independently useful in Claude Code today)
+- **User story:** As the research agent — in Claude Code now and the cockpit later — I want the `genkei` CLI exposed as an MCP tool surface so that data-access logic lives in exactly one place and both front-ends share every fix.
+- **Context:** CLAUDE.md locks "the CLI is the agent's data interface." Wrapping it as an MCP server generalizes that from Bash-only to any MCP client. Immediately useful in current Claude Code sessions, independent of the web app — so it's the right first brick.
+- **Acceptance criteria:**
+  - MCP server exposes the `genkei` subcommands as tools (`prices`, `signals`, `tvl`, `zcash-usage`, `watchlist`, `query`, etc.), passing through each command's `--json` shape.
+  - Thin adapter — **no data logic duplicated**; delegates to the existing CLI/modules.
+  - Registerable in Claude Code as an MCP server and usable there before any frontend exists.
+  - Tool schemas documented; tests pin the subcommand→tool mapping for a representative sample.
+  - Record the call: shell the CLI as a subprocess vs import the `genkei` Python modules directly.
+
+### B-131 — FastAPI read layer over the lake
+- **Status:** open
+- **Priority:** low
+- **User story:** As the cockpit frontend, I want a deterministic HTTP read API over Postgres so that charts and tables render directly — without routing through the agent and burning tokens to draw a chart.
+- **Context:** The *visual* surface must not depend on the LLM. A thin FastAPI read layer on the Beelink is the deterministic spine the frontend queries; the agent panel (B-133) is additive on top, not in the critical path for rendering.
+- **Acceptance criteria:**
+  - FastAPI service on the Beelink exposing **read-only** endpoints: price series, watchlist, signal history, the weekly signal digest, the `docs/research/decisions/` log, and lake health.
+  - Queries Postgres directly or reuses `genkei query` modules; performs no writes.
+  - Runs on `mission_control_net` alongside existing infra; documented in `docs/infrastructure.md`.
+  - Auth posture recorded — local-network-only for v1, no public exposure.
+  - Endpoint contracts covered by tests against ephemeral fixtures (per B-024).
+
+### B-137 — Cockpit service deployment & exposure spec
+- **Status:** open
+- **Priority:** medium (must land with or before B-131 — B-131's "auth posture recorded" criterion is one line of this)
+- **User story:** As the operator, I want the cockpit's runtime story written down before the first service ships so that the FastAPI layer and frontend don't land as ad-hoc processes on the Beelink with an undefined trust boundary.
+- **Context:** From the 2026-07-22 pre-cockpit audit: `docs/infrastructure.md` covers Postgres and the self-hosted runner well, but there is no service-management, auth, or resource-protection story for the two new long-running services E-002 introduces. Specifically undefined today: how the FastAPI app + frontend are supervised (docker-compose on `mission_control_net` is the natural fit alongside existing containers), what "local-network-only" concretely means (bind address, phone access path, whether the existing `cloudflared` tunnel is explicitly out of scope for v1), and how the read layer protects Postgres from itself (connection-pool ceiling, statement timeout, per-endpoint result caps — `genkei query` already models all three; the API should inherit that posture, not reinvent it).
+- **Acceptance criteria:**
+  - A deployment section (in `docs/infrastructure.md` or a new `docs/api-deployment.md`): compose/service definitions, restart policy, log location, port allocation on `mission_control_net`.
+  - Auth/exposure posture recorded: bind/interface decision, LAN-only enforcement, explicit statement that the tunnel does not route to the cockpit in v1.
+  - Resource-protection defaults for the read API: pool size ceiling vs the ingest workloads, statement timeout, response row caps — mirroring `genkei query`'s enforced limits.
+  - Health endpoint + failure alerting wired into the existing B-119 Discord/issue path so a dead cockpit service is noticed like a dead ingester.
+
+### B-132 — Static cockpit frontend (workspace pane)
+- **Status:** open
+- **Priority:** low
+- **User story:** As Michael, I want a two-pane web cockpit that renders the lake's artifacts — price / TVL / signal charts, the watchlist, the weekly digest, and the decision log — so that I can review the fund visually instead of only through the TUI/CLI.
+- **Context:** This is the workspace half of the Cursor analog and delivers value with **zero agent work**. Charts render far better than a terminal; phone-reachability makes the weekly digest glanceable.
+- **Acceptance criteria:**
+  - Frontend served from the Beelink, reachable from Mac + phone on the local network.
+  - Renders: per-asset price series, TVL/signal history, the current weekly signal digest, and the decision log.
+  - Reads **exclusively** from the B-131 API; no agent dependency.
+  - Frontend-stack decision recorded (recommendation: React + a financial charting lib such as TradingView `lightweight-charts`; alternative: a Python-native UI) with rationale.
+  - Ships and is useful before B-133 exists.
+
+### B-133 — Embedded Claude Agent SDK panel + artifact contract
+- **Status:** open
+- **Priority:** low
+- **User story:** As Michael, I want an embedded chat panel that can query the lake and render results *into the workspace* so that asking "how's ZEC's shielded-pool adoption trending?" opens a chart pane — not a wall of text.
+- **Context:** The "Cursor moment" is the agent acting on the workspace, not just replying. That requires a small **typed artifact vocabulary** the frontend knows how to render. Must be backed by the Agent SDK (same engine as Claude Code) to stay inside the locked no-hand-rolled-framework decision.
+- **Acceptance criteria:**
+  - Chat panel backed by the **Claude Agent SDK** (Python backend, streamed to the UI) — not a hand-rolled LLM loop.
+  - Agent's tool surface **is the B-130 MCP server** — identical tools to Claude Code.
+  - Typed artifact contract: agent emits `chart` / `table` / `report-link` / `decision-draft` artifacts the frontend renders into the workspace pane.
+  - **Write posture:** read-only by default; any repo write (draft → `docs/research/decisions/`, commit a report) is gated behind explicit user approval. Record whether writes ship in v1 or defer.
+  - Streaming responses; conversation persists per session.
+
+### B-134 — Webull OpenAPI source evaluation (parked)
+- **Status:** deferred 2026-07-20 — evaluate-only; reopen on a concrete live-data gap (see trigger).
+- **Priority:** deferred
+- **User story:** As the fund, I want a recorded evaluation of Webull's OpenAPI so that when a live-data gap appears we can decide quickly whether it's worth opening the "private-data story."
+- **Context:** Surfaced during the E-002 scoping session (Michael uses Webull for individual stocks + select crypto prices). Webull OpenAPI offers **Trading**, **Market Data** (quotes / snapshots / OHLCV bars / screeners / fundamentals across US stocks, ETFs, futures, crypto; 300 req/min), **Broker**, and **Connect** (OAuth) APIs, plus an **official MCP server** (`webull-openapi-mcp`) that plugs into Claude Code, and a Python SDK. Requires a Webull **developer account + App Key/Secret + mobile 2FA**, and possibly a **paid market-data subscription**. **Key finding:** it's a **real-time + real-positions** source, **not a history source** (no documented deep backfill) — it *complements* the free ingesters, doesn't replace them. Because it's account-tied/semi-private, adopting it formally opens the "private-data story" deferred per CLAUDE.md (locked decision D: free/open sources only).
+- **Reopen / revisit trigger:** once the cockpit read layer + agent panel (B-131 / B-133) are live **and** a specific live-data gap is identifiable (real-time quotes, or actual positions / P&L, that free sources don't cover).
+- **Acceptance criteria (for reopen):**
+  - Confirm current pricing / tier for the *specific* data needed, and whether a paid market-data subscription is required.
+  - Decide the entry path and record the call: **official MCP server** (fastest, no new ingester — preferred) vs a **`genkei` lake ingester** (data lands in Postgres as system-of-record).
+  - If adopted, pair with **B-073** (secrets policy) and **B-075** (license / redistribution audit) — it would be the first private/account-tied source.

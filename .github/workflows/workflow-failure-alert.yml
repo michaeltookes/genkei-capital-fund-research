@@ -50,6 +50,7 @@ on:
       - "Trend Views Daily Refresh"
       - "Ingest Staleness Check"
       - "Ingest Heartbeat"
+      - "Backup Staleness Check"
     types: [completed]
 
 permissions:

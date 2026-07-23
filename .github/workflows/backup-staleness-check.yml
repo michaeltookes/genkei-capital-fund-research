@@ -1,0 +1,162 @@
+name: Backup Staleness Check
+
+# B-138 — daily scheduled check that the nightly Postgres backup is actually
+# running. Reads the newest row from meta.backup_runs (written by
+# infra/backups/backup_postgres.sh on each successful dump) and opens/updates a
+# GitHub issue + pings Discord when no recent successful backup is recorded.
+#
+# Why a heartbeat table and not a file-age check: backup_postgres.sh runs as
+# host cron on the Beelink, but this self-hosted runner mounts no host path —
+# it can only reach genkeicapital-postgres over mission_control_net. So the
+# backup's liveness has to be observable *in the database*. This is the
+# backup-side counterpart to ingest-staleness-check.yml (B-071): that catches
+# ingest that silently stopped; this catches backups that silently stopped —
+# the exact failure mode (cron removed, Beelink down, script erroring before it
+# can even post to Discord) that would otherwise leave the lake quietly
+# unprotected.
+
+on:
+  schedule:
+    # Daily at 06:00 UTC — the backup cron runs 04:00 UTC, so a healthy
+    # heartbeat is ~2h old here and a single missed night surfaces same-day
+    # (next check sees ~26h, over the 25h threshold).
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    name: Read meta.backup_runs + alert if no recent backup
+    runs-on: [self-hosted, beelink]
+    timeout-minutes: 10
+    env:
+      GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      STALE_THRESHOLD_HOURS: "25"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+
+      - name: Ensure schema is current
+        # Idempotent; guarantees meta.backup_runs exists so a genuinely-empty
+        # table reads as MISSING rather than erroring the query.
+        run: alembic upgrade head
+
+      - name: Read latest backup heartbeat + raise an issue if stale
+        id: backup
+        run: |
+          set -euo pipefail
+          DETECTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          # Read the newest heartbeat through the read-only query path.
+          ROW_JSON=$(genkei query "SELECT finished_at, offsite_status, dump_bytes, duration_seconds, host, EXTRACT(EPOCH FROM (now() - finished_at)) / 3600.0 AS age_hours FROM meta.backup_runs ORDER BY finished_at DESC LIMIT 1" --json)
+
+          PROBLEMS=$(printf '%s' "$ROW_JSON" | python3 -c '
+          import json, os, sys
+          rows = json.load(sys.stdin)
+          thresh = float(os.environ.get("STALE_THRESHOLD_HOURS", "25"))
+          out = []
+          if not rows:
+              out.append(("MISSING", "No successful backup is recorded in meta.backup_runs yet. The nightly pg_dump cron may not be installed on the Beelink — install per docs/backups.md (B-138)."))
+          else:
+              r = rows[0]
+              fin = r.get("finished_at") or "unknown"
+              raw_age = r.get("age_hours")
+              age = float(raw_age) if raw_age is not None else None
+              if age is None:
+                  out.append(("STALE", f"Latest backup row has no readable finished_at (recorded {fin})."))
+              elif age > thresh:
+                  out.append(("STALE", f"Last successful backup was {age:.1f}h ago ({fin}); threshold is {thresh:.0f}h. The nightly pg_dump cron may have stopped running."))
+              if r.get("offsite_status") == "failed":
+                  out.append(("OFFSITE_FAILED", f"Latest backup ({fin}) recorded off-site upload status \"failed\": the local dump exists but the Beelink-loss defense did not complete. Check rclone / OFFSITE_REMOTE on the Beelink."))
+          for tag, msg in out:
+              print(f"{tag}\t{msg}")
+          ')
+
+          if [ -z "${PROBLEMS}" ]; then
+              echo "backup_problem_count=0" >> "$GITHUB_OUTPUT"
+              echo "Backup heartbeat OK."
+              exit 0
+          fi
+
+          echo "Backup problems:"
+          echo "${PROBLEMS}"
+
+          COUNT=$(printf '%s\n' "${PROBLEMS}" | grep -c . || true)
+          echo "backup_problem_count=${COUNT}" >> "$GITHUB_OUTPUT"
+
+          {
+              echo "summary<<DISCORD_EOF"
+              printf '%s\n' "${PROBLEMS}" | while IFS=$'\t' read -r TAG MSG; do
+                  echo "• **${TAG}** — ${MSG}"
+              done
+              echo "DISCORD_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          # One durable issue for the backup job (there is a single nightly
+          # backup, so a single issue tracks it). Repeat detections comment
+          # rather than spawning a new issue per day.
+          TITLE="[backup-alert] genkei-postgres nightly backup"
+          BODY="$(printf '%s\n' "${PROBLEMS}" | while IFS=$'\t' read -r TAG MSG; do
+              echo "- **${TAG}**: ${MSG}"
+          done)"
+          BODY="${BODY}
+
+          - Detected at: ${DETECTED}
+          - Threshold: ${STALE_THRESHOLD_HOURS}h since last successful backup
+
+          ---
+
+          Auto-opened by \`.github/workflows/backup-staleness-check.yml\` (B-138).
+          Close once a fresh heartbeat lands in \`meta.backup_runs\`; daily
+          re-runs comment rather than reopening. To debug on the Beelink:
+
+          \`\`\`bash
+          ~/homelab/scripts/genkei-backups/backup_postgres.sh   # run a dump by hand
+          genkei query 'SELECT * FROM meta.backup_runs ORDER BY finished_at DESC LIMIT 5'
+          \`\`\`"
+
+          EXISTING_NUMBER=$(gh issue list \
+              --state open \
+              --limit 1000 \
+              --json number,title \
+              --jq ".[] | select(.title == \"${TITLE}\") | .number" \
+              | head -1)
+
+          if [ -n "${EXISTING_NUMBER}" ]; then
+              gh issue comment "${EXISTING_NUMBER}" --body "Still flagged as of ${DETECTED}:
+          ${PROBLEMS}"
+              echo "Commented on existing issue #${EXISTING_NUMBER}."
+          else
+              gh issue create --title "${TITLE}" --body "${BODY}"
+              echo "Opened new backup-alert issue."
+          fi
+
+      - name: Ping Discord with the backup problem summary
+        if: steps.backup.outputs.backup_problem_count != '0'
+        uses: ./.github/actions/discord-notify
+        with:
+          webhook_url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          title: "🔴 Backup staleness — ${{ steps.backup.outputs.backup_problem_count }} problem(s)"
+          description: |
+            The nightly Postgres backup heartbeat check flagged ${{ steps.backup.outputs.backup_problem_count }} problem(s); a GitHub issue was opened or updated.
+
+            ${{ steps.backup.outputs.summary }}
+          color: "15158332"
