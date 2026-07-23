@@ -1,8 +1,8 @@
 # Postgres Backup Posture
 
-**B-070.** Backup + restore strategy for `genkeicapital-postgres`. The data lake is the asset; this doc + the scripts in `infra/backups/` are what defend it.
+**B-070 / B-138.** Backup + restore strategy for `genkeicapital-postgres`. The data lake is the asset; this doc + the scripts in `infra/backups/` are what defend it.
 
-> **Status as of 2026-05-22:** No automated backups exist on the homelab yet. This doc + the scripts are the proposal; installing the cron + picking an off-site target is a manual step on the Beelink (see [Install on the Beelink](#install-on-the-beelink) below).
+> **Status as of 2026-07-22 (B-138):** The scripts now ship the full posture — local nightly dump, **off-site mirror** (rclone → R2, gated on `OFFSITE_REMOTE`), **Discord failure alerts**, and a **`meta.backup_runs` heartbeat** that `backup-staleness-check.yml` monitors so a silently-stopped cron pages. What remains is a **one-time manual step on the Beelink** — the homelab isn't modified autonomously from CI (per `~/.claude/skills/server-info/` governance): install the cron, drop in `rclone.conf` for R2, set `OFFSITE_REMOTE` + `DISCORD_WEBHOOK_URL`, and confirm the first heartbeat row lands. See [Install on the Beelink](#install-on-the-beelink). **Until that first heartbeat exists, `backup-staleness-check.yml` will (correctly) page daily that no backup is recorded** — that alert is the acceptance gate for "backups are actually running," not noise to silence.
 
 ## What's at risk
 
@@ -58,7 +58,7 @@ Weekly and monthly tiers are **hard-links** of the Sunday/1st-of-month daily dum
 
 ## Off-site
 
-This is the open decision. None of these are installed today — pick one based on the trade-off you care about most.
+**Decision (B-138): Cloudflare R2.** `backup_postgres.sh` now performs an additive `rclone copyto` of each dump to `$OFFSITE_REMOTE` (e.g. `r2:genkei-backups`) right after the local dump verifies, mirroring the same daily/weekly/monthly tiering. It's **additive only** — the script never deletes remote objects, so off-site retention is an R2 bucket-lifecycle rule, not something a local-dir bug could wipe. The step is gated on `OFFSITE_REMOTE`: unset, the script runs local-dump-only exactly as before, so it stays installable before R2 is configured. The comparison below is retained for the record.
 
 | Option | Cost | Latency to setup | Failure mode |
 |---|---|---|---|
@@ -87,18 +87,36 @@ curl -sSL https://raw.githubusercontent.com/michaeltookes/genkei-capital-fund-re
 curl -sSL https://raw.githubusercontent.com/michaeltookes/genkei-capital-fund-research/main/infra/backups/restore_postgres.sh -o restore_postgres.sh
 chmod +x backup_postgres.sh restore_postgres.sh
 
-# One-shot test run:
+# One-time off-site setup (Cloudflare R2, B-138):
+#   Create the bucket + an R2 API token, then configure an rclone remote
+#   named `r2` of type `s3` (provider=Cloudflare) with that token. See
+#   https://rclone.org/s3/#cloudflare-r2. A bucket lifecycle rule handles
+#   off-site retention (the script only ever adds objects, never deletes).
+rclone lsd r2:genkei-backups   # sanity: remote reachable
+
+# One-shot test run (with off-site + alerting env wired):
+export OFFSITE_REMOTE="r2:genkei-backups"
+export DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/…"   # same webhook as CI
 ./backup_postgres.sh
 ls -lh ~/homelab-backups/genkei/daily/
+rclone ls r2:genkei-backups/daily/                               # off-site copy present?
 
-# Install the cron (04:00 UTC daily):
-( crontab -l 2>/dev/null; echo "0 4 * * * ~/homelab/scripts/genkei-backups/backup_postgres.sh >> /tmp/genkei-backup.log 2>&1" ) | crontab -
+# Confirm the heartbeat landed (this is what backup-staleness-check.yml reads):
+genkei query 'SELECT finished_at, offsite_status, dump_bytes FROM meta.backup_runs ORDER BY finished_at DESC LIMIT 1'
+
+# Install the cron (04:00 UTC daily). Cron has a bare environment, so pass
+# the two vars inline; keep the webhook out of shell history / world-readable
+# crontabs by sourcing a 600-perm env file instead if you prefer.
+( crontab -l 2>/dev/null; echo '0 4 * * * OFFSITE_REMOTE=r2:genkei-backups DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/… ~/homelab/scripts/genkei-backups/backup_postgres.sh >> /tmp/genkei-backup.log 2>&1' ) | crontab -
 
 # Verify:
 crontab -l | grep backup_postgres
 ```
 
-A failed nightly backup writes its error to `/tmp/genkei-backup.log` and exits non-zero — pairs with B-071's `ingest-staleness-check.yml` *if* you decide to extend that alerter to cron-job failures (not done today; the alerter watches GitHub Actions, not host cron).
+**Alerting (B-138).** Failures now surface two ways, both through the existing B-119 channels:
+
+- **Ran-and-errored** — the script posts a red embed to `DISCORD_WEBHOOK_URL` on any non-zero exit (an `EXIT` trap, so it fires for `pg_dump` failures, disk-preflight failures, and off-site-upload failures alike). It also still writes the error to `/tmp/genkei-backup.log`.
+- **Silently stopped** — the cron being removed, the Beelink being down, or the script dying before it can even post leaves *no fresh `meta.backup_runs` row*. `.github/workflows/backup-staleness-check.yml` runs daily on the self-hosted runner, reads the newest heartbeat over `mission_control_net`, and opens a GitHub issue + Discord ping when it's older than 28h (or missing). This is the backup-side twin of `ingest-staleness-check.yml`, and it's registered in `workflow-failure-alert.yml` so the check's *own* failures page too.
 
 ## Restore runbook
 
@@ -206,8 +224,11 @@ Including the brand-new `meta.signals` from today's B-065 ship — the asset tha
 
 ## Open items
 
-These intentionally aren't done today; ship them as follow-ups:
+- ✅ **Off-site target picked + wired** (B-138) — Cloudflare R2 via `rclone copyto`, gated on `OFFSITE_REMOTE`. See [Off-site](#off-site).
+- ✅ **Backup-failure alerting** (B-138) — Discord post on failure + `meta.backup_runs` heartbeat monitored by `backup-staleness-check.yml`. See [Alerting](#install-on-the-beelink).
+- ⏳ **Install on the Beelink + confirm first heartbeat** (B-138, manual) — the code is ready; the homelab-side step (cron + `rclone.conf` + `OFFSITE_REMOTE`/`DISCORD_WEBHOOK_URL` + verifying the first `meta.backup_runs` row) is the remaining gate. `backup-staleness-check.yml` pages daily until it's done.
+- ⏳ **Pin the container image.** Switch the homelab compose file from `timescale/timescaledb:latest-pg16` to the `2.26.4-pg16` documented in `docs/infrastructure.md` so restores happen against a known target version.
 
-- **Pick + wire up the off-site target** (Cloudflare R2 recommended). Once chosen, append a `rclone copyto` (or `aws s3 cp`) step to `backup_postgres.sh` after the local dump.
-- **Decide on alerting for backup failures.** Currently `cron` mails the user on non-zero exit; that's the Beelink's default. If we want it to flow through B-071's GitHub-issue alerter, the script would need to post to a webhook on failure.
-- **Pin the container image.** Switch the homelab compose file from `timescale/timescaledb:latest-pg16` to the `2.26.4-pg16` documented in `docs/infrastructure.md` so restores happen against a known target version.
+## Restore-drill schedule
+
+The B-070 ship drilled the restore end-to-end on **2026-05-22** (see [Drill evidence](#drill-evidence-2026-05-22)). Quarterly cadence → **next drill due ~2026-08-22.** Run Scenario B, then log the result + date in a `docs/research/decisions/` entry so the following quarter knows the last-good date.
