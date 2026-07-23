@@ -108,6 +108,25 @@ The interface the agent (and human user) uses to query the lake.
 
 _B-046 (CLI query caching) shipped 2026-07-17 — see `docs/resolved.md`._
 
+### B-135 — CLI never auto-loads `.env` (dead `load_env_file`)
+- **Status:** open
+- **Priority:** medium (small fix; on the B-130 critical path)
+- **Context:** Found in the 2026-07-22 pre-cockpit audit. `genkei.common.config.load_env_file()` exists and is re-exported from `genkei.common.__init__`, but **nothing calls it** — no CLI entry point, no ingester. Any local `genkei` invocation fails with "GENKEI_DATABASE_URL is not set" unless the user manually exports/sources `.env` first. CI never noticed because GH Actions injects secrets directly into the environment. This bites the B-130 MCP server hardest: an MCP client spawning the server won't inherit a shell that sourced `.env`, so env bootstrapping must be automatic.
+- **Acceptance criteria:**
+  - The CLI entry point calls `load_env_file()` (repo-root/cwd `.env`) before any DB/API access; existing env vars still win (the loader already respects them).
+  - `genkei watchlist health` works from a fresh shell in the repo with only `.env` present.
+  - A unit test pins the bootstrap (loader invoked, env precedence preserved).
+  - B-130's MCP server startup documents/reuses the same bootstrap path.
+
+### B-136 — CLI query surface for on-chain staking / SUI validators / SUI unlocks
+- **Status:** open
+- **Priority:** low (raise to medium when B-130 starts — MCP tool coverage derives from CLI subcommands)
+- **Context:** From the 2026-07-22 audit's CLI inventory: three ingested domains have no dedicated query subcommand — `onchain.staking_events`, `onchain.sui_validators`, and `onchain.sui_unlocks` (the last already flagged in B-126's notes: "no `genkei unlocks` query command exists today"). All are reachable via raw `genkei query` SQL, but the cockpit plan (E-002) turns CLI subcommands into the MCP tool surface, so domains without a subcommand become second-class for both the agent and the FastAPI read layer. Every other lake domain has full coverage (31 subcommands, all `--json`).
+- **Acceptance criteria:**
+  - `genkei unlocks --asset SUI` (schedule + realized batches) and a staking surface (e.g. `genkei staking [--validators]`) with `--json`, following the shared `_helpers` conventions.
+  - Human + JSON formatters in the same module per the standard subcommand shape.
+  - Unit tests per subcommand; B-130's tool mapping picks them up when it lands.
+
 ## Phase 4 — Agent layer
 
 Wires the data lake to the on-demand AI researcher.
@@ -153,6 +172,17 @@ Reliability work that grows in importance as more sources go live.
 - **Acceptance criteria:**
   - Per-source quota tracked in `meta.api_usage`.
   - CLI + dashboard query.
+
+### B-138 — Verify/install nightly Postgres backup cron + wire the off-site layer
+- **Status:** open
+- **Priority:** **high** — the lake is the asset and may currently have zero automated backups.
+- **Context:** Found in the 2026-07-22 pre-cockpit audit. `docs/backups.md` (B-070, 2026-05-22) designed and **drilled** the full posture — `backup_postgres.sh` local nightly dump with 7/4/12 tiered retention, restore verified with 100% row-count parity — but its own status line says "No automated backups exist on the homelab yet. This doc + the scripts are the proposal; installing the cron … is a manual step on the Beelink." Nothing in the repo since indicates the cron was installed. Two months of ingest (~1.5M normalized rows, `meta.signals`, the irreplaceable `meta.ingest_runs` audit trail) may be sitting on a single Beelink SSD. The off-site layer (Cloudflare R2 recommended in the doc, ~$0.05/mo at current volume) was explicitly deferred and remains unwired — local dumps, once running, still don't cover Beelink theft/fire. Building a web cockpit **on top of** an unbacked-up lake inverts the risk order; this should land before or alongside E-002 work.
+- **Acceptance criteria:**
+  - Confirm on the Beelink whether the `backup_postgres.sh` cron is installed; if not, install per `docs/backups.md` "Install on the Beelink" and verify the first dump lands in `~/homelab-backups/genkei/daily/`.
+  - Pick and wire the off-site target (R2 per the doc's recommendation) — append the upload step to `backup_postgres.sh` after the local dump.
+  - Update `docs/backups.md`'s status line to reflect reality (installed date, off-site target).
+  - Backup failure alerts into the existing B-119 Discord/issue path (a silent-failing backup is the worst kind).
+  - Schedule the first quarterly restore drill date per the doc.
 
 ## Epic E-001 — 2026-06-12 codebase-review findings
 
@@ -207,6 +237,17 @@ A scoping session on **2026-07-20** decided to build a second interface *beyond 
   - Runs on `mission_control_net` alongside existing infra; documented in `docs/infrastructure.md`.
   - Auth posture recorded — local-network-only for v1, no public exposure.
   - Endpoint contracts covered by tests against ephemeral fixtures (per B-024).
+
+### B-137 — Cockpit service deployment & exposure spec
+- **Status:** open
+- **Priority:** medium (must land with or before B-131 — B-131's "auth posture recorded" criterion is one line of this)
+- **User story:** As the operator, I want the cockpit's runtime story written down before the first service ships so that the FastAPI layer and frontend don't land as ad-hoc processes on the Beelink with an undefined trust boundary.
+- **Context:** From the 2026-07-22 pre-cockpit audit: `docs/infrastructure.md` covers Postgres and the self-hosted runner well, but there is no service-management, auth, or resource-protection story for the two new long-running services E-002 introduces. Specifically undefined today: how the FastAPI app + frontend are supervised (docker-compose on `mission_control_net` is the natural fit alongside existing containers), what "local-network-only" concretely means (bind address, phone access path, whether the existing `cloudflared` tunnel is explicitly out of scope for v1), and how the read layer protects Postgres from itself (connection-pool ceiling, statement timeout, per-endpoint result caps — `genkei query` already models all three; the API should inherit that posture, not reinvent it).
+- **Acceptance criteria:**
+  - A deployment section (in `docs/infrastructure.md` or a new `docs/api-deployment.md`): compose/service definitions, restart policy, log location, port allocation on `mission_control_net`.
+  - Auth/exposure posture recorded: bind/interface decision, LAN-only enforcement, explicit statement that the tunnel does not route to the cockpit in v1.
+  - Resource-protection defaults for the read API: pool size ceiling vs the ingest workloads, statement timeout, response row caps — mirroring `genkei query`'s enforced limits.
+  - Health endpoint + failure alerting wired into the existing B-119 Discord/issue path so a dead cockpit service is noticed like a dead ingester.
 
 ### B-132 — Static cockpit frontend (workspace pane)
 - **Status:** open
