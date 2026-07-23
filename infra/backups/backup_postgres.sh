@@ -75,7 +75,8 @@ print(json.dumps({"embeds": [{
 PY
 )"
   [ -n "$payload" ] || return 0
-  curl -sS -o /dev/null -H 'Content-Type: application/json' \
+  # --max-time so a slow/hung webhook can never wedge an unattended cron run.
+  curl -sS --max-time 15 -o /dev/null -H 'Content-Type: application/json' \
     --data-raw "$payload" "$DISCORD_WEBHOOK_URL" || true
 }
 
@@ -181,21 +182,39 @@ prune monthly "$RETAIN_MONTHLY"
 # also place the dump under weekly/ and monthly/ so the remote mirrors the
 # same tiering as local.
 
+# A failed off-site copy is NOT a failed backup: the local dump already
+# succeeded and defends against disk failure + operator error. So off-site
+# failure doesn't die() — it records offsite_status='failed' in the heartbeat
+# (which backup-staleness-check.yml surfaces as the softer OFFSITE_FAILED
+# alert) and posts an amber warning now, distinct from the red "dump failed"
+# page. This keeps "the Beelink-loss defense broke" from masquerading as
+# "there is no backup."
 OFFSITE_STATUS="skipped"
 if [ -n "$OFFSITE_REMOTE" ]; then
-  command -v rclone >/dev/null 2>&1 || die "OFFSITE_REMOTE set but rclone is not installed"
-  OFFSITE_STATUS="failed"   # flipped to uploaded only if every copy succeeds
   base="$(basename "$DUMP_FILE")"
-  log "off-site: uploading $base → $OFFSITE_REMOTE/daily/"
-  rclone copyto "$DUMP_FILE" "$OFFSITE_REMOTE/daily/$base"   || die "off-site upload failed (daily)"
-  if [ "$DOW" = "7" ]; then
-    rclone copyto "$DUMP_FILE" "$OFFSITE_REMOTE/weekly/$base"  || die "off-site upload failed (weekly)"
+  offsite_ok=1
+  if ! command -v rclone >/dev/null 2>&1; then
+    log "WARN: OFFSITE_REMOTE set but rclone is not installed — skipping off-site copy"
+    offsite_ok=0
+  else
+    log "off-site: uploading $base → $OFFSITE_REMOTE/daily/"
+    rclone copyto "$DUMP_FILE" "$OFFSITE_REMOTE/daily/$base" || offsite_ok=0
+    if [ "$offsite_ok" = "1" ] && [ "$DOW" = "7" ]; then
+      rclone copyto "$DUMP_FILE" "$OFFSITE_REMOTE/weekly/$base" || offsite_ok=0
+    fi
+    if [ "$offsite_ok" = "1" ] && [ "$DOM" = "01" ]; then
+      rclone copyto "$DUMP_FILE" "$OFFSITE_REMOTE/monthly/$base" || offsite_ok=0
+    fi
   fi
-  if [ "$DOM" = "01" ]; then
-    rclone copyto "$DUMP_FILE" "$OFFSITE_REMOTE/monthly/$base" || die "off-site upload failed (monthly)"
+  if [ "$offsite_ok" = "1" ]; then
+    OFFSITE_STATUS="uploaded"
+    log "off-site: upload OK"
+  else
+    OFFSITE_STATUS="failed"
+    log "off-site: upload FAILED — local dump is fine, Beelink-loss defense did not complete"
+    notify_discord "🟠 genkei off-site backup FAILED on ${HOST_SHORT}" \
+      "Local nightly dump of \`${DB_NAME}\` succeeded, but the off-site copy to \`${OFFSITE_REMOTE}\` did not. The lake is protected against disk failure but **not** against Beelink loss until this is fixed — check rclone / OFFSITE_REMOTE." 16763904
   fi
-  OFFSITE_STATUS="uploaded"
-  log "off-site: upload OK"
 else
   log "off-site: OFFSITE_REMOTE unset — skipping (local-dump-only)"
 fi
