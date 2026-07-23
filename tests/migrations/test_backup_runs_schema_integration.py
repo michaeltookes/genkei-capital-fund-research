@@ -62,8 +62,15 @@ class BackupRunsSchemaIntegrationTests(unittest.TestCase):
         with self.harness.connection() as conn, conn.cursor() as cur:
             cur.execute(
                 _HEARTBEAT_INSERT,
-                [1_700_000_000, 1_700_000_073, "genkei_capital_x.pgcustom",
-                 511_000_000, 73, "uploaded", "beelink"],
+                [
+                    1_700_000_000,
+                    1_700_000_073,
+                    "genkei_capital_x.pgcustom",
+                    511_000_000,
+                    73,
+                    "uploaded",
+                    "beelink",
+                ],
             )
             cur.execute(
                 "SELECT status, offsite_status, dump_bytes "
@@ -77,8 +84,15 @@ class BackupRunsSchemaIntegrationTests(unittest.TestCase):
             with self.assertRaises(Exception) as ctx:
                 cur.execute(
                     _HEARTBEAT_INSERT,
-                    [1_700_000_000, 1_700_000_073, "genkei_capital_x.pgcustom",
-                     511_000_000, 73, "bogus", "beelink"],
+                    [
+                        1_700_000_000,
+                        1_700_000_073,
+                        "genkei_capital_x.pgcustom",
+                        511_000_000,
+                        73,
+                        "bogus",
+                        "beelink",
+                    ],
                 )
             self.assertIn("check", str(ctx.exception).lower())
 
@@ -86,12 +100,18 @@ class BackupRunsSchemaIntegrationTests(unittest.TestCase):
         with self.harness.connection() as conn, conn.cursor() as cur:
             cur.execute(
                 _HEARTBEAT_INSERT,
-                [1_700_000_000, 1_700_000_073, "genkei_capital_x.pgcustom",
-                 511_000_000, 73, None, "beelink"],
+                [
+                    1_700_000_000,
+                    1_700_000_073,
+                    "genkei_capital_x.pgcustom",
+                    511_000_000,
+                    73,
+                    None,
+                    "beelink",
+                ],
             )
             cur.execute(
-                "SELECT offsite_status FROM meta.backup_runs "
-                "ORDER BY finished_at DESC LIMIT 1"
+                "SELECT offsite_status FROM meta.backup_runs ORDER BY finished_at DESC LIMIT 1"
             )
             self.assertIsNone(cur.fetchone()[0])
 
