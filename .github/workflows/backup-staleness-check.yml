@@ -19,7 +19,7 @@ on:
   schedule:
     # Daily at 06:00 UTC — the backup cron runs 04:00 UTC, so a healthy
     # heartbeat is ~2h old here and a single missed night surfaces same-day
-    # (next check sees ~26h, over the 28h threshold).
+    # (next check sees ~26h, over the 25h threshold).
     - cron: "0 6 * * *"
   workflow_dispatch:
 
@@ -36,7 +36,7 @@ jobs:
       GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
-      STALE_THRESHOLD_HOURS: "28"
+      STALE_THRESHOLD_HOURS: "25"
 
     steps:
       - name: Check out repository
@@ -71,7 +71,7 @@ jobs:
           PROBLEMS=$(printf '%s' "$ROW_JSON" | python3 -c '
           import json, os, sys
           rows = json.load(sys.stdin)
-          thresh = float(os.environ.get("STALE_THRESHOLD_HOURS", "28"))
+          thresh = float(os.environ.get("STALE_THRESHOLD_HOURS", "25"))
           out = []
           if not rows:
               out.append(("MISSING", "No successful backup is recorded in meta.backup_runs yet. The nightly pg_dump cron may not be installed on the Beelink — install per docs/backups.md (B-138)."))
@@ -116,7 +116,7 @@ jobs:
           TITLE="[backup-alert] genkei-postgres nightly backup"
           BODY="$(printf '%s\n' "${PROBLEMS}" | while IFS=$'\t' read -r TAG MSG; do
               echo "- **${TAG}**: ${MSG}"
-          done)
+          done)"
           BODY="${BODY}
 
           - Detected at: ${DETECTED}

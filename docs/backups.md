@@ -116,7 +116,7 @@ crontab -l | grep backup_postgres
 **Alerting (B-138).** Failures now surface two ways, both through the existing B-119 channels:
 
 - **Ran-and-errored** — the script posts a red embed to `DISCORD_WEBHOOK_URL` on any non-zero exit (an `EXIT` trap, so it fires for `pg_dump` failures, disk-preflight failures, and off-site-upload failures alike). It also still writes the error to `/tmp/genkei-backup.log`.
-- **Silently stopped** — the cron being removed, the Beelink being down, or the script dying before it can even post leaves *no fresh `meta.backup_runs` row*. `.github/workflows/backup-staleness-check.yml` runs daily on the self-hosted runner, reads the newest heartbeat over `mission_control_net`, and opens a GitHub issue + Discord ping when it's older than 28h (or missing). This is the backup-side twin of `ingest-staleness-check.yml`, and it's registered in `workflow-failure-alert.yml` so the check's *own* failures page too.
+- **Silently stopped** — the cron being removed, the Beelink being down, or the script dying before it can even post leaves *no fresh `meta.backup_runs` row*. `.github/workflows/backup-staleness-check.yml` runs daily on the self-hosted runner, reads the newest heartbeat over `mission_control_net`, and opens a GitHub issue + Discord ping when it's older than 25h (or missing). This is the backup-side twin of `ingest-staleness-check.yml`, and it's registered in `workflow-failure-alert.yml` so the check's *own* failures page too.
 
 ## Restore runbook
 
