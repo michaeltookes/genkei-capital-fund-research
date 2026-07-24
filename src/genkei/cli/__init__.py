@@ -86,6 +86,7 @@ from genkei.cli import (
     whales,
     zcash_usage,
 )
+from genkei.common import load_env_file
 
 app = typer.Typer(
     name="genkei",
@@ -101,9 +102,7 @@ app.command("filings", help="SEC EDGAR filings (default) or XBRL facts (--concep
     filings.filings_cmd
 )
 app.command("macro", help="FRED macro series observations (vintage-aware).")(macro.macro_cmd)
-app.command("tvl", help="DeFiLlama chain / protocol TVL (default: chains overview).")(
-    tvl.tvl_cmd
-)
+app.command("tvl", help="DeFiLlama chain / protocol TVL (default: chains overview).")(tvl.tvl_cmd)
 app.command(
     "insiders",
     help="SEC Form 4 insider transactions (--ticker issuer view or --reporter-cik).",
@@ -221,10 +220,19 @@ app.command(
 def main(argv: list[str] | None = None) -> int:
     """Console-script entry point invoked by ``genkei`` on the user's PATH.
 
+    Bootstraps the environment once for *every* subcommand by loading a
+    repo-root/cwd ``.env`` before Typer dispatches — a no-op when the file
+    is absent (CI injects secrets directly). Existing env vars still win;
+    ``load_env_file`` only fills in unset keys. This is the single startup
+    seam the B-130 MCP server reuses, so an MCP client that spawns the
+    ``genkei`` process (and doesn't inherit a shell that sourced ``.env``)
+    still resolves ``GENKEI_DATABASE_URL`` (B-135).
+
     Lets Typer/Click run in default standalone mode (so error messages
     render with rich formatting), then catches ``SystemExit`` so callers
     can inspect the exit code rather than the process being killed.
     """
+    load_env_file()
     try:
         app(args=argv if argv is not None else None)
     except SystemExit as exc:

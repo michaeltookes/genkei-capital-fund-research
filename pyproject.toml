@@ -36,9 +36,20 @@ notebooks = [
     "ipykernel>=6.0",
     "matplotlib>=3.7",
 ]
+# MCP server (B-130) — wraps the `genkei` CLI as a Model Context Protocol
+# tool surface for Claude Code + the future cockpit. Kept OUT of core deps
+# on purpose (mirrors [notebooks]): the CLI, the offline test suite, and the
+# MCP tool registry + adapter all import and run without this. Only the
+# running server (`genkei-mcp`) needs it, and the SDK requires Python >=3.10 —
+# so it stays optional to keep the package installable under the 3.9 harness.
+# Install with: pip install -e ".[mcp]"
+mcp = [
+    "mcp>=1.0",
+]
 
 [project.scripts]
 genkei = "genkei.cli:main"
+genkei-mcp = "genkei.mcp.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/genkei"]
