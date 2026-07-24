@@ -207,6 +207,25 @@ class LoadCoinsTests(unittest.TestCase):
             coins = load_coins(path)
         self.assertEqual(coins, [CoinTarget("bitcoin", "BTC", "Bitcoin")])
 
+    def test_protocol_duplicate_keeps_coin_target_required(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(
+                "crypto_price_targets:\n"
+                "  - symbol: AAVE\n"
+                "    name: Aave Token\n"
+                "    coingecko_id: aave\n"
+                "protocols:\n"
+                "  primary:\n"
+                "    - slug: aave-v3\n"
+                "      name: Aave V3\n"
+                "      category: Lending\n"
+                "      coingecko_id: aave\n",
+                encoding="utf-8",
+            )
+            coins = load_coins(path)
+        self.assertEqual(coins, [CoinTarget("aave", "AAVE", "Aave Token")])
+
     def test_dedupes_coingecko_id_across_crypto_and_protocols(self) -> None:
         # chainlink appears in both crypto-core and as the token for two
         # chainlink-* protocols — must be fetched exactly once.

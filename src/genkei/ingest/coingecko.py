@@ -90,9 +90,10 @@ def load_coins(path: Path) -> list[CoinTarget]:
     section, ``crypto_price_targets:`` section, and ``protocols:`` section,
     deduped (a token referenced from more than one section — e.g.
     ``chainlink`` as a crypto-core asset *and* under the chainlink-*
-    protocol entries — is fetched once). Crypto entries are emitted first to
-    preserve the legacy ordering; optional price-only targets follow;
-    protocol entries follow last.
+    protocol entries — is fetched once). Duplicate ids merge requiredness so a
+    price-only optional target cannot downgrade a protocol-side required feed.
+    Crypto entries are emitted first to preserve the legacy ordering; optional
+    price-only targets follow; protocol entries follow last.
 
     Protocols don't carry a token ``symbol`` in the watchlist (the
     section is keyed on the protocol's DefiLlama slug, not its token),
@@ -104,19 +105,21 @@ def load_coins(path: Path) -> list[CoinTarget]:
     watchlist = load_watchlist_or_exit(path)
 
     out: list[CoinTarget] = []
-    seen_ids: set[str] = set()
+    target_indexes: dict[str, int] = {}
     for entry in watchlist.crypto:
-        if not entry.coingecko_id or entry.coingecko_id in seen_ids:
+        if not entry.coingecko_id:
             continue
-        seen_ids.add(entry.coingecko_id)
-        out.append(
-            CoinTarget(coingecko_id=entry.coingecko_id, symbol=entry.symbol, name=entry.name)
+        _add_coin_target(
+            out,
+            target_indexes,
+            CoinTarget(coingecko_id=entry.coingecko_id, symbol=entry.symbol, name=entry.name),
         )
     for target in watchlist.crypto_price_targets:
-        if not target.coingecko_id or target.coingecko_id in seen_ids:
+        if not target.coingecko_id:
             continue
-        seen_ids.add(target.coingecko_id)
-        out.append(
+        _add_coin_target(
+            out,
+            target_indexes,
             CoinTarget(
                 coingecko_id=target.coingecko_id,
                 symbol=target.symbol,
@@ -125,11 +128,12 @@ def load_coins(path: Path) -> list[CoinTarget]:
             )
         )
     for protocol in watchlist.protocols:
-        if not protocol.coingecko_id or protocol.coingecko_id in seen_ids:
+        if not protocol.coingecko_id:
             continue
-        seen_ids.add(protocol.coingecko_id)
-        out.append(
-            CoinTarget(coingecko_id=protocol.coingecko_id, symbol="", name=protocol.name)
+        _add_coin_target(
+            out,
+            target_indexes,
+            CoinTarget(coingecko_id=protocol.coingecko_id, symbol="", name=protocol.name),
         )
     if not out:
         raise SystemExit(
@@ -137,6 +141,26 @@ def load_coins(path: Path) -> list[CoinTarget]:
             "crypto_price_targets:, or protocols:."
         )
     return out
+
+
+def _add_coin_target(
+    targets: list[CoinTarget], target_indexes: dict[str, int], target: CoinTarget
+) -> None:
+    """Append a target once while preserving requiredness across duplicates."""
+    index = target_indexes.get(target.coingecko_id)
+    if index is None:
+        target_indexes[target.coingecko_id] = len(targets)
+        targets.append(target)
+        return
+
+    existing = targets[index]
+    if target.required and not existing.required:
+        targets[index] = CoinTarget(
+            coingecko_id=existing.coingecko_id,
+            symbol=existing.symbol,
+            name=existing.name,
+            required=True,
+        )
 
 
 def resolve_api_key() -> str | None:
