@@ -31,6 +31,7 @@ import argparse
 import logging
 import os
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -378,13 +379,15 @@ def _fetch_coin_pair(
         endpoint_name=f"{COIN_BLOB_PREFIX}{target.coingecko_id}",
         url=coin_url,
         failures=failures,
+        validate_payload=_valid_coin_metadata,
     )
     if coin_written:
         written += 1
-    elif not target.required:
+    else:
         LOGGER.warning(
-            "Skipping CoinGecko market chart for optional target %s (%s) because "
-            "metadata fetch failed.",
+            "Skipping CoinGecko market chart for %s target %s (%s) because "
+            "metadata fetch failed or was invalid.",
+            "required" if target.required else "optional",
             target.coingecko_id,
             target.symbol,
         )
@@ -445,6 +448,7 @@ def _fetch_and_store(
     endpoint_name: str,
     url: str,
     failures: list[dict[str, str]],
+    validate_payload: Callable[[Any], str | None] | None = None,
 ) -> bool:
     """Fetch one JSON URL and store it as a raw blob."""
     try:
@@ -460,8 +464,36 @@ def _fetch_and_store(
             }
         )
         return False
+    if validate_payload is not None:
+        error = validate_payload(payload)
+        if error is not None:
+            LOGGER.warning(
+                "CoinGecko payload invalid for %s (%s): %s",
+                endpoint_name,
+                target.symbol,
+                error,
+            )
+            failures.append(
+                {
+                    "name": endpoint_name,
+                    "url": url,
+                    "error": error,
+                    "required": str(target.required).lower(),
+                }
+            )
+            return False
     db.store_raw_blob(ingest_run_id, endpoint_name, url, payload)
     return True
+
+
+def _valid_coin_metadata(payload: Any) -> str | None:
+    """Return an error string when a coin payload cannot create coingecko.coins."""
+    if not isinstance(payload, dict):
+        return "coin metadata payload is not an object"
+    symbol = payload.get("symbol")
+    if not isinstance(symbol, str) or not symbol:
+        return "coin metadata missing nonempty symbol"
+    return None
 
 
 def fetch_historical_market_chart(
