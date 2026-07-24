@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from subprocess import TimeoutExpired
 from unittest.mock import patch
 
 from genkei.mcp import adapter
@@ -99,6 +100,21 @@ class RunToolTests(unittest.TestCase):
         _, kwargs = mock_run.call_args
         self.assertNotEqual(kwargs.get("shell"), True)
         self.assertIsInstance(mock_run.call_args[0][0], list)
+
+    def test_run_tool_surfaces_timeout_as_failure_result(self) -> None:
+        timeout = TimeoutExpired(
+            cmd=[sys.executable, "-m", CLI_MODULE],
+            timeout=1.5,
+            output=b'{"partial": true}',
+            stderr=b"freshness warning\n",
+        )
+        with patch.object(adapter.subprocess, "run", side_effect=timeout):
+            result = run_tool(tool_by_name("watchlist_health"), {}, timeout_seconds=1.5)
+        self.assertFalse(result.ok)
+        self.assertEqual(result.exit_code, -1)
+        self.assertEqual(result.stdout, '{"partial": true}')
+        self.assertIn("freshness warning", result.stderr)
+        self.assertIn("timed out after 1.5s", result.stderr)
 
 
 if __name__ == "__main__":  # pragma: no cover

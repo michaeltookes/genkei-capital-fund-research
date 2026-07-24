@@ -62,6 +62,16 @@ def build_input_schema(spec: ToolSpec) -> dict[str, Any]:
     return schema
 
 
+def successful_tool_text(stdout: str, stderr: str) -> str:
+    """Return the MCP text payload for a successful CLI tool invocation.
+
+    The CLI's stdout is the documented machine-readable JSON payload. Stderr can
+    contain freshness warnings, but merging it into the text content would make
+    successful tool output unparsable as JSON.
+    """
+    return stdout.rstrip("\n") or "(no output)"
+
+
 def serve() -> None:
     """Run the MCP server over stdio until the client disconnects.
 
@@ -120,12 +130,14 @@ async def _run_stdio() -> None:
 
         if result.ok:
             # stdout is the machine-readable payload (JSON for --json tools).
-            # Freshness warnings on stderr are informational; append them so
-            # the agent sees staleness without them polluting the JSON body.
-            text = result.stdout.rstrip("\n") or "(no output)"
-            if result.stderr.strip():
-                text = f"{text}\n\n[stderr]\n{result.stderr.rstrip()}"
-            return [types.TextContent(type="text", text=text)]
+            # Freshness warnings on stderr stay out-of-band so the text content
+            # remains parseable as the CLI's documented JSON shape.
+            return [
+                types.TextContent(
+                    type="text",
+                    text=successful_tool_text(result.stdout, result.stderr),
+                )
+            ]
 
         # Non-zero exit: surface stderr (and any stdout) so the agent can
         # correct the call. The CLI already renders clean, agent-readable

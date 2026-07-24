@@ -119,14 +119,26 @@ def run_tool(
     non-zero exit to the MCP client.
     """
     argv = build_argv(spec, arguments)
-    completed = subprocess.run(  # noqa: S603 — argv is built from a fixed
-        # registry + typed params, never a shell string; shell=False.
-        argv,
-        capture_output=True,
-        text=True,
-        timeout=timeout_seconds,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(  # noqa: S603 — argv is built from a fixed
+            # registry + typed params, never a shell string; shell=False.
+            argv,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = _timeout_output_to_text(getattr(exc, "stdout", None) or exc.output)
+        stderr = _timeout_output_to_text(exc.stderr).rstrip()
+        timeout_msg = f"timed out after {timeout_seconds:g}s"
+        return ToolResult(
+            ok=False,
+            exit_code=-1,
+            stdout=stdout,
+            stderr=f"{stderr}\n{timeout_msg}" if stderr else timeout_msg,
+            argv=tuple(argv),
+        )
     return ToolResult(
         ok=completed.returncode == 0,
         exit_code=completed.returncode,
@@ -134,3 +146,12 @@ def run_tool(
         stderr=completed.stderr,
         argv=tuple(argv),
     )
+
+
+def _timeout_output_to_text(value: str | bytes | None) -> str:
+    """Normalize partial TimeoutExpired output across Python versions."""
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode(errors="replace")
+    return value
