@@ -115,6 +115,14 @@ Phase B is the discipline. Even if Phase A points strongly one way, force yourse
 
 ---
 
+## 5b. Source provenance (only when the question arrived via a tip)
+
+When an asset surfaces via a promoter/influencer tip rather than the lake or a screen, check the source *and* the claim separately — a worthless source doesn't make the asset bad, but the tip contributes zero information until independently verified. Lessons from the 2026-07-24 LQTY session:
+
+- **Enumerate the promoter's primary archives directly** (Medium/Substack profile pages, RSS feeds, podcast episode lists) instead of relying on web search — paywalled posts are search-invisible, so "no public trace" may only mean "not indexed." Check for **alternate handles** (the same promoter had two Medium accounts).
+- **Ask Michael for the primary artifact early** — the exact post/video where the claim was made. For paywalled Medium posts, a member can generate a **friend link** (paywall-free share URL) — that beats any scraping and needs no credential sharing.
+- Weight accordingly: no auditable track record + paywalled picks + no third-party citations → treat the tip as noise and let the lake decide, but record the provenance check in the decision file so the reflection cycle can score the *source* over time too.
+
 ## 6. Conclusion
 
 Pull everything into a single conclusion. Required components:
