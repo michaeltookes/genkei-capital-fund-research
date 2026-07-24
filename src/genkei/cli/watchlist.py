@@ -719,6 +719,24 @@ def _query_asset_gaps(wl: Watchlist) -> list[dict[str, Any]]:
                     "age_hours": age_h,
                 }
             )
+        # Price-only crypto targets -> coingecko.market_data keyed by coingecko_id.
+        for target in wl.crypto_price_targets:
+            cur.execute(
+                "SELECT max(ts) FROM coingecko.market_data WHERE coingecko_id = %s",
+                [target.coingecko_id],
+            )
+            last_ts = cur.fetchone()[0]
+            age_h = _age_hours(last_ts, now=now)
+            out.append(
+                {
+                    "sleeve": "price",
+                    "asset": target.symbol,
+                    "key": target.coingecko_id,
+                    "source": "coingecko.market_data",
+                    "last_ts": last_ts.isoformat() if last_ts else None,
+                    "age_hours": age_h,
+                }
+            )
         # Equity → sec.filings keyed by cik (skip entries without cik)
         for e in wl.equities:
             if e.cik is None:

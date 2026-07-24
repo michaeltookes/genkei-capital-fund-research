@@ -37,6 +37,8 @@ def _watchlist_path(case: unittest.TestCase) -> Path:
         "crypto:\n"
         "  primary:\n"
         "    - symbol: BTC\n      name: Bitcoin\n      coingecko_id: bitcoin\n"
+        "crypto_price_targets:\n"
+        "  - symbol: LQTY\n    name: Liquity\n    coingecko_id: liquity\n"
         "equities:\n"
         "  primary:\n"
         "    - symbol: AAPL\n      name: Apple Inc.\n      cik: \"0000320193\"\n"
@@ -568,6 +570,7 @@ class GapsQueryTests(unittest.TestCase):
         now = datetime.now(timezone.utc)
         fetch_values = {
             "bitcoin": now - timedelta(hours=1),
+            "liquity": now - timedelta(hours=2),
             "0000320193": now.date(),
             "DGS10": now - timedelta(hours=3),
             "WTI_SPOT": now - timedelta(hours=4),
@@ -607,6 +610,15 @@ class GapsQueryTests(unittest.TestCase):
         eia_rows = [row for row in rows if row["source"] == "eia.observations"]
         self.assertEqual(len(eia_rows), 1)
         self.assertEqual(eia_rows[0]["asset"], "WTI_SPOT")
+        crypto_price_rows = [
+            row
+            for row in rows
+            if row["source"] == "coingecko.market_data" and row["asset"] == "LQTY"
+        ]
+        self.assertEqual(len(crypto_price_rows), 1)
+        self.assertEqual(crypto_price_rows[0]["sleeve"], "price")
+        self.assertEqual(crypto_price_rows[0]["key"], "liquity")
+        self.assertIn(["liquity"], executed_params)
         self.assertIn(["WTI_SPOT"], executed_params)
 
 
