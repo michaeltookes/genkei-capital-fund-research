@@ -101,6 +101,12 @@ crypto:
       ecosystem: Solana
       sleeve: tactical
       rationale: Compute marketplace; AI-adjacent narrative; recently migrated to Solana.
+    - symbol: LQTY
+      name: Liquity
+      coingecko_id: liquity
+      ecosystem: Ethereum
+      sleeve: tactical
+      rationale: Secondary price coverage for the 2026-07-24 LQTY avoid decision; enables reflection/outcome tracking, not an investable-position endorsement.
 
 # Equities watchlist.
 #
