@@ -108,24 +108,14 @@ The interface the agent (and human user) uses to query the lake.
 
 _B-046 (CLI query caching) shipped 2026-07-17 — see `docs/resolved.md`._
 
-### B-135 — CLI never auto-loads `.env` (dead `load_env_file`)
-- **Status:** open
-- **Priority:** medium (small fix; on the B-130 critical path)
-- **Context:** Found in the 2026-07-22 pre-cockpit audit. `genkei.common.config.load_env_file()` exists and is re-exported from `genkei.common.__init__`, but **nothing calls it** — no CLI entry point, no ingester. Any local `genkei` invocation fails with "GENKEI_DATABASE_URL is not set" unless the user manually exports/sources `.env` first. CI never noticed because GH Actions injects secrets directly into the environment. This bites the B-130 MCP server hardest: an MCP client spawning the server won't inherit a shell that sourced `.env`, so env bootstrapping must be automatic.
-- **Acceptance criteria:**
-  - The CLI entry point calls `load_env_file()` (repo-root/cwd `.env`) before any DB/API access; existing env vars still win (the loader already respects them).
-  - `genkei watchlist health` works from a fresh shell in the repo with only `.env` present.
-  - A unit test pins the bootstrap (loader invoked, env precedence preserved).
-  - B-130's MCP server startup documents/reuses the same bootstrap path.
-
 ### B-136 — CLI query surface for on-chain staking / SUI validators / SUI unlocks
 - **Status:** open
-- **Priority:** low (raise to medium when B-130 starts — MCP tool coverage derives from CLI subcommands)
+- **Priority:** medium — B-130 (the MCP server) shipped 2026-07-24 and its tool registry derives from CLI subcommands, so these three domains are now the gap: they're the tools the registry will gain in a one-line append each once their subcommands land.
 - **Context:** From the 2026-07-22 audit's CLI inventory: three ingested domains have no dedicated query subcommand — `onchain.staking_events`, `onchain.sui_validators`, and `onchain.sui_unlocks` (the last already flagged in B-126's notes: "no `genkei unlocks` query command exists today"). All are reachable via raw `genkei query` SQL, but the cockpit plan (E-002) turns CLI subcommands into the MCP tool surface, so domains without a subcommand become second-class for both the agent and the FastAPI read layer. Every other lake domain has full coverage (31 subcommands, all `--json`).
 - **Acceptance criteria:**
   - `genkei unlocks --asset SUI` (schedule + realized batches) and a staking surface (e.g. `genkei staking [--validators]`) with `--json`, following the shared `_helpers` conventions.
   - Human + JSON formatters in the same module per the standard subcommand shape.
-  - Unit tests per subcommand; B-130's tool mapping picks them up when it lands.
+  - Unit tests per subcommand; add each as a one-line `ToolSpec` to `genkei.mcp.registry` so the shipped B-130 tool surface picks them up.
 
 ## Phase 4 — Agent layer
 
@@ -206,19 +196,9 @@ A scoping session on **2026-07-20** decided to build a second interface *beyond 
 3. **Form factor = local web app served from the Beelink**, reachable from Mac + phone on the local network (not a native desktop app for v1).
 4. **Webull = evaluate-only, parked** — see B-134.
 
-**Keystone:** reuse the existing `genkei` CLI as the single tool surface via an MCP wrapper (B-130) feeding *both* Claude Code and the cockpit — no duplicated data logic. **Phasing:** B-130 (MCP wrapper) → B-131 + B-132 (read API + static cockpit) → B-133 (embedded agent panel + artifact contract). Each phase delivers standalone value before the next. **Nothing here is scheduled to build yet — these are user stories capturing the agreed design.**
+**Keystone:** reuse the existing `genkei` CLI as the single tool surface via an MCP wrapper (B-130, **shipped 2026-07-24** — see `docs/resolved.md` + `docs/mcp.md`) feeding *both* Claude Code and the cockpit — no duplicated data logic. **Phasing:** B-130 (MCP wrapper, ✅ done) → B-131 + B-132 (read API + static cockpit) → B-133 (embedded agent panel + artifact contract, whose tool surface *is* the B-130 server). Each phase delivers standalone value before the next. **Remaining Phase 8 items are user stories capturing the agreed design; nothing else here is scheduled to build yet.**
 
-### B-130 — `genkei`-as-MCP server (cockpit keystone)
-- **Status:** open
-- **Priority:** medium (keystone; independently useful in Claude Code today)
-- **User story:** As the research agent — in Claude Code now and the cockpit later — I want the `genkei` CLI exposed as an MCP tool surface so that data-access logic lives in exactly one place and both front-ends share every fix.
-- **Context:** CLAUDE.md locks "the CLI is the agent's data interface." Wrapping it as an MCP server generalizes that from Bash-only to any MCP client. Immediately useful in current Claude Code sessions, independent of the web app — so it's the right first brick.
-- **Acceptance criteria:**
-  - MCP server exposes the `genkei` subcommands as tools (`prices`, `signals`, `tvl`, `zcash-usage`, `watchlist`, `query`, etc.), passing through each command's `--json` shape.
-  - Thin adapter — **no data logic duplicated**; delegates to the existing CLI/modules.
-  - Registerable in Claude Code as an MCP server and usable there before any frontend exists.
-  - Tool schemas documented; tests pin the subcommand→tool mapping for a representative sample.
-  - Record the call: shell the CLI as a subprocess vs import the `genkei` Python modules directly.
+_B-130 (the `genkei`-as-MCP server keystone) shipped 2026-07-24 — subprocess-with-`--json` adapter, `genkei.mcp` subpackage, `genkei-mcp` entry point, 13 tools; see `docs/mcp.md` and `docs/resolved.md`._
 
 ### B-131 — FastAPI read layer over the lake
 - **Status:** open
