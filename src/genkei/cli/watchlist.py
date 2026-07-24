@@ -103,7 +103,7 @@ def _format_list_human(wl: Watchlist, *, sleeve: Optional[str]) -> str:
         sections.append("-" * len(sections[-1]))
         for m in wl.macro:
             sections.append(f"  {m.series_id:<14} {m.name}")
-    if sleeve in (None, "prices", "yahoo"):
+    if sleeve in (None, "prices"):
         if sections:
             sections.append("")
         sections.append(f"crypto_price_targets ({len(wl.crypto_price_targets)})")
@@ -114,7 +114,9 @@ def _format_list_human(wl: Watchlist, *, sleeve: Optional[str]) -> str:
                 f"  {target.symbol:<8} {target.asset_class:<16} "
                 f"{target.coingecko_id:<20} {target.name} ({role})"
             )
-        sections.append("")
+    if sleeve in (None, "prices", "yahoo"):
+        if sections:
+            sections.append("")
         sections.append(f"yahoo_price_targets ({len(wl.yahoo_price_targets)})")
         sections.append("-" * len(sections[-1]))
         for target in wl.yahoo_price_targets:
@@ -175,7 +177,7 @@ def list_cmd(
             payload["macro"] = [
                 {"series_id": m.series_id, "name": m.name} for m in wl.macro
             ]
-        if sleeve in (None, "prices", "yahoo"):
+        if sleeve in (None, "prices"):
             payload["crypto_price_targets"] = [
                 {
                     "symbol": target.symbol,
@@ -186,6 +188,7 @@ def list_cmd(
                 }
                 for target in wl.crypto_price_targets
             ]
+        if sleeve in (None, "prices", "yahoo"):
             payload["yahoo_price_targets"] = [
                 {
                     "symbol": target.symbol,
