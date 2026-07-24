@@ -3,8 +3,8 @@
 Crypto prices come from ``coingecko.market_data`` (B-039) or
 ``coinbase.candles`` (B-035). Equity prices come from
 ``yahoo.candles`` (B-092). The ``--source`` flag controls the data
-source; when omitted, crypto tickers default to CoinGecko and equity
-tickers default to Yahoo.
+source; when omitted, crypto and crypto price-only tickers default to
+CoinGecko and equity tickers default to Yahoo.
 
 Usage:
   genkei prices --ticker BTC                     latest price
@@ -17,7 +17,7 @@ Usage:
 import json
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Optional, Union
 
 import typer
 
@@ -33,6 +33,7 @@ from genkei.common.freshness import (
 from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
     CryptoEntry,
+    CryptoPriceTargetEntry,
     Watchlist,
     load_watchlist,
 )
@@ -208,16 +209,21 @@ def _format_human(ticker: str, source: str, rows: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def _resolve_ticker(ticker: str, watchlist: Watchlist) -> Optional[tuple[str, CryptoEntry]]:
-    """Map a user-facing ticker to (source, crypto entry) — crypto only for now.
+def _resolve_ticker(
+    ticker: str, watchlist: Watchlist
+) -> Optional[tuple[str, Union[CryptoEntry, CryptoPriceTargetEntry]]]:
+    """Map a user-facing ticker to (source, CoinGecko-backed entry).
 
-    Returns None if the ticker isn't crypto in the watchlist; the caller
-    surfaces a friendly error referencing whichever case applied (equity
-    not yet supported, ticker unknown).
+    Returns None if the ticker isn't crypto or crypto price-only in the
+    watchlist; the caller surfaces a friendly error referencing whichever
+    case applied.
     """
     crypto = watchlist.find_crypto(ticker)
     if crypto is not None:
         return ("coingecko", crypto)
+    crypto_price_target = watchlist.find_crypto_price_target(ticker)
+    if crypto_price_target is not None:
+        return ("coingecko", crypto_price_target)
     return None
 
 
@@ -284,6 +290,8 @@ def prices_cmd(
         raise typer.Exit(code=2) from exc
 
     crypto = watchlist.find_crypto(ticker)
+    crypto_price_target = watchlist.find_crypto_price_target(ticker)
+    coingecko_target = crypto if crypto is not None else crypto_price_target
     equity = watchlist.find_equity(ticker)
     benchmark = watchlist.find_benchmark(ticker)
     price_target = watchlist.find_yahoo_price_target(ticker)
@@ -292,17 +300,18 @@ def prices_cmd(
     yahoo_target = (
         equity is not None or benchmark is not None or price_target is not None
     )
-    if crypto is None and not yahoo_target:
+    if coingecko_target is None and not yahoo_target:
         typer.echo(
             f"Ticker {ticker!r} not found in {config}. "
-            "Add it under crypto, equities, benchmarks, or yahoo_price_targets first.",
+            "Add it under crypto, equities, benchmarks, crypto_price_targets, "
+            "or yahoo_price_targets first.",
             err=True,
         )
         raise typer.Exit(code=2)
 
     # Default-source-by-asset-class: crypto → coingecko, equity/benchmark → yahoo.
     if not source:
-        if crypto is not None and yahoo_target:
+        if coingecko_target is not None and yahoo_target:
             typer.echo(
                 f"Ticker {ticker!r} appears under both crypto and Yahoo-backed targets "
                 f"in {config}. Pass --source coingecko, --source coinbase, "
@@ -315,7 +324,7 @@ def prices_cmd(
     # Reject source/asset-class mismatches loudly. The previous "equity
     # has no prices yet" message rotted with B-092; replace with
     # actionable routing errors.
-    if crypto is None and source != "yahoo":
+    if coingecko_target is None and source != "yahoo":
         kind = (
             "benchmark"
             if benchmark is not None
@@ -330,17 +339,29 @@ def prices_cmd(
         )
         raise typer.Exit(code=2)
     if not yahoo_target and source == "yahoo":
+        source_options = (
+            "--source coingecko (default) or --source coinbase"
+            if crypto is not None
+            else "--source coingecko (default)"
+        )
         typer.echo(
-            f"{ticker} is crypto; Yahoo carries equity and benchmark prices only. "
-            "Use --source coingecko (default) or --source coinbase.",
+            f"{ticker} is CoinGecko-backed; Yahoo carries equity and benchmark prices only. "
+            f"Use {source_options}.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+    if source == "coinbase" and crypto is None:
+        typer.echo(
+            f"{ticker} is a crypto price-only target; Coinbase requires a "
+            "coinbase_product on a crypto watchlist entry. Use --source coingecko.",
             err=True,
         )
         raise typer.Exit(code=2)
 
     if source == "coingecko":
-        assert crypto is not None  # narrowed by class check above
+        assert coingecko_target is not None  # narrowed by class check above
         rows = _query_coingecko_market_data(
-            crypto.coingecko_id, since=since_d, until=until_d, limit=limit
+            coingecko_target.coingecko_id, since=since_d, until=until_d, limit=limit
         )
     elif source == "coinbase":
         assert crypto is not None
@@ -384,8 +405,8 @@ def prices_cmd(
             # A historical end date intentionally excludes recent candles; probe
             # the unbounded latest row so the warning reflects ingest freshness.
             if source == "coingecko":
-                assert crypto is not None
-                freshest_ts = _query_coingecko_latest_ts(crypto.coingecko_id)
+                assert coingecko_target is not None
+                freshest_ts = _query_coingecko_latest_ts(coingecko_target.coingecko_id)
             else:
                 assert crypto is not None and crypto.coinbase_product is not None
                 freshest_ts = _query_coinbase_latest_ts(crypto.coinbase_product)

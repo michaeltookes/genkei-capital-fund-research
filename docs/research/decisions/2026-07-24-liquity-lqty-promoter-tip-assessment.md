@@ -35,14 +35,14 @@ LQTY surfaced not from the lake or a screen but from a promoter tip — a small 
 
 LUSD's historical peak in the lake is **$1.56B** — the current $27.5M is ~98% below it. Combined Liquity stablecoin footprint ≈ **$58M**, against category leaders in the same table: Ethena USDe $13.8B, Sky USDS $8.4B, DAI $7.6B, GHO $642M, crvUSD $371M. Every Liquity series is monotonically declining across the last 9 months while the category grows.
 
-**Web sweep (CoinGecko + DefiLlama API, fetched 2026-07-24 before LQTY was added to `crypto: secondary` for reflection-price coverage; supply figures cross-check the lake within rounding):**
+**Web sweep (CoinGecko + DefiLlama API, fetched 2026-07-24 before LQTY was wired as a price-only reflection target; supply figures cross-check the lake within rounding):**
 
 - LQTY: **$0.167**, mcap **$16.5M** (rank ~#908), FDV $16.7M, 98.75M/100M circulating (no unlock overhang). **All-time low $0.1535 printed 2026-07-20** — four days before this session. −99.9% from the Apr-2021 ATH; ~−85% over 1y (CoinGecko's own 1y field was self-contradictory; approximated from the May-2025 ~$1 relaunch level). 24h volume ~$1.9M — thin.
 - Protocol TVL: V1 $214M (immutable, never exploited since 2021); V2 **$77M, halved from its Aug-2025 $160M peak**. V2's history: Jan-2025 launch → Feb-2025 stability-pool bug (immutable → couldn't pause; ~$30M self-evacuated, no funds lost) → full redeploy May-2025 after a 5-week Cantina competition + ChainSecurity/Dedaub re-audits.
 - **Value accrual is the structural weakness.** LQTY staking earns fees only from V1 (borrowing/redemption) — a shrinking base. V2 routes **no direct fee flow to LQTY**: 25% of V2 interest funds incentivized liquidity that LQTY stakers *direct* via gauge votes (bribe market), plus ~19 "friendly forks" (14 launched: Felix/Hyperliquid, Nerite/Arbitrum, Beraborrow/Berachain, …) whose pledges (~4% of fork token supply) are soft, FDV-dependent, and unverified as actually paid.
 - Signs of life, honestly: BOLD holds peg ($0.999–1.00), Bluechip A- rating (Jan 2026), dev activity continues (frontend v1.11.0 May 2026, Safety Mode Nov 2025) — but the official blog has been silent Feb→Jul 2026, and Apr–Jul 2026 news flow is bot-generated price recaps plus an ill-advised Apr-1 "Circle acquires Liquity" joke that briefly spiked the token 11%.
 
-Reflection coverage: this PR adds LQTY to `src/genkei/data/watchlists.yml` as `crypto: secondary` with `coingecko_id: liquity`, so `/reflect-decisions` can pull `genkei prices --ticker LQTY ...` once the CoinGecko daily ingest runs.
+Reflection coverage: this PR adds LQTY to `src/genkei/data/watchlists.yml` as a `crypto_price_targets` entry with `coingecko_id: liquity`, so `/reflect-decisions` can pull `genkei prices --ticker LQTY ...` once the CoinGecko daily ingest runs without enrolling LQTY in signal-scoped crypto pipelines.
 
 ## Flow & positioning
 

@@ -41,6 +41,23 @@ class CryptoEntry:
 
 
 @dataclass(frozen=True)
+class CryptoPriceTargetEntry:
+    """A CoinGecko target used only for price/reflection coverage.
+
+    These are not crypto research targets. They should not feed GDELT,
+    relative-strength, TVL-drawdown, or watchlist-scoring pipelines; the only
+    contract is that ``genkei prices`` and the CoinGecko ingester can
+    collect/query rows from ``coingecko.market_data``.
+    """
+
+    symbol: str
+    name: str
+    coingecko_id: str
+    role: str | None = None
+    asset_class: str = "crypto"
+
+
+@dataclass(frozen=True)
 class EquityEntry:
     """A public equity target configured for SEC and Yahoo-driven workflows."""
 
@@ -349,6 +366,9 @@ class Watchlist:
     protocols: list[ProtocolEntry]
     filers: list[FilerEntry]
     benchmarks: list[BenchmarkEntry] = dataclasses.field(default_factory=list)
+    crypto_price_targets: list[CryptoPriceTargetEntry] = dataclasses.field(
+        default_factory=list
+    )
     yahoo_price_targets: list[YahooPriceTargetEntry] = dataclasses.field(
         default_factory=list
     )
@@ -365,6 +385,14 @@ class Watchlist:
         """Lookup a crypto entry by symbol (case-insensitive)."""
         upper = symbol.upper()
         for entry in self.crypto:
+            if entry.symbol.upper() == upper:
+                return entry
+        return None
+
+    def find_crypto_price_target(self, symbol: str) -> CryptoPriceTargetEntry | None:
+        """Lookup a price-only CoinGecko target by ticker (case-insensitive)."""
+        upper = symbol.upper()
+        for entry in self.crypto_price_targets:
             if entry.symbol.upper() == upper:
                 return entry
         return None
@@ -550,6 +578,33 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                         gdelt_terms=_optional_string_tuple(entry.get("gdelt_terms")),
                     )
                 )
+
+    crypto_price_targets: list[CryptoPriceTargetEntry] = []
+    crypto_price_targets_root = data.get("crypto_price_targets", [])
+    if isinstance(crypto_price_targets_root, list):
+        seen_crypto_price_target_symbols: set[str] = set()
+        for entry in crypto_price_targets_root:
+            if not isinstance(entry, dict):
+                continue
+            symbol = entry.get("symbol")
+            cgid = entry.get("coingecko_id")
+            if not isinstance(symbol, str) or not symbol:
+                continue
+            if not isinstance(cgid, str) or not cgid:
+                continue
+            upper = symbol.upper()
+            if upper in seen_crypto_price_target_symbols:
+                continue
+            seen_crypto_price_target_symbols.add(upper)
+            crypto_price_targets.append(
+                CryptoPriceTargetEntry(
+                    symbol=symbol,
+                    name=str(entry.get("name") or ""),
+                    coingecko_id=cgid,
+                    role=_optional_string(entry.get("role")),
+                    asset_class=str(entry.get("asset_class") or "crypto"),
+                )
+            )
 
     equities: list[EquityEntry] = []
     equities_root = data.get("equities", {})
@@ -1034,6 +1089,7 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
         protocols=protocols,
         filers=filers,
         benchmarks=benchmarks,
+        crypto_price_targets=crypto_price_targets,
         yahoo_price_targets=yahoo_price_targets,
         cot_markets=cot_markets,
         etf_tickers=etf_tickers,

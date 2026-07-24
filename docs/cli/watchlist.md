@@ -72,6 +72,10 @@ $ genkei watchlist list --sleeve crypto --json
 - `score` — per-asset composite signal score (B-065)
 - `gaps` — per-asset freshness (last data point + age)
 
+`watchlist list --sleeve prices` includes price-only `crypto_price_targets`
+(CoinGecko) and `yahoo_price_targets` entries used for reflection/outcome
+tracking without enrolling those tickers in research signal pipelines.
+
 ## See also
 
 [`prices`](prices.md) · [`macro`](macro.md)

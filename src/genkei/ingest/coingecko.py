@@ -1,9 +1,9 @@
 """CoinGecko crypto market-data collector (B-034).
 
 Fetches per-coin metadata + daily price/market-cap/volume history for
-every crypto entry in ``config/watchlists.yml::crypto``. Lands two raw
-blobs per coin (``coin_<id>``, ``market_chart_<id>``) in
-``meta.raw_blobs``. The downstream normalizer
+every crypto entry in ``config/watchlists.yml::crypto`` plus price-only
+entries in ``crypto_price_targets``. Lands two raw blobs per coin
+(``coin_<id>``, ``market_chart_<id>``) in ``meta.raw_blobs``. The downstream normalizer
 (``genkei.normalize.coingecko``) reads from those blobs.
 
 Daily mode uses the Demo/Public rolling 365-day chart window. Backfill
@@ -83,14 +83,15 @@ class CoinTarget:
 
 
 def load_coins(path: Path) -> list[CoinTarget]:
-    """Read ``crypto:`` + ``protocols:`` from watchlists.yml as ``CoinTarget``s.
+    """Read CoinGecko-backed watchlist sections as ``CoinTarget``s.
 
     Returns the union of every ``coingecko_id`` found in the ``crypto:``
-    section and the ``protocols:`` section, deduped (a token referenced
-    from both — e.g. ``chainlink`` as a crypto-core asset *and* under
-    the chainlink-* protocol entries — is fetched once). Crypto entries
-    are emitted first to preserve the legacy ordering; protocol entries
-    follow.
+    section, ``crypto_price_targets:`` section, and ``protocols:`` section,
+    deduped (a token referenced from more than one section — e.g.
+    ``chainlink`` as a crypto-core asset *and* under the chainlink-*
+    protocol entries — is fetched once). Crypto entries are emitted first to
+    preserve the legacy ordering; price-only targets follow; protocol entries
+    follow last.
 
     Protocols don't carry a token ``symbol`` in the watchlist (the
     section is keyed on the protocol's DefiLlama slug, not its token),
@@ -110,6 +111,17 @@ def load_coins(path: Path) -> list[CoinTarget]:
         out.append(
             CoinTarget(coingecko_id=entry.coingecko_id, symbol=entry.symbol, name=entry.name)
         )
+    for target in watchlist.crypto_price_targets:
+        if not target.coingecko_id or target.coingecko_id in seen_ids:
+            continue
+        seen_ids.add(target.coingecko_id)
+        out.append(
+            CoinTarget(
+                coingecko_id=target.coingecko_id,
+                symbol=target.symbol,
+                name=target.name,
+            )
+        )
     for protocol in watchlist.protocols:
         if not protocol.coingecko_id or protocol.coingecko_id in seen_ids:
             continue
@@ -119,7 +131,8 @@ def load_coins(path: Path) -> list[CoinTarget]:
         )
     if not out:
         raise SystemExit(
-            "No watchlist entries with a coingecko_id found in crypto: or protocols:."
+            "No watchlist entries with a coingecko_id found in crypto:, "
+            "crypto_price_targets:, or protocols:."
         )
     return out
 

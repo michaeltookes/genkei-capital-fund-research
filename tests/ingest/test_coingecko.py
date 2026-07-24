@@ -141,6 +141,55 @@ class LoadCoinsTests(unittest.TestCase):
         self.assertEqual(aave.symbol, "")
         self.assertEqual(aave.name, "Aave V3")
 
+    def test_includes_crypto_price_targets_before_protocols(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(
+                "crypto:\n"
+                "  primary:\n"
+                "    - symbol: BTC\n"
+                "      name: Bitcoin\n"
+                "      coingecko_id: bitcoin\n"
+                "crypto_price_targets:\n"
+                "  - symbol: LQTY\n"
+                "    name: Liquity\n"
+                "    coingecko_id: liquity\n"
+                "protocols:\n"
+                "  primary:\n"
+                "    - slug: aave-v3\n"
+                "      name: Aave V3\n"
+                "      category: Lending\n"
+                "      coingecko_id: aave\n",
+                encoding="utf-8",
+            )
+            coins = load_coins(path)
+        self.assertEqual(
+            coins,
+            [
+                CoinTarget("bitcoin", "BTC", "Bitcoin"),
+                CoinTarget("liquity", "LQTY", "Liquity"),
+                CoinTarget("aave", "", "Aave V3"),
+            ],
+        )
+
+    def test_crypto_entries_win_over_crypto_price_targets(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(
+                "crypto:\n"
+                "  primary:\n"
+                "    - symbol: BTC\n"
+                "      name: Bitcoin\n"
+                "      coingecko_id: bitcoin\n"
+                "crypto_price_targets:\n"
+                "  - symbol: BTCX\n"
+                "    name: Bitcoin duplicate\n"
+                "    coingecko_id: bitcoin\n",
+                encoding="utf-8",
+            )
+            coins = load_coins(path)
+        self.assertEqual(coins, [CoinTarget("bitcoin", "BTC", "Bitcoin")])
+
     def test_dedupes_coingecko_id_across_crypto_and_protocols(self) -> None:
         # chainlink appears in both crypto-core and as the token for two
         # chainlink-* protocols — must be fetched exactly once.
