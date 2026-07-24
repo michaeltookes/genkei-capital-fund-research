@@ -5,11 +5,13 @@ from __future__ import annotations
 import os
 import sys
 import unittest
-from contextlib import redirect_stderr
+from collections.abc import Iterator
+from contextlib import contextmanager, redirect_stderr
 from datetime import date
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import httpx
 
@@ -41,6 +43,21 @@ from genkei.ingest.coingecko import (
     resolve_api_tier,
     validate_api_key_tier,
 )
+
+
+class _FakeRun:
+    id = 42
+
+    def __init__(self) -> None:
+        self.rows_written = 0
+
+    def add_rows(self, n: int) -> None:
+        self.rows_written += n
+
+
+@contextmanager
+def _fake_ingest_run(*_args: object, **_kwargs: object) -> Iterator[_FakeRun]:
+    yield _FakeRun()
 
 
 class LoadCoinsTests(unittest.TestCase):
@@ -167,7 +184,7 @@ class LoadCoinsTests(unittest.TestCase):
             coins,
             [
                 CoinTarget("bitcoin", "BTC", "Bitcoin"),
-                CoinTarget("liquity", "LQTY", "Liquity"),
+                CoinTarget("liquity", "LQTY", "Liquity", required=False),
                 CoinTarget("aave", "", "Aave V3"),
             ],
         )
@@ -462,6 +479,95 @@ class BackfillHelperTests(unittest.TestCase):
         self.assertEqual(len(requests), 2)
         self.assertIn("/market_chart/range", requests[0])
         self.assertEqual(payload["prices"], [[1, 10], [2, 20]])
+
+
+class CollectTests(unittest.TestCase):
+    def test_optional_crypto_price_target_failure_does_not_fail_collect(self) -> None:
+        requests: list[str] = []
+
+        def route(request: httpx.Request) -> httpx.Response:
+            requests.append(request.url.path)
+            if request.url.path == "/api/v3/coins/bitcoin":
+                return httpx.Response(200, json={"symbol": "btc", "name": "Bitcoin"})
+            if request.url.path == "/api/v3/coins/bitcoin/market_chart":
+                return httpx.Response(
+                    200,
+                    json={
+                        "prices": [[1, 10]],
+                        "market_caps": [[1, 100]],
+                        "total_volumes": [[1, 1000]],
+                    },
+                )
+            if request.url.path == "/api/v3/coins/liquity":
+                return httpx.Response(404, text="delisted")
+            return httpx.Response(404, text=f"unexpected: {request.url}")
+
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(
+                "crypto:\n"
+                "  primary:\n"
+                "    - symbol: BTC\n"
+                "      name: Bitcoin\n"
+                "      coingecko_id: bitcoin\n"
+                "crypto_price_targets:\n"
+                "  - symbol: LQTY\n"
+                "    name: Liquity\n"
+                "    coingecko_id: liquity\n",
+                encoding="utf-8",
+            )
+            transport = httpx.MockTransport(route)
+            with (
+                HttpClient("coingecko-test", transport=transport) as http,
+                patch("genkei.ingest.coingecko.db.ingest_run", _fake_ingest_run),
+                patch("genkei.ingest.coingecko.db.store_raw_blob") as store_blob,
+                patch("genkei.ingest.coingecko.db.record_partial_endpoints") as partial,
+            ):
+                self.assertEqual(collect(path, http=http, api_key="demo-test-key"), 42)
+
+        self.assertEqual(
+            [call.args[1] for call in store_blob.call_args_list],
+            ["coin_bitcoin", "market_chart_bitcoin"],
+        )
+        self.assertNotIn("/api/v3/coins/liquity/market_chart", requests)
+        partial.assert_called_once()
+        failure = partial.call_args.args[1][0]
+        self.assertEqual(failure["name"], "coin_liquity")
+        self.assertEqual(failure["required"], "false")
+
+    def test_required_coin_failure_still_fails_collect(self) -> None:
+        def route(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/v3/coins/bitcoin":
+                return httpx.Response(200, json={"symbol": "btc", "name": "Bitcoin"})
+            if request.url.path == "/api/v3/coins/bitcoin/market_chart":
+                return httpx.Response(404, text="endpoint drift")
+            return httpx.Response(404, text=f"unexpected: {request.url}")
+
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(
+                "crypto:\n"
+                "  primary:\n"
+                "    - symbol: BTC\n"
+                "      name: Bitcoin\n"
+                "      coingecko_id: bitcoin\n",
+                encoding="utf-8",
+            )
+            transport = httpx.MockTransport(route)
+            with (
+                HttpClient("coingecko-test", transport=transport) as http,
+                patch("genkei.ingest.coingecko.db.ingest_run", _fake_ingest_run),
+                patch("genkei.ingest.coingecko.db.store_raw_blob") as store_blob,
+                patch("genkei.ingest.coingecko.db.record_partial_endpoints") as partial,
+                self.assertRaisesRegex(RuntimeError, "required fetch failed"),
+            ):
+                collect(path, http=http, api_key="demo-test-key")
+
+        self.assertEqual([call.args[1] for call in store_blob.call_args_list], ["coin_bitcoin"])
+        partial.assert_called_once()
+        failure = partial.call_args.args[1][0]
+        self.assertEqual(failure["name"], "market_chart_bitcoin")
+        self.assertEqual(failure["required"], "true")
 
 
 class ParseArgsTests(unittest.TestCase):
