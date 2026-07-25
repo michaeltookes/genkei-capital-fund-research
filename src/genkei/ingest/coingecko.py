@@ -1,9 +1,9 @@
 """CoinGecko crypto market-data collector (B-034).
 
 Fetches per-coin metadata + daily price/market-cap/volume history for
-every crypto entry in ``config/watchlists.yml::crypto``. Lands two raw
-blobs per coin (``coin_<id>``, ``market_chart_<id>``) in
-``meta.raw_blobs``. The downstream normalizer
+every crypto entry in ``config/watchlists.yml::crypto`` plus price-only
+entries in ``crypto_price_targets``. Lands two raw blobs per coin
+(``coin_<id>``, ``market_chart_<id>``) in ``meta.raw_blobs``. The downstream normalizer
 (``genkei.normalize.coingecko``) reads from those blobs.
 
 Daily mode uses the Demo/Public rolling 365-day chart window. Backfill
@@ -31,6 +31,7 @@ import argparse
 import logging
 import os
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -80,17 +81,20 @@ class CoinTarget:
     coingecko_id: str
     symbol: str
     name: str
+    required: bool = True
 
 
 def load_coins(path: Path) -> list[CoinTarget]:
-    """Read ``crypto:`` + ``protocols:`` from watchlists.yml as ``CoinTarget``s.
+    """Read CoinGecko-backed watchlist sections as ``CoinTarget``s.
 
     Returns the union of every ``coingecko_id`` found in the ``crypto:``
-    section and the ``protocols:`` section, deduped (a token referenced
-    from both — e.g. ``chainlink`` as a crypto-core asset *and* under
-    the chainlink-* protocol entries — is fetched once). Crypto entries
-    are emitted first to preserve the legacy ordering; protocol entries
-    follow.
+    section, ``crypto_price_targets:`` section, and ``protocols:`` section,
+    deduped (a token referenced from more than one section — e.g.
+    ``chainlink`` as a crypto-core asset *and* under the chainlink-*
+    protocol entries — is fetched once). Duplicate ids merge requiredness so a
+    price-only optional target cannot downgrade a protocol-side required feed.
+    Crypto entries are emitted first to preserve the legacy ordering; optional
+    price-only targets follow; protocol entries follow last.
 
     Protocols don't carry a token ``symbol`` in the watchlist (the
     section is keyed on the protocol's DefiLlama slug, not its token),
@@ -102,26 +106,62 @@ def load_coins(path: Path) -> list[CoinTarget]:
     watchlist = load_watchlist_or_exit(path)
 
     out: list[CoinTarget] = []
-    seen_ids: set[str] = set()
+    target_indexes: dict[str, int] = {}
     for entry in watchlist.crypto:
-        if not entry.coingecko_id or entry.coingecko_id in seen_ids:
+        if not entry.coingecko_id:
             continue
-        seen_ids.add(entry.coingecko_id)
-        out.append(
-            CoinTarget(coingecko_id=entry.coingecko_id, symbol=entry.symbol, name=entry.name)
+        _add_coin_target(
+            out,
+            target_indexes,
+            CoinTarget(coingecko_id=entry.coingecko_id, symbol=entry.symbol, name=entry.name),
+        )
+    for target in watchlist.crypto_price_targets:
+        if not target.coingecko_id:
+            continue
+        _add_coin_target(
+            out,
+            target_indexes,
+            CoinTarget(
+                coingecko_id=target.coingecko_id,
+                symbol=target.symbol,
+                name=target.name,
+                required=False,
+            )
         )
     for protocol in watchlist.protocols:
-        if not protocol.coingecko_id or protocol.coingecko_id in seen_ids:
+        if not protocol.coingecko_id:
             continue
-        seen_ids.add(protocol.coingecko_id)
-        out.append(
-            CoinTarget(coingecko_id=protocol.coingecko_id, symbol="", name=protocol.name)
+        _add_coin_target(
+            out,
+            target_indexes,
+            CoinTarget(coingecko_id=protocol.coingecko_id, symbol="", name=protocol.name),
         )
     if not out:
         raise SystemExit(
-            "No watchlist entries with a coingecko_id found in crypto: or protocols:."
+            "No watchlist entries with a coingecko_id found in crypto:, "
+            "crypto_price_targets:, or protocols:."
         )
     return out
+
+
+def _add_coin_target(
+    targets: list[CoinTarget], target_indexes: dict[str, int], target: CoinTarget
+) -> None:
+    """Append a target once while preserving requiredness across duplicates."""
+    index = target_indexes.get(target.coingecko_id)
+    if index is None:
+        target_indexes[target.coingecko_id] = len(targets)
+        targets.append(target)
+        return
+
+    existing = targets[index]
+    if target.required and not existing.required:
+        targets[index] = CoinTarget(
+            coingecko_id=existing.coingecko_id,
+            symbol=existing.symbol,
+            name=existing.name,
+            required=True,
+        )
 
 
 def resolve_api_key() -> str | None:
@@ -294,9 +334,18 @@ def collect(
             run.add_rows(written)
             if failures:
                 db.record_partial_endpoints(run.id, failures)
+            required_failures = [
+                failure for failure in failures if failure.get("required") != "false"
+            ]
+            if required_failures:
                 raise RuntimeError(
-                    f"CoinGecko fetch failed for {len(failures)} endpoint(s); "
+                    f"CoinGecko required fetch failed for {len(required_failures)} endpoint(s); "
                     "no partial market snapshot will be normalized."
+                )
+            if failures:
+                LOGGER.warning(
+                    "CoinGecko collect completed with %s optional endpoint failure(s).",
+                    len(failures),
                 )
             return run.id
     finally:
@@ -322,7 +371,7 @@ def _fetch_coin_pair(
     base_url = api_base_url(api_tier)
 
     coin_url = build_coin_url(target.coingecko_id, base_url=base_url)
-    if _fetch_and_store(
+    coin_written = _fetch_and_store(
         target=target,
         http=http,
         headers=headers,
@@ -330,8 +379,19 @@ def _fetch_coin_pair(
         endpoint_name=f"{COIN_BLOB_PREFIX}{target.coingecko_id}",
         url=coin_url,
         failures=failures,
-    ):
+        validate_payload=_valid_coin_metadata,
+    )
+    if coin_written:
         written += 1
+    else:
+        LOGGER.warning(
+            "Skipping CoinGecko market chart for %s target %s (%s) because "
+            "metadata fetch failed or was invalid.",
+            "required" if target.required else "optional",
+            target.coingecko_id,
+            target.symbol,
+        )
+        return written
 
     endpoint_name = f"{MARKET_CHART_BLOB_PREFIX}{target.coingecko_id}"
     if backfill:
@@ -353,7 +413,14 @@ def _fetch_coin_pair(
                 target.symbol,
                 exc,
             )
-            failures.append({"name": endpoint_name, "url": url, "error": str(exc)})
+            failures.append(
+                {
+                    "name": endpoint_name,
+                    "url": url,
+                    "error": str(exc),
+                    "required": str(target.required).lower(),
+                }
+            )
         else:
             db.store_raw_blob(ingest_run_id, endpoint_name, url, payload)
             written += 1
@@ -381,16 +448,52 @@ def _fetch_and_store(
     endpoint_name: str,
     url: str,
     failures: list[dict[str, str]],
+    validate_payload: Callable[[Any], str | None] | None = None,
 ) -> bool:
     """Fetch one JSON URL and store it as a raw blob."""
     try:
         payload = http.get_json(url, headers=headers)
     except Exception as exc:
         LOGGER.warning("CoinGecko fetch failed for %s (%s): %s", endpoint_name, target.symbol, exc)
-        failures.append({"name": endpoint_name, "url": url, "error": str(exc)})
+        failures.append(
+            {
+                "name": endpoint_name,
+                "url": url,
+                "error": str(exc),
+                "required": str(target.required).lower(),
+            }
+        )
         return False
+    if validate_payload is not None:
+        error = validate_payload(payload)
+        if error is not None:
+            LOGGER.warning(
+                "CoinGecko payload invalid for %s (%s): %s",
+                endpoint_name,
+                target.symbol,
+                error,
+            )
+            failures.append(
+                {
+                    "name": endpoint_name,
+                    "url": url,
+                    "error": error,
+                    "required": str(target.required).lower(),
+                }
+            )
+            return False
     db.store_raw_blob(ingest_run_id, endpoint_name, url, payload)
     return True
+
+
+def _valid_coin_metadata(payload: Any) -> str | None:
+    """Return an error string when a coin payload cannot create coingecko.coins."""
+    if not isinstance(payload, dict):
+        return "coin metadata payload is not an object"
+    symbol = payload.get("symbol")
+    if not isinstance(symbol, str) or not symbol:
+        return "coin metadata missing nonempty symbol"
+    return None
 
 
 def fetch_historical_market_chart(

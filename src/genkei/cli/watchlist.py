@@ -103,6 +103,17 @@ def _format_list_human(wl: Watchlist, *, sleeve: Optional[str]) -> str:
         sections.append("-" * len(sections[-1]))
         for m in wl.macro:
             sections.append(f"  {m.series_id:<14} {m.name}")
+    if sleeve in (None, "prices"):
+        if sections:
+            sections.append("")
+        sections.append(f"crypto_price_targets ({len(wl.crypto_price_targets)})")
+        sections.append("-" * len(sections[-1]))
+        for target in wl.crypto_price_targets:
+            role = target.role or "-"
+            sections.append(
+                f"  {target.symbol:<8} {target.asset_class:<16} "
+                f"{target.coingecko_id:<20} {target.name} ({role})"
+            )
     if sleeve in (None, "prices", "yahoo"):
         if sections:
             sections.append("")
@@ -165,6 +176,17 @@ def list_cmd(
         if sleeve in (None, "macro"):
             payload["macro"] = [
                 {"series_id": m.series_id, "name": m.name} for m in wl.macro
+            ]
+        if sleeve in (None, "prices"):
+            payload["crypto_price_targets"] = [
+                {
+                    "symbol": target.symbol,
+                    "name": target.name,
+                    "coingecko_id": target.coingecko_id,
+                    "role": target.role,
+                    "asset_class": target.asset_class,
+                }
+                for target in wl.crypto_price_targets
             ]
         if sleeve in (None, "prices", "yahoo"):
             payload["yahoo_price_targets"] = [
@@ -695,6 +717,24 @@ def _query_asset_gaps(wl: Watchlist) -> list[dict[str, Any]]:
                     "sleeve": "crypto",
                     "asset": c.symbol,
                     "key": c.coingecko_id,
+                    "source": "coingecko.market_data",
+                    "last_ts": last_ts.isoformat() if last_ts else None,
+                    "age_hours": age_h,
+                }
+            )
+        # Price-only crypto targets -> coingecko.market_data keyed by coingecko_id.
+        for target in wl.crypto_price_targets:
+            cur.execute(
+                "SELECT max(ts) FROM coingecko.market_data WHERE coingecko_id = %s",
+                [target.coingecko_id],
+            )
+            last_ts = cur.fetchone()[0]
+            age_h = _age_hours(last_ts, now=now)
+            out.append(
+                {
+                    "sleeve": "price",
+                    "asset": target.symbol,
+                    "key": target.coingecko_id,
                     "source": "coingecko.market_data",
                     "last_ts": last_ts.isoformat() if last_ts else None,
                     "age_hours": age_h,

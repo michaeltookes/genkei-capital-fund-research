@@ -10,6 +10,7 @@ from tempfile import TemporaryDirectory
 from genkei.common.watchlist import (
     DEFAULT_WATCHLIST_PATH,
     CryptoEntry,
+    CryptoPriceTargetEntry,
     EquityEntry,
     EthWhaleAddressEntry,
     MacroEntry,
@@ -154,6 +155,30 @@ class LoadWatchlistTests(unittest.TestCase):
         self.assertIsNotNone(wl.find_yahoo_price_target("cybl"))
         self.assertIsNone(wl.find_equity("CYBL"))
         self.assertIsNone(wl.classify("CYBL"))
+
+    def test_reads_price_only_crypto_targets_without_crypto_classification(self) -> None:
+        path = self._write(
+            "crypto_price_targets:\n"
+            "  - symbol: LQTY\n"
+            "    name: Liquity\n"
+            "    coingecko_id: liquity\n"
+            "    role: Price-only reflection coverage.\n"
+            "    asset_class: crypto\n"
+        )
+        wl = load_watchlist(path)
+        self.assertEqual(
+            wl.crypto_price_targets[0],
+            CryptoPriceTargetEntry(
+                symbol="LQTY",
+                name="Liquity",
+                coingecko_id="liquity",
+                role="Price-only reflection coverage.",
+                asset_class="crypto",
+            ),
+        )
+        self.assertIsNotNone(wl.find_crypto_price_target("lqty"))
+        self.assertIsNone(wl.find_crypto("LQTY"))
+        self.assertIsNone(wl.classify("LQTY"))
 
     def test_rejects_missing_file(self) -> None:
         with self.assertRaises(FileNotFoundError):

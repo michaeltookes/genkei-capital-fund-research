@@ -10,11 +10,14 @@ requires a Pro key.
 
 ## Coverage v1
 
-Every entry in the watchlist's `crypto:` sleeves is fetched. v1 covers:
+Every entry in the watchlist's `crypto:` sleeves is fetched, plus any
+price-only targets under `crypto_price_targets:`. v1 covers:
 
 - **Core hold** — BTC, ETH, SOL, LINK.
 - **Tactical primary** — SUI.
 - **Tactical secondary** — PYTH, RENDER (and any additions).
+- **Price-only reflection targets** — tokens such as LQTY that need
+  `genkei prices` coverage without joining signal-scoped crypto pipelines.
 - **Protocol-side companions** — sourced from `protocols:` entries
   carrying a `coingecko_id` (B-062), e.g. CRV, AAVE, MKR.
 
@@ -89,7 +92,8 @@ Before consuming CoinGecko-derived signals:
    `metadata.authenticated=false` when diagnosing slower public-mode runs.
 2. **Every watchlist coin covered** — distinct `coingecko_id` count in
    `coingecko.market_data` matches `len(watchlist.crypto) +
-   count(watchlist.protocols with coingecko_id)`.
+   len(watchlist.crypto_price_targets) + count(watchlist.protocols with
+   coingecko_id)`, after de-duping repeated IDs.
 3. **Per-coin latest observation within 3 days** — CoinGecko publishes
    daily; gaps >3 days indicate a coin renamed / delisted / API drift.
 4. **No partial-endpoint failures** — per-coin fetches captured in

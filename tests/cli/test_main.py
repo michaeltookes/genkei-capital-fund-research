@@ -196,6 +196,34 @@ class PricesCommandTests(unittest.TestCase):
         self.assertIn("BTC", out.getvalue())
         self.assertIn("42,000.00", out.getvalue())
 
+    def test_crypto_price_target_queries_coingecko_market_data(self) -> None:
+        path = self._watchlist(
+            "crypto_price_targets:\n"
+            "  - symbol: LQTY\n"
+            "    name: Liquity\n"
+            "    coingecko_id: liquity\n"
+        )
+        rows = [
+            {
+                "ts": "2026-07-24T00:00:00+00:00",
+                "price_usd": 0.167,
+                "market_cap_usd": 16_500_000,
+                "volume_usd": 1_900_000,
+            }
+        ]
+        out = io.StringIO()
+        with (
+            patch(
+                "genkei.cli.prices._query_coingecko_market_data", return_value=rows
+            ) as query,
+            redirect_stdout(out),
+        ):
+            code = main(["prices", "--ticker", "LQTY", "--config", str(path)])
+        self.assertIn(code, (None, 0))
+        query.assert_called_once_with("liquity", since=None, until=None, limit=30)
+        self.assertIn("LQTY", out.getvalue())
+        self.assertIn("0.17", out.getvalue())
+
     def test_prices_default_config_is_independent_of_cwd(self) -> None:
         ctx = TemporaryDirectory()
         self.addCleanup(ctx.cleanup)

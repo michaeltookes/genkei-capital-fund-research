@@ -37,6 +37,12 @@ def _watchlist_path(case: unittest.TestCase) -> Path:
         "crypto:\n"
         "  primary:\n"
         "    - symbol: BTC\n      name: Bitcoin\n      coingecko_id: bitcoin\n"
+        "crypto_price_targets:\n"
+        "  - symbol: LQTY\n    name: Liquity\n    coingecko_id: liquity\n"
+        "yahoo_price_targets:\n"
+        "  - symbol: CYBL\n    name: Cyberlux Corporation\n"
+        "    role: Price-only reflection coverage.\n"
+        "    asset_class: otc_equity\n"
         "equities:\n"
         "  primary:\n"
         "    - symbol: AAPL\n      name: Apple Inc.\n      cik: \"0000320193\"\n"
@@ -99,6 +105,47 @@ class ListCommandTests(unittest.TestCase):
         self.assertEqual(parsed["crypto"][0]["symbol"], "BTC")
         self.assertEqual(parsed["equities"][0]["cik"], "0000320193")
         self.assertEqual(parsed["macro"][0]["series_id"], "DGS10")
+
+    def test_yahoo_sleeve_human_is_yahoo_only(self) -> None:
+        path = _watchlist_path(self)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            main(["watchlist", "list", "--sleeve", "yahoo", "--config", str(path)])
+        text = out.getvalue()
+        self.assertIn("yahoo_price_targets", text)
+        self.assertIn("CYBL", text)
+        self.assertNotIn("crypto_price_targets", text)
+        self.assertNotIn("LQTY", text)
+
+    def test_yahoo_sleeve_json_is_yahoo_only(self) -> None:
+        path = _watchlist_path(self)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            main(
+                [
+                    "watchlist",
+                    "list",
+                    "--sleeve",
+                    "yahoo",
+                    "--json",
+                    "--config",
+                    str(path),
+                ]
+            )
+        parsed = json_mod.loads(out.getvalue())
+        self.assertEqual(list(parsed), ["yahoo_price_targets"])
+        self.assertEqual(parsed["yahoo_price_targets"][0]["symbol"], "CYBL")
+
+    def test_prices_sleeve_includes_all_price_targets(self) -> None:
+        path = _watchlist_path(self)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            main(["watchlist", "list", "--sleeve", "prices", "--config", str(path)])
+        text = out.getvalue()
+        self.assertIn("crypto_price_targets", text)
+        self.assertIn("LQTY", text)
+        self.assertIn("yahoo_price_targets", text)
+        self.assertIn("CYBL", text)
 
 
 # ---------------------------------------------------------------------------
@@ -568,9 +615,11 @@ class GapsQueryTests(unittest.TestCase):
         now = datetime.now(timezone.utc)
         fetch_values = {
             "bitcoin": now - timedelta(hours=1),
+            "liquity": now - timedelta(hours=2),
             "0000320193": now.date(),
             "DGS10": now - timedelta(hours=3),
             "WTI_SPOT": now - timedelta(hours=4),
+            "CYBL": now - timedelta(hours=5),
         }
         executed_params = []
 
@@ -607,6 +656,16 @@ class GapsQueryTests(unittest.TestCase):
         eia_rows = [row for row in rows if row["source"] == "eia.observations"]
         self.assertEqual(len(eia_rows), 1)
         self.assertEqual(eia_rows[0]["asset"], "WTI_SPOT")
+        crypto_price_rows = [
+            row
+            for row in rows
+            if row["source"] == "coingecko.market_data" and row["asset"] == "LQTY"
+        ]
+        self.assertEqual(len(crypto_price_rows), 1)
+        self.assertEqual(crypto_price_rows[0]["sleeve"], "price")
+        self.assertEqual(crypto_price_rows[0]["key"], "liquity")
+        self.assertIn(["liquity"], executed_params)
+        self.assertIn(["CYBL"], executed_params)
         self.assertIn(["WTI_SPOT"], executed_params)
 
 
