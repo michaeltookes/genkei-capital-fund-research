@@ -209,23 +209,14 @@ def execute_readonly(
 
     Returns ``(column_names, rows)``. Raises the underlying psycopg
     error on failure; callers map known cases to clean stderr output.
+
+    The READ ONLY + statement_timeout enforcement lives in the shared
+    :func:`genkei.common.db.run_readonly` helper (the same guard the B-131
+    read API routes through); this function adds the ``LIMIT`` wrap that is
+    specific to the ``genkei query`` escape hatch.
     """
     wrapped = wrap_query_for_safety(sql, limit=limit)
-    # SET LOCAL doesn't accept bind parameters — it needs a literal in
-    # the SQL text. Safe because timeout_seconds is range-validated
-    # int (1..MAX_TIMEOUT_SECONDS) before reaching this function.
-    timeout_ms = int(timeout_seconds) * 1000
-    with db.connection() as conn, conn.cursor() as cur:
-        # READ ONLY + statement_timeout are scoped to this transaction
-        # only — they don't leak past the connection-pool return.
-        cur.execute("SET TRANSACTION READ ONLY")
-        cur.execute(f"SET LOCAL statement_timeout = {timeout_ms}")
-        cur.execute(wrapped)
-        cols = [d.name for d in cur.description] if cur.description else []
-        rows = list(cur.fetchall())
-        # No COMMIT — db.connection()'s context manager handles it. The
-        # READ ONLY guarantee means there's nothing to commit anyway.
-    return cols, rows
+    return db.run_readonly(wrapped, timeout_seconds=timeout_seconds)
 
 
 def _cache_database_namespace() -> str:

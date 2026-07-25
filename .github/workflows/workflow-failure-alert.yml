@@ -51,6 +51,7 @@ on:
       - "Ingest Staleness Check"
       - "Ingest Heartbeat"
       - "Backup Staleness Check"
+      - "API Health Check"
     types: [completed]
 
 permissions:

@@ -39,12 +39,27 @@ from genkei.common.watchlist import (
 )
 
 
+def _fetch_all(
+    sql: str,
+    params: list[Any],
+    *,
+    conn: Optional[Any] = None,
+) -> list[tuple[Any, ...]]:
+    if conn is not None:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            return list(cur.fetchall())
+    with db.connection() as owned_conn:
+        return _fetch_all(sql, params, conn=owned_conn)
+
+
 def _query_coingecko_market_data(
     coingecko_id: str,
     *,
     since: Optional[date],
     until: Optional[date],
     limit: int,
+    conn: Optional[Any] = None,
 ) -> list[dict[str, Any]]:
     """Pull rows from coingecko.market_data ordered ts DESC."""
     sql = (
@@ -62,9 +77,7 @@ def _query_coingecko_market_data(
     sql += " ORDER BY ts DESC LIMIT %s"
     params.append(limit)
 
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, params)
-        rows = cur.fetchall()
+    rows = _fetch_all(sql, params, conn=conn)
     return [
         {
             "ts": ts.isoformat(),
@@ -82,6 +95,7 @@ def _query_coinbase_candles(
     since: Optional[date],
     until: Optional[date],
     limit: int,
+    conn: Optional[Any] = None,
 ) -> list[dict[str, Any]]:
     """Pull rows from coinbase.candles ordered ts DESC.
 
@@ -105,9 +119,7 @@ def _query_coinbase_candles(
     sql += " ORDER BY ts DESC LIMIT %s"
     params.append(limit)
 
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, params)
-        rows = cur.fetchall()
+    rows = _fetch_all(sql, params, conn=conn)
     return [
         {
             "ts": ts.isoformat(),
@@ -125,6 +137,7 @@ def _query_yahoo_candles(
     since: Optional[date],
     until: Optional[date],
     limit: int,
+    conn: Optional[Any] = None,
 ) -> list[dict[str, Any]]:
     """Pull rows from yahoo.candles ordered ts DESC.
 
@@ -149,9 +162,7 @@ def _query_yahoo_candles(
     sql += " ORDER BY ts DESC LIMIT %s"
     params.append(limit)
 
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, params)
-        rows = cur.fetchall()
+    rows = _fetch_all(sql, params, conn=conn)
     out: list[dict[str, Any]] = []
     for ts, close, adj_close, vol in rows:
         # Prefer adj_close — split/dividend-adjusted is the right
@@ -170,10 +181,14 @@ def _query_yahoo_candles(
     return out
 
 
-def _fetch_latest_ts(sql: str, params: list[Any]) -> Optional[datetime]:
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, params)
-        row = cur.fetchone()
+def _fetch_latest_ts(
+    sql: str,
+    params: list[Any],
+    *,
+    conn: Optional[Any] = None,
+) -> Optional[datetime]:
+    rows = _fetch_all(sql, params, conn=conn)
+    row = rows[0] if rows else None
     return row[0] if row and row[0] is not None else None
 
 

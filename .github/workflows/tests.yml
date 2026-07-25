@@ -26,9 +26,13 @@ jobs:
           python-version: "3.12"
 
       - name: Install package + dev extras
+        # [api] is installed alongside [dev] so the B-131 FastAPI endpoint
+        # contract tests actually execute here (they need fastapi's TestClient
+        # AND the Postgres harness — both present in CI). The local 3.9 suite
+        # without [api] skips them cleanly via the fastapi-importable guard.
         run: |
           python3 -m pip install --upgrade pip
-          python3 -m pip install -e ".[dev]"
+          python3 -m pip install -e ".[dev,api]"
 
       - name: Run unittest discover
         # GH-hosted Ubuntu runners ship Docker, so testcontainers can spin

@@ -213,6 +213,15 @@ with connection() as conn, conn.cursor() as cur:
     cur.execute('SELECT current_database(), version()'); print(cur.fetchone())"
 ```
 
+## Cockpit read API
+
+The FastAPI read layer (`genkei-api`, `src/genkei/api/`) runs as its own
+container on `mission_control_net` alongside `genkeicapital-postgres`. It is
+**read-only** and **LAN-only** (no `cloudflared` route in v1). Its
+docker-compose service definition, exposure/auth posture, resource-protection
+ceilings (small pool so it can't starve ingest), and the `/health` +
+Discord/issue alerting wiring live in **`docs/api-deployment.md`**.
+
 ## Backups
 
 See `docs/backups.md` — full posture, retention scheme, restore runbook, and the 2026-05-22 restore drill evidence. The scripts live in `infra/backups/`.

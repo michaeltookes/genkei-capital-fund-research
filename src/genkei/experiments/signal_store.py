@@ -529,6 +529,7 @@ def query_events(
     since: datetime | None = None,
     until: datetime | None = None,
     limit: int | None = None,
+    conn: Any | None = None,
 ) -> list[SignalEvent]:
     """Read signal events from ``meta.signal_events`` with optional filters."""
     sql = (
@@ -561,7 +562,20 @@ def query_events(
         params.append(limit)
 
     out: list[SignalEvent] = []
-    with db.connection() as conn, conn.cursor() as cur:
+    if conn is None:
+        with db.connection() as owned_conn:
+            return query_events(
+                asset=asset,
+                source=source,
+                signal_kind=signal_kind,
+                direction=direction,
+                since=since,
+                until=until,
+                limit=limit,
+                conn=owned_conn,
+            )
+
+    with conn.cursor() as cur:
         cur.execute(sql, params)
         for row in cur.fetchall():
             (

@@ -7,6 +7,8 @@ plus credential environment variables. Exposes:
 - a lazily-initialized connection pool (:func:`get_pool`, :func:`reset_pool`),
 - a :func:`connection` context manager that commits on success and rolls back
   on exception,
+- a :func:`readonly_connection` context manager that applies ``READ ONLY`` and
+  ``statement_timeout`` to all queries run through the yielded connection,
 - :func:`bulk_upsert` for ``INSERT ... ON CONFLICT`` batched writes,
 - :func:`ingest_run` — the context manager every ingester wraps its work in,
   which records a row in ``meta.ingest_runs``.
@@ -147,6 +149,70 @@ def connection() -> Iterator[psycopg.Connection]:
         except Exception:
             conn.rollback()
             raise
+
+
+# Default statement timeout for read-only queries, in seconds. Callers that
+# need a different ceiling pass ``timeout_seconds`` explicitly (``genkei
+# query`` exposes it as a flag up to its own MAX_TIMEOUT_SECONDS; the read
+# API pins a short server-side default so a slow query can't tie up one of
+# its few pool slots).
+DEFAULT_READONLY_TIMEOUT_SECONDS = 30
+
+
+@contextmanager
+def readonly_connection(
+    *,
+    timeout_seconds: int = DEFAULT_READONLY_TIMEOUT_SECONDS,
+) -> Iterator[psycopg.Connection]:
+    """Yield a connection inside a READ ONLY transaction with a statement timeout.
+
+    This is the multi-query sibling of :func:`run_readonly`: callers can reuse
+    existing reader helpers without losing the transaction-level write guard or
+    the server-side timeout.
+    """
+    timeout_ms = int(timeout_seconds) * 1000
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SET TRANSACTION READ ONLY")
+            cur.execute(f"SET LOCAL statement_timeout = {timeout_ms}")
+        yield conn
+
+
+def run_readonly(
+    sql_text: str,
+    params: Sequence[Any] | None = None,
+    *,
+    timeout_seconds: int = DEFAULT_READONLY_TIMEOUT_SECONDS,
+) -> tuple[list[str], list[tuple[Any, ...]]]:
+    """Execute ``sql_text`` in a READ ONLY transaction with a statement timeout.
+
+    The single enforcement point for read-only SELECTs shared by ``genkei
+    query`` (B-045) and the FastAPI read layer (B-131). Every query routed
+    through here runs with two engine-level guards that a caller cannot weaken:
+
+    1. ``SET TRANSACTION READ ONLY`` — Postgres itself rejects any write
+       (INSERT / UPDATE / DELETE / DDL). No SQL parsing required, and the
+       ``connection()`` context manager never COMMITs anything anyway.
+    2. ``SET LOCAL statement_timeout`` — the server cancels a query that runs
+       longer than ``timeout_seconds``; a runaway can't pin a pool slot open.
+
+    Returns ``(column_names, rows)``. ``params`` is passed straight through to
+    psycopg for server-side parameter binding — callers should never
+    string-format user input into ``sql_text``. Row capping is the caller's
+    job: pass a query that already carries a ``LIMIT`` (``genkei query`` wraps
+    the user SQL; the API endpoints append their own capped ``LIMIT``).
+
+    ``SET LOCAL statement_timeout`` needs a literal (bind params aren't
+    allowed for it), so ``timeout_seconds`` must be a trusted int — every
+    call site range-validates it before reaching here.
+    """
+    with readonly_connection(timeout_seconds=timeout_seconds) as conn, conn.cursor() as cur:
+        cur.execute(sql_text, params)
+        cols = [d.name for d in cur.description] if cur.description else []
+        rows = list(cur.fetchall())
+        # No COMMIT needed — READ ONLY means there's nothing to commit, and
+        # connection() commits the (empty) transaction on clean exit.
+    return cols, rows
 
 
 def bulk_upsert(

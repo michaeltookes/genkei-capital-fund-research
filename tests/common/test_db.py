@@ -12,6 +12,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -25,6 +26,8 @@ class _FakeCursor:
         self.executed: list[tuple[Any, Any]] = []
         self.executemany_calls: list[tuple[Any, list[Any]]] = []
         self.fetch_value: tuple[Any, ...] | None = None
+        self.fetchall_value: list[tuple[Any, ...]] = []
+        self.description: list[Any] | None = None
         self.rowcount: int | None = 0
         self.execute_error: Exception | None = None
 
@@ -39,6 +42,9 @@ class _FakeCursor:
 
     def fetchone(self) -> tuple[Any, ...] | None:
         return self.fetch_value
+
+    def fetchall(self) -> list[tuple[Any, ...]]:
+        return self.fetchall_value
 
     def __enter__(self) -> _FakeCursor:
         return self
@@ -207,6 +213,57 @@ class ConnectionContextManagerTests(unittest.TestCase):
         used = self.fake_pool.connections[0]
         self.assertEqual(used.commits, 0)
         self.assertEqual(used.rollbacks, 1)
+
+
+class ReadonlyQueryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        db.reset_pool()
+        self.fake_pool = _FakePool()
+        db.set_pool(self.fake_pool)  # type: ignore[arg-type]
+
+    def tearDown(self) -> None:
+        db.reset_pool()
+
+    def test_readonly_connection_applies_readonly_and_timeout(self) -> None:
+        with db.readonly_connection(timeout_seconds=7) as conn, conn.cursor() as cur:
+            cur.execute("SELECT guarded", ["x"])
+
+        used = self.fake_pool.connections[0]
+        self.assertEqual(
+            used.cursor_obj.executed,
+            [
+                ("SET TRANSACTION READ ONLY", None),
+                ("SET LOCAL statement_timeout = 7000", None),
+                ("SELECT guarded", ["x"]),
+            ],
+        )
+        self.assertEqual(used.commits, 1)
+
+    def test_run_readonly_uses_guard_and_returns_columns_and_rows(self) -> None:
+        original = self.fake_pool.connection
+
+        @contextmanager
+        def seeded_connection() -> Iterator[_FakeConnection]:
+            with original() as conn:
+                conn.cursor_obj.description = [SimpleNamespace(name="answer")]
+                conn.cursor_obj.fetchall_value = [(42,)]
+                yield conn
+
+        self.fake_pool.connection = seeded_connection  # type: ignore[assignment]
+
+        columns, rows = db.run_readonly("SELECT %s", [42], timeout_seconds=3)
+
+        used = self.fake_pool.connections[0]
+        self.assertEqual(columns, ["answer"])
+        self.assertEqual(rows, [(42,)])
+        self.assertEqual(
+            used.cursor_obj.executed,
+            [
+                ("SET TRANSACTION READ ONLY", None),
+                ("SET LOCAL statement_timeout = 3000", None),
+                ("SELECT %s", [42]),
+            ],
+        )
 
 
 class BulkUpsertTests(unittest.TestCase):
