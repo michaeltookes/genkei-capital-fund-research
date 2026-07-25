@@ -200,28 +200,7 @@ A scoping session on **2026-07-20** decided to build a second interface *beyond 
 
 _B-130 (the `genkei`-as-MCP server keystone) shipped 2026-07-24 — subprocess-with-`--json` adapter, `genkei.mcp` subpackage, `genkei-mcp` entry point, 13 tools; see `docs/mcp.md` and `docs/resolved.md`._
 
-### B-131 — FastAPI read layer over the lake
-- **Status:** open
-- **Priority:** low
-- **User story:** As the cockpit frontend, I want a deterministic HTTP read API over Postgres so that charts and tables render directly — without routing through the agent and burning tokens to draw a chart.
-- **Context:** The *visual* surface must not depend on the LLM. A thin FastAPI read layer on the Beelink is the deterministic spine the frontend queries; the agent panel (B-133) is additive on top, not in the critical path for rendering.
-- **Acceptance criteria:**
-  - FastAPI service on the Beelink exposing **read-only** endpoints: price series, watchlist, signal history, the weekly signal digest, the `docs/research/decisions/` log, and lake health.
-  - Queries Postgres directly or reuses `genkei query` modules; performs no writes.
-  - Runs on `mission_control_net` alongside existing infra; documented in `docs/infrastructure.md`.
-  - Auth posture recorded — local-network-only for v1, no public exposure.
-  - Endpoint contracts covered by tests against ephemeral fixtures (per B-024).
-
-### B-137 — Cockpit service deployment & exposure spec
-- **Status:** open
-- **Priority:** medium (must land with or before B-131 — B-131's "auth posture recorded" criterion is one line of this)
-- **User story:** As the operator, I want the cockpit's runtime story written down before the first service ships so that the FastAPI layer and frontend don't land as ad-hoc processes on the Beelink with an undefined trust boundary.
-- **Context:** From the 2026-07-22 pre-cockpit audit: `docs/infrastructure.md` covers Postgres and the self-hosted runner well, but there is no service-management, auth, or resource-protection story for the two new long-running services E-002 introduces. Specifically undefined today: how the FastAPI app + frontend are supervised (docker-compose on `mission_control_net` is the natural fit alongside existing containers), what "local-network-only" concretely means (bind address, phone access path, whether the existing `cloudflared` tunnel is explicitly out of scope for v1), and how the read layer protects Postgres from itself (connection-pool ceiling, statement timeout, per-endpoint result caps — `genkei query` already models all three; the API should inherit that posture, not reinvent it).
-- **Acceptance criteria:**
-  - A deployment section (in `docs/infrastructure.md` or a new `docs/api-deployment.md`): compose/service definitions, restart policy, log location, port allocation on `mission_control_net`.
-  - Auth/exposure posture recorded: bind/interface decision, LAN-only enforcement, explicit statement that the tunnel does not route to the cockpit in v1.
-  - Resource-protection defaults for the read API: pool size ceiling vs the ingest workloads, statement timeout, response row caps — mirroring `genkei query`'s enforced limits.
-  - Health endpoint + failure alerting wired into the existing B-119 Discord/issue path so a dead cockpit service is noticed like a dead ingester.
+_B-131 (FastAPI read layer over the lake) + B-137 (cockpit deployment & exposure spec) shipped 2026-07-25 — `genkei.api` subpackage, `genkei-api` entry point, read-only endpoints (prices / watchlist / signals / weekly digest / research decisions / lake health), the shared `db.run_readonly` guard, `docs/api-deployment.md` (LAN-only, no cloudflared route, pool ceiling), and the `/health` + B-119 alert workflow. B-132 consumes this API next; see `docs/resolved.md`._
 
 ### B-132 — Static cockpit frontend (workspace pane)
 - **Status:** open
