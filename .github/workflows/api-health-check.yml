@@ -1,0 +1,125 @@
+name: API Health Check
+
+# B-131 / B-137 — scheduled check that the cockpit read API (`genkei-api`) is
+# alive. Polls the service's GET /health endpoint and opens/updates a GitHub
+# issue + pings Discord when it is unreachable or reports itself degraded.
+#
+# Why a self-hosted runner: `genkei-api` is LAN-only (no cloudflared route in
+# v1, see docs/api-deployment.md), so only a runner on the home network can
+# reach it. This is the read-API counterpart to backup-staleness-check.yml
+# (B-138) and ingest-staleness-check.yml (B-071): a dead cockpit service should
+# be noticed the same way a dead ingester is, through the B-119 Discord/issue
+# path — not by a human eventually noticing the UI is blank.
+
+on:
+  schedule:
+    # Every 6h — the cockpit is not on a daily cadence like ingest, so a
+    # tighter loop catches an outage within a quarter-day rather than next
+    # morning. Cheap: one HTTP GET.
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    name: Poll genkei-api /health + alert if down
+    runs-on: [self-hosted, beelink]
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      # The LAN URL of the read API's /health endpoint. Defaults to the
+      # container name on mission_control_net; override with a repo variable
+      # if the runner reaches it via the published LAN host:port instead.
+      HEALTH_URL: ${{ vars.GENKEI_API_HEALTH_URL || 'http://genkei-api:8848/health' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Probe /health + raise an issue if the API is down
+        id: apihealth
+        run: |
+          set -uo pipefail
+          DETECTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          PROBLEM=""
+          # -sS quiet-but-show-errors; -m 10 total timeout; capture body + code.
+          HTTP_BODY="$(curl -sS -m 10 -w '\n%{http_code}' "${HEALTH_URL}" 2>/tmp/curl_err || true)"
+          HTTP_CODE="$(printf '%s' "${HTTP_BODY}" | tail -n1)"
+          BODY="$(printf '%s' "${HTTP_BODY}" | sed '$d')"
+
+          if [ -z "${HTTP_CODE}" ] || ! printf '%s' "${HTTP_CODE}" | grep -qE '^[0-9]+$'; then
+              PROBLEM="UNREACHABLE — no HTTP response from ${HEALTH_URL} ($(cat /tmp/curl_err 2>/dev/null | head -1)). The genkei-api container may be down or off mission_control_net."
+          elif [ "${HTTP_CODE}" != "200" ]; then
+              PROBLEM="HTTP ${HTTP_CODE} from ${HEALTH_URL} — the service answered but not with 200. Body: ${BODY}"
+          else
+              STATUS="$(printf '%s' "${BODY}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("status",""))' 2>/dev/null || true)"
+              if [ "${STATUS}" != "ok" ]; then
+                  PROBLEM="Degraded — /health returned 200 but status=\"${STATUS}\" (expected \"ok\"). Database may be unreachable from the API. Body: ${BODY}"
+              fi
+          fi
+
+          if [ -z "${PROBLEM}" ]; then
+              echo "api_problem=0" >> "$GITHUB_OUTPUT"
+              echo "genkei-api /health OK."
+              exit 0
+          fi
+
+          echo "API problem: ${PROBLEM}"
+          echo "api_problem=1" >> "$GITHUB_OUTPUT"
+          {
+              echo "summary<<DISCORD_EOF"
+              echo "• ${PROBLEM}"
+              echo "DISCORD_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          TITLE="[api-alert] genkei-api cockpit read API"
+          BODY_MD="- **DOWN**: ${PROBLEM}
+
+          - Detected at: ${DETECTED}
+          - Probed: ${HEALTH_URL}
+
+          ---
+
+          Auto-opened by \`.github/workflows/api-health-check.yml\` (B-131/B-137).
+          Close once \`genkei-api\` answers \`GET /health\` with \`{\"status\":\"ok\"}\`
+          again; re-runs comment rather than reopening. To debug on the Beelink:
+
+          \`\`\`bash
+          docker compose logs -f genkei-api
+          curl -s http://genkei-api:8848/health | python3 -m json.tool
+          \`\`\`"
+
+          EXISTING_NUMBER=$(gh issue list \
+              --state open \
+              --limit 1000 \
+              --json number,title \
+              --jq ".[] | select(.title == \"${TITLE}\") | .number" \
+              | head -1)
+
+          if [ -n "${EXISTING_NUMBER}" ]; then
+              gh issue comment "${EXISTING_NUMBER}" --body "Still down as of ${DETECTED}:
+          ${PROBLEM}"
+              echo "Commented on existing issue #${EXISTING_NUMBER}."
+          else
+              gh issue create --title "${TITLE}" --body "${BODY_MD}"
+              echo "Opened new api-alert issue."
+          fi
+
+      - name: Ping Discord with the API problem summary
+        if: steps.apihealth.outputs.api_problem != '0'
+        uses: ./.github/actions/discord-notify
+        with:
+          webhook_url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          title: "🔴 Cockpit API down — genkei-api /health"
+          description: |
+            The cockpit read API health check flagged a problem; a GitHub issue was opened or updated.
+
+            ${{ steps.apihealth.outputs.summary }}
+          color: "15158332"
