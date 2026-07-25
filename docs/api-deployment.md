@@ -46,6 +46,12 @@ services:
       GENKEI_API_HOST: "0.0.0.0"
       GENKEI_API_PORT: "8848"
       GENKEI_API_MAX_POOL_SIZE: "4"
+      GENKEI_API_DIGEST_DIR: "/artifacts/reports/signals"
+      GENKEI_API_DECISIONS_DIR: "/artifacts/docs/research/decisions"
+    volumes:
+      # Mount live artifacts instead of serving the image-build-time copies.
+      - ./reports/signals:/artifacts/reports/signals:ro
+      - ./docs/research/decisions:/artifacts/docs/research/decisions:ro
     # LAN-only: publish to the Beelink's LAN interface, NOT 0.0.0.0 on the host.
     # Bind the published port to the host's LAN IP so it is reachable from the
     # home network but never from the public path. (Placeholder IP — real value
@@ -63,9 +69,17 @@ networks:
 Deploy / restart, from the compose dir on the Beelink:
 
 ```bash
+git pull --ff-only
 docker compose up -d --build genkei-api
 docker compose logs -f genkei-api          # confirm startup + /health
 ```
+
+The image still contains whatever `reports/signals/` and
+`docs/research/decisions/` looked like at build time, but the running service
+does not read those copies. It reads the read-only host mounts above through
+`GENKEI_API_DIGEST_DIR` and `GENKEI_API_DECISIONS_DIR`, so new weekly digests
+or decision files become visible after the Beelink checkout/artifact directory
+is updated, without requiring an image rebuild solely for report freshness.
 
 ## Exposure / auth posture
 

@@ -429,7 +429,7 @@ def create_app() -> FastAPI:
             limit=_clamp_limit(limit),
         )
 
-    @app.get("/signals")
+    @app.get("/signals", response_model=None)
     def signals(
         asset: Optional[str] = Query(default=None),
         source: Optional[str] = Query(default=None),
@@ -438,19 +438,21 @@ def create_app() -> FastAPI:
         since: Optional[str] = Query(default=None, description="Earliest event date YYYY-MM-DD."),
         until: Optional[str] = Query(default=None, description="Latest event date YYYY-MM-DD."),
         limit: int = Query(default=DEFAULT_ROW_LIMIT, ge=1),
-    ) -> list[dict[str, Any]]:
+    ) -> GenkeiJSONResponse:
         if direction is not None and direction not in {"bullish", "bearish", "neutral"}:
             raise HTTPException(
                 status_code=400, detail="direction must be bullish, bearish, or neutral"
             )
-        return _signals(
-            asset=asset,
-            source=source,
-            signal_kind=signal_kind,
-            direction=direction,
-            since=_parse_iso_date(since, field="since"),
-            until=_parse_iso_date(until, field="until"),
-            limit=_clamp_limit(limit),
+        return GenkeiJSONResponse(
+            content=_signals(
+                asset=asset,
+                source=source,
+                signal_kind=signal_kind,
+                direction=direction,
+                since=_parse_iso_date(since, field="since"),
+                until=_parse_iso_date(until, field="until"),
+                limit=_clamp_limit(limit),
+            )
         )
 
     @app.get("/digest/weekly")

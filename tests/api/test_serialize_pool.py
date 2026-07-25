@@ -12,14 +12,16 @@ import json
 import os
 import unittest
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import patch
 
 try:
     import fastapi  # noqa: F401
+    from fastapi.testclient import TestClient
 
     _FASTAPI_OK = True
 except ImportError:
@@ -43,6 +45,44 @@ class SerializerTests(unittest.TestCase):
 
         raw = GenkeiJSONResponse(content={"d": date(2026, 5, 12)}).body
         self.assertEqual(json.loads(raw), {"d": "2026-05-12"})
+
+
+@_fastapi_required
+class SignalRouteSerializerTests(unittest.TestCase):
+    def test_signals_response_preserves_decimal_strength(self) -> None:
+        from genkei.api import app
+
+        event = SimpleNamespace(
+            event_id=7,
+            asset="BTC",
+            asset_class="crypto",
+            horizon="crypto:core",
+            ts=datetime(2026, 5, 12, tzinfo=timezone.utc),
+            source="relative_strength",
+            signal_kind="leader_crossing",
+            direction="bullish",
+            strength=Decimal("0.12345678901234567890"),
+            payload={},
+            source_ref="ref-7",
+        )
+        timeouts: list[int] = []
+
+        @contextmanager
+        def guarded(*, timeout_seconds: int):
+            timeouts.append(timeout_seconds)
+            yield object()
+
+        with (
+            patch("genkei.api.app.configure_pool", return_value=None),
+            patch("genkei.common.db.readonly_connection", guarded),
+            patch("genkei.experiments.signal_store.query_events", return_value=[event]),
+            TestClient(app.create_app()) as client,
+        ):
+            response = client.get("/signals")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()[0]["strength"], "0.12345678901234567890")
+        self.assertEqual(timeouts, [app.DATA_QUERY_TIMEOUT_SECONDS])
 
 
 @_fastapi_required
