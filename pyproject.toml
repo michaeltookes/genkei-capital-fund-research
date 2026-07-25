@@ -83,3 +83,9 @@ select = ["E", "F", "W", "I", "B", "UP", "N", "SIM"]
 # use `Optional[X]` instead for cross-version safety; everywhere else
 # stays on the modern PEP-604 form.
 "src/genkei/cli/*.py" = ["UP045", "UP007"]
+# Same runtime-annotation constraint as the CLI (G-027): FastAPI evaluates
+# endpoint parameter annotations at runtime to build the request model, so a
+# `X | None` param annotation fails at import time under the 3.9 harness even
+# with `from __future__ import annotations`. The api modules use `Optional[X]`
+# for cross-version safety; keep ruff's PEP-604 rewrite off them.
+"src/genkei/api/*.py" = ["UP045", "UP007"]
