@@ -46,10 +46,25 @@ notebooks = [
 mcp = [
     "mcp>=1.0",
 ]
+# FastAPI read layer (B-131) — the cockpit's HTTP read API over the lake.
+# Kept OUT of core deps on purpose (mirrors [mcp] / [notebooks]): the CLI,
+# the offline test suite, and every ingester install and run without it; only
+# the running service (`genkei-api`) needs it. Unlike [mcp], FastAPI supports
+# Python 3.9, so CI installs this extra alongside [dev] and the endpoint
+# contract tests actually execute (they import fastapi.testclient); the local
+# 3.9 suite without the extra skips them cleanly. httpx is FastAPI's test
+# client dependency and is already a core dep, but pinned here too so the
+# extra is self-contained. Install with: pip install -e ".[api]"
+api = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "httpx>=0.27",
+]
 
 [project.scripts]
 genkei = "genkei.cli:main"
 genkei-mcp = "genkei.mcp.server:main"
+genkei-api = "genkei.api.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/genkei"]

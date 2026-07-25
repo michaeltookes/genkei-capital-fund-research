@@ -149,6 +149,57 @@ def connection() -> Iterator[psycopg.Connection]:
             raise
 
 
+# Default statement timeout for read-only queries, in seconds. Callers that
+# need a different ceiling pass ``timeout_seconds`` explicitly (``genkei
+# query`` exposes it as a flag up to its own MAX_TIMEOUT_SECONDS; the read
+# API pins a short server-side default so a slow query can't tie up one of
+# its few pool slots).
+DEFAULT_READONLY_TIMEOUT_SECONDS = 30
+
+
+def run_readonly(
+    sql_text: str,
+    params: Sequence[Any] | None = None,
+    *,
+    timeout_seconds: int = DEFAULT_READONLY_TIMEOUT_SECONDS,
+) -> tuple[list[str], list[tuple[Any, ...]]]:
+    """Execute ``sql_text`` in a READ ONLY transaction with a statement timeout.
+
+    The single enforcement point for read-only SELECTs shared by ``genkei
+    query`` (B-045) and the FastAPI read layer (B-131). Every query routed
+    through here runs with two engine-level guards that a caller cannot weaken:
+
+    1. ``SET TRANSACTION READ ONLY`` — Postgres itself rejects any write
+       (INSERT / UPDATE / DELETE / DDL). No SQL parsing required, and the
+       ``connection()`` context manager never COMMITs anything anyway.
+    2. ``SET LOCAL statement_timeout`` — the server cancels a query that runs
+       longer than ``timeout_seconds``; a runaway can't pin a pool slot open.
+
+    Returns ``(column_names, rows)``. ``params`` is passed straight through to
+    psycopg for server-side parameter binding — callers should never
+    string-format user input into ``sql_text``. Row capping is the caller's
+    job: pass a query that already carries a ``LIMIT`` (``genkei query`` wraps
+    the user SQL; the API endpoints append their own capped ``LIMIT``).
+
+    ``SET LOCAL statement_timeout`` needs a literal (bind params aren't
+    allowed for it), so ``timeout_seconds`` must be a trusted int — every
+    call site range-validates it before reaching here.
+    """
+    timeout_ms = int(timeout_seconds) * 1000
+    with connection() as conn, conn.cursor() as cur:
+        # Both settings are transaction-scoped: they don't leak past the
+        # connection-pool return, so a later writer reusing the slot is
+        # unaffected.
+        cur.execute("SET TRANSACTION READ ONLY")
+        cur.execute(f"SET LOCAL statement_timeout = {timeout_ms}")
+        cur.execute(sql_text, params)
+        cols = [d.name for d in cur.description] if cur.description else []
+        rows = list(cur.fetchall())
+        # No COMMIT needed — READ ONLY means there's nothing to commit, and
+        # connection() commits the (empty) transaction on clean exit.
+    return cols, rows
+
+
 def bulk_upsert(
     conn: psycopg.Connection,
     table: str,
