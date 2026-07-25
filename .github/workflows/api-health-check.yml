@@ -45,7 +45,7 @@ jobs:
       - name: Probe /health + raise an issue if the API is down
         id: apihealth
         run: |
-          set -uo pipefail
+          set -euo pipefail
           DETECTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
           PROBLEM=""

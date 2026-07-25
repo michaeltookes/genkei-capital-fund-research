@@ -381,7 +381,7 @@ def _table_identifier(table: str) -> sql.Identifier:
     return sql.Identifier(*table.split(".", 1))
 
 
-def _query_source_health() -> list[dict[str, Any]]:
+def _query_source_health(conn: Optional[Any] = None) -> list[dict[str, Any]]:
     """Per (source, endpoint) latest run with status + age, plus table liveness.
 
     Scoped to ``RECURRING_ENDPOINTS`` — one-shot endpoints (backfill,
@@ -389,6 +389,10 @@ def _query_source_health() -> list[dict[str, Any]]:
     so they don't pollute the recurring-cron monitoring view with
     stale-since-the-last-backfill false positives.
     """
+    if conn is None:
+        with db.connection() as owned_conn:
+            return _query_source_health(conn=owned_conn)
+
     runs_sql = """
         SELECT source, endpoint, status, started_at, finished_at,
                substr(coalesce(error, ''), 1, 200) AS error_snippet
@@ -401,7 +405,7 @@ def _query_source_health() -> list[dict[str, Any]]:
     """
     out: list[dict[str, Any]] = []
     now = datetime.now(timezone.utc)
-    with db.connection() as conn, conn.cursor() as cur:
+    with conn.cursor() as cur:
         cur.execute(runs_sql)
         seen: set[tuple[str, str]] = set()
         for source, endpoint, status, started, finished, err in cur.fetchall():

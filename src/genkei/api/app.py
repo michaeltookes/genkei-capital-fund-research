@@ -18,10 +18,10 @@ Endpoints
 Read-only enforcement + row caps
 ================================
 * The DB-issuing readers reused here (price readers, ``query_events``,
-  ``_query_source_health``) issue plain parameterized ``SELECT``s through
-  ``db.connection()`` — no write path is importable from this module.
-* ``/health`` routes its ``SELECT 1`` through ``db.run_readonly`` (the shared
-  READ ONLY + statement_timeout guard).
+  ``_query_source_health``) run through ``db.readonly_connection`` so every API
+  data request gets the shared READ ONLY + statement_timeout guard.
+* ``/health`` routes its ``SELECT 1`` through ``db.run_readonly``, the
+  single-statement sibling of that same guard.
 * List endpoints cap rows server-side: ``/signals`` and ``/prices`` clamp
   their ``limit`` to ``MAX_ROW_LIMIT`` and push it into the SQL ``LIMIT``;
   ``/watchlist``, ``/research/decisions`` are naturally bounded and return
@@ -30,6 +30,7 @@ Read-only enforcement + row caps
 
 from __future__ import annotations
 
+import os
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -46,14 +47,32 @@ from genkei.api.serialize import GenkeiJSONResponse
 DEFAULT_ROW_LIMIT = 100
 MAX_ROW_LIMIT = 1000
 
-# Statement timeout applied to the /health probe (seconds). The reused CLI
-# readers manage their own (short) queries; the probe is the one query this
-# module issues directly, so it carries the shared guard explicitly.
+# Statement timeout applied to the /health probe (seconds).
 HEALTH_TIMEOUT_SECONDS = 5
+# Statement timeout for API data queries (seconds). Mirrors
+# genkei.common.db.DEFAULT_READONLY_TIMEOUT_SECONDS without importing DB helpers
+# at module import time.
+DATA_QUERY_TIMEOUT_SECONDS = 30
 
-_DIGEST_DIR = Path("reports/signals")
-_DECISIONS_DIR = Path("docs/research/decisions")
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_ENV_DIGEST_DIR = "GENKEI_API_DIGEST_DIR"
+_ENV_DECISIONS_DIR = "GENKEI_API_DECISIONS_DIR"
 _DECISION_SKIP_FILES = {"_template.md", "README.md"}
+
+
+def _artifact_dir(env_var: str, relative_path: str) -> Path:
+    configured = os.environ.get(env_var)
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return _REPO_ROOT / relative_path
+
+
+def _digest_dir() -> Path:
+    return _artifact_dir(_ENV_DIGEST_DIR, "reports/signals")
+
+
+def _decisions_dir() -> Path:
+    return _artifact_dir(_ENV_DECISIONS_DIR, "docs/research/decisions")
 
 
 def _clamp_limit(limit: int) -> int:
@@ -117,6 +136,10 @@ def _watchlist(sleeve: Optional[str]) -> dict[str, Any]:
     if sleeve in (None, "macro"):
         payload["macro"] = [{"series_id": m.series_id, "name": m.name} for m in wl.macro]
     if sleeve in (None, "prices"):
+        payload["benchmarks"] = [
+            {"symbol": b.symbol, "name": b.name, "role": b.role, "asset_class": b.asset_class}
+            for b in wl.benchmarks
+        ]
         payload["crypto_price_targets"] = [
             {
                 "symbol": t.symbol,
@@ -147,6 +170,7 @@ def _prices(
 ) -> dict[str, Any]:
     """Price series for a watchlist ticker. Reuses the CLI price readers."""
     from genkei.cli import prices as prices_cli
+    from genkei.common import db
     from genkei.common.watchlist import load_watchlist
 
     if source is not None and source not in _VALID_PRICE_SOURCES:
@@ -178,32 +202,43 @@ def _prices(
             )
         resolved_source = "yahoo" if yahoo_target else "coingecko"
 
-    if resolved_source == "coingecko":
-        if coingecko_target is None:
-            raise HTTPException(status_code=400, detail=f"{ticker} is not CoinGecko-backed")
-        rows = prices_cli._query_coingecko_market_data(
-            coingecko_target.coingecko_id, since=since, until=until, limit=limit
+    if resolved_source == "coingecko" and coingecko_target is None:
+        raise HTTPException(status_code=400, detail=f"{ticker} is not CoinGecko-backed")
+    if resolved_source == "coinbase" and (crypto is None or not crypto.coinbase_product):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{ticker} has no coinbase_product; use source=coingecko",
         )
-    elif resolved_source == "coinbase":
-        if crypto is None or not crypto.coinbase_product:
-            raise HTTPException(
-                status_code=400,
-                detail=f"{ticker} has no coinbase_product; use source=coingecko",
+    if resolved_source == "yahoo" and not yahoo_target:
+        raise HTTPException(status_code=400, detail=f"{ticker} is not Yahoo-backed")
+
+    with db.readonly_connection(timeout_seconds=DATA_QUERY_TIMEOUT_SECONDS) as conn:
+        if resolved_source == "coingecko":
+            assert coingecko_target is not None
+            rows = prices_cli._query_coingecko_market_data(
+                coingecko_target.coingecko_id,
+                since=since,
+                until=until,
+                limit=limit,
+                conn=conn,
             )
-        rows = prices_cli._query_coinbase_candles(
-            crypto.coinbase_product, since=since, until=until, limit=limit
-        )
-    else:  # yahoo
-        if not yahoo_target:
-            raise HTTPException(status_code=400, detail=f"{ticker} is not Yahoo-backed")
-        if equity is not None:
-            symbol = equity.symbol
-        elif benchmark is not None:
-            symbol = benchmark.symbol
-        else:
-            assert price_target is not None
-            symbol = price_target.symbol
-        rows = prices_cli._query_yahoo_candles(symbol, since=since, until=until, limit=limit)
+        elif resolved_source == "coinbase":
+            assert crypto is not None
+            assert crypto.coinbase_product is not None
+            rows = prices_cli._query_coinbase_candles(
+                crypto.coinbase_product, since=since, until=until, limit=limit, conn=conn
+            )
+        else:  # yahoo
+            if equity is not None:
+                symbol = equity.symbol
+            elif benchmark is not None:
+                symbol = benchmark.symbol
+            else:
+                assert price_target is not None
+                symbol = price_target.symbol
+            rows = prices_cli._query_yahoo_candles(
+                symbol, since=since, until=until, limit=limit, conn=conn
+            )
 
     return {"ticker": ticker.upper(), "source": resolved_source, "rows": rows}
 
@@ -221,6 +256,7 @@ def _signals(
     """Signal-event history from meta.signal_events. Reuses query_events()."""
     from datetime import time, timezone
 
+    from genkei.common import db
     from genkei.experiments.signal_store import query_events
 
     since_dt = (
@@ -231,15 +267,17 @@ def _signals(
         if until is not None
         else None
     )
-    events = query_events(
-        asset=asset,
-        source=source,
-        signal_kind=signal_kind,
-        direction=direction,
-        since=since_dt,
-        until=until_dt,
-        limit=limit,
-    )
+    with db.readonly_connection(timeout_seconds=DATA_QUERY_TIMEOUT_SECONDS) as conn:
+        events = query_events(
+            asset=asset,
+            source=source,
+            signal_kind=signal_kind,
+            direction=direction,
+            since=since_dt,
+            until=until_dt,
+            limit=limit,
+            conn=conn,
+        )
     return [
         {
             "event_id": ev.event_id,
@@ -260,9 +298,10 @@ def _signals(
 
 def _latest_digest() -> dict[str, Any]:
     """Return the newest weekly signal digest markdown from reports/signals/."""
-    if not _DIGEST_DIR.exists():
+    digest_dir = _digest_dir()
+    if not digest_dir.exists():
         raise HTTPException(status_code=404, detail="no weekly digest directory")
-    files = sorted(_DIGEST_DIR.glob("weekly-*.md"))
+    files = sorted(digest_dir.glob("weekly-*.md"))
     if not files:
         raise HTTPException(status_code=404, detail="no weekly digest generated yet")
     latest = files[-1]
@@ -281,10 +320,11 @@ def _research_decisions() -> list[dict[str, Any]]:
     """
     import yaml
 
-    if not _DECISIONS_DIR.exists():
+    decisions_dir = _decisions_dir()
+    if not decisions_dir.exists():
         return []
     out: list[dict[str, Any]] = []
-    for path in sorted(_DECISIONS_DIR.glob("*.md")):
+    for path in sorted(decisions_dir.glob("*.md")):
         if path.name in _DECISION_SKIP_FILES:
             continue
         fm = _parse_decision_frontmatter(path, yaml)
@@ -317,8 +357,10 @@ def _parse_decision_frontmatter(path: Path, yaml_module: Any) -> Optional[dict[s
 def _lake_health(stale_hours: float) -> list[dict[str, Any]]:
     """Per-source ingest health + primary-table liveness. Reuses watchlist CLI."""
     from genkei.cli.watchlist import _query_source_health, _with_health_status
+    from genkei.common import db
 
-    return _with_health_status(_query_source_health(), stale_hours=stale_hours)
+    with db.readonly_connection(timeout_seconds=DATA_QUERY_TIMEOUT_SECONDS) as conn:
+        return _with_health_status(_query_source_health(conn=conn), stale_hours=stale_hours)
 
 
 # ---------------------------------------------------------------------------

@@ -99,14 +99,14 @@ Concretely, "LAN-only" means:
 
 The API shares `genkeicapital-postgres` with every ingest workload, so it is
 sized to **never starve ingest**. The defaults mirror `genkei query`'s enforced
-limits (B-045) rather than reinventing them — the same read-only guard is the
-shared `genkei.common.db.run_readonly` helper both call sites use.
+limits (B-045) rather than reinventing them — the same read-only guard lives in
+`genkei.common.db` for both single-statement and multi-query reads.
 
 | Guard | Value | Where enforced |
 |---|---|---|
 | **Connection-pool ceiling** | `max_size=4` (env `GENKEI_API_MAX_POOL_SIZE`) | `src/genkei/api/pool.py` — configured on startup so the shared `db` pool is capped before the first request opens a connection. A burst of cockpit requests can hold at most 4 of the Postgres server's connections. |
-| **Read-only transaction** | `SET TRANSACTION READ ONLY` | `db.run_readonly` — Postgres rejects any write; the `/health` probe routes through it, and every reused CLI reader issues plain `SELECT`s. No write helper (`bulk_upsert` / `ingest_run` / `store_raw_blob`) is importable from `genkei.api`. |
-| **Statement timeout** | `SET LOCAL statement_timeout` (30 s default; 5 s on `/health`) | `db.run_readonly` — the server cancels a runaway query so it can't pin a pool slot. |
+| **Read-only transaction** | `SET TRANSACTION READ ONLY` | `db.readonly_connection` / `db.run_readonly` — Postgres rejects any write; `/prices`, `/signals`, `/lake/health`, and `/health` route through the shared guard. No write helper (`bulk_upsert` / `ingest_run` / `store_raw_blob`) is importable from `genkei.api`. |
+| **Statement timeout** | `SET LOCAL statement_timeout` (30 s default; 5 s on `/health`) | `db.readonly_connection` / `db.run_readonly` — the server cancels a runaway query so it can't pin a pool slot. |
 | **Response row cap** | default 100, hard ceiling 1000 rows per list endpoint | `src/genkei/api/app.py` (`DEFAULT_ROW_LIMIT` / `MAX_ROW_LIMIT`) — `/prices` and `/signals` clamp `?limit=` and push it into the SQL `LIMIT`; `/watchlist` and `/research/decisions` are naturally bounded. |
 
 ## Endpoints (all read-only)
@@ -147,6 +147,10 @@ Added to `.env.example`:
   enforced at the publish layer, not by this bind).
 - `GENKEI_API_PORT` — uvicorn port (default `8848`).
 - `GENKEI_API_MAX_POOL_SIZE` — pool ceiling (default `4`).
+- `GENKEI_API_DIGEST_DIR` — optional absolute path for weekly digest artifacts;
+  default is repo-root `reports/signals`.
+- `GENKEI_API_DECISIONS_DIR` — optional absolute path for decision-log artifacts;
+  default is repo-root `docs/research/decisions`.
 
 `GENKEI_DATABASE_URL` is the same connection string every other component uses
 (see `docs/infrastructure.md`).

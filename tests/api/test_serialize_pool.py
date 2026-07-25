@@ -11,8 +11,11 @@ from __future__ import annotations
 import json
 import os
 import unittest
+from contextlib import contextmanager
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 try:
@@ -63,6 +66,148 @@ class PoolCeilingTests(unittest.TestCase):
 
         with patch.dict(os.environ, {pool._ENV_MAX_POOL_SIZE: "not-a-number"}):
             self.assertEqual(pool.max_pool_size(), pool.DEFAULT_MAX_POOL_SIZE)
+
+
+@_fastapi_required
+class WatchlistPayloadTests(unittest.TestCase):
+    def test_prices_sleeve_exposes_yahoo_benchmarks(self) -> None:
+        from genkei.api import app
+
+        body = app._watchlist("prices")
+
+        self.assertIn("benchmarks", body)
+        self.assertTrue(any(b["symbol"] == "SPY" for b in body["benchmarks"]))
+        self.assertNotIn("equities", body)
+
+    def test_full_watchlist_exposes_yahoo_benchmarks(self) -> None:
+        from genkei.api import app
+
+        body = app._watchlist(None)
+
+        self.assertIn("benchmarks", body)
+        self.assertTrue(any(b["symbol"] == "QQQ" for b in body["benchmarks"]))
+
+
+@_fastapi_required
+class ArtifactPathTests(unittest.TestCase):
+    def test_default_artifact_dirs_are_repo_rooted_not_cwd_relative(self) -> None:
+        from genkei.api import app
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(app._ENV_DIGEST_DIR, None)
+            os.environ.pop(app._ENV_DECISIONS_DIR, None)
+            with TemporaryDirectory() as temp_dir:
+                original_cwd = os.getcwd()
+                try:
+                    os.chdir(temp_dir)
+                    self.assertEqual(app._digest_dir(), app._REPO_ROOT / "reports/signals")
+                    self.assertEqual(
+                        app._decisions_dir(), app._REPO_ROOT / "docs/research/decisions"
+                    )
+                finally:
+                    os.chdir(original_cwd)
+
+    def test_digest_dir_can_be_overridden(self) -> None:
+        from genkei.api import app
+
+        with TemporaryDirectory() as temp_dir:
+            digest = Path(temp_dir) / "weekly-2026-07-25.md"
+            digest.write_text("weekly body", encoding="utf-8")
+
+            with patch.dict(os.environ, {app._ENV_DIGEST_DIR: temp_dir}):
+                self.assertEqual(
+                    app._latest_digest(),
+                    {"filename": digest.name, "markdown": "weekly body"},
+                )
+
+    def test_decisions_dir_can_be_overridden(self) -> None:
+        from genkei.api import app
+
+        with TemporaryDirectory() as temp_dir:
+            decision = Path(temp_dir) / "2026-07-25-test.md"
+            decision.write_text(
+                "---\n"
+                "date: 2026-07-25\n"
+                "asset: TEST\n"
+                "sleeve: crypto-core\n"
+                "status: pending\n"
+                "---\n"
+                "body\n",
+                encoding="utf-8",
+            )
+
+            with patch.dict(os.environ, {app._ENV_DECISIONS_DIR: temp_dir}):
+                rows = app._research_decisions()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["file"], decision.name)
+        self.assertEqual(rows[0]["asset"], "TEST")
+
+
+@_fastapi_required
+class ReadonlyGuardUsageTests(unittest.TestCase):
+    def _guard(self, calls: list[int], conn: object):
+        @contextmanager
+        def guard(*, timeout_seconds: int):
+            calls.append(timeout_seconds)
+            yield conn
+
+        return guard
+
+    def test_prices_passes_guarded_connection_to_reader(self) -> None:
+        from genkei.api import app
+
+        calls: list[int] = []
+        guarded_conn = object()
+        with (
+            patch("genkei.common.db.readonly_connection", self._guard(calls, guarded_conn)),
+            patch("genkei.cli.prices._query_coingecko_market_data", return_value=[]) as query,
+        ):
+            body = app._prices("BTC", source="coingecko", since=None, until=None, limit=5)
+
+        self.assertEqual(body, {"ticker": "BTC", "source": "coingecko", "rows": []})
+        self.assertEqual(calls, [app.DATA_QUERY_TIMEOUT_SECONDS])
+        self.assertIs(query.call_args.kwargs["conn"], guarded_conn)
+
+    def test_signals_passes_guarded_connection_to_query_events(self) -> None:
+        from genkei.api import app
+
+        calls: list[int] = []
+        guarded_conn = object()
+        with (
+            patch("genkei.common.db.readonly_connection", self._guard(calls, guarded_conn)),
+            patch("genkei.experiments.signal_store.query_events", return_value=[]) as query,
+        ):
+            rows = app._signals(
+                asset=None,
+                source=None,
+                signal_kind=None,
+                direction=None,
+                since=None,
+                until=None,
+                limit=5,
+            )
+
+        self.assertEqual(rows, [])
+        self.assertEqual(calls, [app.DATA_QUERY_TIMEOUT_SECONDS])
+        self.assertIs(query.call_args.kwargs["conn"], guarded_conn)
+
+    def test_lake_health_passes_guarded_connection_to_reader(self) -> None:
+        from genkei.api import app
+
+        calls: list[int] = []
+        guarded_conn = object()
+        with (
+            patch("genkei.common.db.readonly_connection", self._guard(calls, guarded_conn)),
+            patch("genkei.cli.watchlist._query_source_health", return_value=[]) as query,
+            patch("genkei.cli.watchlist._with_health_status", return_value=[]) as with_status,
+        ):
+            rows = app._lake_health(12.0)
+
+        self.assertEqual(rows, [])
+        self.assertEqual(calls, [app.DATA_QUERY_TIMEOUT_SECONDS])
+        query.assert_called_once_with(conn=guarded_conn)
+        with_status.assert_called_once_with([], stale_hours=12.0)
 
 
 if __name__ == "__main__":

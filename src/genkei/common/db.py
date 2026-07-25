@@ -7,6 +7,8 @@ plus credential environment variables. Exposes:
 - a lazily-initialized connection pool (:func:`get_pool`, :func:`reset_pool`),
 - a :func:`connection` context manager that commits on success and rolls back
   on exception,
+- a :func:`readonly_connection` context manager that applies ``READ ONLY`` and
+  ``statement_timeout`` to all queries run through the yielded connection,
 - :func:`bulk_upsert` for ``INSERT ... ON CONFLICT`` batched writes,
 - :func:`ingest_run` — the context manager every ingester wraps its work in,
   which records a row in ``meta.ingest_runs``.
@@ -157,6 +159,25 @@ def connection() -> Iterator[psycopg.Connection]:
 DEFAULT_READONLY_TIMEOUT_SECONDS = 30
 
 
+@contextmanager
+def readonly_connection(
+    *,
+    timeout_seconds: int = DEFAULT_READONLY_TIMEOUT_SECONDS,
+) -> Iterator[psycopg.Connection]:
+    """Yield a connection inside a READ ONLY transaction with a statement timeout.
+
+    This is the multi-query sibling of :func:`run_readonly`: callers can reuse
+    existing reader helpers without losing the transaction-level write guard or
+    the server-side timeout.
+    """
+    timeout_ms = int(timeout_seconds) * 1000
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SET TRANSACTION READ ONLY")
+            cur.execute(f"SET LOCAL statement_timeout = {timeout_ms}")
+        yield conn
+
+
 def run_readonly(
     sql_text: str,
     params: Sequence[Any] | None = None,
@@ -185,13 +206,7 @@ def run_readonly(
     allowed for it), so ``timeout_seconds`` must be a trusted int — every
     call site range-validates it before reaching here.
     """
-    timeout_ms = int(timeout_seconds) * 1000
-    with connection() as conn, conn.cursor() as cur:
-        # Both settings are transaction-scoped: they don't leak past the
-        # connection-pool return, so a later writer reusing the slot is
-        # unaffected.
-        cur.execute("SET TRANSACTION READ ONLY")
-        cur.execute(f"SET LOCAL statement_timeout = {timeout_ms}")
+    with readonly_connection(timeout_seconds=timeout_seconds) as conn, conn.cursor() as cur:
         cur.execute(sql_text, params)
         cols = [d.name for d in cur.description] if cur.description else []
         rows = list(cur.fetchall())

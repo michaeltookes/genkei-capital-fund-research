@@ -23,13 +23,12 @@ choice (B-130), and deliberately so:
   ``build_weekly_digest()``. There is one data-logic layer; the CLI and the
   API are two thin presenters over it. No SQL is duplicated here.
 * **Read-only posture is enforced in the engine, not the transport.** Every
-  endpoint that issues its own SQL routes through
-  :func:`genkei.common.db.run_readonly` — the same ``SET TRANSACTION READ
-  ONLY`` + ``SET LOCAL statement_timeout`` guard ``genkei query`` uses (B-045).
-  The API never imports ``bulk_upsert`` / ``ingest_run`` / ``store_raw_blob``;
-  it cannot reach a write path. Endpoints that reuse a CLI reader inherit that
-  reader's plain-``SELECT`` behaviour, and every list endpoint caps its row
-  count server-side.
+  DB-backed endpoint routes through :func:`genkei.common.db.readonly_connection`
+  or its single-statement sibling :func:`genkei.common.db.run_readonly` — the
+  same ``SET TRANSACTION READ ONLY`` + ``SET LOCAL statement_timeout`` guard
+  ``genkei query`` uses (B-045). The API never imports ``bulk_upsert`` /
+  ``ingest_run`` / ``store_raw_blob``; it cannot reach a write path. Every list
+  endpoint caps its row count server-side.
 
 Resource protection (B-137)
 ===========================

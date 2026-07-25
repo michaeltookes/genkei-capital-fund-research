@@ -7,6 +7,7 @@ from genkei.common.db import (
     connection,
     get_pool,
     ingest_run,
+    readonly_connection,
     reset_pool,
 )
 from genkei.common.http import (
@@ -28,6 +29,7 @@ __all__ = [
     "get_pool",
     "ingest_run",
     "load_env_file",
+    "readonly_connection",
     "reset_pool",
     "safe_decimal",
 ]
