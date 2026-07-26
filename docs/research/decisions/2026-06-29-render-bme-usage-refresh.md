@@ -5,7 +5,9 @@ sleeve: crypto-tactical
 horizon: months
 action: trim
 confidence: medium
-status: pending
+status: resolved
+superseded_by: 2026-07-26-render-exit-into-sol
+trigger_fired_at: 2026-07-16
 supersedes: 2026-06-28-render-depin-compute-thesis
 trigger_reassessment: "BME usage inflects up — last-30d fees exceed the prior-30d bucket for 2+ consecutive monthly checks OR monthly BME fees reclaim ~$140K (Q1-2026 run-rate) [bull re-engage] OR RENDER 90d relative strength vs SOL flips >+15pp [idiosyncratic strength] OR price finally catches down to the usage decline so P/F compresses below ~400x with fees still at lows [confirm exit, trim remainder] OR USD (DTWEXBGS) >123 / VIX sustained >22 [macro headwind]"
 related:
@@ -109,4 +111,5 @@ Same structural limits as 06-28 (no SEC insiders for a token; no Render-specific
 
 ## Outcome (filled in by /reflect-decisions)
 
-(reserved — pending)
+- **Resolved:** 2026-07-26 (superseded, not horizon-paired) — **superseded by `2026-07-26-render-exit-into-sol`.**
+- **Trigger mechanics:** the bull re-engage arm ("monthly BME fees reclaim ~$140K") fired mechanically on 2026-07-16, when a single $78.3K day pushed July fees past the threshold ($150K by the 26th). The reassessment inspected the daily series and found the firing was a one-day artifact — 52% of the month in one day; ex-spike July runs ~$86K/mo, at the May–June series lows. The reassessment concluded **exit (sell the stub, swap into SOL)** rather than re-engage, and rewrote the trigger to be spike-robust. No benchmark alpha computed (replaced, not held to horizon).
