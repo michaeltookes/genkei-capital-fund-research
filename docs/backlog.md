@@ -135,8 +135,8 @@ Once cross-source data is in, the system starts producing investable signals.
 _B-064 follow-ups (wire the remaining signal emitters) shipped — all emitters landed and are chained into the daily workflows; removed 2026-07-01, see `docs/resolved.md`. B-111 (equity relative-strength emitter) also resolved 2026-06-06 and now lives only in `docs/resolved.md`. B-068 (threshold alert engine) shipped 2026-07-16 — see `docs/resolved.md`._
 
 ### B-139 — Chainlink staking-capacity monitor (`staking.chain.link` opening alert)
-- **Status:** open
-- **Priority:** medium
+- **Status:** deferred until E-002 cockpit ships (2026-07-26, per Michael) — **do not build on the Discord alert path.** Michael does not want a Discord server/channel as the delivery surface; the monitor should alert into the cockpit interface (B-132+) once it exists. Poll/threshold design below stands; only the delivery channel changes.
+- **Priority:** medium (blocked on interface)
 - **Context:** Michael holds LINK (crypto core) and wants into the v0.2 community staking pool (~4.32% effective). The pool (40,875,000 LINK community allotment) has been full since Early Access (Dec 2023); under General Access anyone can stake **whenever an existing staker withdraws and space frees up** — no allowlist, just speed. Openings are therefore an on-chain observable: the v0.2 community pool contract exposes `getMaxPoolSize()` / `getTotalPrincipal()`, and available capacity = max − principal. Requested 2026-07-25 (session that logged the token-necessity research question — the staking what-if is the reason LINK stays a conviction hold).
 - **Acceptance criteria:**
   - GH Actions cron polls available capacity via `eth_call` against a public Ethereum RPC (no API key; builder verifies the current community-pool contract address + selectors from docs.chain.link — v0.2 community pool is believed to be `0xBc10f2E862ED4502144c7d632a3459F49DFCDB5e`).
