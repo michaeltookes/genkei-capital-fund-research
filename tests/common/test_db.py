@@ -417,11 +417,14 @@ class IngestRunTests(unittest.TestCase):
     def test_failure_audit_error_preserves_original_exception(self) -> None:
         self._seed_returning_id(12)
         original = self.fake_pool.connection
+        connection_calls = 0
 
         @contextmanager
         def failing_second_connection() -> Iterator[_FakeConnection]:
+            nonlocal connection_calls
+            connection_calls += 1
             with original() as conn:
-                if len(self.fake_pool.connections) == 2:
+                if connection_calls == 2:
                     conn.cursor_obj.execute_error = RuntimeError("audit failed")
                 yield conn
 
