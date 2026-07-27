@@ -142,7 +142,7 @@ _B-064 follow-ups (wire the remaining signal emitters) shipped — all emitters 
   - GH Actions cron polls available capacity via `eth_call` against a public Ethereum RPC (no API key; builder verifies the current community-pool contract address + selectors from docs.chain.link — v0.2 community pool is believed to be `0xBc10f2E862ED4502144c7d632a3459F49DFCDB5e`).
   - Alert via the cockpit interface (B-132+) when available capacity ≥ a configurable threshold (default ≥ 100 LINK — dust-sized churn isn't actionable), including the amount free and a `staking.chain.link` link. Re-alert only on threshold re-cross, not every poll.
   - Poll cadence as tight as GH Actions scheduling honestly allows (~15 min; document that cron drift makes minutes-level sniping unreliable — the realistic catch is larger withdrawals and, above all, a **v0.3 / pool-expansion event**, which this monitor catches at announcement-scale capacity).
-  - Secondary tripwire: add `chainlink staking v0.3` / pool-expansion terms to the GDELT `gdelt_terms` watch so an expansion announcement surfaces in news flow even before capacity moves on-chain.
+  - Secondary tripwire: add `chainlink staking v0.3` / pool-expansion terms to LINK's GDELT `gdelt_terms` watch so an expansion announcement surfaces in news flow even before capacity moves on-chain; keep `Chainlink` in that list too, because explicit `gdelt_terms` replace the implicit name match.
 
 ## Phase 7 — Operations & hardening
 
