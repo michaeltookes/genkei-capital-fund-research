@@ -415,24 +415,30 @@ class IngestRunTests(unittest.TestCase):
         self.assertEqual(fail_params, ["ctrl-c", 2, 5])
 
     def test_failure_audit_error_preserves_original_exception(self) -> None:
-        self._seed_returning_id(12)
-        original = self.fake_pool.connection
+        connection_calls = 0
 
         @contextmanager
-        def failing_second_connection() -> Iterator[_FakeConnection]:
-            with original() as conn:
-                if len(self.fake_pool.connections) == 2:
-                    conn.cursor_obj.execute_error = RuntimeError("audit failed")
-                yield conn
+        def failing_audit_connection() -> Iterator[_FakeConnection]:
+            nonlocal connection_calls
+            connection_calls += 1
 
-        self.fake_pool.connection = failing_second_connection  # type: ignore[assignment]
+            conn = _FakeConnection()
+            self.fake_pool.connections.append(conn)
+            if connection_calls == 1:
+                conn.cursor_obj.fetch_value = (12,)
+            elif connection_calls == 2:
+                conn.cursor_obj.execute_error = RuntimeError("audit failed")
+            yield conn
+
+        self.fake_pool.connection = failing_audit_connection  # type: ignore[assignment]
 
         with (
-            self.assertLogs("genkei.common.db", level="ERROR"),
+            patch.object(db._LOGGER, "exception") as log_exception,
             self.assertRaisesRegex(RuntimeError, "ingest failed"),
             db.ingest_run("sec"),
         ):
             raise RuntimeError("ingest failed")
+        log_exception.assert_called_once_with("Failed to mark ingest run %s as failed", 12)
 
     def test_truncates_long_error_messages(self) -> None:
         self._seed_returning_id(1)

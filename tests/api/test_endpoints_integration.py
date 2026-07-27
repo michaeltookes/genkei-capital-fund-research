@@ -84,7 +84,7 @@ def _seed_signal_event() -> None:
             "INSERT INTO meta.signal_events (asset, asset_class, horizon, ts, source, "
             "signal_kind, direction, strength, payload, source_ref, ingest_run_id) "
             "VALUES ('BTC', 'crypto', 'crypto:core', %s, 'tvl_drawdown', 'drawdown', "
-            "'bearish', 2.5, '{}'::jsonb, 'ref-1', %s)",
+            "'bearish', 0.5, '{}'::jsonb, 'ref-1', %s)",
             [datetime(2026, 5, 12, tzinfo=timezone.utc), run_id],
         )
 
