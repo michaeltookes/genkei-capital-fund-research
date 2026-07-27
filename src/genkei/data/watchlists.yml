@@ -114,6 +114,11 @@ crypto_price_targets:
     coingecko_id: liquity
     asset_class: crypto
     role: Price coverage for the 2026-07-24 LQTY avoid decision; not a crypto-tactical research target.
+  - symbol: VIRTUAL
+    name: Virtuals Protocol
+    coingecko_id: virtual-protocol
+    asset_class: crypto
+    role: Price coverage for the 2026-07-26 VIRTUAL hold-vs-ETH-swap decision; not a crypto-tactical research target.
 
 # Equities watchlist.
 #

@@ -1,5 +1,5 @@
 ---
-date: 2026-07-25
+date: 2026-07-26
 asset: VIRTUAL
 sleeve: crypto-tactical
 horizon: months
@@ -27,7 +27,7 @@ related:
 
 Michael holds a VIRTUAL position from the 2024–2025 AI-agent mania (VIRTUAL was *the* "create your own on-chain agent" play, ATH $5.07 on 2025-01-02). Two questions: (1) is the project still relevant and still building, now that Claude Code / Codex give anyone with a subscription an on-demand agent — does an on-chain agent launchpad still have a reason to exist? (2) hold, or swap the position into ETH while ETH is still depressed (~$1,878, −50% over 1y)? Sleeve: crypto-tactical (VIRTUAL was never a core holding; ETH is). Horizon: months — this is a rotation call, graded VIRTUAL-return vs ETH-return from today. Written before querying, what would change the answer: evidence that Virtuals' *current* activity (fees, agent volume) is durable rather than catalyst-spike-and-decay, and that value from that activity actually reaches VIRTUAL holders — that combination would justify holding; its absence favors consolidating into core-sleeve quality.
 
-**Coverage caveat:** VIRTUAL is not on the watchlist — no lake history (`genkei prices --ticker VIRTUAL` → not found). Market/fee data pulled directly from the CoinGecko and DeFiLlama public APIs (the same sources the lake ingests); ETH-side data from the lake.
+**Coverage caveat:** VIRTUAL is now configured as a price-only CoinGecko target for reflection coverage; before this wiring landed, there was no lake history (`genkei prices --ticker VIRTUAL` → not found). Market/fee data pulled directly from the CoinGecko and DeFiLlama public APIs (the same sources the lake ingests); ETH-side data from the lake.
 
 ## Macro context
 
