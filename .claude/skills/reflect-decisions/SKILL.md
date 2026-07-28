@@ -17,7 +17,7 @@ Runs the outcome-pairing cycle defined in `prompts/reflect-on-decisions.md`. Tur
 
 Walk `docs/research/decisions/*.md` (excluding `_template.md` and `README.md`):
 
-1. Parse YAML frontmatter (between `---` fences). Skip files with terminal statuses: `resolved` (already reflected) and `deferred` (explicitly postponed because required data was unavailable). Note both counts in the run summary.
+1. Parse YAML frontmatter (between `---` fences). Skip files with terminal statuses: `resolved` (already reflected) and `deferred` (explicitly postponed because required data was unavailable), and skip `inactive` files whose trade/event has not executed yet. Note counts in the run summary.
 2. Read optional `action` frontmatter. If it is missing, inspect the decision's recommendation before queuing it: backfill an explicit action for any clear `buy`, `add`, `trim`, `sell`, `avoid`, or `harvest_loss` call and add the file to an `action_backfilled` list for the batch summary/commit; only treat missing action as legacy `hold` when the recommendation is plainly hold/maintain. If the direction is ambiguous, skip the file and report it for manual action tagging rather than grading it.
 3. **Early-resolution check (before the horizon math).** If the decision was superseded or its trigger fired before horizon, it resolves *now* with a forward-link, not by benchmark pairing (see `docs/research/README.md` -> "Supersession and trigger-fire"). Specifically, if `frontmatter.superseded_by` is set, OR `frontmatter.trigger_fired: true`, OR a date such as `frontmatter.trigger_fired_at` is on or before `frontmatter.date + horizon_days` - and the file is still `pending` - flip it to `resolved`, write a short `## Outcome` note pointing at the superseding/successor decision (no alpha; it was carried forward, not graded), and add it to an `early_resolved` list for the batch summary/commit. Do NOT queue it for outcome pairing. Note these as "early-resolved (supersession/trigger)" in the run summary. This catches the failure mode where a superseded decision sits `pending` and re-queues every run.
 4. Compute `elapsed_days = (today - frontmatter.date).days`.
@@ -26,6 +26,12 @@ Walk `docs/research/decisions/*.md` (excluding `_template.md` and `README.md`):
 7. If `elapsed_days >= horizon_days`, queue for outcome pairing.
 
 If the eligible queue is empty, `early_resolved` is empty, and `action_backfilled` is empty, report "no decisions past their horizon" and stop. Don't make commits in this case. If `early_resolved` or `action_backfilled` has entries, skip outcome pairing for those files but continue to the summary/test/commit path; those file edits are work done for this reflection batch.
+
+### Inactive execution records
+
+`status: inactive` is for an auditable decision stub whose trade or triggering event has not executed yet, such as a limit order awaiting fill. Do not grade it, do not use its authored file `date` as the price baseline, and do not flip it to `resolved` or `deferred` during reflection.
+
+When the order/event actually activates, update the decision frontmatter before the next reflection run: replace `date` with the actual exposure-start date, flip `status` to `pending`, and keep enough body context to explain that the authored/logged date differed from the exposure baseline. This activation step is the only case where the decision file's frontmatter `date` should change.
 
 ## Outcome pairing (per queued decision)
 
@@ -41,7 +47,7 @@ For each decision in the queue:
 3. **Compute raw alpha and decision alpha** per the prompt. Raw alpha is always `asset_return - benchmark_return`. For `buy` / `add` / `hold`, decision alpha is the same raw alpha. For `trim` / `sell` / `avoid` / `harvest_loss`, decision alpha is `benchmark_return - asset_return`, because avoided underperformance means the call worked. Annualize if horizon > 1y.
 4. **Write the `## Outcome` block** in the decision file, replacing the `(reserved - pending)` placeholder. Include resolution date, action, asset return, benchmark return, raw alpha, decision alpha, trigger-condition status, and a 2-3 sentence reflection. For `harvest_loss`, note that tax value is separate from market alpha and depends on actual sale timing, basis, and wash-sale compliance.
 5. **Flip the frontmatter `status`** from `pending` → `resolved` (or `deferred` if required data was genuinely unavailable).
-6. **Update the frontmatter `date`** — no. The original date is the decision date; resolution is a property of the outcome block. Don't overwrite the original date.
+6. **Update the frontmatter `date`** — no for normal pending decisions. The original date is the decision date; resolution is a property of the outcome block. The only exception is activating a previously `inactive` execution record before reflection, where `date` must become the actual exposure-start date so return windows use the real baseline.
 
 ## Reflection content guidelines (from the prompt)
 
@@ -68,7 +74,7 @@ After every ~10 reflections, the prompt recommends writing a `docs/research/aggr
 
 ## Constraints
 
-- **Never modify the original decision body** (Frame, Fundamentals, Phase A/B, Conclusion). Only update frontmatter `status`, one-time legacy `action` backfills, and the `## Outcome` block. The audit trail depends on the original being preserved.
+- **Never modify the original decision body** (Frame, Fundamentals, Phase A/B, Conclusion). Only update frontmatter `status`, one-time legacy `action` backfills, inactive-record activation frontmatter (`date` and `status`), and the `## Outcome` block. The audit trail depends on the original being preserved.
 - **Never fabricate realized data.** If a CLI query returns empty / errors, defer the decision rather than guess. The cycle's value is honest record-keeping.
 - **One run per cadence period.** Running the cycle daily on the same decision set produces duplicate outcome blocks; the prompt's logic already skips `resolved` so it's idempotent, but the convention is weekly-or-after-new-decisions.
 
