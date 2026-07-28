@@ -37,7 +37,7 @@ REQUIRED_KEYS = {
 VALID_SLEEVES = {"equity-core", "crypto-core", "crypto-tactical", "macro-aware"}
 VALID_HORIZONS = {"weeks", "months", "years"}
 VALID_CONFIDENCES = {"low", "medium", "high"}
-VALID_STATUSES = {"pending", "resolved", "deferred"}
+VALID_STATUSES = {"pending", "inactive", "resolved", "deferred"}
 VALID_ACTIONS = {"buy", "add", "hold", "trim", "sell", "avoid", "harvest_loss"}
 
 
@@ -285,6 +285,26 @@ class DecisionFrontmatterContractTests(unittest.TestCase):
                     trigger.strip(),
                     f"{path.name}: `trigger_reassessment` must not be empty — "
                     f"the reflection cycle uses it to know when to short-circuit",
+                )
+
+    def test_inactive_decisions_carry_activation_condition(self) -> None:
+        for path in _decision_files():
+            with self.subTest(path=path.name):
+                fm = _parse_frontmatter(path)
+                if fm["status"] != "inactive":
+                    continue
+                activation_condition = fm.get("activation_condition")
+                self.assertIsInstance(
+                    activation_condition,
+                    str,
+                    f"{path.name}: inactive decisions must explain how to activate",
+                )
+                self.assertTrue(
+                    activation_condition.strip()
+                    if isinstance(activation_condition, str)
+                    else False,
+                    f"{path.name}: inactive decisions must have a non-empty "
+                    "`activation_condition`",
                 )
 
     def test_outcome_placeholder_is_present_when_pending(self) -> None:
