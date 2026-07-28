@@ -86,13 +86,15 @@ crypto:
         becomes load-bearing the way HTTPS did for the web, ZEC is the leading
         candidate. Speculative, small starting size; held indefinitely to let
         the narrative compound (buy-and-hold, not turnover-eligible).
-    # HYPE (2026-07-27 research session). No coinbase_product: Coinbase has
-    # HYPE on its listing roadmap only as of 2026-07; the live US spot venue
-    # is Kraken (listed 2026-01-28), which the lake doesn't ingest — price
-    # comes from CoinGecko only, same pattern as JUP.
+    # HYPE (2026-07-27 research session). HYPE-USD verified live on Coinbase
+    # Exchange 2026-07-28 (status online, trading_disabled false) — the
+    # roadmap listing landed between the initiation session and this commit,
+    # so full Coinbase candle coverage applies. Kraken listed spot earlier
+    # (2026-01-28) but the lake doesn't ingest Kraken.
     - symbol: HYPE
       name: Hyperliquid
       coingecko_id: hyperliquid
+      coinbase_product: HYPE-USD
       gdelt_terms:
         - Hyperliquid
         - HYPE token
