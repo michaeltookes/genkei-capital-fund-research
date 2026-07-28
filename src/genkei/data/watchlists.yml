@@ -86,6 +86,26 @@ crypto:
         becomes load-bearing the way HTTPS did for the web, ZEC is the leading
         candidate. Speculative, small starting size; held indefinitely to let
         the narrative compound (buy-and-hold, not turnover-eligible).
+    # HYPE (2026-07-27 research session). No coinbase_product: Coinbase has
+    # HYPE on its listing roadmap only as of 2026-07; the live US spot venue
+    # is Kraken (listed 2026-01-28), which the lake doesn't ingest — price
+    # comes from CoinGecko only, same pattern as JUP.
+    - symbol: HYPE
+      name: Hyperliquid
+      coingecko_id: hyperliquid
+      gdelt_terms:
+        - Hyperliquid
+        - HYPE token
+        - HyperEVM
+      ecosystem: Hyperliquid
+      sleeve: tactical
+      rationale: >-
+        Primary-tier coverage, tactical sleeve. Dominant perp DEX on its own
+        L1; the highest-revenue protocol in crypto (~$1B TTM fees) with
+        97-99% of fees routed to on-chain HYPE buybacks via the Assistance
+        Fund — best-in-class on the token-necessity test. Tactical, not
+        core: 78% of supply uncirculated (~1%/month contributor vesting)
+        and perp-fee cyclicality keep it turnover-eligible.
   secondary:
     - symbol: PYTH
       name: Pyth Network
@@ -685,6 +705,22 @@ protocols:
       category: DePIN
       coingecko_id: render-token
       rationale: Render's Burn-and-Mint Equilibrium fees — the DePIN compute-usage proxy and load-bearing demand signal for the RENDER thesis (B-128). Fees-only like chainlink-requests; no TVL on DefiLlama.
+
+    # Hyperliquid (2026-07-27 research session) — pairs with the HYPE
+    # crypto-tactical entry. The `hyperliquid` slug carries the perp+spot
+    # DEX daily fees on `/summary/fees/` (verified 2026-07-27: dailyFees
+    # 200, ~$47M July-to-date, $1.45B all-time). Fees are the load-bearing
+    # thesis metric: 97-99% route to Assistance Fund HYPE buybacks, so the
+    # fee series IS the buyback series to first order. `coingecko_id:
+    # hyperliquid` joins fees → HYPE price for `genkei revenue-divergence`.
+    - slug: hyperliquid
+      name: Hyperliquid
+      category: Derivatives
+      coingecko_id: hyperliquid
+      gdelt_terms:
+        - Hyperliquid
+        - HyperEVM
+      rationale: Perp-DEX fee engine behind the HYPE thesis — the highest-revenue protocol in crypto; fees fund 97-99% buybacks, so fee trajectory is the add/exit trigger metric for the 2026-07-27 HYPE decision.
 
 # SEC 13F filers (institutional investment managers). One submissions
 # fetch per filer per day in the daily SEC pipeline; per-filing 13F-HR
