@@ -13,7 +13,7 @@ reflection_benchmark:
 confidence: medium
 status: inactive
 activation_condition: "Activate only if the Coinbase HYPE limit order fills: replace `date` with the actual fill date, record the execution timestamp and HYPE fill price, record a synchronized SOL mark for the benchmark, flip `status` to `pending`, and use those execution marks as the HYPE-vs-SOL reflection baseline."
-trigger_reassessment: "After activation, ADD only if monthly Hyperliquid fees reclaim >=$100M for 2+ consecutive months (growth regime returned) OR stabilize >=$60M/mo for 3 consecutive months with price holding the actual fill entry zone. EXIT/reassess if monthly fees print <$40M for 2 consecutive months, if HYPE loses $45 after fill, if Hyperliquid open interest or volume share materially reverses for 2+ consecutive weeks, if any JELLY-style manual intervention / validator-centralization incident recurs, or if SOL 30d relative strength beats HYPE by >15pp from the fill-date baseline. Sleeve upgrade to core is OFF until contributor vesting (~1%/mo) is substantially absorbed and fees have proven a full cycle."
+trigger_reassessment: "After activation, ADD only if monthly Hyperliquid fees reclaim >=$100M for 2+ consecutive months (growth regime returned) OR stabilize >=$60M/mo for 3 consecutive months with price holding the actual fill entry zone. EXIT/reassess if monthly fees print <$40M for 2 consecutive months, if HYPE loses $45 after fill, if manually monitored external Hyperliquid open-interest or perp-volume-share indicators materially reverse for 2+ consecutive weeks, if any JELLY-style manual intervention / validator-centralization incident recurs, or if SOL 30d relative strength beats HYPE by >15pp from the fill-date baseline. Sleeve upgrade to core is OFF until contributor vesting (~1%/mo) is substantially absorbed and fees have proven a full cycle."
 related:
   - decision: 2026-07-19-crypto-bottom-top50-accumulation-thesis
   - decision: 2026-07-26-pyth-hold-through-core-upgrade
@@ -75,7 +75,7 @@ Case against:
 
 Strongest case against the buy: "You built a framework this week that sold tokens for weak accrual, and now you are using its pass to justify buying the one asset in crypto everyone already knows is the quality name — at rank #10, six weeks off its all-time high, with revenue at cycle lows and a 10:1 unlock-to-buyback flow imbalance. The token-necessity test tells you HYPE deserves a premium; it cannot tell you the premium is not already paid. FDV parity with Solana says it is. If perp fees keep bleeding, the buyback floor thins exactly when the unlocks keep coming, and you own a decelerating cash flow at a record multiple of it."
 
-This is a genuinely strong argument, and it is why the action is a starter rather than a conviction add. The desk buys the mechanism, but sizes for the cycle position and dilution math. The mirror risk — waiting for a cheap entry that never comes because HYPE simply does not trade at bear-market discounts — is real too. The starter resolves the tension by getting on the board only if the actual order fills, with adds gated on the fee series and market-share trajectory the lake now tracks.
+This is a genuinely strong argument, and it is why the action is a starter rather than a conviction add. The desk buys the mechanism, but sizes for the cycle position and dilution math. The mirror risk — waiting for a cheap entry that never comes because HYPE simply does not trade at bear-market discounts — is real too. The starter resolves the tension by getting on the board only if the actual order fills, with adds gated on the fee series the lake tracks. Market-share and open-interest reversals remain manual external checks unless a dedicated source is added.
 
 ## Decision
 
@@ -87,7 +87,7 @@ That is worth owning at starter size if the limit order fills; it is not worth c
 
 Add only after the limit order fills at starter size and market structure stays intact around the fill entry zone. No averaging up just because HYPE rallies; a larger allocation requires a fresh decision or clear improvement in Hyperliquid usage/liquidity that is not merely price beta.
 
-Exit or reduce if HYPE loses $45 after fill, if monthly Hyperliquid fees print below $40M for 2 consecutive months, if open interest or volume share materially reverses for 2+ consecutive weeks, if a JELLY-style manual intervention or validator-centralization incident recurs, or if SOL 30d relative strength beats HYPE by more than 15pp from the fill-date baseline. Those triggers intentionally separate "starter thesis is intact but volatile" from "the SOL alternative was the better destination."
+Exit or reduce if HYPE loses $45 after fill, if monthly Hyperliquid fees print below $40M for 2 consecutive months, if manually monitored external open-interest or perp-volume-share indicators materially reverse for 2+ consecutive weeks, if a JELLY-style manual intervention or validator-centralization incident recurs, or if SOL 30d relative strength beats HYPE by more than 15pp from the fill-date baseline. Those triggers intentionally separate "starter thesis is intact but volatile" from "the SOL alternative was the better destination."
 
 ---
 
