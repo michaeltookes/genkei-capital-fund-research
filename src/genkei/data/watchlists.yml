@@ -127,9 +127,10 @@ crypto:
 # Price-only CoinGecko targets.
 #
 # These tokens route through `genkei prices` and `coingecko.market_data` for
-# reflection/outcome tracking, but they are intentionally not crypto research
-# targets. Keep one-off avoid/defer decisions here so GDELT, relative-strength,
-# TVL-drawdown, and scoring pipelines do not treat them as investable signals.
+# reflection/outcome tracking, but they are intentionally not recurring crypto
+# watchlist targets. Keep one-off or external-price-only decisions here so
+# GDELT, relative-strength, TVL-drawdown, and scoring pipelines do not treat
+# them as investable signals.
 crypto_price_targets:
   - symbol: LQTY
     name: Liquity
