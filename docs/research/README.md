@@ -23,7 +23,7 @@ docs/research/
 ## How the reflection cycle works
 
 1. `/reflect-decisions` (loads `prompts/reflect-on-decisions.md`) — run weekly, or after each new decision lands.
-2. For every file in `decisions/` with `status: pending` past its horizon, pull realized prices, compute raw alpha plus action-aware decision alpha vs benchmark, append outcome + 2-3 sentence reflection, flip `status: resolved`.
+2. For every file in `decisions/` with `status: pending` past its horizon, pull realized prices, compute raw alpha plus action-aware decision alpha vs benchmark, append outcome + 2-3 sentence reflection, flip `status: resolved`. Files with `status: inactive` are skipped until the trade or event they describe actually activates.
 3. Commit one batch per run.
 
 ## Frontmatter contract
@@ -37,10 +37,12 @@ Every decision file's frontmatter MUST have these keys (validated in CI by `test
 | `sleeve` | string | `equity-core` / `crypto-core` / `crypto-tactical` / `macro-aware` |
 | `horizon` | string | `weeks` / `months` / `years` |
 | `confidence` | string | `low` / `medium` / `high` |
-| `status` | string | `pending` (default), `resolved` (after reflection), `deferred` (missing data source) |
+| `status` | string | `pending` (default), `inactive` (pre-execution / awaiting activation), `resolved` (after reflection), `deferred` (missing data source) |
 | `trigger_reassessment` | string | one-line description of the observation that would flip the call before horizon |
 
 Add optional keys freely (`tags`, `related`, etc.). The contract is the minimum.
+
+For an `inactive` decision, add `activation_condition` explaining exactly what must happen before it can become a normal pending decision. When activation occurs, replace `date` with the actual exposure-start date, flip `status` to `pending`, and leave the body trail intact so `/reflect-decisions` uses the real baseline rather than the authored/logged date.
 
 Recommended optional direction key:
 
@@ -62,7 +64,7 @@ Use `reflection_benchmark` when a trim/sell decision explicitly redeploys procee
 
 ## Supersession and trigger-fire (early resolution)
 
-A decision normally resolves at its horizon. Two events resolve it *early*, and both must be recorded in frontmatter so `/reflect-decisions` doesn't leave the old call leaking into the pending queue forever (it skips `resolved`/`deferred`, but a superseded decision left `pending` keeps getting re-queued — a real failure mode found during the B-118 dry run, where the 2026-05-20 SUI decision was superseded but still `pending`).
+A decision normally resolves at its horizon. Two events resolve it *early*, and both must be recorded in frontmatter so `/reflect-decisions` doesn't leave the old call leaking into the pending queue forever (it skips `resolved`/`deferred`/`inactive`, but a superseded decision left `pending` keeps getting re-queued — a real failure mode found during the B-118 dry run, where the 2026-05-20 SUI decision was superseded but still `pending`).
 
 **Supersession** — a newer decision replaces an older one's call before the older one's horizon:
 

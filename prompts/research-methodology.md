@@ -160,8 +160,9 @@ action: hold                   # buy/add/hold/trim/sell/avoid/harvest_loss
 #     - ticker: SOL
 #       weight: 0.5
 confidence: medium
-status: pending                # → resolved after /reflect-decisions runs
+status: pending                # pending → resolved after /reflect-decisions runs; use inactive for unfilled orders
 trigger_reassessment: "DGS10 above 5.0% OR quarterly revenue YoY < 0"
+# activation_condition: "For inactive records, say what flips status to pending and what date becomes the baseline."
 ---
 ```
 

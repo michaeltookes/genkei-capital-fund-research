@@ -105,9 +105,10 @@ crypto:
 # Price-only CoinGecko targets.
 #
 # These tokens route through `genkei prices` and `coingecko.market_data` for
-# reflection/outcome tracking, but they are intentionally not crypto research
-# targets. Keep one-off avoid/defer decisions here so GDELT, relative-strength,
-# TVL-drawdown, and scoring pipelines do not treat them as investable signals.
+# reflection/outcome tracking, but they are intentionally not recurring crypto
+# watchlist targets. Keep one-off or external-price-only decisions here so
+# GDELT, relative-strength, TVL-drawdown, and scoring pipelines do not treat
+# them as investable signals.
 crypto_price_targets:
   - symbol: LQTY
     name: Liquity
@@ -119,6 +120,11 @@ crypto_price_targets:
     coingecko_id: virtual-protocol
     asset_class: crypto
     role: Price coverage for the 2026-07-26 VIRTUAL hold-vs-ETH-swap decision; not a crypto-tactical research target.
+  - symbol: HYPE
+    name: Hyperliquid
+    coingecko_id: hyperliquid
+    asset_class: crypto
+    role: Price coverage for the 2026-07-27 HYPE starter initiation and HYPE-vs-SOL reflection; not promoted to recurring crypto-tactical signal coverage yet.
 
 # Equities watchlist.
 #

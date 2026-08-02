@@ -180,6 +180,14 @@ class LoadWatchlistTests(unittest.TestCase):
         self.assertIsNone(wl.find_crypto("LQTY"))
         self.assertIsNone(wl.classify("LQTY"))
 
+    def test_default_watchlist_has_hype_price_target_for_reflection(self) -> None:
+        wl = load_watchlist(DEFAULT_WATCHLIST_PATH)
+        hype = wl.find_crypto_price_target("hype")
+        self.assertIsNotNone(hype)
+        assert hype is not None
+        self.assertEqual(hype.coingecko_id, "hyperliquid")
+        self.assertIsNone(wl.find_crypto("HYPE"))
+
     def test_rejects_missing_file(self) -> None:
         with self.assertRaises(FileNotFoundError):
             load_watchlist(Path("/no/such/path.yml"))

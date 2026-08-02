@@ -27,7 +27,7 @@ A decision is **eligible for reflection** when `today - date >= horizon_days`.
 Walk `docs/research/decisions/*.md`. For each file:
 
 1. Parse the YAML frontmatter (between the `---` fences).
-2. Skip if `status: resolved` or `status: deferred` (terminal — already handled).
+2. Skip if `status: resolved` or `status: deferred` (terminal — already handled), or `status: inactive` (pre-execution / awaiting activation).
 3. Skip the template file `_template.md` and `README.md`.
 4. Read optional `action` frontmatter. If missing, inspect the decision's recommendation before queuing it: backfill an explicit action for any clear `buy`, `add`, `trim`, `sell`, `avoid`, or `harvest_loss` call and add the file to an `action_backfilled` list for the batch summary/commit; only treat missing action as legacy `hold` when the recommendation is plainly hold/maintain. If the direction is ambiguous, skip the file and report it for manual action tagging rather than grading it. Valid direction values are `buy`, `add`, `hold`, `trim`, `sell`, `avoid`, and `harvest_loss`.
 5. **Early-resolution check:** if `superseded_by` is set OR `trigger_fired_at` / `trigger_fired: true` is present — and the file is still `pending` — resolve it now (see "Early resolution beats the horizon math" above), add it to the `early_resolved` list for the batch summary/commit, and skip remaining steps for this file.
@@ -36,6 +36,10 @@ Walk `docs/research/decisions/*.md`. For each file:
 8. Add the rest to the to-reflect queue.
 
 If the queue is empty, `early_resolved` is empty, and `action_backfilled` is empty, report "no decisions past their horizon" and stop. If `early_resolved` or `action_backfilled` has entries, skip realized-data pulling and benchmark math for those files, then continue to the summary/commit path so resolved files and action-only frontmatter backfills are persisted.
+
+### Inactive execution records
+
+`status: inactive` is for an auditable decision stub whose trade has not executed yet, such as a limit order awaiting fill. Do not grade it, do not use its file `date` as the price baseline, and do not flip it to `resolved` or `deferred` during reflection. When the order actually fills, update the frontmatter in that decision file before the next reflection run: replace `date` with the actual fill date, flip `status` to `pending`, and keep enough context in the body to explain that the authored/logged date differed from the exposure start date.
 
 ---
 
