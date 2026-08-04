@@ -25,11 +25,17 @@ Local dumps defend against (1) and (2). Off-site copies are the only defense aga
 
 ## Strategy
 
+**Split posture (2026-08-03, B-138 install).** The database grew from 1.5 GB (May drill) to **34 GB, of which 32 GB is `meta.raw_blobs`** — and a full dump measured **20.7 GB / 53 min**, which the Beelink disk (28 GB free) cannot hold at any useful retention. The backup therefore splits along the replaceability line the risk table above already draws:
+
+- **Nightly core dump** — everything *except* `meta.raw_blobs` row data (`EXCLUDE_TABLE_DATA=meta.raw_blobs`). Measured **136 MB / 16 s**. Contains every irreplaceable asset: `meta.signals`, `meta.ingest_runs`, `meta.backup_runs`, all normalized tables, and the raw_blobs *schema*. Full local retention + off-site copy as originally designed.
+- **Weekly blob archive** — `backup_blobs.sh` streams `pg_dump --table=meta.raw_blobs` directly into `rclone rcat` (zero local disk), landing in `$OFFSITE_REMOTE/blobs/`. Blobs are the re-fetchable tier; worst-case loss is one week of raw payloads that vendors can re-serve. Log-only (no heartbeat — see script header for why). B-140 tracks shrinking the archive itself.
+
 | Layer | What | Where | When |
 |---|---|---|---|
-| Local nightly dump | `pg_dump --format=custom` of the genkei DB | `~/homelab-backups/genkei/daily/` on the Beelink | 04:00 UTC daily (after the ingest cron window) |
+| Local nightly core dump | `pg_dump --format=custom` minus `meta.raw_blobs` data | `~/homelab-backups/genkei/daily/` on the Beelink | 04:00 UTC daily (after the ingest cron window) |
 | Local retention (tiered, hard-linked) | 7 daily + 4 weekly + 12 monthly | same volume | rotated by `backup_postgres.sh` each run |
-| Off-site copy | Whichever target the user picks — see [Off-site](#off-site) | external to the Beelink | nightly, after the dump completes |
+| Off-site copy (core) | same core dump | R2 — see [Off-site](#off-site) | nightly, after the dump completes |
+| Off-site blob archive | `backup_blobs.sh` streamed dump of `meta.raw_blobs` | `$OFFSITE_REMOTE/blobs/` | weekly, Sundays 05:00 UTC |
 | Quarterly restore drill | `restore_postgres.sh <latest_dump>` against an isolated container | Beelink | every 3 months, logged to `docs/research/decisions/` |
 
 ### Why `pg_dump` over volume snapshots
@@ -142,7 +148,7 @@ The genkei container is broken or its volume is corrupt. You want to bring the p
    # wait for healthy:
    until docker exec genkeicapital-postgres pg_isready -U genkei_capital -d genkei_capital -q; do sleep 1; done
    ```
-4. **Run the restore.** This is the same procedure `restore_postgres.sh` automates, applied to the *real* container:
+4. **Run the restore.** This is the same procedure `restore_postgres.sh` automates, applied to the *real* container. **Split-posture addendum:** the nightly core dump restores everything except `meta.raw_blobs` rows (the table comes back empty). After the core restore, pull the newest blob archive and restore it on top: `rclone copyto $OFFSITE_REMOTE/blobs/<newest>.pgcustom /tmp/blobs.pgcustom`, `docker cp` it in, then `pg_restore -U genkei_capital -d genkei_capital --data-only --table=raw_blobs /tmp/blobs.pgcustom`. Blobs newer than the last weekly archive are gone — re-fetchable from vendors if ever needed.
    ```bash
    DUMP=~/homelab-backups/genkei/daily/$(ls -t ~/homelab-backups/genkei/daily/ | head -1)
 

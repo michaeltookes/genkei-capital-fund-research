@@ -121,9 +121,24 @@ START=$(date +%s)
 # selective restore, TOC inspection without unpacking the archive).
 # --no-owner so the dump replays cleanly into a fresh container whose
 # postgres user may differ from production.
+#
+# EXCLUDE_TABLE_DATA (optional, space-separated table names): each named
+# table keeps its schema in the dump but skips its rows. Deployed on the
+# Beelink as EXCLUDE_TABLE_DATA=meta.raw_blobs — the 32 GB re-fetchable
+# blob archive would otherwise make the nightly dump ~20.7 GB / 53 min
+# (measured 2026-08-03), which the Beelink disk can't hold at 7-day
+# retention. Blob data is covered separately by backup_blobs.sh (weekly,
+# streamed to R2). See docs/backups.md "Split posture" + B-140.
+EXCLUDE_TABLE_DATA="${EXCLUDE_TABLE_DATA:-}"
+EXCLUDE_ARGS=()
+for tbl in $EXCLUDE_TABLE_DATA; do
+  EXCLUDE_ARGS+=("--exclude-table-data=$tbl")
+done
+
 docker exec "$CONTAINER" pg_dump \
   -U "$DB_USER" -d "$DB_NAME" \
   --format=custom --no-owner \
+  "${EXCLUDE_ARGS[@]}" \
   --file=/tmp/genkei_dump.pgcustom \
   || die "pg_dump failed" 2
 
