@@ -97,12 +97,17 @@ trap finish EXIT
 mkdir -p "$BACKUP_DIR"/{daily,weekly,monthly}
 
 # Fail fast if the volume the backups land on has less free space than
-# 3x the live DB size (roughly enough headroom for the new dump + the
-# old ones in the retention window).
+# DISK_FACTOR_PCT% of the live DB size (default 300% — headroom for the
+# new dump + the retention window). The 300 default assumes ~3:1 dump
+# compression and ~7 daily slots; override when the ratio diverges —
+# e.g. a raw_blobs-heavy DB (2026-08: 32 of 34 GB is JSONB whose dump
+# compresses far below live size) can run with DISK_FACTOR_PCT=100 and
+# a shorter RETAIN_DAILY on a tight disk. See B-140.
+DISK_FACTOR_PCT="${DISK_FACTOR_PCT:-300}"
 LIVE_BYTES=$(docker exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -tAc \
   "SELECT pg_database_size(current_database())")
 FREE_BYTES=$(df -B1 --output=avail "$BACKUP_DIR" | tail -1)
-NEEDED=$((LIVE_BYTES * 3))
+NEEDED=$((LIVE_BYTES * DISK_FACTOR_PCT / 100))
 if [ "$FREE_BYTES" -lt "$NEEDED" ]; then
   die "insufficient disk: need >$((NEEDED / 1024 / 1024)) MB, have $((FREE_BYTES / 1024 / 1024)) MB"
 fi

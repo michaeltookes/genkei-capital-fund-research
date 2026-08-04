@@ -178,6 +178,18 @@ Reliability work that grows in importance as more sources go live.
 - **Priority:** **high** — until this lands the lake has no *confirmed* automated backup.
 - **Remaining:** the one step the repo half can't do from CI (governance: no autonomous homelab changes). On the Beelink, per `docs/backups.md` → "Install on the Beelink": install the 04:00-UTC cron, add `rclone.conf` for the R2 remote, set `OFFSITE_REMOTE` + `DISCORD_WEBHOOK_URL` on the cron line, run one dump by hand, and confirm both a `meta.backup_runs` row and the off-site copy landed. `backup-staleness-check.yml` pages daily until then — by design, that alert *is* the acceptance gate. Then log the first quarterly restore-drill date (next due ~2026-08-22).
 
+### B-140 — `meta.raw_blobs` growth management (32 GB and compounding)
+- **Status:** open
+- **Priority:** medium-high — discovered 2026-08-03 during the B-138 install: the database is **34 GB, of which 32 GB is `meta.raw_blobs`** (up from 1.5 GB total at the 2026-05-22 drill). Every daily ingest appends raw vendor JSON forever; GDELT/SEC/BEA payloads dominate. At this growth rate the Beelink disk (28 GB free) becomes the binding constraint on both the lake and its backups within months.
+- **Context:** raw blobs are the *re-fetchable* tier (per `docs/backups.md`), kept for provenance + re-normalization. Nobody queries them hot. Their size now (a) inflates every nightly dump, (b) forced the backup preflight override (`DISK_FACTOR_PCT`, this branch), and (c) will eventually fill the disk. Candidate fixes, not mutually exclusive:
+  - **At-rest compression:** convert `meta.raw_blobs` to a hypertable partitioned on `fetched_at` + enable TimescaleDB native compression on chunks older than ~7 days (JSONB → columnar compressed typically 5-10×). Least invasive; keeps SQL access.
+  - **Blob tiering:** archive blobs older than N months to R2 (same bucket family as backups) and delete locally, keeping a manifest table for provenance. Changes the "restore = one dump" story — restore would need dump + archive.
+  - **Per-source retention policy:** some sources (GDELT gkg raw XML/JSON) are re-fetchable from the vendor's own archive indefinitely — their local raw copies could have a hard TTL.
+- **Acceptance criteria:**
+  - Decision recorded (compression vs tiering vs TTL, or combination) with measured before/after sizes.
+  - `meta.raw_blobs` on-disk size reduced to a level where 7-day dump retention fits the Beelink disk comfortably, OR the backup posture doc updated to a deliberately different retention shape.
+  - Provenance guarantees in CLAUDE.md still hold (audit trio intact) — whatever moves off-box must remain reachable.
+
 ## Epic E-001 — 2026-06-12 codebase-review findings
 
 A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the engineering layers in good shape but the research loop operationally unproven and its instructions drifted behind the shipped code. Six items, ordered by leverage. B-117 and B-118 (both resolved 2026-06-12, see `docs/resolved.md`) protected the integrity of the decision/reflection loop before the first real reflection cycle; the rest harden ops and code quality. B-119 (resolved 2026-06-13) closed the observability half of silent-staleness. Spin-offs filed along the way: B-123 (VEEV ingest) from the B-118 dry run, and B-125 (ingest retry) from B-119 — all below (B-124 resolved, see `docs/resolved.md`).
