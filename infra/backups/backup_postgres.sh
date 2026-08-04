@@ -247,14 +247,20 @@ fi
 # failure must not fail an otherwise-good backup, so it only warns. The dump
 # itself already succeeded and was pg_restore --list-verified above.
 
-if docker exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -qtA \
+# NB: psql does NOT interpolate -v variables inside a -c string — the SQL
+# must arrive on stdin for :var substitution to happen (found live on the
+# Beelink during the 2026-08-03 install; the -c form sent literal ":started"
+# to the server).
+if docker exec -i "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -qtA \
      -v started="$START" -v finished="$END" -v bytes="$DUMP_BYTES" -v dur="$DURATION" \
      -v dumpfile="$(basename "$DUMP_FILE")" -v offsite="$OFFSITE_STATUS" -v host="$HOST_SHORT" \
-     -c "INSERT INTO meta.backup_runs
-           (started_at, finished_at, status, dump_file, dump_bytes, duration_seconds, offsite_status, host)
-         VALUES
-           (to_timestamp(:started), to_timestamp(:finished), 'ok', :'dumpfile', :bytes, :dur, :'offsite', :'host')" \
-     >/dev/null; then
+     >/dev/null <<'SQL'
+INSERT INTO meta.backup_runs
+  (started_at, finished_at, status, dump_file, dump_bytes, duration_seconds, offsite_status, host)
+VALUES
+  (to_timestamp(:started), to_timestamp(:finished), 'ok', :'dumpfile', :bytes, :dur, :'offsite', :'host');
+SQL
+then
   log "heartbeat: wrote meta.backup_runs row (offsite=$OFFSITE_STATUS)"
 else
   log "WARN: heartbeat write to meta.backup_runs failed (backup itself OK)"
