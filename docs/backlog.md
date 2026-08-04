@@ -102,7 +102,15 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - If a free source emerges or a paid budget opens: schema + collector for cross-oracle TVS share over time, by protocol category (price feeds, randomness, CCIP-style cross-chain).
   - Pair with B-081 once both exist — would let `genkei query` join LINK's TVS share against competitors' over the same time series.
 
-## Phase 3 — Custom CLI
+### B-141 — Market-sentiment layer: surface what we have, ingest what we lack
+- **Status:** open
+- **Priority:** medium — requested 2026-08-04 (Michael, after the Suilend/Coldcard security-fear week: "do we have any resources that tell us market sentiment?").
+- **Context:** The lake already carries three sentiment-adjacent surfaces that have no first-class presentation: (1) **GDELT news tone** — `gdelt.gkg` stores `tone`, `positive_score`, `negative_score`, `polarity` per article with `matched_assets` tagging (live demo 2026-08-04: BTC 7-day avg tone −1.56 across 2,383 articles during the Coldcard hack news cycle — it works); (2) **CFTC COT positioning** (`cftc.cot_reports`) — institutional long/short sentiment, weekly; (3) **flows as revealed sentiment** — stablecoin supply deltas + spot-ETF net flows. What's missing is *crowd* sentiment: no Fear & Greed index, no funding rates, no social volume.
+- **Acceptance criteria:**
+  - **Typed CLI surface first (highest leverage, zero new ingest):** `genkei sentiment [--asset BTC] [--since …]` rendering per-asset GDELT tone trajectories (7d/30d averages, article counts, tone-vs-price divergence hook) with `--json`; one-line ToolSpec append so the MCP server and read API pick it up (cockpit card candidate).
+  - **Fear & Greed ingester:** alternative.me's crypto Fear & Greed index (free API, daily, history to 2018) → new small table + backfill, standard collect/normalize shape. The classic contrarian crowd gauge.
+  - **Funding-rates survey (stretch/optional):** identify a free, TOS-clean source for BTC/ETH/SOL perp funding rates (positioning sentiment at higher frequency than COT); build only if a clean source exists — otherwise document the gap alongside B-104's OI blocker.
+  - Signal-emitter hook: extreme readings (tone z-score, F&G <20 / >80) emit into `meta.signal_events` with horizon tags so the weekly digest and threshold alerts see them.
 
 The interface the agent (and human user) uses to query the lake.
 
