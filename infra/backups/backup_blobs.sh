@@ -69,18 +69,33 @@ trap cleanup_failed_upload EXIT
 # matching day's core dump already made it off-site too. Otherwise a failed
 # 04:00 core upload paired with a successful 05:00 blob upload can leave R2's
 # latest blob containing FK references absent from R2's latest core dump.
-CORE_LIST="$(rclone lsf "$CORE_REMOTE_PATH/" --files-only)" \
-  || die "cannot list core backup remote $CORE_REMOTE_PATH" 2
-CORE_ARCHIVE="$(
-  printf '%s\n' "$CORE_LIST" \
-    | grep -E "^genkei_capital_${CORE_DATE}T[0-9]{6}Z\\.pgcustom$" \
-    | sort \
-    | tail -1 \
-    || true
-)"
-[ -n "$CORE_ARCHIVE" ] \
-  || die "no same-day core backup found in $CORE_REMOTE_PATH for $CORE_DATE; run backup_postgres.sh with OFFSITE_REMOTE before promoting blobs" 2
-log "core compatibility gate: found $CORE_REMOTE_PATH/$CORE_ARCHIVE"
+find_uploaded_core_archive() {
+  local core_archive core_list
+  core_archive="$(
+    docker exec -i "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -qtA \
+      -v prefix="genkei_capital_${CORE_DATE}T" <<'SQL'
+SELECT dump_file
+FROM meta.backup_runs
+WHERE status = 'ok'
+  AND offsite_status = 'uploaded'
+  AND substring(dump_file from 1 for char_length(:'prefix')) = :'prefix'
+  AND dump_file ~ '^genkei_capital_[0-9]{8}T[0-9]{6}Z\.pgcustom$'
+ORDER BY dump_file DESC
+LIMIT 1;
+SQL
+  )" || die "cannot query core backup heartbeat table meta.backup_runs" 2
+  [ -n "$core_archive" ] \
+    || die "no same-day uploaded core backup heartbeat found in meta.backup_runs for $CORE_DATE; run backup_postgres.sh with OFFSITE_REMOTE before promoting blobs" 2
+
+  core_list="$(rclone lsf "$CORE_REMOTE_PATH/" --files-only)" \
+    || die "cannot list core backup remote $CORE_REMOTE_PATH" 2
+  printf '%s\n' "$core_list" | grep -Fx -- "$core_archive" >/dev/null \
+    || die "core heartbeat says uploaded, but $CORE_REMOTE_PATH/$core_archive is missing" 2
+  printf '%s\n' "$core_archive"
+}
+
+CORE_ARCHIVE="$(find_uploaded_core_archive)"
+log "core compatibility gate: found uploaded core $CORE_REMOTE_PATH/$CORE_ARCHIVE"
 
 log "streaming $BLOB_TABLE from $CONTAINER → $TMP_DEST (temporary key, no local copy)"
 START=$(date +%s)
@@ -96,6 +111,9 @@ UPLOADED=$(rclone size --json "$TMP_DEST" | sed -n 's/.*"bytes":\([0-9]*\).*/\1/
 [ -n "$UPLOADED" ] || die "cannot stat uploaded object $TMP_DEST" 2
 [ "$UPLOADED" -ge "$MIN_BYTES" ] \
   || die "uploaded temporary object is ${UPLOADED} bytes (< MIN_BYTES=$MIN_BYTES) — truncated stream?" 2
+
+CORE_ARCHIVE="$(find_uploaded_core_archive)"
+log "core compatibility gate before promotion: found uploaded core $CORE_REMOTE_PATH/$CORE_ARCHIVE"
 
 log "promoting validated blob archive → $DEST"
 rclone moveto "$TMP_DEST" "$DEST" \
