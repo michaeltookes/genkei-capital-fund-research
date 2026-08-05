@@ -14,13 +14,13 @@
 # tables (meta.signals, meta.ingest_runs, normalized data) are covered by
 # the nightly core dump.
 #
-# Observability: log-only, NO meta.backup_runs heartbeat — that table's
-# staleness contract belongs to the nightly core dump and a weekly row
-# here could mask a dead nightly cron from backup-staleness-check.yml.
-# Uploads land under a temporary prefix first; only a size-validated
-# archive is promoted to the final timestamped key that restore runbooks
-# discover as "latest". Failures exit non-zero (cron mail / log) and the
-# off-site listing gap is visible in R2.
+# Observability: success writes a row to meta.backup_blob_runs, not
+# meta.backup_runs. The nightly core dump owns meta.backup_runs, and a
+# weekly blob row there could mask a dead nightly cron. The staleness
+# workflow reads both tables separately. Uploads land under a temporary
+# prefix first; only a size-validated archive is promoted to the final
+# timestamped key that restore runbooks discover as "latest". Failures
+# exit non-zero (cron mail / log) and write no heartbeat row.
 #
 # Usage (cron, Sundays 05:00 UTC — after the 04:00 core dump):
 #   OFFSITE_REMOTE=r2:genkei-backups ~/homelab/scripts/genkei-backups/backup_blobs.sh
@@ -36,6 +36,7 @@ OFFSITE_REMOTE="${OFFSITE_REMOTE:-}"
 # A streamed dump that "succeeds" at a fraction of the expected size means
 # a broken pipe or an empty table — treat below-floor uploads as failure.
 MIN_BYTES="${MIN_BYTES:-1000000000}"   # 1 GB; archive is ~20 GB as of 2026-08
+HOST_SHORT="$(hostname -s 2>/dev/null || echo beelink)"
 
 log() { printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 die() { log "FATAL: $*"; exit "${2:-1}"; }
@@ -46,8 +47,10 @@ die() { log "FATAL: $*"; exit "${2:-1}"; }
 command -v rclone >/dev/null || die "rclone not installed"
 
 TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
-DEST="$OFFSITE_REMOTE/blobs/raw_blobs_${TIMESTAMP}.pgcustom"
-TMP_DEST="$OFFSITE_REMOTE/blobs/_tmp/raw_blobs_${TIMESTAMP}.pgcustom.tmp"
+REMOTE_PATH="$OFFSITE_REMOTE/blobs"
+ARCHIVE_FILE="raw_blobs_${TIMESTAMP}.pgcustom"
+DEST="$REMOTE_PATH/$ARCHIVE_FILE"
+TMP_DEST="$REMOTE_PATH/_tmp/raw_blobs_${TIMESTAMP}.pgcustom.tmp"
 PROMOTED=0
 
 cleanup_failed_upload() {
@@ -69,7 +72,6 @@ docker exec "$CONTAINER" pg_dump \
   | rclone rcat "$TMP_DEST" \
   || die "streamed dump/upload failed" 2
 
-DURATION=$(( $(date +%s) - START ))
 UPLOADED=$(rclone size --json "$TMP_DEST" | sed -n 's/.*"bytes":\([0-9]*\).*/\1/p')
 [ -n "$UPLOADED" ] || die "cannot stat uploaded object $TMP_DEST" 2
 [ "$UPLOADED" -ge "$MIN_BYTES" ] \
@@ -83,5 +85,25 @@ FINAL_BYTES=$(rclone size --json "$DEST" | sed -n 's/.*"bytes":\([0-9]*\).*/\1/p
   || die "promoted object is ${FINAL_BYTES:-unknown} bytes; expected ${UPLOADED}" 2
 PROMOTED=1
 
+END=$(date +%s)
+DURATION=$((END - START))
 log "blob archive uploaded: $(( UPLOADED / 1024 / 1024 )) MB in ${DURATION}s"
+
+if docker exec -i "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -qtA \
+     -v started="$START" -v finished="$END" -v bytes="$FINAL_BYTES" -v dur="$DURATION" \
+     -v archive="$ARCHIVE_FILE" -v remote="$REMOTE_PATH" -v blob_table="$BLOB_TABLE" \
+     -v host="$HOST_SHORT" >/dev/null <<'SQL'
+INSERT INTO meta.backup_blob_runs
+  (started_at, finished_at, status, blob_table, remote, archive_file,
+   archive_bytes, duration_seconds, host)
+VALUES
+  (to_timestamp(:started), to_timestamp(:finished), 'ok', :'blob_table',
+   :'remote', :'archive', :bytes, :dur, :'host');
+SQL
+then
+  log "heartbeat: wrote meta.backup_blob_runs row"
+else
+  log "WARN: heartbeat write to meta.backup_blob_runs failed (archive itself OK)"
+fi
+
 log "OK"

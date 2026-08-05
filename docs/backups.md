@@ -2,7 +2,7 @@
 
 **B-070 / B-138.** Backup + restore strategy for `genkeicapital-postgres`. The data lake is the asset; this doc + the scripts in `infra/backups/` are what defend it.
 
-> **Status as of 2026-08-05 (B-138 CLOSED): installed and verified on the Beelink.** Nightly core cron (04:00 UTC, `EXCLUDE_TABLE_DATA=meta.raw_blobs DISK_FACTOR_PCT=25 OFFSITE_REMOTE=r2:genkei-backups`) + weekly blob cron (Sundays 05:00 UTC) are in the crontab; rclone v1.75 configured against Cloudflare R2 (bucket `genkei-backups`, token scoped to the bucket — `rclone lsd r2:` 403s by design, use `r2:genkei-backups`); first core dump verified end-to-end (137 MB / 16 s dump, off-site `uploaded`, heartbeat row in `meta.backup_runs`); first ~20 GB blob archive launched. **Install-day discoveries that reshaped the posture:** the DB had grown 1.5 GB → 34 GB (32 GB = `meta.raw_blobs`, → B-140), making a full nightly dump (20.7 GB / 53 min, measured) infeasible on the 28 GB-free disk — hence the split posture below; a psql heartbeat bug (`-v` vars don't interpolate in `-c` strings) was found and fixed live; upload bandwidth measured ~3 Mbps, so the weekly blob upload takes ~15 h (fine for Sundays, noted for restore planning — R2's $0 egress means restore pulls are bandwidth-bound too). Discord on the cron was deliberately skipped (owner preference, 2026-08-04): failure visibility = non-zero cron exit in `/tmp/genkei-backup.log` + the `backup-staleness-check.yml` GitHub issue within ~25 h. Recommended R2 lifecycle rules (set in dashboard): `blobs/` delete after 35 d, `daily/` after 45 d. Next quarterly restore drill: **due ~2026-08-22** (core restore on the Beelink + streamed blob-archive integrity check; full blob replay needs storage sized for a second full DB).
+> **Status as of 2026-08-05 (B-138 CLOSED): installed and verified on the Beelink.** Nightly core cron (04:00 UTC, `EXCLUDE_TABLE_DATA=meta.raw_blobs DISK_FACTOR_PCT=25 OFFSITE_REMOTE=r2:genkei-backups`) + weekly blob cron (Sundays 05:00 UTC) are in the crontab; rclone v1.75 configured against Cloudflare R2 (bucket `genkei-backups`, token scoped to the bucket — `rclone lsd r2:` 403s by design, use `r2:genkei-backups`); first core dump verified end-to-end (137 MB / 16 s dump, off-site `uploaded`, heartbeat row in `meta.backup_runs`); first ~20 GB blob archive launched, with successful archive runs now tracked separately in `meta.backup_blob_runs`. **Install-day discoveries that reshaped the posture:** the DB had grown 1.5 GB → 34 GB (32 GB = `meta.raw_blobs`, → B-140), making a full nightly dump (20.7 GB / 53 min, measured) infeasible on the 28 GB-free disk — hence the split posture below; a psql heartbeat bug (`-v` vars don't interpolate in `-c` strings) was found and fixed live; upload bandwidth measured ~3 Mbps, so the weekly blob upload takes ~15 h (fine for Sundays, noted for restore planning — R2's $0 egress means restore pulls are bandwidth-bound too). Discord on the cron was deliberately skipped (owner preference, 2026-08-04): failure visibility = non-zero cron exit in `/tmp/genkei-backup.log` plus `backup-staleness-check.yml` checking the nightly core heartbeat within ~25 h and the weekly blob heartbeat within ~8 d. Recommended R2 lifecycle rules (set in dashboard): `blobs/` delete after 35 d, `daily/` after 45 d. Next quarterly restore drill: **due ~2026-08-22** (core restore on the Beelink + streamed blob-archive integrity check; full blob replay needs storage sized for a second full DB).
 
 ## What's at risk
 
@@ -28,7 +28,7 @@ Local dumps defend against (1) and (2). Off-site copies are the only defense aga
 **Split posture (2026-08-03, B-138 install).** The database grew from 1.5 GB (May drill) to **34 GB, of which 32 GB is `meta.raw_blobs`** — and a full dump measured **20.7 GB / 53 min**, which the Beelink disk (28 GB free) cannot hold at any useful retention. The backup therefore splits along the replaceability line the risk table above already draws:
 
 - **Nightly core dump** — everything *except* `meta.raw_blobs` row data (`EXCLUDE_TABLE_DATA=meta.raw_blobs`). Measured **136 MB / 16 s**. Contains every irreplaceable asset: `meta.signals`, `meta.ingest_runs`, `meta.backup_runs`, all normalized/query tables, and the raw_blobs *schema*. This is a valid emergency restore for the live analytical lake, but not a full raw-payload audit/replay restore by itself: DR must pair it with the latest weekly blob archive, while Beelink quarterly drills verify the core dump plus blob-archive readability without materializing a second full raw-blobs table. Full local retention + off-site copy applies to this core tier.
-- **Weekly blob archive** — `backup_blobs.sh` streams `pg_dump --table=meta.raw_blobs` directly into `rclone rcat` (zero local disk), staging under `$OFFSITE_REMOTE/blobs/_tmp/` before a size-validated promotion to the final `$OFFSITE_REMOTE/blobs/raw_blobs_<ts>.pgcustom` key. Blobs are the re-fetchable tier; worst-case loss is one week of raw payloads that vendors can re-serve. Log-only (no heartbeat — see script header for why). B-140 tracks shrinking the archive itself.
+- **Weekly blob archive** — `backup_blobs.sh` streams `pg_dump --table=meta.raw_blobs` directly into `rclone rcat` (zero local disk), staging under `$OFFSITE_REMOTE/blobs/_tmp/` before a size-validated promotion to the final `$OFFSITE_REMOTE/blobs/raw_blobs_<ts>.pgcustom` key. Blobs are the re-fetchable tier; worst-case loss is one week of raw payloads that vendors can re-serve. Successful runs write a separate `meta.backup_blob_runs` heartbeat, which `backup-staleness-check.yml` checks on a weekly threshold without letting a blob row mask the nightly core-dump heartbeat. B-140 tracks shrinking the archive itself.
 
 | Layer | What | Where | When |
 |---|---|---|---|
@@ -115,6 +115,9 @@ rclone ls r2:genkei-backups/daily/                               # off-site copy
 # Confirm the heartbeat landed (this is what backup-staleness-check.yml reads):
 genkei query 'SELECT finished_at, offsite_status, dump_bytes FROM meta.backup_runs ORDER BY finished_at DESC LIMIT 1'
 
+# After the first weekly blob archive completes, confirm its separate heartbeat:
+genkei query 'SELECT finished_at, archive_file, archive_bytes FROM meta.backup_blob_runs ORDER BY finished_at DESC LIMIT 1'
+
 # Install the split crons. Cron has a bare environment, so pass the
 # non-secret vars inline; source a 600-perm env file instead if you later
 # add DISCORD_WEBHOOK_URL.
@@ -128,10 +131,11 @@ genkei query 'SELECT finished_at, offsite_status, dump_bytes FROM meta.backup_ru
 crontab -l | grep -E 'backup_(postgres|blobs)'
 ```
 
-**Alerting (B-138).** Failures now surface two ways, both through the existing B-119 channels:
+**Alerting (B-138).** Failures now surface through the existing B-119 channels:
 
 - **Ran-and-errored** — the script posts a red embed to `DISCORD_WEBHOOK_URL` on any non-zero exit (an `EXIT` trap, so it fires for `pg_dump` failures, disk-preflight failures, and off-site-upload failures alike). It also still writes the error to `/tmp/genkei-backup.log`.
-- **Silently stopped** — the cron being removed, the Beelink being down, or the script dying before it can even post leaves *no fresh `meta.backup_runs` row*. `.github/workflows/backup-staleness-check.yml` runs daily on the self-hosted runner, reads the newest heartbeat over `mission_control_net`, and opens a GitHub issue + Discord ping when it's older than 25h (or missing). This is the backup-side twin of `ingest-staleness-check.yml`, and it's registered in `workflow-failure-alert.yml` so the check's *own* failures page too.
+- **Nightly core silently stopped** — the cron being removed, the Beelink being down, or the script dying before it can even post leaves *no fresh `meta.backup_runs` row*. `.github/workflows/backup-staleness-check.yml` runs daily on the self-hosted runner, reads the newest heartbeat over `mission_control_net`, and opens a GitHub issue + Discord ping when it's older than 25h (or missing).
+- **Weekly blob archive silently stopped** — `backup_blobs.sh` writes success-only rows to `meta.backup_blob_runs` after the R2 object is size-validated and promoted. The same staleness workflow reads that separate table and alerts when no blob archive heartbeat exists or the latest one is older than 192h. Keeping blob rows out of `meta.backup_runs` preserves the nightly core-dump signal.
 
 ## Restore runbook
 
@@ -261,8 +265,8 @@ Including the brand-new `meta.signals` from today's B-065 ship — the asset tha
 ## Open items
 
 - ✅ **Off-site target picked + wired** (B-138) — Cloudflare R2 via `rclone copyto`, gated on `OFFSITE_REMOTE`. See [Off-site](#off-site).
-- ✅ **Backup-failure alerting** (B-138) — Discord post on failure + `meta.backup_runs` heartbeat monitored by `backup-staleness-check.yml`. See [Alerting](#install-on-the-beelink).
-- ⏳ **Install on the Beelink + confirm first heartbeat** (B-138, manual) — the code is ready; the homelab-side step (cron + `rclone.conf` + `OFFSITE_REMOTE`/`DISCORD_WEBHOOK_URL` + verifying the first `meta.backup_runs` row) is the remaining gate. `backup-staleness-check.yml` pages daily until it's done.
+- ✅ **Backup-failure alerting** (B-138) — Discord post on core failures + separate `meta.backup_runs` and `meta.backup_blob_runs` heartbeats monitored by `backup-staleness-check.yml`. See [Alerting](#install-on-the-beelink).
+- ✅ **Install on the Beelink + confirm first core heartbeat** (B-138, manual) — crons, `rclone.conf`, `OFFSITE_REMOTE`, and the first `meta.backup_runs` row are in place; the weekly blob archive heartbeat is tracked separately in `meta.backup_blob_runs` once the long R2 upload completes.
 - ⏳ **Pin the container image.** Switch the homelab compose file from `timescale/timescaledb:latest-pg16` to the `2.26.4-pg16` documented in `docs/infrastructure.md` so restores happen against a known target version.
 
 ## Restore-drill schedule
