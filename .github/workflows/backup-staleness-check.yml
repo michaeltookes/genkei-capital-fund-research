@@ -147,7 +147,7 @@ jobs:
           re-runs comment rather than reopening. To debug on the Beelink:
 
           \`\`\`bash
-          ~/homelab/scripts/genkei-backups/backup_postgres.sh   # run a dump by hand
+          EXCLUDE_TABLE_DATA=meta.raw_blobs DISK_FACTOR_PCT=25 OFFSITE_REMOTE=r2:genkei-backups ~/homelab/scripts/genkei-backups/backup_postgres.sh
           OFFSITE_REMOTE=r2:genkei-backups ~/homelab/scripts/genkei-backups/backup_blobs.sh
           genkei query 'SELECT * FROM meta.backup_runs ORDER BY finished_at DESC LIMIT 5'
           genkei query 'SELECT * FROM meta.backup_blob_runs ORDER BY finished_at DESC LIMIT 5'
