@@ -17,8 +17,10 @@
 # Observability: log-only, NO meta.backup_runs heartbeat — that table's
 # staleness contract belongs to the nightly core dump and a weekly row
 # here could mask a dead nightly cron from backup-staleness-check.yml.
-# Failures exit non-zero (cron mail / log) and the off-site listing gap
-# is visible in R2.
+# Uploads land under a temporary prefix first; only a size-validated
+# archive is promoted to the final timestamped key that restore runbooks
+# discover as "latest". Failures exit non-zero (cron mail / log) and the
+# off-site listing gap is visible in R2.
 #
 # Usage (cron, Sundays 05:00 UTC — after the 04:00 core dump):
 #   OFFSITE_REMOTE=r2:genkei-backups ~/homelab/scripts/genkei-backups/backup_blobs.sh
@@ -45,22 +47,41 @@ command -v rclone >/dev/null || die "rclone not installed"
 
 TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
 DEST="$OFFSITE_REMOTE/blobs/raw_blobs_${TIMESTAMP}.pgcustom"
+TMP_DEST="$OFFSITE_REMOTE/blobs/_tmp/raw_blobs_${TIMESTAMP}.pgcustom.tmp"
+PROMOTED=0
 
-log "streaming $BLOB_TABLE from $CONTAINER → $DEST (no local copy)"
+cleanup_failed_upload() {
+  local rc=$?
+  if [ "$rc" -ne 0 ] && [ "$PROMOTED" -ne 1 ]; then
+    rclone deletefile "$TMP_DEST" >/dev/null 2>&1 || true
+    rclone deletefile "$DEST" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup_failed_upload EXIT
+
+log "streaming $BLOB_TABLE from $CONTAINER → $TMP_DEST (temporary key, no local copy)"
 START=$(date +%s)
 
 docker exec "$CONTAINER" pg_dump \
   -U "$DB_USER" -d "$DB_NAME" \
   --format=custom --no-owner \
   --table="$BLOB_TABLE" \
-  | rclone rcat "$DEST" \
+  | rclone rcat "$TMP_DEST" \
   || die "streamed dump/upload failed" 2
 
 DURATION=$(( $(date +%s) - START ))
-UPLOADED=$(rclone size --json "$DEST" | sed -n 's/.*"bytes":\([0-9]*\).*/\1/p')
-[ -n "$UPLOADED" ] || die "cannot stat uploaded object $DEST" 2
+UPLOADED=$(rclone size --json "$TMP_DEST" | sed -n 's/.*"bytes":\([0-9]*\).*/\1/p')
+[ -n "$UPLOADED" ] || die "cannot stat uploaded object $TMP_DEST" 2
 [ "$UPLOADED" -ge "$MIN_BYTES" ] \
-  || die "uploaded object is ${UPLOADED} bytes (< MIN_BYTES=$MIN_BYTES) — truncated stream?" 2
+  || die "uploaded temporary object is ${UPLOADED} bytes (< MIN_BYTES=$MIN_BYTES) — truncated stream?" 2
+
+log "promoting validated blob archive → $DEST"
+rclone moveto "$TMP_DEST" "$DEST" \
+  || die "failed to promote validated blob archive to $DEST" 2
+FINAL_BYTES=$(rclone size --json "$DEST" | sed -n 's/.*"bytes":\([0-9]*\).*/\1/p')
+[ "$FINAL_BYTES" = "$UPLOADED" ] \
+  || die "promoted object is ${FINAL_BYTES:-unknown} bytes; expected ${UPLOADED}" 2
+PROMOTED=1
 
 log "blob archive uploaded: $(( UPLOADED / 1024 / 1024 )) MB in ${DURATION}s"
 log "OK"
