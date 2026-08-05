@@ -271,6 +271,132 @@ class DecisionFrontmatterContractTests(unittest.TestCase):
                     msg=f"{path.name}: destination-basket weights must sum to 1.0",
                 )
 
+    def test_optional_reflection_start_is_valid(self) -> None:
+        for path in _decision_files():
+            with self.subTest(path=path.name):
+                fm = _parse_frontmatter(path)
+                if "reflection_start" not in fm:
+                    continue
+                start = fm["reflection_start"]
+                self.assertIsInstance(
+                    start,
+                    dict,
+                    f"{path.name}: `reflection_start` must be a mapping",
+                )
+                if not isinstance(start, dict):
+                    continue
+
+                start_date = start.get("date")
+                self.assertIsInstance(
+                    start_date,
+                    date,
+                    f"{path.name}: `reflection_start.date` must be a date",
+                )
+                self.assertNotIsInstance(
+                    start_date,
+                    datetime,
+                    f"{path.name}: `reflection_start.date` must be date-only",
+                )
+                self.assertEqual(
+                    start_date,
+                    fm.get("date"),
+                    f"{path.name}: `reflection_start.date` must match `date`",
+                )
+
+                asset_price = start.get("asset_price_usd")
+                self.assertIsInstance(
+                    asset_price,
+                    (int, float),
+                    f"{path.name}: `reflection_start.asset_price_usd` must be numeric",
+                )
+                self.assertNotIsInstance(
+                    asset_price,
+                    bool,
+                    f"{path.name}: `reflection_start.asset_price_usd` must be numeric",
+                )
+                self.assertGreater(
+                    asset_price,
+                    0,
+                    f"{path.name}: `reflection_start.asset_price_usd` must be positive",
+                )
+
+                asset_source = start.get("asset_price_source")
+                self.assertIsInstance(
+                    asset_source,
+                    str,
+                    f"{path.name}: `reflection_start.asset_price_source` must be a string",
+                )
+                self.assertTrue(
+                    asset_source.strip() if isinstance(asset_source, str) else False,
+                    f"{path.name}: `reflection_start.asset_price_source` must not be empty",
+                )
+
+                benchmark_prices = start.get("benchmark_prices", [])
+                self.assertIsInstance(
+                    benchmark_prices,
+                    list,
+                    f"{path.name}: `reflection_start.benchmark_prices` must be a list",
+                )
+                for mark in benchmark_prices if isinstance(benchmark_prices, list) else []:
+                    self.assertIsInstance(
+                        mark,
+                        dict,
+                        f"{path.name}: each benchmark price mark must be a mapping",
+                    )
+                    ticker = mark.get("ticker") if isinstance(mark, dict) else None
+                    self.assertIsInstance(
+                        ticker,
+                        str,
+                        f"{path.name}: each benchmark price mark needs a ticker",
+                    )
+                    self.assertTrue(
+                        ticker.strip() if isinstance(ticker, str) else False,
+                        f"{path.name}: benchmark price ticker must not be empty",
+                    )
+                    price = mark.get("price_usd") if isinstance(mark, dict) else None
+                    self.assertIsInstance(
+                        price,
+                        (int, float),
+                        f"{path.name}: benchmark price must be numeric",
+                    )
+                    self.assertNotIsInstance(
+                        price,
+                        bool,
+                        f"{path.name}: benchmark price must be numeric",
+                    )
+                    self.assertGreater(
+                        price,
+                        0,
+                        f"{path.name}: benchmark price must be positive",
+                    )
+                    source = mark.get("source") if isinstance(mark, dict) else None
+                    self.assertIsInstance(
+                        source,
+                        str,
+                        f"{path.name}: benchmark price source must be a string",
+                    )
+                    self.assertTrue(
+                        source.strip() if isinstance(source, str) else False,
+                        f"{path.name}: benchmark price source must not be empty",
+                    )
+                    provisional = (
+                        mark.get("provisional", False)
+                        if isinstance(mark, dict)
+                        else False
+                    )
+                    self.assertIsInstance(
+                        provisional,
+                        bool,
+                        f"{path.name}: benchmark `provisional` must be boolean",
+                    )
+                    note = mark.get("note") if isinstance(mark, dict) else None
+                    if note is not None:
+                        self.assertIsInstance(
+                            note,
+                            str,
+                            f"{path.name}: benchmark price note must be a string",
+                        )
+
     def test_trigger_reassessment_is_nonempty_string(self) -> None:
         for path in _decision_files():
             with self.subTest(path=path.name):

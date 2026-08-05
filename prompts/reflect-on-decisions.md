@@ -41,11 +41,21 @@ If the queue is empty, `early_resolved` is empty, and `action_backfilled` is emp
 
 `status: inactive` is for an auditable decision stub whose trade has not executed yet, such as a limit order awaiting fill. Do not grade it, do not use its file `date` as the price baseline, and do not flip it to `resolved` or `deferred` during reflection. When the order actually fills, update the frontmatter in that decision file before the next reflection run: replace `date` with the actual fill date, flip `status` to `pending`, and keep enough context in the body to explain that the authored/logged date differed from the exposure start date.
 
+If the execution fill or benchmark mark differs from the lake's same-day price snapshot, add a `reflection_start` frontmatter block before marking the file `pending`. `reflection_start.asset_price_usd` is the authoritative starting asset price, and any matching `reflection_start.benchmark_prices[].price_usd` entries are the authoritative starting benchmark prices for the named tickers.
+
 ---
 
 ## Step 2 — Pull realized data
 
 For each queued decision, pull the price series from the decision date through today. Always include `--limit 1000` on `genkei prices` calls that use `--since` / `--until`; the CLI default is 30 rows, which is too short for the 180-day and 365-day reflection windows and can drop the decision-date endpoint.
+
+### Explicit execution baselines
+
+If frontmatter includes `reflection_start`, treat it as the source of truth for starting prices. Use `reflection_start.date` as the exposure start date, pull realized data from that date through today, and do not overwrite explicit start prices with `price_at_decision_date`:
+
+- `reflection_start.asset_price_usd` replaces the asset's provider-snapshot starting price.
+- `reflection_start.benchmark_prices[].price_usd` replaces the matching SPY/BTC/destination-basket component's provider-snapshot starting price.
+- If an explicit benchmark mark is `provisional: true`, still use it for the math, but label the outcome as provisional and name the missing data that would refine it. Do not silently fall back to provider snapshots when an explicit execution baseline exists.
 
 ### Equity decisions (`sleeve: equity-core` or any equity ticker)
 
@@ -70,8 +80,8 @@ For each queued decision, pull the price series from the decision date through t
 
 For equity / crypto decisions where you have prices:
 
-- **Asset return:** `(price_today / price_at_decision_date) - 1`. Annualize if horizon > 1y by using `(1 + ret) ** (365/elapsed_days) - 1`.
-- **Benchmark return:** same calc, against SPY, BTC, or an explicit `reflection_benchmark` destination basket depending on sleeve and frontmatter.
+- **Asset return:** `(price_today / starting_asset_price) - 1`, where `starting_asset_price` is `reflection_start.asset_price_usd` when present, otherwise `price_at_decision_date`. Annualize if horizon > 1y by using `(1 + ret) ** (365/elapsed_days) - 1`.
+- **Benchmark return:** same calc, against SPY, BTC, or an explicit `reflection_benchmark` destination basket depending on sleeve and frontmatter. If `reflection_start.benchmark_prices` contains a matching ticker, use that explicit price as the benchmark component's starting price instead of the provider snapshot.
 - **Raw alpha:** `asset_return - benchmark_return`. This is always the asset's return minus benchmark return.
 - **Action lens:** use frontmatter `action` if present, otherwise the audited legacy `hold` default from Step 1. `buy`, `add`, and `hold` are long-exposure calls; positive raw alpha is good. `trim`, `sell`, `avoid`, and `harvest_loss` are exit/avoid calls; negative raw alpha is good because the avoided asset lagged the benchmark.
 - **Decision alpha:** for long-exposure calls, `asset_return - benchmark_return`; for exit/avoid calls, `benchmark_return - asset_return`. Positive decision alpha means the recommendation worked in its intended direction. For `harvest_loss`, also note that the tax value is separate from market alpha and depends on actual sale timing, basis, and wash-sale compliance.

@@ -21,10 +21,10 @@ Newest entries on top. One entry per question:
 
 ## Log
 
-### 2026-08-04 — Suilend leveraged SUI loop unwound before the ecosystem-thesis exit
+### 2026-08-04 — SUI/Suilend leveraged loop unwound early before the ecosystem-thesis exit
 - **status:** resolved
-- **context:** Follow-up execution note for `docs/research/decisions/2026-07-21-sui-suilend-leveraged-loop-contrarian.md`. The user-directed leveraged sSUI→suiUSDT→sSUI loop was closed before the 2026-08-05 SUI ecosystem-thesis exit, so the later sell decision governs remaining spot SUI only.
-- **outcome:** Loop unwound and suiUSDT borrow repaid on 2026-08-04. The 07-21 decision is marked `status: resolved` with `exited_at: 2026-08-04`; no horizon benchmark is computed because this was a manual unwind before the months horizon.
+- **context:** Michael unwound the `2026-07-21-sui-suilend-leveraged-loop-contrarian` position (action: add, leveraged sSUI→suiUSDT→sSUI loop) on 2026-08-04 and withdrew everything from Suilend before the 2026-08-05 SUI ecosystem-thesis exit, so the later sell decision governs remaining spot SUI only. None of the loop decision's triggers fired (SUI had not reclaimed $1.00, no liquidation approach, no sSUI de-peg). The exit was risk-off on security news; loan repayment cost $0.37, so exit friction was approximately zero. Fact-check of the two stories that drove it: (1) the "FBI agent stole $1M off Suilend" story is real but inverted — a former FBI agent stole ~$1M from FBI investigation-linked wallets and *deposited* it on Suilend (arrested 2026-07-31); **Suilend was the parking lot, not the victim — no protocol exploit occurred**. (2) The Coldcard story is real and severe: a 2021 firmware flaw routed seed generation to a predictable PRNG; ~1,367 BTC (~$89M) drained from ~4,585 addresses starting 2026-07-30 — affects Coldcard Mk2/Mk3 seeds generated on the bad firmware; patched, migration to fresh seeds required. Net read: the loop exit was cheap insurance during a legitimate security-fear week even though the proximate Suilend story was misread. Desk lesson: platform risk (smart-contract/custody/venue) is a real input the decision files under-weight — the 07-21 loop file priced liquidation risk but not protocol risk.
+- **outcome:** Loop unwound and suiUSDT borrow repaid on 2026-08-04 at negligible cost. The 07-21 decision is marked `status: resolved` with `exited_at: 2026-08-04`; no horizon benchmark is computed because this was a manual unwind before the months horizon. Follow-on: B-141 (sentiment layer) filed from this conversation.
 
 ### 2026-07-27 — RENDER execution override: sell call NOT executed; Michael holds (and may add small) on an all-time-bottom / beta-recovery thesis
 - **status:** resolved

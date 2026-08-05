@@ -8,8 +8,8 @@
 # docs/backups.md; this script's safety rails are deliberate.
 #
 # Usage:
-#   ./restore_postgres.sh <dump_file>                    # default port 5499
-#   PORT=5500 NAME=foo ./restore_postgres.sh <dump_file>
+#   ./restore_postgres.sh <core_dump_file> [blob_dump_file]  # default port 5499
+#   PORT=5500 NAME=foo ./restore_postgres.sh <core_dump_file> [blob_dump_file]
 #
 # Exit codes:
 #   0  restore succeeded + parity checks pass
@@ -18,18 +18,22 @@
 #   3  row-count parity check FAILED (dump is suspect)
 set -euo pipefail
 
-if [ $# -lt 1 ]; then
-  echo "usage: $0 <dump_file>" >&2
+if [ $# -lt 1 ] || [ $# -gt 2 ]; then
+  echo "usage: $0 <core_dump_file> [blob_dump_file]" >&2
   exit 1
 fi
 
 DUMP_FILE="$1"
+BLOB_DUMP_FILE="${2:-}"
 NAME="${NAME:-genkei-restore-drill}"
 PORT="${PORT:-5499}"
 PASSWORD="${PASSWORD:-drill_$(date +%s)}"
 IMAGE="${IMAGE:-timescale/timescaledb:latest-pg16}"
 
-[ -f "$DUMP_FILE" ] || { echo "dump file not found: $DUMP_FILE" >&2; exit 1; }
+[ -f "$DUMP_FILE" ] || { echo "core dump file not found: $DUMP_FILE" >&2; exit 1; }
+if [ -n "$BLOB_DUMP_FILE" ]; then
+  [ -f "$BLOB_DUMP_FILE" ] || { echo "blob dump file not found: $BLOB_DUMP_FILE" >&2; exit 1; }
+fi
 docker info >/dev/null 2>&1 || { echo "docker not available" >&2; exit 1; }
 
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
@@ -92,17 +96,35 @@ fi
 END=$(date +%s)
 log "restore complete in $((END - START))s"
 
+if [ -n "$BLOB_DUMP_FILE" ]; then
+  docker cp "$BLOB_DUMP_FILE" "$NAME":/tmp/blobs.pgcustom
+  log "restoring meta.raw_blobs from blob archive"
+  START=$(date +%s)
+  if ! docker exec "$NAME" pg_restore \
+         -U genkei_capital -d genkei_capital \
+         --data-only --single-transaction --exit-on-error \
+         /tmp/blobs.pgcustom; then
+    log "blob pg_restore FAILED"
+    exit 2
+  fi
+  END=$(date +%s)
+  log "blob restore complete in $((END - START))s"
+else
+  log "no blob archive supplied; skipping meta.raw_blobs parity for core-only dump"
+fi
+
 docker exec "$NAME" psql -U genkei_capital -d genkei_capital -c \
   "SELECT timescaledb_post_restore()" >/dev/null
 
 # --- Parity check against live (if reachable) --------------------------------
 #
-# Sample a handful of high-cardinality tables. If the live container is
-# reachable we compare row counts to flag a suspect dump immediately.
+# Sample a handful of high-cardinality core tables. If the live container
+# is reachable we compare row counts to flag a suspect dump immediately.
 # If it isn't (DR scenario where the live container is gone), we skip
-# the comparison and just report the restored counts.
+# the comparison and just report the restored counts. meta.raw_blobs is
+# checked separately because its weekly archive can legitimately lag live.
 
-TABLES=(sec.filings sec.form4_transactions meta.raw_blobs sec.form4_normalized_filings defillama.stablecoins coingecko.market_data meta.ingest_runs meta.signals)
+TABLES=(sec.filings sec.form4_transactions sec.form4_normalized_filings defillama.stablecoins coingecko.market_data meta.ingest_runs meta.signals)
 LIVE_CONTAINER="${LIVE_CONTAINER:-genkeicapital-postgres}"
 live_reachable=0
 if [ "$(docker inspect -f '{{.State.Running}}' "$LIVE_CONTAINER" 2>/dev/null || true)" = "true" ] \
@@ -113,7 +135,7 @@ else
 fi
 
 mismatches=0
-log "parity check across ${#TABLES[@]} tables:"
+log "parity check across ${#TABLES[@]} core tables:"
 for t in "${TABLES[@]}"; do
   restored=$(docker exec "$NAME" psql -U genkei_capital -d genkei_capital -tAc \
     "SELECT count(*) FROM $t" 2>/dev/null || echo "ERR")
@@ -136,6 +158,29 @@ for t in "${TABLES[@]}"; do
     printf "  %-40s restored=%s (live not reachable)\n" "$t" "$restored"
   fi
 done
+
+if [ -n "$BLOB_DUMP_FILE" ]; then
+  log "blob archive check:"
+  restored=$(docker exec "$NAME" psql -U genkei_capital -d genkei_capital -tAc \
+    "SELECT count(*) FROM meta.raw_blobs" 2>/dev/null || echo "ERR")
+  if [ "$restored" = "ERR" ] || [ "$restored" = "0" ]; then
+    printf "  %-40s restored=%-10s MISMATCH\n" "meta.raw_blobs" "$restored"
+    mismatches=$((mismatches + 1))
+  elif [ "$live_reachable" -eq 1 ]; then
+    live=$(docker exec "$LIVE_CONTAINER" psql -U genkei_capital -d genkei_capital -tAc \
+      "SELECT count(*) FROM meta.raw_blobs" 2>/dev/null || echo "ERR")
+    if [ "$live" = "ERR" ]; then
+      printf "  %-40s live=%-10s restored=%-10s MISMATCH\n" "meta.raw_blobs" "$live" "$restored"
+      mismatches=$((mismatches + 1))
+    elif [ "$live" = "$restored" ]; then
+      printf "  %-40s live=%-10s restored=%-10s OK\n" "meta.raw_blobs" "$live" "$restored"
+    else
+      printf "  %-40s live=%-10s restored=%-10s OK (weekly archive cadence)\n" "meta.raw_blobs" "$live" "$restored"
+    fi
+  else
+    printf "  %-40s restored=%s (live not reachable)\n" "meta.raw_blobs" "$restored"
+  fi
+fi
 
 if [ "$mismatches" -gt 0 ]; then
   log "FAIL: $mismatches table(s) mismatched between live and restored"

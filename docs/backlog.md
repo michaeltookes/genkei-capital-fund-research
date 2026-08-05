@@ -102,7 +102,15 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - If a free source emerges or a paid budget opens: schema + collector for cross-oracle TVS share over time, by protocol category (price feeds, randomness, CCIP-style cross-chain).
   - Pair with B-081 once both exist — would let `genkei query` join LINK's TVS share against competitors' over the same time series.
 
-## Phase 3 — Custom CLI
+### B-141 — Market-sentiment layer: surface what we have, ingest what we lack
+- **Status:** open
+- **Priority:** medium — requested 2026-08-04 (Michael, after the Suilend/Coldcard security-fear week: "do we have any resources that tell us market sentiment?").
+- **Context:** The lake already carries three sentiment-adjacent surfaces that have no first-class presentation: (1) **GDELT news tone** — `gdelt.gkg` stores `tone`, `positive_score`, `negative_score`, `polarity` per article with `matched_assets` tagging (live demo 2026-08-04: BTC 7-day avg tone −1.56 across 2,383 articles during the Coldcard hack news cycle — it works); (2) **CFTC COT positioning** (`cftc.cot_reports`) — institutional long/short sentiment, weekly; (3) **flows as revealed sentiment** — stablecoin supply deltas + spot-ETF net flows. What's missing is *crowd* sentiment: no Fear & Greed index, no funding rates, no social volume.
+- **Acceptance criteria:**
+  - **Typed CLI surface first (highest leverage, zero new ingest):** `genkei sentiment [--asset BTC] [--since …]` rendering per-asset GDELT tone trajectories (7d/30d averages, article counts, tone-vs-price divergence hook) with `--json`; one-line ToolSpec append so the MCP server and read API pick it up (cockpit card candidate).
+  - **Fear & Greed ingester:** alternative.me's crypto Fear & Greed index (free API, daily, history to 2018) → new small table + backfill, standard collect/normalize shape. The classic contrarian crowd gauge.
+  - **Funding-rates survey (stretch/optional):** identify a free, TOS-clean source for BTC/ETH/SOL perp funding rates (positioning sentiment at higher frequency than COT); build only if a clean source exists — otherwise document the gap alongside B-104's OI blocker.
+  - Signal-emitter hook: extreme readings (tone z-score, F&G <20 / >80) emit into `meta.signal_events` with horizon tags so the weekly digest and threshold alerts see them.
 
 The interface the agent (and human user) uses to query the lake.
 
@@ -173,10 +181,17 @@ Reliability work that grows in importance as more sources go live.
   - Per-source quota tracked in `meta.api_usage`.
   - CLI + dashboard query.
 
-### B-138 — Install the nightly backup on the Beelink + confirm first heartbeat
-- **Status:** open (manual homelab step; the repo half shipped 2026-07-22, see `docs/resolved.md`)
-- **Priority:** **high** — until this lands the lake has no *confirmed* automated backup.
-- **Remaining:** the one step the repo half can't do from CI (governance: no autonomous homelab changes). On the Beelink, per `docs/backups.md` → "Install on the Beelink": install the 04:00-UTC cron, add `rclone.conf` for the R2 remote, set `OFFSITE_REMOTE` + `DISCORD_WEBHOOK_URL` on the cron line, run one dump by hand, and confirm both a `meta.backup_runs` row and the off-site copy landed. `backup-staleness-check.yml` pages daily until then — by design, that alert *is* the acceptance gate. Then log the first quarterly restore-drill date (next due ~2026-08-22).
+### B-140 — `meta.raw_blobs` growth management (32 GB and compounding)
+- **Status:** open
+- **Priority:** medium-high — discovered 2026-08-03 during the B-138 install: the database is **34 GB, of which 32 GB is `meta.raw_blobs`** (up from 1.5 GB total at the 2026-05-22 drill). Every daily ingest appends raw vendor JSON forever; GDELT/SEC/BEA payloads dominate. At this growth rate the Beelink disk (28 GB free) becomes the binding constraint on both the lake and its backups within months.
+- **Context:** raw blobs are the *re-fetchable* tier (per `docs/backups.md`), kept for provenance + re-normalization. Nobody queries them hot. Their size now (a) inflates every nightly dump, (b) forced the backup preflight override (`DISK_FACTOR_PCT`, this branch), and (c) will eventually fill the disk. Candidate fixes, not mutually exclusive:
+  - **At-rest compression:** convert `meta.raw_blobs` to a hypertable partitioned on `fetched_at` + enable TimescaleDB native compression on chunks older than ~7 days (JSONB → columnar compressed typically 5-10×). Least invasive; keeps SQL access.
+  - **Blob tiering:** archive blobs older than N months to R2 (same bucket family as backups) and delete locally, keeping a manifest table for provenance. Changes the "restore = one dump" story — restore would need dump + archive.
+  - **Per-source retention policy:** some sources (GDELT gkg raw XML/JSON) are re-fetchable from the vendor's own archive indefinitely — their local raw copies could have a hard TTL.
+- **Acceptance criteria:**
+  - Decision recorded (compression vs tiering vs TTL, or combination) with measured before/after sizes.
+  - `meta.raw_blobs` on-disk size reduced to a level where 7-day dump retention fits the Beelink disk comfortably, OR the backup posture doc updated to a deliberately different retention shape.
+  - Provenance guarantees in CLAUDE.md still hold (audit trio intact) — whatever moves off-box must remain reachable.
 
 ## Epic E-001 — 2026-06-12 codebase-review findings
 

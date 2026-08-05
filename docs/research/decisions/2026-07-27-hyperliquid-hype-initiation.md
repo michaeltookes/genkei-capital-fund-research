@@ -1,5 +1,5 @@
 ---
-date: 2026-07-27
+date: 2026-07-28
 asset: HYPE
 sleeve: crypto-tactical
 horizon: months
@@ -11,8 +11,18 @@ reflection_benchmark:
     - ticker: SOL
       weight: 1.0
 confidence: medium
-status: inactive
-activation_condition: "Activate only if the Coinbase HYPE limit order fills: replace `date` with the actual fill date, record the execution timestamp and HYPE fill price, record a synchronized SOL mark for the benchmark, flip `status` to `pending`, and use those execution marks as the HYPE-vs-SOL reflection baseline."
+status: pending
+reflection_start:
+  date: 2026-07-28
+  asset_price_usd: 54.25
+  asset_price_source: Coinbase HYPE-USD limit fill
+  benchmark_prices:
+    - ticker: SOL
+      price_usd: 73.90
+      source: coingecko.market_data close
+      provisional: true
+      note: Replace with fill-time SOL quote if Michael later provides the exact brokerage execution timestamp.
+activation_record: "ACTIVATED 2026-08-05 per the original activation_condition — the Coinbase HYPE-USD limit filled. Fill: 2026-07-28 @ $54.25 (Coinbase daily low that day $53.94, so the order filled the day it was placed; confirmed by Michael 2026-08-05). `reflection_start.asset_price_usd` is the authoritative HYPE return baseline for /reflect-decisions, so the workflow must not substitute a CoinGecko date snapshot for the execution fill. Exact Coinbase fill timestamp was not captured in this PR; until Michael provides the brokerage execution timestamp, the recorded SOL benchmark mark is $73.90 (2026-07-28 close from coingecko.market_data), used only as a provisional daily-close baseline and not as a fill-synchronized price. Reflection grades HYPE-vs-SOL from the 2026-07-28 exposure baseline and should replace the provisional SOL mark with the fill-time SOL quote once the timestamp is available."
 trigger_reassessment: "After activation, ADD only if monthly Hyperliquid fees reclaim >=$100M for 2+ consecutive months (growth regime returned) OR stabilize >=$60M/mo for 3 consecutive months with price holding the actual fill entry zone. EXIT/reassess if monthly fees print <$40M for 2 consecutive months, if HYPE loses $45 after fill, if manually monitored external Hyperliquid open-interest or perp-volume-share indicators materially reverse for 2+ consecutive weeks, if any JELLY-style manual intervention / validator-centralization incident recurs, or if SOL 30d relative strength beats HYPE by >15pp from the fill-date baseline. Sleeve upgrade to core is OFF until contributor vesting (~1%/mo) is substantially absorbed and fees have proven a full cycle."
 related:
   - decision: 2026-07-19-crypto-bottom-top50-accumulation-thesis

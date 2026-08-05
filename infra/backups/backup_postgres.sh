@@ -97,12 +97,17 @@ trap finish EXIT
 mkdir -p "$BACKUP_DIR"/{daily,weekly,monthly}
 
 # Fail fast if the volume the backups land on has less free space than
-# 3x the live DB size (roughly enough headroom for the new dump + the
-# old ones in the retention window).
+# DISK_FACTOR_PCT% of the live DB size (default 300% — headroom for the
+# new dump + the retention window). The 300 default assumes ~3:1 dump
+# compression and ~7 daily slots; override when the ratio diverges —
+# e.g. a raw_blobs-heavy DB (2026-08: 32 of 34 GB is JSONB whose dump
+# compresses far below live size) can run with DISK_FACTOR_PCT=100 and
+# a shorter RETAIN_DAILY on a tight disk. See B-140.
+DISK_FACTOR_PCT="${DISK_FACTOR_PCT:-300}"
 LIVE_BYTES=$(docker exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -tAc \
   "SELECT pg_database_size(current_database())")
 FREE_BYTES=$(df -B1 --output=avail "$BACKUP_DIR" | tail -1)
-NEEDED=$((LIVE_BYTES * 3))
+NEEDED=$((LIVE_BYTES * DISK_FACTOR_PCT / 100))
 if [ "$FREE_BYTES" -lt "$NEEDED" ]; then
   die "insufficient disk: need >$((NEEDED / 1024 / 1024)) MB, have $((FREE_BYTES / 1024 / 1024)) MB"
 fi
@@ -116,9 +121,24 @@ START=$(date +%s)
 # selective restore, TOC inspection without unpacking the archive).
 # --no-owner so the dump replays cleanly into a fresh container whose
 # postgres user may differ from production.
+#
+# EXCLUDE_TABLE_DATA (optional, space-separated table names): each named
+# table keeps its schema in the dump but skips its rows. Deployed on the
+# Beelink as EXCLUDE_TABLE_DATA=meta.raw_blobs — the 32 GB re-fetchable
+# blob archive would otherwise make the nightly dump ~20.7 GB / 53 min
+# (measured 2026-08-03), which the Beelink disk can't hold at 7-day
+# retention. Blob data is covered separately by backup_blobs.sh (weekly,
+# streamed to R2). See docs/backups.md "Split posture" + B-140.
+EXCLUDE_TABLE_DATA="${EXCLUDE_TABLE_DATA:-}"
+EXCLUDE_ARGS=()
+for tbl in $EXCLUDE_TABLE_DATA; do
+  EXCLUDE_ARGS+=("--exclude-table-data=$tbl")
+done
+
 docker exec "$CONTAINER" pg_dump \
   -U "$DB_USER" -d "$DB_NAME" \
   --format=custom --no-owner \
+  "${EXCLUDE_ARGS[@]}" \
   --file=/tmp/genkei_dump.pgcustom \
   || die "pg_dump failed" 2
 
@@ -227,14 +247,20 @@ fi
 # failure must not fail an otherwise-good backup, so it only warns. The dump
 # itself already succeeded and was pg_restore --list-verified above.
 
-if docker exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -qtA \
+# NB: psql does NOT interpolate -v variables inside a -c string — the SQL
+# must arrive on stdin for :var substitution to happen (found live on the
+# Beelink during the 2026-08-03 install; the -c form sent literal ":started"
+# to the server).
+if docker exec -i "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -qtA \
      -v started="$START" -v finished="$END" -v bytes="$DUMP_BYTES" -v dur="$DURATION" \
      -v dumpfile="$(basename "$DUMP_FILE")" -v offsite="$OFFSITE_STATUS" -v host="$HOST_SHORT" \
-     -c "INSERT INTO meta.backup_runs
-           (started_at, finished_at, status, dump_file, dump_bytes, duration_seconds, offsite_status, host)
-         VALUES
-           (to_timestamp(:started), to_timestamp(:finished), 'ok', :'dumpfile', :bytes, :dur, :'offsite', :'host')" \
-     >/dev/null; then
+     >/dev/null <<'SQL'
+INSERT INTO meta.backup_runs
+  (started_at, finished_at, status, dump_file, dump_bytes, duration_seconds, offsite_status, host)
+VALUES
+  (to_timestamp(:started), to_timestamp(:finished), 'ok', :'dumpfile', :bytes, :dur, :'offsite', :'host');
+SQL
+then
   log "heartbeat: wrote meta.backup_runs row (offsite=$OFFSITE_STATUS)"
 else
   log "WARN: heartbeat write to meta.backup_runs failed (backup itself OK)"
