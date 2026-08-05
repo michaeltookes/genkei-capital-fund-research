@@ -137,6 +137,11 @@ crypto_price_targets:
     coingecko_id: liquity
     asset_class: crypto
     role: Price coverage for the 2026-07-24 LQTY avoid decision; not a crypto-tactical research target.
+  - symbol: SUSHI
+    name: Sushi
+    coingecko_id: sushi
+    asset_class: crypto
+    role: Price coverage for the 2026-08-04 SUSHI avoid decision; not a crypto-tactical research target.
   - symbol: VIRTUAL
     name: Virtuals Protocol
     coingecko_id: virtual-protocol

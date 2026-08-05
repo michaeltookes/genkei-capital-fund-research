@@ -48,7 +48,7 @@ SUSHI surfaced via the YouTube channel of Alex McCurry, Sushi's new CEO — Mich
 
 ## Flow & positioning
 
-No lake coverage (rank-465 token, not on watchlist — external APIs only this session; deliberately NOT adding SUSHI to the watchlist or price-targets given the avoid conclusion and no held position). Volume $7.2M/day on $45.7M mcap (~16% — liquid enough to exit if this ever became a position; also meme-ish churn for a "fundamentals" token). No insider-filing surface exists. The one positioning fact worth noting: the new CEO's vehicle bought ~10M SUSHI (~3.7% of supply) — real skin, modest absolute size (~$2–3M).
+No lake coverage (rank-465 token, not on watchlist — external APIs only this session; added only as a price-only `crypto_price_targets` entry so reflection can score the pending avoid call without enrolling SUSHI in signal-scoped crypto pipelines). Volume $7.2M/day on $45.7M mcap (~16% — liquid enough to exit if this ever became a position; also meme-ish churn for a "fundamentals" token). No insider-filing surface exists. The one positioning fact worth noting: the new CEO's vehicle bought ~10M SUSHI (~3.7% of supply) — real skin, modest absolute size (~$2–3M).
 
 ## Phase A — case for and case against
 
