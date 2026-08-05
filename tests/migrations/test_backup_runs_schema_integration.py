@@ -115,6 +115,23 @@ class BackupRunsSchemaIntegrationTests(unittest.TestCase):
             )
             self.assertIsNone(cur.fetchone()[0])
 
+    def test_split_backup_core_tables_do_not_reference_excluded_raw_blobs(self) -> None:
+        """The nightly core dump excludes raw_blob rows, so core tables must not FK to them."""
+        with self.harness.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT conrelid::regclass::text
+                FROM pg_constraint
+                WHERE contype = 'f'
+                  AND confrelid = 'meta.raw_blobs'::regclass
+                  AND conrelid <> 'meta.raw_blobs'::regclass
+                ORDER BY 1
+                """
+            )
+            referencing_tables = [row[0] for row in cur.fetchall()]
+
+        self.assertEqual(referencing_tables, [])
+
 
 if __name__ == "__main__":
     unittest.main()
