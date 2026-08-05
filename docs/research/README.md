@@ -44,6 +44,20 @@ Add optional keys freely (`tags`, `related`, etc.). The contract is the minimum.
 
 For an `inactive` decision, add `activation_condition` explaining exactly what must happen before it can become a normal pending decision. When activation occurs, replace `date` with the actual exposure-start date, flip `status` to `pending`, and leave the body trail intact so `/reflect-decisions` uses the real baseline rather than the authored/logged date.
 
+If the executed fill differs from the lake's same-day price snapshot, add optional `reflection_start` frontmatter before activation. It records the authoritative starting asset price and any explicit starting benchmark prices that `/reflect-decisions` must use instead of provider snapshots:
+
+```yaml
+reflection_start:
+  date: 2026-05-17
+  asset_price_usd: 123.45
+  asset_price_source: broker execution fill
+  benchmark_prices:
+    - ticker: SPY
+      price_usd: 500.00
+      source: synchronized market quote
+      provisional: false
+```
+
 Recommended optional direction key:
 
 | key | type | values |

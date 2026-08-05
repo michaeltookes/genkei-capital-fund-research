@@ -163,6 +163,15 @@ confidence: medium
 status: pending                # pending → resolved after /reflect-decisions runs; use inactive for unfilled orders
 trigger_reassessment: "DGS10 above 5.0% OR quarterly revenue YoY < 0"
 # activation_condition: "For inactive records, say what flips status to pending and what date becomes the baseline."
+# reflection_start:              # For execution fills that differ from provider snapshots.
+#   date: 2026-05-17
+#   asset_price_usd: 123.45
+#   asset_price_source: broker execution fill
+#   benchmark_prices:
+#     - ticker: SPY
+#       price_usd: 500.00
+#       source: synchronized market quote
+#       provisional: false
 ---
 ```
 
