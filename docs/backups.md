@@ -161,13 +161,14 @@ The genkei container is broken or its volume is corrupt. You want to bring the p
    # wait for healthy:
    until docker exec genkeicapital-postgres pg_isready -U genkei_capital -d genkei_capital -q; do sleep 1; done
    ```
-4. **Run the restore.** This is the same procedure `restore_postgres.sh` automates, applied to the *real* container. **Split-posture addendum:** the nightly core dump restores everything except `meta.raw_blobs` rows (the table comes back empty). After the core restore, pull the newest blob archive and restore it inside the Postgres container before `timescaledb_post_restore()`. Blobs newer than the last weekly archive are gone — re-fetchable from vendors if ever needed.
+4. **Run the restore.** This is the same procedure `restore_postgres.sh` automates, applied to the *real* container. **Split-posture addendum:** the nightly core dump restores everything except `meta.raw_blobs` rows (the table comes back empty). After the core restore, stream the newest blob archive from R2 into `pg_restore` running inside the Postgres container before `timescaledb_post_restore()`. Blobs newer than the last weekly archive are gone — re-fetchable from vendors if ever needed.
    ```bash
+   set -euo pipefail
+
    OFFSITE_REMOTE=r2:genkei-backups
    DUMP=~/homelab-backups/genkei/daily/$(ls -t ~/homelab-backups/genkei/daily/ | head -1)
    BLOB_ARCHIVE=$(rclone lsf "$OFFSITE_REMOTE/blobs/" --files-only | sort | tail -1)
    [ -n "$BLOB_ARCHIVE" ] || { echo "no blob archive found" >&2; exit 1; }
-   rclone copyto "$OFFSITE_REMOTE/blobs/$BLOB_ARCHIVE" /tmp/blobs.pgcustom
 
    docker exec genkeicapital-postgres psql -U genkei_capital -d genkei_capital \
      -c "CREATE EXTENSION IF NOT EXISTS timescaledb"
@@ -177,10 +178,10 @@ The genkei container is broken or its volume is corrupt. You want to bring the p
    docker exec genkeicapital-postgres pg_restore \
      -U genkei_capital -d genkei_capital \
      --no-owner --single-transaction --exit-on-error /tmp/dump.pgcustom
-   docker cp /tmp/blobs.pgcustom genkeicapital-postgres:/tmp/blobs.pgcustom
-   docker exec genkeicapital-postgres pg_restore \
-     -U genkei_capital -d genkei_capital \
-     --data-only --single-transaction --exit-on-error /tmp/blobs.pgcustom
+   rclone cat "$OFFSITE_REMOTE/blobs/$BLOB_ARCHIVE" \
+     | docker exec -i genkeicapital-postgres pg_restore \
+         -U genkei_capital -d genkei_capital \
+         --data-only --single-transaction --exit-on-error
    docker exec genkeicapital-postgres psql -U genkei_capital -d genkei_capital \
      -c "SELECT timescaledb_post_restore()"
    ```
