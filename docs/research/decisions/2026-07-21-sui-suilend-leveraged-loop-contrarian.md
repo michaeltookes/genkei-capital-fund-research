@@ -5,14 +5,17 @@ sleeve: crypto-tactical
 horizon: months
 action: add
 confidence: medium
-status: pending
+status: resolved
 position_type: leveraged_loop
+exited_at: 2026-08-04
+resolution_reason: manual_unwind
 trigger_reassessment: "SUI reclaims $1.00 (thesis realized → unwind loop, repay suiUSDT) OR SUI falls to the loop's liquidation price (thesis broken → forced exit) OR sSUI de-pegs from SUI by >2% (structural risk → unwind)"
 related:
   - decision: 2026-05-20-sui-position-assessment
   - decision: 2026-06-02-sui-rotation-into-eth-sol
   - decision: 2026-07-19-crypto-bottom-top50-accumulation-thesis
   - decision: 2026-07-19-suig-sui-treasury-vehicle-assessment
+  - decision: 2026-08-05-sui-ecosystem-thesis-exit
   - data: coingecko.market_data
   - data: defillama.chain_tvl
 tags:
@@ -83,6 +86,9 @@ The frontmatter `trigger_reassessment` encodes the exits: reclaim $1.00 → unwi
 
 ---
 
-## Outcome (filled in by /reflect-decisions)
+## Outcome
 
-(reserved — pending)
+- **Resolved:** 2026-08-04 (manual unwind, not horizon-paired)
+- **Exit recorded:** The leveraged sSUI→suiUSDT→sSUI loop was unwound and the suiUSDT borrow repaid before the 2026-08-05 SUI ecosystem-thesis exit. The scratch-log trail is recorded in `docs/research-questions.md`; this file is closed so `/reflect-decisions` does not later grade the leveraged add as still open through its months horizon.
+- **Trigger status:** The original $1.00 target, liquidation, and sSUI de-peg triggers are not claimed to have fired from the available record; this was a manual risk close, so no spot-SUI benchmark alpha is computed here.
+- **Reflection:** The loop was explicitly user-directed and against the desk's standing SUI research, so the important audit fact is the close date rather than a forced horizon outcome. Future leveraged-loop decisions should record the actual exit date and realized P&L inputs at unwind time, because spot-price reflection alone cannot reconstruct leverage, borrow cost, staking carry, or liquidation-path risk.

@@ -13,7 +13,8 @@ reflection_benchmark:
     - ticker: SOL
       weight: 0.5
 confidence: medium
-status: pending
+status: resolved
+superseded_by: 2026-08-05-sui-ecosystem-thesis-exit
 trigger_reassessment: "SUI chain TVL recovers above $700M within 6 months OR SUIG open-market insider buy cluster ≥2 reporters at any price within 6 months OR SUI outperforms ETH on 90d window by ≥10pp within 6 months OR SUI/BTC 30d rel-strength flips back to laggard (≤−15pp) — the latter accelerates the trim"
 related:
   - decision: 2026-05-20-sui-position-assessment
@@ -184,6 +185,9 @@ The methodology-critical comparison. All numbers as-of 2026-06-02.
 
 ---
 
-## Outcome (filled in by /reflect-decisions)
+## Outcome
 
-(reserved — pending; will resolve at 2026-12-02 or earlier on trigger)
+- **Resolved:** 2026-08-05 (early — superseded, not horizon-paired)
+- **Superseded by:** 2026-08-05-sui-ecosystem-thesis-exit
+- **Why:** The June call trimmed SUI by 75-90% and kept a 10-25% residual for capitulation-bottom optionality, benchmarked against a 50/50 ETH+SOL destination basket. The August claim-by-claim audit found that Sui usage was still bleeding and that the residual ecosystem thesis had not stabilized, so the live call moved from residual SUI exposure to a full spot exit into SOL.
+- **Reflection:** The June decision correctly de-risked SUI after the May trigger fired, but the residual optionality had to be closed once the later audit showed no usage floor. No benchmark alpha is computed here because the position was replaced before the 2026-12-02 horizon; the successor decision carries the live sell-to-SOL benchmark.

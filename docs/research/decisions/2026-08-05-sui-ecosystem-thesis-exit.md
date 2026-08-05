@@ -13,6 +13,7 @@ reflection_benchmark:
 confidence: high
 status: pending
 trigger_reassessment: "Reopen SUI only on measured ecosystem reversal: Sui chain TVL reclaims $800M (vs $416M today) with 2+ consecutive months of growth, OR watchlist Sui-protocol fees reclaim $1M/month for 2+ consecutive months (vs $314K July), OR Sui stablecoin supply grows 2+ consecutive months (vs shrinking today), OR a spot SUI ETF is APPROVED (not filed) and prints positive net flows for a month. SUI-vs-SOL relative strength alone is NOT a reopen trigger — beta bounces without usage are the pattern this exit rejects."
+supersedes: 2026-06-02-sui-rotation-into-eth-sol
 related:
   - decision: 2026-05-20-sui-position-assessment
   - decision: 2026-06-02-sui-rotation-into-eth-sol
@@ -29,7 +30,7 @@ related:
 
 ## Frame
 
-Michael's conviction in the Sui ecosystem is cracking and he asked for a validity check before "getting too conspiracy-theorist": is the chain dead in the water or hibernating with the bear? He made five checkable claims — Pokemon went to Solana instead of Sui; the Grayscale/Franklin-Templeton institutional story went silent after Oct 2025; developer activity is "lower than ever"; the ex-Facebook-team excellence story is narrative; the DATs (SUIG) confirm the decay. This session verifies each claim separately, then decides: hold the remaining SUI position or exit the ecosystem thesis. Horizon: months, graded vs SOL (the chain that keeps winning what Sui promised). Written before querying, what would change the answer: evidence that Sui *usage* (TVL, fees, stablecoins) is stabilizing or growing beneath the price — hibernation looks like flat-at-a-floor usage with building continuing; death looks like usage still bleeding relative to peers. The desk's own history here matters: the 2026-05-20 idiosyncratic-weakness trim was its best-calibrated call, and the question is whether that signal ever reversed. (It did not.)
+Michael's conviction in the Sui ecosystem is cracking and he asked for a validity check before "getting too conspiracy-theorist": is the chain dead in the water or hibernating with the bear? He made five checkable claims — Pokemon went to Solana instead of Sui; the Grayscale/Franklin-Templeton institutional story went silent after Oct 2025; developer activity is "lower than ever"; the ex-Facebook-team excellence story is narrative; the DATs (SUIG) confirm the decay. This session verifies each claim separately, then decides: hold the remaining SUI position or exit the ecosystem thesis. Horizon: months, graded vs SOL (the chain that keeps winning what Sui promised). This supersedes the 2026-06-02 trim-to-ETH+SOL decision because that call retained a residual SUI slice for capitulation-bottom optionality; this exit closes that residual and moves the live SUI decision fully to SOL. Written before querying, what would change the answer: evidence that Sui *usage* (TVL, fees, stablecoins) is stabilizing or growing beneath the price — hibernation looks like flat-at-a-floor usage with building continuing; death looks like usage still bleeding relative to peers. The desk's own history here matters: the 2026-05-20 idiosyncratic-weakness trim was its best-calibrated call, and the question is whether that signal ever reversed. (It did not.)
 
 ## Macro context
 

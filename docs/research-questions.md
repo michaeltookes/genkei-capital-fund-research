@@ -21,6 +21,11 @@ Newest entries on top. One entry per question:
 
 ## Log
 
+### 2026-08-04 — Suilend leveraged SUI loop unwound before the ecosystem-thesis exit
+- **status:** resolved
+- **context:** Follow-up execution note for `docs/research/decisions/2026-07-21-sui-suilend-leveraged-loop-contrarian.md`. The user-directed leveraged sSUI→suiUSDT→sSUI loop was closed before the 2026-08-05 SUI ecosystem-thesis exit, so the later sell decision governs remaining spot SUI only.
+- **outcome:** Loop unwound and suiUSDT borrow repaid on 2026-08-04. The 07-21 decision is marked `status: resolved` with `exited_at: 2026-08-04`; no horizon benchmark is computed because this was a manual unwind before the months horizon.
+
 ### 2026-07-27 — RENDER execution override: sell call NOT executed; Michael holds (and may add small) on an all-time-bottom / beta-recovery thesis
 - **status:** resolved
 - **context:** The `2026-07-26-render-exit-into-sol` decision (sell, swap to SOL, medium confidence) was **not executed**. Michael's counter-read from the all-time chart: RENDER is at a cycle bottom; if the complex turns and money floods back into alts, high-beta AI-narrative names could run harder than the 2023–24 move ($0.4 → $13.21), so now is the time to hold — and possibly add a small position at the lows. Desk view, stated at override time: this is a *liquidity/attention* bet, not a fundamentals bet — the 2023–24 run happened while the compute thesis was unmeasurable; today's public BME data (fees −84% through the AI-capex boom) checks the story, which typically caps narrative re-rates. The disagreement is instrumented, not erased: the logged decision still gets graded vs the SOL benchmark by `/reflect-decisions`, and Michael's actual hold IS the counterfactual — if RENDER outruns SOL over the horizon, the desk's usage-data-over-beta weighting was wrong and gets recalibrated. Guardrails agreed at override: any add stays lottery-sized; the spike-robust reopen trigger (BME fees ≥$140K for 2+ consecutive months) remains the line between "real demand returned" and "it was just beta"; no averaging up without it firing.
