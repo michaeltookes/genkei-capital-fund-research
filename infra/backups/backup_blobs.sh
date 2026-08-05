@@ -18,9 +18,10 @@
 # meta.backup_runs. The nightly core dump owns meta.backup_runs, and a
 # weekly blob row there could mask a dead nightly cron. The staleness
 # workflow reads both tables separately. Uploads land under a temporary
-# prefix first; only a size-validated archive is promoted to the final
-# timestamped key that restore runbooks discover as "latest". Failures
-# exit non-zero (cron mail / log) and write no heartbeat row.
+# prefix first; only a size-validated archive with a same-day off-site core
+# dump is promoted to the final timestamped key that restore runbooks discover
+# as "latest". Failures exit non-zero (cron mail / log) and write no heartbeat
+# row.
 #
 # Usage (cron, Sundays 05:00 UTC — after the 04:00 core dump):
 #   OFFSITE_REMOTE=r2:genkei-backups ~/homelab/scripts/genkei-backups/backup_blobs.sh
@@ -47,6 +48,8 @@ die() { log "FATAL: $*"; exit "${2:-1}"; }
 command -v rclone >/dev/null || die "rclone not installed"
 
 TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
+CORE_DATE="${CORE_DATE:-${TIMESTAMP%%T*}}"
+CORE_REMOTE_PATH="${CORE_REMOTE_PATH:-$OFFSITE_REMOTE/daily}"
 REMOTE_PATH="$OFFSITE_REMOTE/blobs"
 ARCHIVE_FILE="raw_blobs_${TIMESTAMP}.pgcustom"
 DEST="$REMOTE_PATH/$ARCHIVE_FILE"
@@ -61,6 +64,23 @@ cleanup_failed_upload() {
   fi
 }
 trap cleanup_failed_upload EXIT
+
+# Do not let a newer blob become the runbook's "latest" archive unless the
+# matching day's core dump already made it off-site too. Otherwise a failed
+# 04:00 core upload paired with a successful 05:00 blob upload can leave R2's
+# latest blob containing FK references absent from R2's latest core dump.
+CORE_LIST="$(rclone lsf "$CORE_REMOTE_PATH/" --files-only)" \
+  || die "cannot list core backup remote $CORE_REMOTE_PATH" 2
+CORE_ARCHIVE="$(
+  printf '%s\n' "$CORE_LIST" \
+    | grep -E "^genkei_capital_${CORE_DATE}T[0-9]{6}Z\\.pgcustom$" \
+    | sort \
+    | tail -1 \
+    || true
+)"
+[ -n "$CORE_ARCHIVE" ] \
+  || die "no same-day core backup found in $CORE_REMOTE_PATH for $CORE_DATE; run backup_postgres.sh with OFFSITE_REMOTE before promoting blobs" 2
+log "core compatibility gate: found $CORE_REMOTE_PATH/$CORE_ARCHIVE"
 
 log "streaming $BLOB_TABLE from $CONTAINER → $TMP_DEST (temporary key, no local copy)"
 START=$(date +%s)
