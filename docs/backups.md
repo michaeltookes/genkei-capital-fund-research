@@ -2,7 +2,7 @@
 
 **B-070 / B-138.** Backup + restore strategy for `genkeicapital-postgres`. The data lake is the asset; this doc + the scripts in `infra/backups/` are what defend it.
 
-> **Status as of 2026-08-05 (B-138 CLOSED): installed and verified on the Beelink.** Nightly core cron (04:00 UTC, `EXCLUDE_TABLE_DATA=meta.raw_blobs DISK_FACTOR_PCT=25 OFFSITE_REMOTE=r2:genkei-backups`) + weekly blob cron (Sundays 05:00 UTC) are in the crontab; rclone v1.75 configured against Cloudflare R2 (bucket `genkei-backups`, token scoped to the bucket — `rclone lsd r2:` 403s by design, use `r2:genkei-backups`); first core dump verified end-to-end (137 MB / 16 s dump, off-site `uploaded`, heartbeat row in `meta.backup_runs`); first ~20 GB blob archive launched. **Install-day discoveries that reshaped the posture:** the DB had grown 1.5 GB → 34 GB (32 GB = `meta.raw_blobs`, → B-140), making a full nightly dump (20.7 GB / 53 min, measured) infeasible on the 28 GB-free disk — hence the split posture below; a psql heartbeat bug (`-v` vars don't interpolate in `-c` strings) was found and fixed live; upload bandwidth measured ~3 Mbps, so the weekly blob upload takes ~15 h (fine for Sundays, noted for restore planning — R2's $0 egress means restore pulls are bandwidth-bound too). Discord on the cron was deliberately skipped (owner preference, 2026-08-04): failure visibility = non-zero cron exit in `/tmp/genkei-backup.log` + the `backup-staleness-check.yml` GitHub issue within ~25 h. Recommended R2 lifecycle rules (set in dashboard): `blobs/` delete after 35 d, `daily/` after 45 d. Next quarterly restore drill: **due ~2026-08-22** (drill against the core dump + a blob archive, per the split-restore addendum in the runbook).
+> **Status as of 2026-08-05 (B-138 CLOSED): installed and verified on the Beelink.** Nightly core cron (04:00 UTC, `EXCLUDE_TABLE_DATA=meta.raw_blobs DISK_FACTOR_PCT=25 OFFSITE_REMOTE=r2:genkei-backups`) + weekly blob cron (Sundays 05:00 UTC) are in the crontab; rclone v1.75 configured against Cloudflare R2 (bucket `genkei-backups`, token scoped to the bucket — `rclone lsd r2:` 403s by design, use `r2:genkei-backups`); first core dump verified end-to-end (137 MB / 16 s dump, off-site `uploaded`, heartbeat row in `meta.backup_runs`); first ~20 GB blob archive launched. **Install-day discoveries that reshaped the posture:** the DB had grown 1.5 GB → 34 GB (32 GB = `meta.raw_blobs`, → B-140), making a full nightly dump (20.7 GB / 53 min, measured) infeasible on the 28 GB-free disk — hence the split posture below; a psql heartbeat bug (`-v` vars don't interpolate in `-c` strings) was found and fixed live; upload bandwidth measured ~3 Mbps, so the weekly blob upload takes ~15 h (fine for Sundays, noted for restore planning — R2's $0 egress means restore pulls are bandwidth-bound too). Discord on the cron was deliberately skipped (owner preference, 2026-08-04): failure visibility = non-zero cron exit in `/tmp/genkei-backup.log` + the `backup-staleness-check.yml` GitHub issue within ~25 h. Recommended R2 lifecycle rules (set in dashboard): `blobs/` delete after 35 d, `daily/` after 45 d. Next quarterly restore drill: **due ~2026-08-22** (core restore on the Beelink + streamed blob-archive integrity check; full blob replay needs storage sized for a second full DB).
 
 ## What's at risk
 
@@ -27,7 +27,7 @@ Local dumps defend against (1) and (2). Off-site copies are the only defense aga
 
 **Split posture (2026-08-03, B-138 install).** The database grew from 1.5 GB (May drill) to **34 GB, of which 32 GB is `meta.raw_blobs`** — and a full dump measured **20.7 GB / 53 min**, which the Beelink disk (28 GB free) cannot hold at any useful retention. The backup therefore splits along the replaceability line the risk table above already draws:
 
-- **Nightly core dump** — everything *except* `meta.raw_blobs` row data (`EXCLUDE_TABLE_DATA=meta.raw_blobs`). Measured **136 MB / 16 s**. Contains every irreplaceable asset: `meta.signals`, `meta.ingest_runs`, `meta.backup_runs`, all normalized/query tables, and the raw_blobs *schema*. This is a valid emergency restore for the live analytical lake, but not a full raw-payload audit/replay restore by itself: DR and quarterly drills must pair it with the latest weekly blob archive, or explicitly accept/refetch the missing raw-payload window. Full local retention + off-site copy applies to this core tier.
+- **Nightly core dump** — everything *except* `meta.raw_blobs` row data (`EXCLUDE_TABLE_DATA=meta.raw_blobs`). Measured **136 MB / 16 s**. Contains every irreplaceable asset: `meta.signals`, `meta.ingest_runs`, `meta.backup_runs`, all normalized/query tables, and the raw_blobs *schema*. This is a valid emergency restore for the live analytical lake, but not a full raw-payload audit/replay restore by itself: DR must pair it with the latest weekly blob archive, while Beelink quarterly drills verify the core dump plus blob-archive readability without materializing a second full raw-blobs table. Full local retention + off-site copy applies to this core tier.
 - **Weekly blob archive** — `backup_blobs.sh` streams `pg_dump --table=meta.raw_blobs` directly into `rclone rcat` (zero local disk), landing in `$OFFSITE_REMOTE/blobs/`. Blobs are the re-fetchable tier; worst-case loss is one week of raw payloads that vendors can re-serve. Log-only (no heartbeat — see script header for why). B-140 tracks shrinking the archive itself.
 
 | Layer | What | Where | When |
@@ -36,7 +36,8 @@ Local dumps defend against (1) and (2). Off-site copies are the only defense aga
 | Local retention (tiered, hard-linked) | 7 daily + 4 weekly + 12 monthly | same volume | rotated by `backup_postgres.sh` each run |
 | Off-site copy (core) | same core dump | R2 — see [Off-site](#off-site) | nightly, after the dump completes |
 | Off-site blob archive | `backup_blobs.sh` streamed dump of `meta.raw_blobs` | `$OFFSITE_REMOTE/blobs/` | weekly, Sundays 05:00 UTC |
-| Quarterly restore drill | `restore_postgres.sh <latest_dump> <latest_blob_archive>` against an isolated container | Beelink | every 3 months, logged to `docs/research/decisions/` |
+| Quarterly restore drill | `restore_postgres.sh <latest_dump>` + streamed `pg_restore --list` of the newest blob archive | Beelink | every 3 months, logged to `docs/research/decisions/` |
+| Full blob replay drill | `restore_postgres.sh <latest_dump> <latest_blob_archive>` against an isolated container | Off-Beelink host or attached volume sized for a second full DB | before relying on raw-payload replay after a major storage/posture change |
 
 ### Why `pg_dump` over volume snapshots
 
@@ -90,8 +91,9 @@ cd ~/homelab/scripts/genkei-backups
 
 # Pull the scripts from the repo:
 curl -sSL https://raw.githubusercontent.com/michaeltookes/genkei-capital-fund-research/main/infra/backups/backup_postgres.sh -o backup_postgres.sh
+curl -sSL https://raw.githubusercontent.com/michaeltookes/genkei-capital-fund-research/main/infra/backups/backup_blobs.sh -o backup_blobs.sh
 curl -sSL https://raw.githubusercontent.com/michaeltookes/genkei-capital-fund-research/main/infra/backups/restore_postgres.sh -o restore_postgres.sh
-chmod +x backup_postgres.sh restore_postgres.sh
+chmod +x backup_postgres.sh backup_blobs.sh restore_postgres.sh
 
 # One-time off-site setup (Cloudflare R2, B-138):
 #   Create the bucket + an R2 API token, then configure an rclone remote
@@ -100,9 +102,12 @@ chmod +x backup_postgres.sh restore_postgres.sh
 #   off-site retention (the script only ever adds objects, never deletes).
 rclone lsd r2:genkei-backups   # sanity: remote reachable
 
-# One-shot test run (with off-site + alerting env wired):
+# One-shot core test run (with the split posture + off-site env wired):
 export OFFSITE_REMOTE="r2:genkei-backups"
-export DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/…"   # same webhook as CI
+export EXCLUDE_TABLE_DATA="meta.raw_blobs"
+export DISK_FACTOR_PCT="25"
+# Optional, if the owner wants Discord pages instead of log + GitHub issue only:
+# export DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/…"   # same webhook as CI
 ./backup_postgres.sh
 ls -lh ~/homelab-backups/genkei/daily/
 rclone ls r2:genkei-backups/daily/                               # off-site copy present?
@@ -110,13 +115,17 @@ rclone ls r2:genkei-backups/daily/                               # off-site copy
 # Confirm the heartbeat landed (this is what backup-staleness-check.yml reads):
 genkei query 'SELECT finished_at, offsite_status, dump_bytes FROM meta.backup_runs ORDER BY finished_at DESC LIMIT 1'
 
-# Install the cron (04:00 UTC daily). Cron has a bare environment, so pass
-# the two vars inline; keep the webhook out of shell history / world-readable
-# crontabs by sourcing a 600-perm env file instead if you prefer.
-( crontab -l 2>/dev/null; echo '0 4 * * * OFFSITE_REMOTE=r2:genkei-backups DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/… ~/homelab/scripts/genkei-backups/backup_postgres.sh >> /tmp/genkei-backup.log 2>&1' ) | crontab -
+# Install the split crons. Cron has a bare environment, so pass the
+# non-secret vars inline; source a 600-perm env file instead if you later
+# add DISCORD_WEBHOOK_URL.
+(
+  crontab -l 2>/dev/null
+  echo '0 4 * * * EXCLUDE_TABLE_DATA=meta.raw_blobs DISK_FACTOR_PCT=25 OFFSITE_REMOTE=r2:genkei-backups ~/homelab/scripts/genkei-backups/backup_postgres.sh >> /tmp/genkei-backup.log 2>&1'
+  echo '0 5 * * 0 OFFSITE_REMOTE=r2:genkei-backups ~/homelab/scripts/genkei-backups/backup_blobs.sh >> /tmp/genkei-blob-backup.log 2>&1'
+) | crontab -
 
 # Verify:
-crontab -l | grep backup_postgres
+crontab -l | grep -E 'backup_(postgres|blobs)'
 ```
 
 **Alerting (B-138).** Failures now surface two ways, both through the existing B-119 channels:
@@ -179,26 +188,31 @@ The genkei container is broken or its volume is corrupt. You want to bring the p
 
 ### Scenario B — Restore drill (quarterly verification)
 
-Run from the Beelink to confirm the latest dump is restorable. Doesn't touch production.
+Run from the Beelink to confirm the latest core dump is restorable and the newest blob archive is structurally readable. This does **not** restore `meta.raw_blobs` rows on the Beelink: the current host has ~28 GB free, while a full blob replay would download a ~20 GB archive and materialize a ~32 GB table into a second isolated container alongside production.
 
 ```bash
 OFFSITE_REMOTE=r2:genkei-backups
 DUMP=~/homelab-backups/genkei/daily/$(ls -t ~/homelab-backups/genkei/daily/ | head -1)
 BLOB_ARCHIVE=$(rclone lsf "$OFFSITE_REMOTE/blobs/" --files-only | sort | tail -1)
 [ -n "$BLOB_ARCHIVE" ] || { echo "no blob archive found" >&2; exit 1; }
-BLOB_DUMP=/tmp/"$BLOB_ARCHIVE"
-rclone copyto "$OFFSITE_REMOTE/blobs/$BLOB_ARCHIVE" "$BLOB_DUMP"
-~/homelab/scripts/genkei-backups/restore_postgres.sh "$DUMP" "$BLOB_DUMP"
+
+# Core restore/parity drill: spins up an isolated container, then tears it down.
+~/homelab/scripts/genkei-backups/restore_postgres.sh "$DUMP"
+
+# Blob archive integrity check: stream through pg_restore without writing
+# the archive to /tmp or materializing meta.raw_blobs into a second DB.
+rclone size "$OFFSITE_REMOTE/blobs/$BLOB_ARCHIVE"
+rclone cat "$OFFSITE_REMOTE/blobs/$BLOB_ARCHIVE" \
+  | docker run --rm -i timescale/timescaledb:latest-pg16 pg_restore --list >/dev/null
 ```
 
 The script:
 1. Spins up an isolated `genkei-restore-drill` container on port 5499 with a temporary volume.
-2. Runs the TimescaleDB-aware restore procedure.
-3. Restores the blob archive when supplied, so `meta.raw_blobs` is verified alongside the core dump.
-4. Compares row counts in 7 high-cardinality core tables against the live container.
-5. Verifies the restored `meta.raw_blobs` archive has rows when supplied, reporting any live-vs-archive row-count difference as expected weekly cadence rather than a failed core-dump parity check.
-   Core-only drills are allowed, but they explicitly skip `meta.raw_blobs` verification because the nightly dump intentionally excludes that row data.
-6. Reports OK / FAIL; tears down the drill container on exit (unless `KEEP_CONTAINER=1`).
+2. Runs the TimescaleDB-aware core restore procedure.
+3. Compares row counts in 7 high-cardinality core tables against the live container.
+4. Reports OK / FAIL; tears down the drill container on exit (unless `KEEP_CONTAINER=1`).
+
+The streamed blob check verifies that the newest off-site object exists and its custom-format TOC is readable. It is deliberately not a row replay. If you need to prove raw-payload replay end-to-end, download the blob archive on an off-Beelink host or attached volume with enough room for both the archive and a second full restored DB, then run `restore_postgres.sh "$DUMP" /path/to/latest_blob.pgcustom`.
 
 Log the result + date in a research decision so the next quarter knows the last drill date.
 
