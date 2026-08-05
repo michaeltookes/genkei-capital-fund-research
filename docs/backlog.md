@@ -173,11 +173,6 @@ Reliability work that grows in importance as more sources go live.
   - Per-source quota tracked in `meta.api_usage`.
   - CLI + dashboard query.
 
-### B-138 — Install the nightly backup on the Beelink + confirm first heartbeat
-- **Status:** open (manual homelab step; the repo half shipped 2026-07-22, see `docs/resolved.md`)
-- **Priority:** **high** — until this lands the lake has no *confirmed* automated backup.
-- **Remaining:** the one step the repo half can't do from CI (governance: no autonomous homelab changes). On the Beelink, per `docs/backups.md` → "Install on the Beelink": install the 04:00-UTC cron, add `rclone.conf` for the R2 remote, set `OFFSITE_REMOTE` + `DISCORD_WEBHOOK_URL` on the cron line, run one dump by hand, and confirm both a `meta.backup_runs` row and the off-site copy landed. `backup-staleness-check.yml` pages daily until then — by design, that alert *is* the acceptance gate. Then log the first quarterly restore-drill date (next due ~2026-08-22).
-
 ### B-140 — `meta.raw_blobs` growth management (32 GB and compounding)
 - **Status:** open
 - **Priority:** medium-high — discovered 2026-08-03 during the B-138 install: the database is **34 GB, of which 32 GB is `meta.raw_blobs`** (up from 1.5 GB total at the 2026-05-22 drill). Every daily ingest appends raw vendor JSON forever; GDELT/SEC/BEA payloads dominate. At this growth rate the Beelink disk (28 GB free) becomes the binding constraint on both the lake and its backups within months.
