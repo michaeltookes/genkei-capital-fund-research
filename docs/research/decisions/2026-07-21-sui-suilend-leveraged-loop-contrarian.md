@@ -5,10 +5,12 @@ sleeve: crypto-tactical
 horizon: months
 action: add
 confidence: medium
-status: resolved
+status: deferred
 position_type: leveraged_loop
 exited_at: 2026-08-04
 resolution_reason: manual_unwind
+pnl_status: deferred_missing_exit_inputs
+deferred_reason: "Position is closed, but terminal calibration needs returned collateral value, final debt/carry, and realized net P&L from the 2026-08-04 unwind."
 trigger_reassessment: "SUI reclaims $1.00 (thesis realized → unwind loop, repay suiUSDT) OR SUI falls to the loop's liquidation price (thesis broken → forced exit) OR sSUI de-pegs from SUI by >2% (structural risk → unwind)"
 related:
   - decision: 2026-05-20-sui-position-assessment
@@ -86,9 +88,11 @@ The frontmatter `trigger_reassessment` encodes the exits: reclaim $1.00 → unwi
 
 ---
 
-## Outcome
+## Outcome / P&L deferral
 
-- **Resolved:** 2026-08-04 (manual unwind, not horizon-paired)
-- **Exit recorded:** The leveraged sSUI→suiUSDT→sSUI loop was unwound and the suiUSDT borrow repaid before the 2026-08-05 SUI ecosystem-thesis exit. The scratch-log trail is recorded in `docs/research-questions.md`; this file is closed so `/reflect-decisions` does not later grade the leveraged add as still open through its months horizon.
-- **Trigger status:** The original $1.00 target, liquidation, and sSUI de-peg triggers are not claimed to have fired from the available record; this was a manual risk close, so no spot-SUI benchmark alpha is computed here.
-- **Reflection:** The loop was explicitly user-directed and against the desk's standing SUI research, so the important audit fact is the close date rather than a forced horizon outcome. Future leveraged-loop decisions should record the actual exit date and realized P&L inputs at unwind time, because spot-price reflection alone cannot reconstruct leverage, borrow cost, staking carry, or liquidation-path risk.
+- **Position closed:** 2026-08-04 (manual unwind, not horizon-paired)
+- **Exit recorded:** The leveraged sSUI→suiUSDT→sSUI loop was unwound and the suiUSDT borrow repaid before the 2026-08-05 SUI ecosystem-thesis exit. The scratch-log trail is recorded in `docs/research-questions.md`; this file is no longer a live position, but it remains `status: deferred` until realized loop P&L inputs are supplied.
+- **P&L status:** Deferred. The current record has the entry collateral (**850 sSUI ≈ $684**), borrowed amount (**$200 suiUSDT**), effective leverage (**~1.4×** on equity), and a scratch-log note that loan-repayment friction was **$0.37**. It does **not** have returned collateral quantity/value, final debt repaid, accrued borrow cost, earned staking carry, or realized net proceeds, so no return or benchmark alpha is computed yet.
+- **Inputs needed for terminal resolution:** returned collateral at unwind, final debt/carry, realized net P&L, and any collateral-side slippage or de-peg impact. Once those are recorded, flip `status: resolved` and append the actual calibrated reflection.
+- **Trigger status:** The original $1.00 target, liquidation, and sSUI de-peg triggers are not claimed to have fired from the available record; this was a manual risk close, so the original horizon benchmark is not the right scoring path.
+- **Reflection:** The loop was explicitly user-directed and against the desk's standing SUI research, so the important audit fact is the close date plus the missing realized-return inputs, not a forced spot-SUI horizon outcome. Future leveraged-loop decisions should record the actual exit date and realized P&L inputs at unwind time, because spot-price reflection alone cannot reconstruct leverage, borrow cost, staking carry, or liquidation-path risk.
