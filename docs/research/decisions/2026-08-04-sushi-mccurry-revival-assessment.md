@@ -60,7 +60,7 @@ No lake coverage (rank-465 token, not on watchlist — external APIs only this s
 5. Optionality math: if any one of four new products works, the base is so low that 5–10× is plausible.
 
 **Bear case:**
-1. **Five consecutive years of usage decline, still declining**: fees −98.7% from 2021, TVL −76% in the trailing year — *through* the revival era. The single most thesis-relevant series says the turnaround is not happening yet.
+1. **Multi-year usage decline, with only a 2024 interruption, and still declining**: fees −98.7% from 2021, TVL −76% in the trailing year — *through* the revival era. The single most thesis-relevant series says the turnaround is not happening yet.
 2. **The strategy attacks entrenched incumbents the desk already owns**: Wara vs Jupiter, Susa/Kubo vs Hyperliquid. Base rate for #5 players re-entering categories against dominant network-effect leaders is dismal.
 3. **DEX spot is a lost war**: Uniswap + chain-native DEXes + aggregators took the market years ago; Sushi's share is a rounding error and its core product has no differentiated reason to win it back.
 4. **~30× a melting revenue base is not cheap** — the LQTY lesson verbatim: "no one is looking at it" is true because the protocol is in decline, not because value is hidden.
