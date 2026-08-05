@@ -1,9 +1,10 @@
 name: Backup Staleness Check
 
 # B-138 — daily scheduled check that the nightly Postgres backup is actually
-# running. Reads the newest row from meta.backup_runs (written by
-# infra/backups/backup_postgres.sh on each successful dump) and opens/updates a
-# GitHub issue + pings Discord when no recent successful backup is recorded.
+# running, and that the weekly raw-blob archive is not silently stale. Reads
+# meta.backup_runs for the nightly core dump and meta.backup_blob_runs for the
+# weekly raw-blob archive, then opens/updates a GitHub issue + pings Discord
+# when no recent successful heartbeat is recorded.
 #
 # Why a heartbeat table and not a file-age check: backup_postgres.sh runs as
 # host cron on the Beelink, but this self-hosted runner mounts no host path —
@@ -29,7 +30,7 @@ permissions:
 
 jobs:
   check:
-    name: Read meta.backup_runs + alert if no recent backup
+    name: Read backup heartbeats + alert if stale
     runs-on: [self-hosted, beelink]
     timeout-minutes: 10
     env:
@@ -37,6 +38,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
       STALE_THRESHOLD_HOURS: "25"
+      BLOB_STALE_THRESHOLD_HOURS: "192"
 
     steps:
       - name: Check out repository
@@ -55,37 +57,52 @@ jobs:
           python3 -m pip install -e .
 
       - name: Ensure schema is current
-        # Idempotent; guarantees meta.backup_runs exists so a genuinely-empty
-        # table reads as MISSING rather than erroring the query.
+        # Idempotent; guarantees the heartbeat tables exist so genuinely-empty
+        # tables read as MISSING rather than erroring the query.
         run: alembic upgrade head
 
-      - name: Read latest backup heartbeat + raise an issue if stale
+      - name: Read latest backup heartbeats + raise an issue if stale
         id: backup
         run: |
           set -euo pipefail
           DETECTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-          # Read the newest heartbeat through the read-only query path.
-          ROW_JSON=$(genkei query "SELECT finished_at, offsite_status, dump_bytes, duration_seconds, host, EXTRACT(EPOCH FROM (now() - finished_at)) / 3600.0 AS age_hours FROM meta.backup_runs ORDER BY finished_at DESC LIMIT 1" --json)
+          # Read the newest heartbeats through the read-only query path.
+          CORE_ROW_JSON=$(genkei query "SELECT finished_at, offsite_status, dump_bytes, duration_seconds, host, EXTRACT(EPOCH FROM (now() - finished_at)) / 3600.0 AS age_hours FROM meta.backup_runs ORDER BY finished_at DESC LIMIT 1" --json)
+          BLOB_ROW_JSON=$(genkei query "SELECT finished_at, archive_file, archive_bytes, duration_seconds, host, EXTRACT(EPOCH FROM (now() - finished_at)) / 3600.0 AS age_hours FROM meta.backup_blob_runs ORDER BY finished_at DESC LIMIT 1" --json)
 
-          PROBLEMS=$(printf '%s' "$ROW_JSON" | python3 -c '
-          import json, os, sys
-          rows = json.load(sys.stdin)
-          thresh = float(os.environ.get("STALE_THRESHOLD_HOURS", "25"))
+          PROBLEMS=$(CORE_ROW_JSON="$CORE_ROW_JSON" BLOB_ROW_JSON="$BLOB_ROW_JSON" python3 -c '
+          import json, os
+          core_rows = json.loads(os.environ.get("CORE_ROW_JSON") or "[]")
+          blob_rows = json.loads(os.environ.get("BLOB_ROW_JSON") or "[]")
+          core_thresh = float(os.environ.get("STALE_THRESHOLD_HOURS", "25"))
+          blob_thresh = float(os.environ.get("BLOB_STALE_THRESHOLD_HOURS", "192"))
           out = []
-          if not rows:
+          if not core_rows:
               out.append(("MISSING", "No successful backup is recorded in meta.backup_runs yet. The nightly pg_dump cron may not be installed on the Beelink — install per docs/backups.md (B-138)."))
           else:
-              r = rows[0]
+              r = core_rows[0]
               fin = r.get("finished_at") or "unknown"
               raw_age = r.get("age_hours")
               age = float(raw_age) if raw_age is not None else None
               if age is None:
                   out.append(("STALE", f"Latest backup row has no readable finished_at (recorded {fin})."))
-              elif age > thresh:
-                  out.append(("STALE", f"Last successful backup was {age:.1f}h ago ({fin}); threshold is {thresh:.0f}h. The nightly pg_dump cron may have stopped running."))
+              elif age > core_thresh:
+                  out.append(("STALE", f"Last successful backup was {age:.1f}h ago ({fin}); threshold is {core_thresh:.0f}h. The nightly pg_dump cron may have stopped running."))
               if r.get("offsite_status") == "failed":
                   out.append(("OFFSITE_FAILED", f"Latest backup ({fin}) recorded off-site upload status \"failed\": the local dump exists but the Beelink-loss defense did not complete. Check rclone / OFFSITE_REMOTE on the Beelink."))
+          if not blob_rows:
+              out.append(("BLOB_MISSING", "No successful raw-blob archive is recorded in meta.backup_blob_runs yet. The weekly backup_blobs.sh cron may not be installed or has not completed since the split backup posture was deployed."))
+          else:
+              r = blob_rows[0]
+              fin = r.get("finished_at") or "unknown"
+              raw_age = r.get("age_hours")
+              age = float(raw_age) if raw_age is not None else None
+              if age is None:
+                  out.append(("BLOB_STALE", f"Latest raw-blob archive row has no readable finished_at (recorded {fin})."))
+              elif age > blob_thresh:
+                  archive = r.get("archive_file") or "unknown archive"
+                  out.append(("BLOB_STALE", f"Last successful raw-blob archive was {age:.1f}h ago ({fin}, {archive}); threshold is {blob_thresh:.0f}h. The Sunday backup_blobs.sh cron or R2 upload may have stopped running."))
           for tag, msg in out:
               print(f"{tag}\t{msg}")
           ')
@@ -110,8 +127,7 @@ jobs:
               echo "DISCORD_EOF"
           } >> "$GITHUB_OUTPUT"
 
-          # One durable issue for the backup job (there is a single nightly
-          # backup, so a single issue tracks it). Repeat detections comment
+          # One durable issue for the backup posture. Repeat detections comment
           # rather than spawning a new issue per day.
           TITLE="[backup-alert] genkei-postgres nightly backup"
           BODY="$(printf '%s\n' "${PROBLEMS}" | while IFS=$'\t' read -r TAG MSG; do
@@ -120,17 +136,21 @@ jobs:
           BODY="${BODY}
 
           - Detected at: ${DETECTED}
-          - Threshold: ${STALE_THRESHOLD_HOURS}h since last successful backup
+          - Core threshold: ${STALE_THRESHOLD_HOURS}h since last successful nightly backup
+          - Blob threshold: ${BLOB_STALE_THRESHOLD_HOURS}h since last successful weekly raw-blob archive
 
           ---
 
           Auto-opened by \`.github/workflows/backup-staleness-check.yml\` (B-138).
-          Close once a fresh heartbeat lands in \`meta.backup_runs\`; daily
+          Close once fresh heartbeats land in \`meta.backup_runs\` and
+          \`meta.backup_blob_runs\`; daily
           re-runs comment rather than reopening. To debug on the Beelink:
 
           \`\`\`bash
-          ~/homelab/scripts/genkei-backups/backup_postgres.sh   # run a dump by hand
+          EXCLUDE_TABLE_DATA=meta.raw_blobs DISK_FACTOR_PCT=25 OFFSITE_REMOTE=r2:genkei-backups ~/homelab/scripts/genkei-backups/backup_postgres.sh
+          OFFSITE_REMOTE=r2:genkei-backups ~/homelab/scripts/genkei-backups/backup_blobs.sh
           genkei query 'SELECT * FROM meta.backup_runs ORDER BY finished_at DESC LIMIT 5'
+          genkei query 'SELECT * FROM meta.backup_blob_runs ORDER BY finished_at DESC LIMIT 5'
           \`\`\`"
 
           EXISTING_NUMBER=$(gh issue list \
