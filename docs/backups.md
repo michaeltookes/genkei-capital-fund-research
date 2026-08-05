@@ -36,7 +36,7 @@ Local dumps defend against (1) and (2). Off-site copies are the only defense aga
 | Local retention (tiered, hard-linked) | 7 daily + 4 weekly + 12 monthly | same volume | rotated by `backup_postgres.sh` each run |
 | Off-site copy (core) | same core dump | R2 — see [Off-site](#off-site) | nightly, after the dump completes |
 | Off-site blob archive | `backup_blobs.sh` streamed dump of `meta.raw_blobs` | `$OFFSITE_REMOTE/blobs/` | weekly, Sundays 05:00 UTC |
-| Quarterly restore drill | `restore_postgres.sh <latest_dump>` against an isolated container | Beelink | every 3 months, logged to `docs/research/decisions/` |
+| Quarterly restore drill | `restore_postgres.sh <latest_dump> <latest_blob_archive>` against an isolated container | Beelink | every 3 months, logged to `docs/research/decisions/` |
 
 ### Why `pg_dump` over volume snapshots
 
@@ -148,9 +148,13 @@ The genkei container is broken or its volume is corrupt. You want to bring the p
    # wait for healthy:
    until docker exec genkeicapital-postgres pg_isready -U genkei_capital -d genkei_capital -q; do sleep 1; done
    ```
-4. **Run the restore.** This is the same procedure `restore_postgres.sh` automates, applied to the *real* container. **Split-posture addendum:** the nightly core dump restores everything except `meta.raw_blobs` rows (the table comes back empty). After the core restore, pull the newest blob archive and restore it on top: `rclone copyto $OFFSITE_REMOTE/blobs/<newest>.pgcustom /tmp/blobs.pgcustom`, `docker cp` it in, then `pg_restore -U genkei_capital -d genkei_capital --data-only --table=raw_blobs /tmp/blobs.pgcustom`. Blobs newer than the last weekly archive are gone — re-fetchable from vendors if ever needed.
+4. **Run the restore.** This is the same procedure `restore_postgres.sh` automates, applied to the *real* container. **Split-posture addendum:** the nightly core dump restores everything except `meta.raw_blobs` rows (the table comes back empty). After the core restore, pull the newest blob archive and restore it inside the Postgres container before `timescaledb_post_restore()`. Blobs newer than the last weekly archive are gone — re-fetchable from vendors if ever needed.
    ```bash
+   OFFSITE_REMOTE=r2:genkei-backups
    DUMP=~/homelab-backups/genkei/daily/$(ls -t ~/homelab-backups/genkei/daily/ | head -1)
+   BLOB_ARCHIVE=$(rclone lsf "$OFFSITE_REMOTE/blobs/" --files-only | sort | tail -1)
+   [ -n "$BLOB_ARCHIVE" ] || { echo "no blob archive found" >&2; exit 1; }
+   rclone copyto "$OFFSITE_REMOTE/blobs/$BLOB_ARCHIVE" /tmp/blobs.pgcustom
 
    docker exec genkeicapital-postgres psql -U genkei_capital -d genkei_capital \
      -c "CREATE EXTENSION IF NOT EXISTS timescaledb"
@@ -160,6 +164,10 @@ The genkei container is broken or its volume is corrupt. You want to bring the p
    docker exec genkeicapital-postgres pg_restore \
      -U genkei_capital -d genkei_capital \
      --no-owner --single-transaction --exit-on-error /tmp/dump.pgcustom
+   docker cp /tmp/blobs.pgcustom genkeicapital-postgres:/tmp/blobs.pgcustom
+   docker exec genkeicapital-postgres pg_restore \
+     -U genkei_capital -d genkei_capital \
+     --data-only --single-transaction --exit-on-error /tmp/blobs.pgcustom
    docker exec genkeicapital-postgres psql -U genkei_capital -d genkei_capital \
      -c "SELECT timescaledb_post_restore()"
    ```
@@ -174,15 +182,23 @@ The genkei container is broken or its volume is corrupt. You want to bring the p
 Run from the Beelink to confirm the latest dump is restorable. Doesn't touch production.
 
 ```bash
+OFFSITE_REMOTE=r2:genkei-backups
 DUMP=~/homelab-backups/genkei/daily/$(ls -t ~/homelab-backups/genkei/daily/ | head -1)
-~/homelab/scripts/genkei-backups/restore_postgres.sh "$DUMP"
+BLOB_ARCHIVE=$(rclone lsf "$OFFSITE_REMOTE/blobs/" --files-only | sort | tail -1)
+[ -n "$BLOB_ARCHIVE" ] || { echo "no blob archive found" >&2; exit 1; }
+BLOB_DUMP=/tmp/"$BLOB_ARCHIVE"
+rclone copyto "$OFFSITE_REMOTE/blobs/$BLOB_ARCHIVE" "$BLOB_DUMP"
+~/homelab/scripts/genkei-backups/restore_postgres.sh "$DUMP" "$BLOB_DUMP"
 ```
 
 The script:
 1. Spins up an isolated `genkei-restore-drill` container on port 5499 with a temporary volume.
 2. Runs the TimescaleDB-aware restore procedure.
-3. Compares row counts in 8 high-cardinality tables against the live container.
-4. Reports OK / FAIL; tears down the drill container on exit (unless `KEEP_CONTAINER=1`).
+3. Restores the blob archive when supplied, so `meta.raw_blobs` is verified alongside the core dump.
+4. Compares row counts in 7 high-cardinality core tables against the live container.
+5. Verifies the restored `meta.raw_blobs` archive has rows when supplied, reporting any live-vs-archive row-count difference as expected weekly cadence rather than a failed core-dump parity check.
+   Core-only drills are allowed, but they explicitly skip `meta.raw_blobs` verification because the nightly dump intentionally excludes that row data.
+6. Reports OK / FAIL; tears down the drill container on exit (unless `KEEP_CONTAINER=1`).
 
 Log the result + date in a research decision so the next quarter knows the last drill date.
 
