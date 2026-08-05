@@ -40,7 +40,7 @@ MIN_BYTES="${MIN_BYTES:-1000000000}"   # 1 GB; archive is ~20 GB as of 2026-08
 HOST_SHORT="$(hostname -s 2>/dev/null || echo beelink)"
 
 log() { printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
-die() { log "FATAL: $*"; exit "${2:-1}"; }
+die() { log "FATAL: $*" >&2; exit "${2:-1}"; }
 
 [ -n "$OFFSITE_REMOTE" ] || die "OFFSITE_REMOTE is required (e.g. r2:genkei-backups)"
 [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null || true)" = "true" ] \
