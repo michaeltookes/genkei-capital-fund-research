@@ -16,7 +16,6 @@ trigger_reassessment: "Reopen SUI only on measured ecosystem reversal: Sui chain
 supersedes: 2026-06-02-sui-rotation-into-eth-sol
 related:
   - decision: 2026-05-20-sui-position-assessment
-  - decision: 2026-06-02-sui-rotation-into-eth-sol
   - decision: 2026-07-19-suig-sui-treasury-vehicle-assessment
   - decision: 2026-07-21-sui-suilend-leveraged-loop-contrarian
   - data: defillama.chain_tvl
