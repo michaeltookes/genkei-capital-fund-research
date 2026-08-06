@@ -7,12 +7,17 @@ action: add
 confidence: medium
 status: pending
 position_type: leveraged_loop
+exited_at: 2026-08-04
+resolution_reason: manual_unwind
+pnl_status: pending_missing_exit_inputs
+pnl_followup_reason: "Position is closed, but terminal calibration needs returned collateral value, final debt/carry, and realized net P&L from the 2026-08-04 unwind."
 trigger_reassessment: "SUI reclaims $1.00 (thesis realized → unwind loop, repay suiUSDT) OR SUI falls to the loop's liquidation price (thesis broken → forced exit) OR sSUI de-pegs from SUI by >2% (structural risk → unwind)"
 related:
   - decision: 2026-05-20-sui-position-assessment
   - decision: 2026-06-02-sui-rotation-into-eth-sol
   - decision: 2026-07-19-crypto-bottom-top50-accumulation-thesis
   - decision: 2026-07-19-suig-sui-treasury-vehicle-assessment
+  - decision: 2026-08-05-sui-ecosystem-thesis-exit
   - data: coingecko.market_data
   - data: defillama.chain_tvl
 tags:
@@ -83,6 +88,11 @@ The frontmatter `trigger_reassessment` encodes the exits: reclaim $1.00 → unwi
 
 ---
 
-## Outcome (filled in by /reflect-decisions)
+## Outcome / P&L deferral
 
-(reserved — pending)
+- **Position closed:** 2026-08-04 (manual unwind, not horizon-paired)
+- **Exit recorded:** The leveraged sSUI→suiUSDT→sSUI loop was unwound and the suiUSDT borrow repaid before the 2026-08-05 SUI ecosystem-thesis exit. The scratch-log trail is recorded in `docs/research-questions.md`; this file is no longer a live position, but it remains `status: pending` solely as a nonterminal P&L follow-up queue until realized loop P&L inputs are supplied.
+- **P&L status:** Pending missing inputs. The current record has the entry collateral (**850 sSUI ≈ $684**), borrowed amount (**$200 suiUSDT**), effective leverage (**~1.4×** on equity), and a scratch-log note that loan-repayment friction was **$0.37**. It does **not** have returned collateral quantity/value, final debt repaid, accrued borrow cost, earned staking carry, or realized net proceeds, so no return or benchmark alpha is computed yet.
+- **Inputs needed for terminal resolution:** returned collateral at unwind, final debt/carry, realized net P&L, and any collateral-side slippage or de-peg impact. Once those are recorded, flip `status: resolved` and append the actual calibrated reflection.
+- **Trigger status:** The original $1.00 target, liquidation, and sSUI de-peg triggers are not claimed to have fired from the available record; this was a manual risk close, so the original horizon benchmark is not the right scoring path.
+- **Reflection:** The loop was explicitly user-directed and against the desk's standing SUI research, so the important audit fact is the close date plus the missing realized-return inputs, not a forced spot-SUI horizon outcome. Future leveraged-loop decisions should record the actual exit date and realized P&L inputs at unwind time, because spot-price reflection alone cannot reconstruct leverage, borrow cost, staking carry, or liquidation-path risk.

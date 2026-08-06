@@ -1,6 +1,6 @@
 ---
 name: reflect-decisions
-description: Run the reflection cycle against the Genkei decision log. Walks `docs/research/decisions/` for entries with `status: pending` past their horizon, pulls realized prices via `genkei prices`, computes raw alpha plus action-aware decision alpha vs the relevant benchmark (SPY for equity, BTC for crypto), and appends an outcome + 2-3 sentence reflection to each entry. Use when the user says "reflect on decisions", "check old decisions", "run the reflection cycle", invokes `/reflect-decisions`, or fires this via `/schedule`. Manual today; reasonable weekly cadence once exercised.
+description: Run the reflection cycle against the Genkei decision log. Walks `docs/research/decisions/` for entries with `status: pending` past their horizon, surfaces manual-exit P&L follow-ups, pulls realized prices via `genkei prices`, computes raw alpha plus action-aware decision alpha vs the relevant benchmark (SPY for equity, BTC for crypto), and appends an outcome + 2-3 sentence reflection to each entry. Use when the user says "reflect on decisions", "check old decisions", "run the reflection cycle", invokes `/reflect-decisions`, or fires this via `/schedule`. Manual today; reasonable weekly cadence once exercised.
 ---
 
 # Reflect on decisions
@@ -19,13 +19,14 @@ Walk `docs/research/decisions/*.md` (excluding `_template.md` and `README.md`):
 
 1. Parse YAML frontmatter (between `---` fences). Skip files with terminal statuses: `resolved` (already reflected) and `deferred` (explicitly postponed because required data was unavailable), and skip `inactive` files whose trade/event has not executed yet. Note counts in the run summary.
 2. Read optional `action` frontmatter. If it is missing, inspect the decision's recommendation before queuing it: backfill an explicit action for any clear `buy`, `add`, `trim`, `sell`, `avoid`, or `harvest_loss` call and add the file to an `action_backfilled` list for the batch summary/commit; only treat missing action as legacy `hold` when the recommendation is plainly hold/maintain. If the direction is ambiguous, skip the file and report it for manual action tagging rather than grading it.
-3. **Early-resolution check (before the horizon math).** If the decision was superseded or its trigger fired before horizon, it resolves *now* with a forward-link, not by benchmark pairing (see `docs/research/README.md` -> "Supersession and trigger-fire"). Specifically, if `frontmatter.superseded_by` is set, OR `frontmatter.trigger_fired: true`, OR a date such as `frontmatter.trigger_fired_at` is on or before `frontmatter.date + horizon_days` - and the file is still `pending` - flip it to `resolved`, write a short `## Outcome` note pointing at the superseding/successor decision (no alpha; it was carried forward, not graded), and add it to an `early_resolved` list for the batch summary/commit. Do NOT queue it for outcome pairing. Note these as "early-resolved (supersession/trigger)" in the run summary. This catches the failure mode where a superseded decision sits `pending` and re-queues every run.
-4. Compute `elapsed_days = (today - frontmatter.date).days`.
-5. Apply horizon mapping from the prompt: `weeks` -> 28d, `months` -> 180d, `years` -> 365d.
-6. If `elapsed_days < horizon_days`, skip - not yet eligible for reflection. Note in the run summary.
-7. If `elapsed_days >= horizon_days`, queue for outcome pairing.
+3. **Manual-exit P&L follow-up (before early resolution or horizon math).** If `frontmatter.pnl_status: pending_missing_exit_inputs` is set, inspect the file's `exited_at` date and existing outcome note. If returned collateral value, final debt/carry, and realized net P&L are still missing, add the file to a `pnl_follow_up` list, leave `status: pending`, do NOT queue it for spot-price outcome pairing, and skip the rest of the scan for this file. If those inputs have been supplied, resolve it with the actual leveraged-loop outcome: compute loop equity return from starting net equity to ending net equity over the actual `date` -> `exited_at` holding period, pull BTC over that same window, compute BTC benchmark return, raw alpha, and action-aware decision alpha, flip `status` to `resolved`, remove `pnl_status: pending_missing_exit_inputs` and `pnl_followup_reason` (or replace them with resolved P&L metadata), add it to a `pnl_resolved` list for the run summary/commit, and skip the rest of the scan for this file.
+4. Apply horizon mapping from the prompt: `weeks` -> 28d, `months` -> 180d, `years` -> 365d.
+5. **Early-resolution check (before the horizon math).** If the decision was superseded or its trigger fired before horizon, it resolves *now* with a forward-link, not by benchmark pairing (see `docs/research/README.md` -> "Supersession and trigger-fire"). Specifically, if `frontmatter.superseded_by` is set, OR `frontmatter.trigger_fired: true`, OR a date such as `frontmatter.trigger_fired_at` is on or before `frontmatter.date + horizon_days` - and the file is still `pending` - flip it to `resolved`, write a short `## Outcome` note pointing at the superseding/successor decision (no alpha; it was carried forward, not graded), and add it to an `early_resolved` list for the batch summary/commit. Do NOT queue it for outcome pairing. Note these as "early-resolved (supersession/trigger)" in the run summary. This catches the failure mode where a superseded decision sits `pending` and re-queues every run.
+6. Compute `elapsed_days = (today - frontmatter.date).days`.
+7. If `elapsed_days < horizon_days`, skip - not yet eligible for reflection. Note in the run summary.
+8. If `elapsed_days >= horizon_days`, queue for outcome pairing.
 
-If the eligible queue is empty, `early_resolved` is empty, and `action_backfilled` is empty, report "no decisions past their horizon" and stop. Don't make commits in this case. If `early_resolved` or `action_backfilled` has entries, skip outcome pairing for those files but continue to the summary/test/commit path; those file edits are work done for this reflection batch.
+If the eligible queue is empty, `early_resolved` is empty, `pnl_resolved` is empty, `action_backfilled` is empty, and `pnl_follow_up` is empty, report "no decisions past their horizon" and stop. If `pnl_follow_up` has entries, report the missing P&L inputs in the run summary so the nonterminal queue stays visible; if there are no file edits from `early_resolved`, `pnl_resolved`, or `action_backfilled`, stop without committing. If `early_resolved` or `action_backfilled` has entries, skip outcome pairing for those files. If `pnl_resolved` has entries, keep the manual-exit branch's actual holding-period loop return and BTC benchmark math, but skip ordinary horizon-based outcome pairing for those files. Continue to the summary/test/commit path for file edits from early resolution, P&L resolution, or action backfills.
 
 ### Inactive execution records
 
@@ -62,7 +63,7 @@ Good reflection: "Insider-cluster signal carried this; macro turned hostile mid-
 
 ## Commit + push
 
-After processing the queue and any early-resolved or action-backfilled decisions:
+After processing the queue and any early-resolved, P&L-resolved, or action-backfilled decisions:
 
 1. Run `python3 -m unittest discover -s tests` before committing — the frontmatter validator should still pass since you've only flipped status + added body content; if it fails, something went wrong with the YAML edit.
 2. **One commit per run** is the convention. Subject: `Reflect on N decisions (resolved: X, deferred: Y, tagged: Z)`. Body: short summary of which decisions were touched, including any early-resolved supersession/trigger files and action-only backfills. Early-resolved-only and action-backfill-only runs still get committed.
@@ -75,7 +76,7 @@ After every ~10 reflections, the prompt recommends writing a `docs/research/aggr
 ## Constraints
 
 - **Never modify the original decision body** (Frame, Fundamentals, Phase A/B, Conclusion). Only update frontmatter `status`, one-time legacy `action` backfills, inactive-record activation frontmatter (`date` and `status`), and the `## Outcome` block. The audit trail depends on the original being preserved.
-- **Never fabricate realized data.** If a CLI query returns empty / errors, defer the decision rather than guess. The cycle's value is honest record-keeping.
+- **Never fabricate realized data.** If a CLI query returns empty / errors, defer the decision rather than guess. For manual exits with `pnl_status: pending_missing_exit_inputs`, keep the file pending and report the missing returned collateral, final debt/carry, and realized net P&L inputs instead of making it terminal. The cycle's value is honest record-keeping.
 - **One run per cadence period.** Running the cycle daily on the same decision set produces duplicate outcome blocks; the prompt's logic already skips `resolved` so it's idempotent, but the convention is weekly-or-after-new-decisions.
 
 ## Skill boundary
