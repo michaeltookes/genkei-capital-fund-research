@@ -93,6 +93,8 @@ A decision normally resolves at its horizon. Two events resolve it *early*, and 
 
 The two often co-occur: the 2026-05-20 SUI decision's bearish trigger fired on 2026-06-02 (a −20.7% move), and the 2026-06-02 rotation decision both records that fire and supersedes it.
 
+**Manual exits with missing P&L** — if a position is closed before horizon but the realized-return inputs are incomplete, keep the decision `status: pending` and add `pnl_status: pending_missing_exit_inputs` plus an `exited_at: YYYY-MM-DD` date. `/reflect-decisions` treats that as a nonterminal follow-up queue: it reports the missing returned collateral, final debt/carry, and realized net P&L inputs each run instead of marking the file `deferred` or forcing a spot-price benchmark grade.
+
 ## Keeping prompts in sync with the CLI
 
 The methodology prompts ARE the researcher's program — a stale claim in them produces wrong behavior in every future session, silently. (Real example: after B-092 shipped equity prices, the reflect prompt still said "equity prices aren't ingested," which would have terminally `deferred` every equity decision out of the reflection cycle.)
