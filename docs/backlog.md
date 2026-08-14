@@ -143,12 +143,12 @@ Once cross-source data is in, the system starts producing investable signals.
 _B-064 follow-ups (wire the remaining signal emitters) shipped — all emitters landed and are chained into the daily workflows; removed 2026-07-01, see `docs/resolved.md`. B-111 (equity relative-strength emitter) also resolved 2026-06-06 and now lives only in `docs/resolved.md`. B-068 (threshold alert engine) shipped 2026-07-16 — see `docs/resolved.md`._
 
 ### B-139 — Chainlink staking-capacity monitor (`staking.chain.link` opening alert)
-- **Status:** deferred until E-002 cockpit ships (2026-07-26, per Michael) — **do not build on the Discord alert path.** Michael does not want a Discord server/channel as the delivery surface; the monitor should alert into the cockpit interface (B-132+) once it exists. Poll/threshold design below stands; only the delivery channel changes.
-- **Priority:** medium (blocked on interface)
+- **Status:** open — **blocked on B-143 (ntfy channel), no longer on the cockpit** (2026-08-14 pivot). The no-Discord constraint stands; delivery is now an ntfy push notification. Poll/threshold design below is unchanged; buildable immediately after B-143 lands (or in the same branch).
+- **Priority:** medium
 - **Context:** Michael holds LINK (crypto core) and wants into the v0.2 community staking pool (~4.32% effective). The pool (40,875,000 LINK community allotment) has been full since Early Access (Dec 2023); under General Access anyone can stake **whenever an existing staker withdraws and space frees up** — no allowlist, just speed. Openings are therefore an on-chain observable: the v0.2 community pool contract exposes `getMaxPoolSize()` / `getTotalPrincipal()`, and available capacity = max − principal. Requested 2026-07-25 (session that logged the token-necessity research question — the staking what-if is the reason LINK stays a conviction hold).
 - **Acceptance criteria:**
   - GH Actions cron polls available capacity via `eth_call` against a public Ethereum RPC (no API key; builder verifies the current community-pool contract address + selectors from docs.chain.link — v0.2 community pool is believed to be `0xBc10f2E862ED4502144c7d632a3459F49DFCDB5e`).
-  - Alert via the cockpit interface (B-132+) when available capacity ≥ a configurable threshold (default ≥ 100 LINK — dust-sized churn isn't actionable), including the amount free and a `staking.chain.link` link. Re-alert only on threshold re-cross, not every poll.
+  - Alert via the ntfy channel (B-143) when available capacity ≥ a configurable threshold (default ≥ 100 LINK — dust-sized churn isn't actionable), including the amount free and a `staking.chain.link` link. Re-alert only on threshold re-cross, not every poll.
   - Poll cadence as tight as GH Actions scheduling honestly allows (~15 min; document that cron drift makes minutes-level sniping unreliable — the realistic catch is larger withdrawals and, above all, a **v0.3 / pool-expansion event**, which this monitor catches at announcement-scale capacity).
   - Secondary tripwire: add `chainlink staking v0.3` / pool-expansion terms to LINK's GDELT `gdelt_terms` watch so an expansion announcement surfaces in news flow even before capacity moves on-chain; keep `Chainlink` in that list too, because explicit `gdelt_terms` replace the implicit name match.
 
@@ -212,24 +212,21 @@ A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the e
   - Coverage limits documented in `docs/sources/` (which allocations are visible vs paywalled), matching the SUI-unlocks honesty note.
   - Decide whether to generalize `sui_unlocks.py` into a shared unlock framework now or defer to a third source; record the call in this item.
 
-## Epic E-002 — Research cockpit (local web app)
+## Epic E-002 — Interface layer (pivoted 2026-08-14: bring-your-own-interface via MCP)
 
-A scoping session on **2026-07-20** decided to build a second interface *beyond the existing TUI*: a **local web app on the homelab Beelink** that renders the lake and embeds a **Claude Agent SDK** chat panel — the "Cursor / Codex desktop" analog mapped onto the fund. Locked scope decisions from that session:
+**Pivot (2026-08-14, Michael's call):** instead of building and maintaining a custom web cockpit, package Genkei so the user **picks their own interface** — Claude Code, Claude Desktop, Cursor, Codex, or any MCP-speaking client — and Genkei plugs in. This is the purer expression of the founding CLAUDE.md stance ("the data lake is the asset; briefs and reports are emergent UIs") and of D-017 ("Claude Code is the agent harness"): the mature agent interfaces already exist; Genkei's job is to be excellently *installable* into them, not to compete with them. The original 2026-07-20 cockpit scoping (local web app + embedded Agent SDK panel) is preserved in this section's history and in `docs/resolved.md`; nothing built for it is wasted — the B-130 MCP server is now the *centerpiece* rather than a stepping stone, and the B-131 read API remains the generic HTTP surface any future client (including a revived dashboard or a chat bot) can consume.
 
-1. **Scope = research cockpit only** — renders the lake + converses with the agent. **No brokerage wiring, read-only, free-sources-only.** (Portfolio/execution surfaces explicitly deferred.)
-2. **Agent = embedded panel backed by the Claude Agent SDK** — the *same engine* as Claude Code with a GUI front-end, **not** a hand-rolled LLM loop. Preserves the locked "Claude Code is the agent harness" decision.
-3. **Form factor = local web app served from the Beelink**, reachable from Mac + phone on the local network (not a native desktop app for v1).
-4. **Webull = evaluate-only, parked** — see B-134.
+What replaces the cockpit: **B-142** (installable MCP packaging + per-client setup) and **B-143** (ntfy push-alert channel — the cockpit's alerts panel reborn as native notifications, unblocking B-139). **B-132** (static frontend) is parked, not deleted — the API keeps it a cheap option if glanceable dashboards are ever missed. **B-133** (embedded agent panel) is obsoleted — Claude Desktop/Code *is* the agent panel (see `docs/resolved.md`). Chat-platform bridges (Discord/Slack bots) are deliberately **not** scheduled: they require hosted bot services + per-message API costs, and there's no second user who lives there yet; revisit only on concrete demand.
 
-**Keystone:** reuse the existing `genkei` CLI as the single tool surface via an MCP wrapper (B-130, **shipped 2026-07-24** — see `docs/resolved.md` + `docs/mcp.md`) feeding *both* Claude Code and the cockpit — no duplicated data logic. **Phasing:** B-130 (MCP wrapper, ✅ done) → B-131 + B-132 (read API + static cockpit) → B-133 (embedded agent panel + artifact contract, whose tool surface *is* the B-130 server). Each phase delivers standalone value before the next. **Remaining Phase 8 items are user stories capturing the agreed design; nothing else here is scheduled to build yet.**
+_B-130 (the `genkei`-as-MCP server keystone) shipped 2026-07-24 — subprocess-with-`--json` adapter, `genkei.mcp` subpackage, `genkei-mcp` entry point, 13 tools; see `docs/mcp.md` and `docs/resolved.md`. **Still pending on Michael's side: registering it from a Python ≥3.10 venv** (`docs/mcp.md`) — with the pivot this is now the fastest path to the entire epic's value._
 
 _B-130 (the `genkei`-as-MCP server keystone) shipped 2026-07-24 — subprocess-with-`--json` adapter, `genkei.mcp` subpackage, `genkei-mcp` entry point, 13 tools; see `docs/mcp.md` and `docs/resolved.md`._
 
 _B-131 (FastAPI read layer over the lake) + B-137 (cockpit deployment & exposure spec) shipped 2026-07-25 — `genkei.api` subpackage, `genkei-api` entry point, read-only endpoints (prices / watchlist / signals / weekly digest / research decisions / lake health), the shared `db.run_readonly` guard, `docs/api-deployment.md` (LAN-only, no cloudflared route, pool ceiling), and the `/health` + B-119 alert workflow. B-132 consumes this API next; see `docs/resolved.md`._
 
 ### B-132 — Static cockpit frontend (workspace pane)
-- **Status:** open
-- **Priority:** low
+- **Status:** **parked** (2026-08-14 pivot — bring-your-own-interface via MCP; see epic header). Not deleted: the B-131 API keeps a thin dashboard a cheap, always-available option. Revisit only if glanceable/ambient visuals are genuinely missed after living with the MCP + ntfy setup for a while.
+- **Priority:** parked (was low)
 - **User story:** As Michael, I want a two-pane web cockpit that renders the lake's artifacts — price / TVL / signal charts, the watchlist, the weekly digest, and the decision log — so that I can review the fund visually instead of only through the TUI/CLI.
 - **Context:** This is the workspace half of the Cursor analog and delivers value with **zero agent work**. Charts render far better than a terminal; phone-reachability makes the weekly digest glanceable.
 - **Acceptance criteria:**
@@ -239,24 +236,32 @@ _B-131 (FastAPI read layer over the lake) + B-137 (cockpit deployment & exposure
   - Frontend-stack decision recorded (recommendation: React + a financial charting lib such as TradingView `lightweight-charts`; alternative: a Python-native UI) with rationale.
   - Ships and is useful before B-133 exists.
 
-### B-133 — Embedded Claude Agent SDK panel + artifact contract
+### B-142 — Genkei as an installable MCP package (per-client setup + distribution)
 - **Status:** open
-- **Priority:** low
-- **User story:** As Michael, I want an embedded chat panel that can query the lake and render results *into the workspace* so that asking "how's ZEC's shielded-pool adoption trending?" opens a chart pane — not a wall of text.
-- **Context:** The "Cursor moment" is the agent acting on the workspace, not just replying. That requires a small **typed artifact vocabulary** the frontend knows how to render. Must be backed by the Agent SDK (same engine as Claude Code) to stay inside the locked no-hand-rolled-framework decision.
+- **Priority:** medium-high — with the 2026-08-14 pivot this IS the interface layer; the server itself (B-130) already exists, so this is packaging polish with outsized leverage.
+- **User story:** As a Genkei user, I want to install the lake's tool surface into the interface I already use (Claude Code, Claude Desktop, Cursor, Codex, or any MCP client) with one command and a config snippet, so the interface is my choice, not the project's.
 - **Acceptance criteria:**
-  - Chat panel backed by the **Claude Agent SDK** (Python backend, streamed to the UI) — not a hand-rolled LLM loop.
-  - Agent's tool surface **is the B-130 MCP server** — identical tools to Claude Code.
-  - Typed artifact contract: agent emits `chart` / `table` / `report-link` / `decision-draft` artifacts the frontend renders into the workspace pane.
-  - **Write posture:** read-only by default; any repo write (draft → `docs/research/decisions/`, commit a report) is gated behind explicit user approval. Record whether writes ship in v1 or defer.
-  - Streaming responses; conversation persists per session.
+  - **One-line install path** that solves the Python ≥3.10 constraint cleanly — e.g. `uvx`/`pipx` invocation (`uvx --from 'genkei[mcp]' genkei-mcp` or equivalent) so no manual venv juggling; document exactly one blessed method.
+  - **Per-client setup docs** in `docs/mcp.md`: config snippets for Claude Code (`claude mcp add`), Claude Desktop (`claude_desktop_config.json`), Cursor, and Codex — each verified against a real client at least once, with the `.env`/`GENKEI_DATABASE_URL` story stated per client (server loads `.env` at startup via B-135; remote clients need the var passed in config).
+  - **Network reality documented:** stdio-local clients must run on a machine that can reach the Beelink Postgres (LAN/Tailscale); a **streamable-HTTP transport + auth** for truly remote clients (claude.ai, phone) is explicitly scoped as a *follow-up decision*, not v1 — it reopens the B-137 exposure posture and needs an auth story first.
+  - Registration validated end-to-end from Michael's Mac (the pending B-130 manual step folds in here and closes with this item).
+
+### B-143 — ntfy push-alert channel (the alerts panel, reborn as notifications)
+- **Status:** open
+- **Priority:** medium-high — unblocks B-139 and gives every logged trigger tripwire (PYTH checkpoint, HYPE fees/share, RENDER/SUSHI/SUI reopens) a delivery path that isn't Discord and doesn't require a custom UI.
+- **Context:** Michael rejected Discord as an alert surface (2026-08-04); the cockpit's alerts panel was the planned alternative and is now parked. [ntfy](https://ntfy.sh) fits the homelab ethos: a topic is a URL, publishing is one `curl` from any GH Action or Beelink cron, and delivery is a native push notification in the app/browser of Michael's choice. Self-hostable on the Beelink (a `beelink/ntfy/` service beside the existing stack) or free-hosted with a random-suffix topic name while evaluating.
+- **Acceptance criteria:**
+  - Decision recorded: self-hosted on the Beelink vs hosted ntfy.sh topic (either is acceptable for v1; self-host keeps the no-third-party posture).
+  - A shared notify helper (mirroring `.github/actions/discord-notify`'s shape) so any workflow can `curl` the topic; wire it as an *additional* channel into the B-119 alert path (GitHub issues remain the durable record).
+  - At least one real alert flowing end-to-end: the backup staleness check or the threshold-alert engine (B-068) publishing to ntfy, received on Michael's phone.
+  - `docs/alerting.md` (or the existing alerting docs) updated with the channel map: what pages where, and why.
 
 ### B-134 — Webull OpenAPI source evaluation (parked)
 - **Status:** deferred 2026-07-20 — evaluate-only; reopen on a concrete live-data gap (see trigger).
 - **Priority:** deferred
 - **User story:** As the fund, I want a recorded evaluation of Webull's OpenAPI so that when a live-data gap appears we can decide quickly whether it's worth opening the "private-data story."
 - **Context:** Surfaced during the E-002 scoping session (Michael uses Webull for individual stocks + select crypto prices). Webull OpenAPI offers **Trading**, **Market Data** (quotes / snapshots / OHLCV bars / screeners / fundamentals across US stocks, ETFs, futures, crypto; 300 req/min), **Broker**, and **Connect** (OAuth) APIs, plus an **official MCP server** (`webull-openapi-mcp`) that plugs into Claude Code, and a Python SDK. Requires a Webull **developer account + App Key/Secret + mobile 2FA**, and possibly a **paid market-data subscription**. **Key finding:** it's a **real-time + real-positions** source, **not a history source** (no documented deep backfill) — it *complements* the free ingesters, doesn't replace them. Because it's account-tied/semi-private, adopting it formally opens the "private-data story" deferred per CLAUDE.md (locked decision D: free/open sources only).
-- **Reopen / revisit trigger:** once the cockpit read layer + agent panel (B-131 / B-133) are live **and** a specific live-data gap is identifiable (real-time quotes, or actual positions / P&L, that free sources don't cover).
+- **Reopen / revisit trigger:** once the MCP interface layer (B-142) is in daily use **and** a specific live-data gap is identifiable (real-time quotes, or actual positions / P&L, that free sources don't cover).
 - **Acceptance criteria (for reopen):**
   - Confirm current pricing / tier for the *specific* data needed, and whether a paid market-data subscription is required.
   - Decide the entry path and record the call: **official MCP server** (fastest, no new ingester — preferred) vs a **`genkei` lake ingester** (data lands in Postgres as system-of-record).
