@@ -1,10 +1,10 @@
-"""FastAPI read layer over the lake (B-131) — the cockpit's HTTP data source.
+"""FastAPI read layer over the lake (B-131) — the generic HTTP read surface.
 
 Exposes a small set of **read-only** HTTP endpoints (price series, watchlist,
 signal history, the weekly signal digest, the research decision log, and lake
-health) so the E-002 cockpit frontend (B-132, built next) has a typed data
-source that isn't a Bash-shelled CLI. This is the HTTP sibling of the MCP
-server (B-130): same lake, same shared query modules, different transport.
+health) so revived dashboards or other non-MCP clients have a typed data source
+that isn't a Bash-shelled CLI. This is the HTTP sibling of the MCP server
+(B-130): same lake, same shared query modules, different transport.
 
 Direct-DB vs subprocess — the recorded decision (B-131)
 =======================================================
@@ -15,8 +15,9 @@ choice (B-130), and deliberately so:
 
 * **Long-lived service, per-request latency matters.** The MCP server is an
   interactive tool surface where a subprocess spawn per call is negligible.
-  A web API serving a UI answers many small requests; a Python-interpreter
-  spawn + Typer bootstrap per request is pure overhead with no upside.
+  A web API serving interactive clients answers many small requests; a
+  Python-interpreter spawn + Typer bootstrap per request is pure overhead with
+  no upside.
 * **Reuse, not re-implement.** The endpoints call the *same* functions the
   CLI subcommands call — ``load_watchlist()``, ``_query_source_health()``,
   ``query_events()``, the coingecko/coinbase/yahoo price readers,
