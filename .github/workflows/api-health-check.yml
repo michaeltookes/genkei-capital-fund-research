@@ -80,6 +80,9 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
           TITLE="[api-alert] genkei-api read API"
+          # Keep this legacy title in the lookup so existing open outage issues
+          # get updated instead of duplicated after the post-cockpit wording rename.
+          LEGACY_TITLE="[api-alert] genkei-api cockpit read API"
           BODY_MD="- **DOWN**: ${PROBLEM}
 
           - Detected at: ${DETECTED}
@@ -102,6 +105,18 @@ jobs:
               --json number,title \
               --jq ".[] | select(.title == \"${TITLE}\") | .number" \
               | head -1)
+          if [ -z "${EXISTING_NUMBER}" ]; then
+              EXISTING_NUMBER=$(gh issue list \
+                  --state open \
+                  --limit 1000 \
+                  --json number,title \
+                  --jq ".[] | select(.title == \"${LEGACY_TITLE}\") | .number" \
+                  | head -1)
+              if [ -n "${EXISTING_NUMBER}" ]; then
+                  gh issue edit "${EXISTING_NUMBER}" --title "${TITLE}"
+                  echo "Migrated legacy api-alert issue #${EXISTING_NUMBER} title."
+              fi
+          fi
 
           if [ -n "${EXISTING_NUMBER}" ]; then
               gh issue comment "${EXISTING_NUMBER}" --body "Still down as of ${DETECTED}:
