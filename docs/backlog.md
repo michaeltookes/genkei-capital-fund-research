@@ -223,8 +223,8 @@ _B-130 (the `genkei`-as-MCP server keystone) shipped 2026-07-24 — subprocess-w
 _B-131 (FastAPI read layer over the lake) + B-137 (cockpit deployment & exposure spec) shipped 2026-07-25 — `genkei.api` subpackage, `genkei-api` entry point, read-only endpoints (prices / watchlist / signals / weekly digest / research decisions / lake health), the shared `db.run_readonly` guard, `docs/api-deployment.md` (LAN-only, no cloudflared route, pool ceiling), and the `/health` + B-119 alert workflow. After the E-002 pivot, this API remains the generic LAN-only HTTP surface for a possible revived dashboard or other non-MCP client; B-132 is parked, not next. See `docs/resolved.md`._
 
 ### B-132 — Static cockpit frontend (workspace pane)
-- **Status:** **parked** (2026-08-14 pivot — bring-your-own-interface via MCP; see epic header). Not deleted: the B-131 API keeps a thin dashboard a cheap, always-available option. Revisit only if glanceable/ambient visuals are genuinely missed after living with the MCP + ntfy setup for a while.
-- **Priority:** parked (was low)
+- **Status:** **parked** (2026-08-14 pivot — bring-your-own-interface via MCP; B-133 is obsolete; see epic header). Not deleted: the B-131 API keeps a thin dashboard a cheap, always-available option. Revisit only as a standalone visual surface if glanceable/ambient visuals are genuinely missed after living with the MCP + ntfy setup for a while.
+- **Priority:** parked
 - **User story:** As Michael, I want a two-pane web cockpit that renders the lake's artifacts — price / TVL / signal charts, the watchlist, the weekly digest, and the decision log — so that I can review the fund visually instead of only through the TUI/CLI.
 - **Context:** This is the workspace half of the Cursor analog and delivers value with **zero agent work**. Charts render far better than a terminal; phone-reachability makes the weekly digest glanceable.
 - **Acceptance criteria:**
