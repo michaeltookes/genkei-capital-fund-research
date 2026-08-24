@@ -1,19 +1,19 @@
 name: API Health Check
 
-# B-131 / B-137 — scheduled check that the cockpit read API (`genkei-api`) is
+# B-131 / B-137 — scheduled check that the Genkei read API (`genkei-api`) is
 # alive. Polls the service's GET /health endpoint and opens/updates a GitHub
 # issue + pings Discord when it is unreachable or reports itself degraded.
 #
 # Why a self-hosted runner: `genkei-api` is LAN-only (no cloudflared route in
 # v1, see docs/api-deployment.md), so only a runner on the home network can
 # reach it. This is the read-API counterpart to backup-staleness-check.yml
-# (B-138) and ingest-staleness-check.yml (B-071): a dead cockpit service should
+# (B-138) and ingest-staleness-check.yml (B-071): a dead read API service should
 # be noticed the same way a dead ingester is, through the B-119 Discord/issue
-# path — not by a human eventually noticing the UI is blank.
+# path — not by a human eventually noticing client queries are failing.
 
 on:
   schedule:
-    # Every 6h — the cockpit is not on a daily cadence like ingest, so a
+    # Every 6h — the read API supports interactive clients, so a
     # tighter loop catches an outage within a quarter-day rather than next
     # morning. Cheap: one HTTP GET.
     - cron: "0 */6 * * *"
@@ -79,7 +79,10 @@ jobs:
               echo "DISCORD_EOF"
           } >> "$GITHUB_OUTPUT"
 
-          TITLE="[api-alert] genkei-api cockpit read API"
+          CURRENT_TITLE="[api-alert] genkei-api read API"
+          # Keep this legacy title in the lookup so existing open outage issues
+          # get updated instead of duplicated after the post-cockpit wording rename.
+          LEGACY_TITLE="[api-alert] genkei-api cockpit read API"
           BODY_MD="- **DOWN**: ${PROBLEM}
 
           - Detected at: ${DETECTED}
@@ -100,15 +103,27 @@ jobs:
               --state open \
               --limit 1000 \
               --json number,title \
-              --jq ".[] | select(.title == \"${TITLE}\") | .number" \
+              --jq ".[] | select(.title == \"${CURRENT_TITLE}\") | .number" \
               | head -1)
+          if [ -z "${EXISTING_NUMBER}" ]; then
+              EXISTING_NUMBER=$(gh issue list \
+                  --state open \
+                  --limit 1000 \
+                  --json number,title \
+                  --jq ".[] | select(.title == \"${LEGACY_TITLE}\") | .number" \
+                  | head -1)
+              if [ -n "${EXISTING_NUMBER}" ]; then
+                  gh issue edit "${EXISTING_NUMBER}" --title "${CURRENT_TITLE}"
+                  echo "Migrated legacy api-alert issue #${EXISTING_NUMBER} title."
+              fi
+          fi
 
           if [ -n "${EXISTING_NUMBER}" ]; then
               gh issue comment "${EXISTING_NUMBER}" --body "Still down as of ${DETECTED}:
           ${PROBLEM}"
               echo "Commented on existing issue #${EXISTING_NUMBER}."
           else
-              gh issue create --title "${TITLE}" --body "${BODY_MD}"
+              gh issue create --title "${CURRENT_TITLE}" --body "${BODY_MD}"
               echo "Opened new api-alert issue."
           fi
 
@@ -117,9 +132,9 @@ jobs:
         uses: ./.github/actions/discord-notify
         with:
           webhook_url: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          title: "🔴 Cockpit API down — genkei-api /health"
+          title: "🔴 genkei-api /health down"
           description: |
-            The cockpit read API health check flagged a problem; a GitHub issue was opened or updated.
+            The genkei-api read API health check flagged a problem; a GitHub issue was opened or updated.
 
             ${{ steps.apihealth.outputs.summary }}
           color: "15158332"

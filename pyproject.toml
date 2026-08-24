@@ -37,16 +37,17 @@ notebooks = [
     "matplotlib>=3.7",
 ]
 # MCP server (B-130) — wraps the `genkei` CLI as a Model Context Protocol
-# tool surface for Claude Code + the future cockpit. Kept OUT of core deps
-# on purpose (mirrors [notebooks]): the CLI, the offline test suite, and the
-# MCP tool registry + adapter all import and run without this. Only the
-# running server (`genkei-mcp`) needs it, and the SDK requires Python >=3.10 —
-# so it stays optional to keep the package installable under the 3.9 harness.
+# tool surface for Claude Code, Claude Desktop, Cursor, Codex, and other MCP
+# clients. Kept OUT of core deps on purpose (mirrors [notebooks]): the CLI,
+# the offline test suite, and the MCP tool registry + adapter all import and
+# run without this. Only the running server (`genkei-mcp`) needs it, and the SDK
+# requires Python >=3.10 — so it stays optional to keep the package installable
+# under the 3.9 harness.
 # Install with: pip install -e ".[mcp]"
 mcp = [
     "mcp>=1.0",
 ]
-# FastAPI read layer (B-131) — the cockpit's HTTP read API over the lake.
+# FastAPI read layer (B-131) — the generic HTTP read API over the lake.
 # Kept OUT of core deps on purpose (mirrors [mcp] / [notebooks]): the CLI,
 # the offline test suite, and every ingester install and run without it; only
 # the running service (`genkei-api`) needs it. Unlike [mcp], FastAPI supports

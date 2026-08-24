@@ -166,6 +166,14 @@ The lake is fed by 14 scheduled ingest workflows. Three workflows watch for it g
 
 **Why the heartbeat is GitHub-hosted:** a down self-hosted runner never *starts* its scheduled jobs, so nothing fails (no failure alert) and the DB-side staleness check can't run either (it lives on the same runner). The heartbeat sidesteps both by living on GitHub-hosted compute and reading only the Actions API — it stays up when the homelab is down. It uses run *recency* (last successful run age) rather than DB freshness because GitHub-hosted runners can't reach the homelab Postgres (see "Network reachability").
 
+**Future ntfy channel constraint (B-143):** a Beelink-hosted ntfy service can
+cover Beelink-local publishers, but it cannot page for runner-down or
+homelab-down conditions. Any ntfy replacement/addition for `ingest-heartbeat.yml`
+or `workflow-failure-alert.yml` must use an access-controlled hosted topic or an
+authenticated public relay/exposure design reachable from GitHub-hosted runners
+and independent of the Beelink's uptime; unauthenticated publish/subscribe must
+be rejected.
+
 ### Retry on transient failure (B-125)
 
 Monitoring above is the *observability* half of silent-staleness — you find out when the lake stops being fed. Retry is the *prevention* half: each ingest workflow ran its collector exactly once, so a single transient API flake (a slow FRED at 11:00 UTC, a 502 from DeFiLlama) dropped a full day of data until the next cron.
@@ -213,7 +221,7 @@ with connection() as conn, conn.cursor() as cur:
     cur.execute('SELECT current_database(), version()'); print(cur.fetchone())"
 ```
 
-## Cockpit read API
+## FastAPI read API
 
 The FastAPI read layer (`genkei-api`, `src/genkei/api/`) runs as its own
 container on `mission_control_net` alongside `genkeicapital-postgres`. It is
