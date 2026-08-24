@@ -169,9 +169,10 @@ The lake is fed by 14 scheduled ingest workflows. Three workflows watch for it g
 **Future ntfy channel constraint (B-143):** a Beelink-hosted ntfy service can
 cover Beelink-local publishers, but it cannot page for runner-down or
 homelab-down conditions. Any ntfy replacement/addition for `ingest-heartbeat.yml`
-or `workflow-failure-alert.yml` must use a hosted topic or an authenticated
-public relay/exposure design reachable from GitHub-hosted runners and independent
-of the Beelink's uptime.
+or `workflow-failure-alert.yml` must use an access-controlled hosted topic or an
+authenticated public relay/exposure design reachable from GitHub-hosted runners
+and independent of the Beelink's uptime; unauthenticated publish/subscribe must
+be rejected.
 
 ### Retry on transient failure (B-125)
 
