@@ -232,7 +232,7 @@ _B-131 (FastAPI read layer over the lake) + B-137 (cockpit deployment & exposure
   - Renders: per-asset price series, TVL/signal history, the current weekly signal digest, and the decision log.
   - Reads **exclusively** from the B-131 API; no agent dependency.
   - Frontend-stack decision recorded (recommendation: React + a financial charting lib such as TradingView `lightweight-charts`; alternative: a Python-native UI) with rationale.
-  - Ships and is useful before B-133 exists.
+  - If revived, ships only if it is useful as a standalone visual review surface without an agent panel.
 
 ### B-142 — Genkei as an installable MCP package (per-client setup + distribution)
 - **Status:** open
