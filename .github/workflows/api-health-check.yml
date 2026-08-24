@@ -79,7 +79,7 @@ jobs:
               echo "DISCORD_EOF"
           } >> "$GITHUB_OUTPUT"
 
-          TITLE="[api-alert] genkei-api read API"
+          CURRENT_TITLE="[api-alert] genkei-api read API"
           # Keep this legacy title in the lookup so existing open outage issues
           # get updated instead of duplicated after the post-cockpit wording rename.
           LEGACY_TITLE="[api-alert] genkei-api cockpit read API"
@@ -103,7 +103,7 @@ jobs:
               --state open \
               --limit 1000 \
               --json number,title \
-              --jq ".[] | select(.title == \"${TITLE}\") | .number" \
+              --jq ".[] | select(.title == \"${CURRENT_TITLE}\") | .number" \
               | head -1)
           if [ -z "${EXISTING_NUMBER}" ]; then
               EXISTING_NUMBER=$(gh issue list \
@@ -113,7 +113,7 @@ jobs:
                   --jq ".[] | select(.title == \"${LEGACY_TITLE}\") | .number" \
                   | head -1)
               if [ -n "${EXISTING_NUMBER}" ]; then
-                  gh issue edit "${EXISTING_NUMBER}" --title "${TITLE}"
+                  gh issue edit "${EXISTING_NUMBER}" --title "${CURRENT_TITLE}"
                   echo "Migrated legacy api-alert issue #${EXISTING_NUMBER} title."
               fi
           fi
@@ -123,7 +123,7 @@ jobs:
           ${PROBLEM}"
               echo "Commented on existing issue #${EXISTING_NUMBER}."
           else
-              gh issue create --title "${TITLE}" --body "${BODY_MD}"
+              gh issue create --title "${CURRENT_TITLE}" --body "${BODY_MD}"
               echo "Opened new api-alert issue."
           fi
 
