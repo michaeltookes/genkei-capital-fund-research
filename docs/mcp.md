@@ -1,10 +1,10 @@
 # `genkei` MCP server (B-130)
 
 Wraps the `genkei` CLI as a [Model Context Protocol](https://modelcontextprotocol.io)
-server so the same tool surface feeds both Claude Code today and the future
-cockpit (E-002). It is immediately useful in Claude Code independent of any
-UI: register the server and the agent gets typed `prices` / `signals` / `tvl`
-/ `query` / … tools instead of hand-composing Bash.
+server so the same tool surface plugs into MCP-speaking clients. After the
+2026-08-14 E-002 pivot, this is the primary interface path: register the server
+and the agent gets typed `prices` / `signals` / `tvl` / `query` / … tools
+instead of hand-composing Bash.
 
 ## Design: subprocess, not import
 
@@ -147,5 +147,6 @@ claude mcp add genkei -- /absolute/path/to/.venv/bin/python -m genkei.mcp.server
 ```
 
 Once registered, the tools appear to the agent as `genkei` MCP tools. The
-server speaks MCP over stdio — the transport Claude Code and the cockpit both
-use.
+server speaks MCP over stdio — the transport Claude Code and other local MCP
+clients use. Truly remote clients need a separate streamable-HTTP transport and
+auth story before they come into scope (tracked by B-142).

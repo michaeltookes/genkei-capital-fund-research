@@ -1,9 +1,11 @@
-# Cockpit read-API deployment & exposure
+# FastAPI read-API deployment & exposure
 
 How the FastAPI read layer (**B-131**, `src/genkei/api/`) is deployed on the
 homelab and what its exposure posture is (**B-137**). This is the HTTP sibling
-of the MCP server (B-130): same lake, read-only, but a long-lived web service
-the E-002 cockpit frontend (B-132, built next) calls.
+of the MCP server (B-130): same lake, read-only, but a long-lived web service.
+It was originally scoped for the E-002 cockpit frontend; after the 2026-08-14
+E-002 pivot, it remains the generic LAN-only HTTP surface for a possible revived
+dashboard or other non-MCP client.
 
 > **Source of truth for host/network specifics:** the user's `/server-info`
 > skill (local-only). This doc uses `<beelink-host>` placeholders and captures
@@ -83,8 +85,8 @@ is updated, without requiring an image rebuild solely for report freshness.
 
 ## Exposure / auth posture
 
-**v1 is local-network-only. No public exposure. No authentication.** The
-cockpit is a single-user, LAN-bound tool; the data is already committed to the
+**v1 is local-network-only. No public exposure. No authentication.** The read
+API is a single-user, LAN-bound tool; the data is already committed to the
 repo under `reports/` and derived from free public sources, so the threat model
 is "don't accidentally expose an unauthenticated DB reader to the internet,"
 not "protect secrets."
@@ -93,18 +95,18 @@ Concretely, "LAN-only" means:
 
 - **Bind decision.** The uvicorn process binds `0.0.0.0` *inside the
   container* (so the service is reachable across `mission_control_net` and by
-  the cockpit frontend). Exposure is constrained at the **Docker publish
-  layer**, not by binding to loopback: the host port is published to the
-  Beelink's **LAN IP only** (`<beelink-lan-ip>:8848:8848`), never `0.0.0.0` on
-  the host. So the API answers on the home network and to co-networked
-  containers, and is not listening on any internet-facing interface.
-- **The `cloudflared` tunnel does NOT route to the cockpit in v1.**
+  local clients or a possible future dashboard). Exposure is constrained at the
+  **Docker publish layer**, not by binding to loopback: the host port is
+  published to the Beelink's **LAN IP only** (`<beelink-lan-ip>:8848:8848`),
+  never `0.0.0.0` on the host. So the API answers on the home network and to
+  co-networked containers, and is not listening on any internet-facing interface.
+- **The `cloudflared` tunnel does NOT route to `genkei-api` in v1.**
   `cloudflared` already runs on the Beelink (see `docs/infrastructure.md` →
   "Network reachability"), but **no ingress rule points at `genkei-api`.** The
   read API is deliberately kept off the tunnel so an unauthenticated reader is
   never reachable from the public internet. Adding a tunnel route is a future
   decision that must ship *with* an auth story (token / mTLS / SSO), tracked
-  separately if the cockpit ever needs off-LAN access.
+  separately if the read API or a future dashboard ever needs off-LAN access.
 - **No auth in v1.** Because the surface is LAN-only and read-only, there are
   no API keys or sessions. This is recorded here so a future "expose it
   remotely" change is forced to revisit auth first.
@@ -118,7 +120,7 @@ limits (B-045) rather than reinventing them — the same read-only guard lives i
 
 | Guard | Value | Where enforced |
 |---|---|---|
-| **Connection-pool ceiling** | `max_size=4` (env `GENKEI_API_MAX_POOL_SIZE`) | `src/genkei/api/pool.py` — configured on startup so the shared `db` pool is capped before the first request opens a connection. A burst of cockpit requests can hold at most 4 of the Postgres server's connections. |
+| **Connection-pool ceiling** | `max_size=4` (env `GENKEI_API_MAX_POOL_SIZE`) | `src/genkei/api/pool.py` — configured on startup so the shared `db` pool is capped before the first request opens a connection. A burst of API client requests can hold at most 4 of the Postgres server's connections. |
 | **Read-only transaction** | `SET TRANSACTION READ ONLY` | `db.readonly_connection` / `db.run_readonly` — Postgres rejects any write; `/prices`, `/signals`, `/lake/health`, and `/health` route through the shared guard. No write helper (`bulk_upsert` / `ingest_run` / `store_raw_blob`) is importable from `genkei.api`. |
 | **Statement timeout** | `SET LOCAL statement_timeout` (30 s default; 5 s on `/health`) | `db.readonly_connection` / `db.run_readonly` — the server cancels a runaway query so it can't pin a pool slot. |
 | **Response row cap** | default 100, hard ceiling 1000 rows per list endpoint | `src/genkei/api/app.py` (`DEFAULT_ROW_LIMIT` / `MAX_ROW_LIMIT`) — `/prices` and `/signals` clamp `?limit=` and push it into the SQL `LIMIT`; `/watchlist` and `/research/decisions` are naturally bounded. |
@@ -137,7 +139,7 @@ limits (B-045) rather than reinventing them — the same read-only guard lives i
 
 ## Health check + failure alerting (B-119 path)
 
-A dead cockpit service must be noticed like a dead ingester. The
+A dead read-API service must be noticed like a dead ingester. The
 `GET /health` endpoint (service up + DB reachable) is polled by
 `.github/workflows/api-health-check.yml`, modeled on
 `backup-staleness-check.yml`:

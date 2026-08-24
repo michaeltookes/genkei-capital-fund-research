@@ -222,7 +222,7 @@ _B-130 (the `genkei`-as-MCP server keystone) shipped 2026-07-24 — subprocess-w
 
 _B-130 (the `genkei`-as-MCP server keystone) shipped 2026-07-24 — subprocess-with-`--json` adapter, `genkei.mcp` subpackage, `genkei-mcp` entry point, 13 tools; see `docs/mcp.md` and `docs/resolved.md`._
 
-_B-131 (FastAPI read layer over the lake) + B-137 (cockpit deployment & exposure spec) shipped 2026-07-25 — `genkei.api` subpackage, `genkei-api` entry point, read-only endpoints (prices / watchlist / signals / weekly digest / research decisions / lake health), the shared `db.run_readonly` guard, `docs/api-deployment.md` (LAN-only, no cloudflared route, pool ceiling), and the `/health` + B-119 alert workflow. B-132 consumes this API next; see `docs/resolved.md`._
+_B-131 (FastAPI read layer over the lake) + B-137 (cockpit deployment & exposure spec) shipped 2026-07-25 — `genkei.api` subpackage, `genkei-api` entry point, read-only endpoints (prices / watchlist / signals / weekly digest / research decisions / lake health), the shared `db.run_readonly` guard, `docs/api-deployment.md` (LAN-only, no cloudflared route, pool ceiling), and the `/health` + B-119 alert workflow. After the E-002 pivot, this API remains the generic LAN-only HTTP surface for a possible revived dashboard or other non-MCP client; B-132 is parked, not next. See `docs/resolved.md`._
 
 ### B-132 — Static cockpit frontend (workspace pane)
 - **Status:** **parked** (2026-08-14 pivot — bring-your-own-interface via MCP; see epic header). Not deleted: the B-131 API keeps a thin dashboard a cheap, always-available option. Revisit only if glanceable/ambient visuals are genuinely missed after living with the MCP + ntfy setup for a while.
@@ -249,12 +249,12 @@ _B-131 (FastAPI read layer over the lake) + B-137 (cockpit deployment & exposure
 ### B-143 — ntfy push-alert channel (the alerts panel, reborn as notifications)
 - **Status:** open
 - **Priority:** medium-high — unblocks B-139 and gives every logged trigger tripwire (PYTH checkpoint, HYPE fees/share, RENDER/SUSHI/SUI reopens) a delivery path that isn't Discord and doesn't require a custom UI.
-- **Context:** Michael rejected Discord as an alert surface (2026-08-04); the cockpit's alerts panel was the planned alternative and is now parked. [ntfy](https://ntfy.sh) fits the homelab ethos: a topic is a URL, publishing is one `curl` from any GH Action or Beelink cron, and delivery is a native push notification in the app/browser of Michael's choice. Self-hostable on the Beelink (a `beelink/ntfy/` service beside the existing stack) or free-hosted with a random-suffix topic name while evaluating.
+- **Context:** Michael rejected Discord as an alert surface (2026-08-04); the cockpit's alerts panel was the planned alternative and is now parked. [ntfy](https://ntfy.sh) fits the homelab ethos: a topic is a URL, publishing is one `curl` from any GH Action or Beelink cron, and delivery is a native push notification in the app/browser of Michael's choice. Self-hosted ntfy on the Beelink is acceptable for Beelink-originated alerts, but it does **not** cover runner-down / homelab-down alerts: `ingest-heartbeat.yml` and `workflow-failure-alert.yml` run on GitHub-hosted runners, cannot reach the homelab, and must survive the Beelink being offline. Those paths require hosted ntfy.sh or an authenticated public relay/exposure design before ntfy can be treated as full B-119 coverage.
 - **Acceptance criteria:**
-  - Decision recorded: self-hosted on the Beelink vs hosted ntfy.sh topic (either is acceptable for v1; self-host keeps the no-third-party posture).
-  - A shared notify helper (mirroring `.github/actions/discord-notify`'s shape) so any workflow can `curl` the topic; wire it as an *additional* channel into the B-119 alert path (GitHub issues remain the durable record).
-  - At least one real alert flowing end-to-end: the backup staleness check or the threshold-alert engine (B-068) publishing to ntfy, received on Michael's phone.
-  - `docs/alerting.md` (or the existing alerting docs) updated with the channel map: what pages where, and why.
+  - Decision recorded by publisher class: Beelink-local alerts may use self-hosted or hosted ntfy; GitHub-hosted runner-down alerts (`ingest-heartbeat.yml`, `workflow-failure-alert.yml`) require hosted ntfy.sh or an authenticated public relay/exposure design. Beelink self-hosting alone must not be recorded as covering the full B-119 path.
+  - A shared notify helper (mirroring `.github/actions/discord-notify`'s shape) so workflows can `curl` the appropriate topic; wire it as an *additional* channel into the B-119 alert path where the publisher can reach the topic (GitHub issues remain the durable record).
+  - At least one real Beelink-local alert flowing end-to-end: the backup staleness check or the threshold-alert engine (B-068) publishing to ntfy, received on Michael's phone. Before replacing Discord for runner-down coverage, also prove one GitHub-hosted heartbeat/failure alert reaches the hosted/relay topic.
+  - `docs/alerting.md` (or the existing alerting docs) updated with the channel map: what pages where, which publishers can reach it, and which outages it survives.
 
 ### B-134 — Webull OpenAPI source evaluation (parked)
 - **Status:** deferred 2026-07-20 — evaluate-only; reopen on a concrete live-data gap (see trigger).
