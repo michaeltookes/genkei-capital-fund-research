@@ -46,16 +46,61 @@ suite import and run without the extra installed — mirroring how
 `genkei.common.notebook` imports pandas lazily. Only the running server needs
 the SDK.
 
-## Install
+## Install (blessed path: `uvx`)
 
-The MCP SDK is an **optional extra** (kept out of core deps, like `[notebooks]`):
+The MCP SDK requires **Python >= 3.10**, but the system Python on a typical Mac
+(and this repo's own harness) is 3.9. **The one blessed install method is
+[`uv`](https://docs.astral.sh/uv/)'s `uvx`** — it provisions a managed CPython
+that satisfies the package's `requires-python = ">=3.10"` automatically, so
+there is no venv to create, activate, or keep on `PATH`. The whole run command
+is:
+
+```bash
+uvx --from '/absolute/path/to/genkei-capital-fund-research[mcp]' genkei-mcp
+```
+
+- `--from '<checkout>[mcp]'` builds the private `genkei` package from your local
+  checkout **with the `[mcp]` extra**, into a cached ephemeral environment, and
+  runs its `genkei-mcp` entry point. First run downloads a Python ≥3.10 and
+  builds the wheel (~15 s); subsequent runs are cached and near-instant.
+- The package is **not on PyPI** (private, free-sources-only repo), so `--from`
+  points at a path or a git URL — never a bare `genkei`. A git form works the
+  same way once you have repo access:
+  `uvx --from 'git+ssh://git@github.com/<owner>/genkei-capital-fund-research[mcp]' genkei-mcp`.
+
+Install `uv` once (it is the only prerequisite):
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh   # puts uv + uvx in ~/.local/bin
+```
+
+**Why `uvx` and not `pipx`.** `pipx` also isolates the tool, but it installs
+*into whatever Python it's given* — it will not fetch a 3.10+ interpreter when
+the system is on 3.9, so you'd be back to juggling a venv. `uv` fetches the
+interpreter itself, which is the entire constraint this item exists to solve.
+(If you already run Python ≥3.10 everywhere, `pipx install '<checkout>[mcp]'`
+gives a persistent `genkei-mcp` on `PATH` — that's the one-line alternative,
+not the blessed path.)
+
+**SDK version pin.** The `[mcp]` extra is capped at `mcp>=1.0,<2`: the server
+builds on the low-level `mcp.server.Server` decorator API
+(`@server.list_tools()` / `@server.call_tool()`), which the 2.0 SDK removed. An
+unpinned floor resolves to 2.x and crashes the server at startup
+(`AttributeError: 'Server' object has no attribute 'list_tools'`). Porting the
+server to the 2.x handler shape is a tracked follow-up; until then the cap keeps
+the one-line install working.
+
+### Dev install (working in the repo)
+
+For hacking on the server itself, the editable install still works under any
+Python ≥3.10 venv:
 
 ```bash
 pip install -e ".[mcp]"
 ```
 
-The SDK requires **Python >= 3.10**. The `genkei` CLI itself still runs under
-the repo's 3.9 harness; only the MCP server process needs 3.10+.
+The `genkei` CLI and the offline test suite run fine under the repo's 3.9
+harness; only the running MCP server process needs 3.10+.
 
 ## Tools exposed
 
@@ -96,57 +141,144 @@ inherits them unchanged:
 - Server-side row cap wrapping the query (default 100, max 100 000).
 - Multi-statement input (`;` outside literals) rejected at parse time.
 
-## Register in Claude Code
+## The `.env` / `GENKEI_DATABASE_URL` story (read this before configuring a client)
 
-### Option A — `.mcp.json` (project-scoped, checked in or local)
+The spawned `genkei` subprocesses need `GENKEI_DATABASE_URL` to reach the
+Beelink Postgres. At startup the server calls `load_env_file()` (B-135), which
+reads a `.env` **from the server process's current working directory** — not
+from the repo it was installed from. That distinction decides how each client
+supplies the URL:
 
-Add a `.mcp.json` at the repo root (or your Claude Code config). Adjust the
-`command` to the interpreter that has the `[mcp]` extra installed:
+- **cwd is the repo root** → `.env` is auto-discovered; no `env` block needed.
+  This is the Claude Code case when you launch `claude` from inside the checkout.
+- **cwd is anything else** (an app bundle, your home dir, a different project) →
+  `.env` is *not* found. Pass the URL explicitly in the client's `env` block.
+  Claude Desktop, Cursor, and Codex all launch the server from their own working
+  directory, so they **always** need the `env` block.
+
+Placeholder used below (never commit the real value — it lives only in the
+gitignored `.env` or a client config outside the repo):
+
+```
+GENKEI_DATABASE_URL=postgresql+psycopg://<user>:<password>@<beelink-host>:5440/<db>
+```
+
+Every snippet below launches the same blessed command
+(`uvx --from '<checkout>[mcp]' genkei-mcp`); replace `<checkout>` with the
+absolute path to your clone.
+
+## Per-client setup
+
+| Client | Config surface | Verified on this Mac? |
+|---|---|---|
+| Claude Code | `claude mcp add` / `.mcp.json` | ✅ live-verified (`✔ Connected`, 13 tools) |
+| Codex CLI | `codex mcp add` → `~/.codex/config.toml` | ✅ registration live-verified (Codex 0.142.0) |
+| Claude Desktop | `claude_desktop_config.json` | ⚠️ authored from official docs (not installed here) |
+| Cursor | `~/.cursor/mcp.json` | ⚠️ authored from official docs (not installed here) |
+
+### Claude Code — live-verified
+
+The fastest path is `claude mcp add`. Launched from the repo root, the server
+finds `.env` on its own, so no secret goes into any config file:
+
+```bash
+claude mcp add genkei -s local -- \
+  uvx --from '/absolute/path/to/genkei-capital-fund-research[mcp]' genkei-mcp
+```
+
+`claude mcp list` then health-checks it (`genkei: … - ✔ Connected`). Scopes:
+
+- `-s local` (default) — stored in `~/.claude.json` under this project; private,
+  not committed. **Recommended** for the secret-free, cwd-`.env` setup above.
+- `-s user` — available in every project; use if you launch `claude` from
+  outside the checkout, and then add the URL explicitly:
+  `claude mcp add genkei -s user -e GENKEI_DATABASE_URL='postgresql+psycopg://…' -- uvx --from '<checkout>[mcp]' genkei-mcp`.
+- `-s project` — writes a committed `.mcp.json` at the repo root. Only use the
+  cwd-`.env` form here; **never** put a real `GENKEI_DATABASE_URL` in `.mcp.json`
+  (it's committed). Equivalent JSON:
+
+  ```json
+  {
+    "mcpServers": {
+      "genkei": {
+        "command": "uvx",
+        "args": ["--from", "/absolute/path/to/genkei-capital-fund-research[mcp]", "genkei-mcp"],
+        "env": {}
+      }
+    }
+  }
+  ```
+
+### Codex CLI — registration live-verified
+
+```bash
+codex mcp add genkei \
+  --env GENKEI_DATABASE_URL='postgresql+psycopg://<user>:<password>@<beelink-host>:5440/<db>' \
+  -- uvx --from '/absolute/path/to/genkei-capital-fund-research[mcp]' genkei-mcp
+```
+
+Codex writes an `[mcp_servers.genkei]` block to `~/.codex/config.toml` and masks
+the env value as `*****` in `codex mcp get` / `codex mcp list` output. Codex
+launches the server from its own cwd, so the `--env` passthrough is required.
+`codex mcp list` shows the server `enabled` (it does not run a live connection
+health-check the way Claude Code does).
+
+### Claude Desktop — authored from docs
+
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json` and
+restart the app. Claude Desktop launches the server from the app bundle, so the
+`env` block is required:
 
 ```json
 {
   "mcpServers": {
     "genkei": {
-      "command": "genkei-mcp",
-      "args": [],
-      "env": {}
+      "command": "uvx",
+      "args": ["--from", "/absolute/path/to/genkei-capital-fund-research[mcp]", "genkei-mcp"],
+      "env": {
+        "GENKEI_DATABASE_URL": "postgresql+psycopg://<user>:<password>@<beelink-host>:5440/<db>"
+      }
     }
   }
 }
 ```
 
-If `genkei-mcp` isn't on `PATH`, point at the venv explicitly:
+If `uvx` isn't found (Claude Desktop's `PATH` may not include `~/.local/bin`),
+use its absolute path — `command: "/Users/<you>/.local/bin/uvx"`.
+
+### Cursor — authored from docs
+
+Create `.cursor/mcp.json` in the project (or `~/.cursor/mcp.json` for global).
+Same shape as Claude Desktop; Cursor also supports `${env:NAME}` substitution if
+you'd rather not inline the value:
 
 ```json
 {
   "mcpServers": {
     "genkei": {
-      "command": "/absolute/path/to/.venv/bin/python",
-      "args": ["-m", "genkei.mcp.server"],
-      "env": {}
+      "command": "uvx",
+      "args": ["--from", "/absolute/path/to/genkei-capital-fund-research[mcp]", "genkei-mcp"],
+      "env": {
+        "GENKEI_DATABASE_URL": "postgresql+psycopg://<user>:<password>@<beelink-host>:5440/<db>"
+      }
     }
   }
 }
 ```
 
-The server bootstraps the environment itself: at startup it loads a
-repo-root/cwd `.env` (B-135) so the spawned `genkei` subprocesses resolve
-`GENKEI_DATABASE_URL` without a sourced shell. If you prefer to pass secrets
-explicitly, set them in the `env` block instead.
+Once registered, the tools appear to the agent as `genkei` MCP tools in any of
+these clients.
 
-### Option B — `claude mcp add`
+## Network reality (stdio-local only; remote is a follow-up)
 
-```bash
-claude mcp add genkei -- genkei-mcp
-```
+The server speaks MCP **over stdio** — the transport every client above uses.
+The subprocess it spawns connects straight to the Beelink Postgres, so the
+machine running the client **must be able to reach that Postgres** (same LAN, or
+over Tailscale). A laptop off-network, `claude.ai` in a browser, or a phone
+cannot use this stdio setup.
 
-or, pinning the venv interpreter:
-
-```bash
-claude mcp add genkei -- /absolute/path/to/.venv/bin/python -m genkei.mcp.server
-```
-
-Once registered, the tools appear to the agent as `genkei` MCP tools. The
-server speaks MCP over stdio — the transport Claude Code and other local MCP
-clients use. Truly remote clients need a separate streamable-HTTP transport and
-auth story before they come into scope (tracked by B-142).
+Reaching those truly remote clients needs a **streamable-HTTP transport plus an
+auth story**, and that is **explicitly out of scope for this item (v1)**:
+exposing the lake over HTTP reopens the B-137 exposure posture (currently
+LAN-only, no public route) and must not ship without authentication designed
+first. It is scoped as a follow-up decision, not built here.
