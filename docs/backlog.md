@@ -244,6 +244,15 @@ _B-131 (FastAPI read layer over the lake) + B-137 (cockpit deployment & exposure
   - At least one real Beelink-local alert flowing end-to-end: the backup staleness check or the threshold-alert engine (B-068) publishing to ntfy, received on Michael's phone. Before replacing Discord for runner-down coverage, also prove one GitHub-hosted heartbeat/failure alert reaches the access-controlled hosted/relay topic.
   - `docs/alerting.md` (or the existing alerting docs) updated with the channel map: what pages where, which publishers can reach it, and which outages it survives.
 
+### B-144 — Port genkei-mcp to the MCP SDK 2.x handler API
+- **Status:** open
+- **Priority:** low — the `mcp>=1.0,<2` pin keeps the 1.x line working today; this is debt paydown so the pin doesn't rot.
+- **Context:** During B-142 validation (2026-08-24), the unpinned `[mcp]` extra resolved to MCP SDK 2.1.0, whose low-level `mcp.server.Server` dropped the `@server.list_tools()` / `@server.call_tool()` decorators the B-130 server is built on — the server crashed at startup (`AttributeError: 'Server' object has no attribute 'list_tools'`). B-142 capped the extra at `mcp>=1.0,<2` (resolves 1.29.1) as the correct v1 fix.
+- **Acceptance criteria:**
+  - Server ported to the 2.x handler/registration API (or `FastMCP` equivalent), all 13 tools listed and callable.
+  - The `<2` pin lifted; `[mcp]` extra resolves a current 2.x SDK and the blessed `uvx` install path from `docs/mcp.md` still starts the server clean.
+  - Existing MCP tests (and the end-to-end stdio client check from B-142) pass against the ported server.
+
 ### B-134 — Webull OpenAPI source evaluation (parked)
 - **Status:** deferred 2026-07-20 — evaluate-only; reopen on a concrete live-data gap (see trigger).
 - **Priority:** deferred
