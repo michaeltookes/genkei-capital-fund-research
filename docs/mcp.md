@@ -64,9 +64,9 @@ uvx --from '/absolute/path/to/genkei-capital-fund-research[mcp]' genkei-mcp
   runs its `genkei-mcp` entry point. First run downloads a Python ≥3.10 and
   builds the wheel (~15 s); subsequent runs are cached and near-instant.
 - The package is **not on PyPI** (private, free-sources-only repo), so `--from`
-  points at a path or a git URL — never a bare `genkei`. A git form works the
-  same way once you have repo access:
-  `uvx --from 'git+ssh://git@github.com/<owner>/genkei-capital-fund-research[mcp]' genkei-mcp`.
+  points at a local path with extras or a PEP 508 VCS requirement — never a bare
+  `genkei`. A git form works the same way once you have repo access:
+  `uvx --from 'genkei[mcp] @ git+ssh://git@github.com/<owner>/genkei-capital-fund-research' genkei-mcp`.
 
 Install `uv` once (it is the only prerequisite):
 
@@ -157,7 +157,8 @@ supplies the URL:
   directory, so they **always** need the `env` block.
 
 Placeholder used below (never commit the real value — it lives only in the
-gitignored `.env` or a client config outside the repo):
+gitignored `.env`, a client config outside the repo, or the parent process
+environment):
 
 ```
 GENKEI_DATABASE_URL=postgresql+psycopg://<user>:<password>@<beelink-host>:5440/<db>
@@ -248,9 +249,10 @@ use its absolute path — `command: "/Users/<you>/.local/bin/uvx"`.
 
 ### Cursor — authored from docs
 
-Create `.cursor/mcp.json` in the project (or `~/.cursor/mcp.json` for global).
-Same shape as Claude Desktop; Cursor also supports `${env:NAME}` substitution if
-you'd rather not inline the value:
+Create `~/.cursor/mcp.json` for global registration. If you choose the
+project-local `.cursor/mcp.json`, keep it untracked (this repo's `.gitignore`
+excludes it) and use `${env:GENKEI_DATABASE_URL}` so credentials stay outside
+the checkout:
 
 ```json
 {
@@ -259,7 +261,7 @@ you'd rather not inline the value:
       "command": "uvx",
       "args": ["--from", "/absolute/path/to/genkei-capital-fund-research[mcp]", "genkei-mcp"],
       "env": {
-        "GENKEI_DATABASE_URL": "postgresql+psycopg://<user>:<password>@<beelink-host>:5440/<db>"
+        "GENKEI_DATABASE_URL": "${env:GENKEI_DATABASE_URL}"
       }
     }
   }
