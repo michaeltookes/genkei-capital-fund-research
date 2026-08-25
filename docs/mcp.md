@@ -164,6 +164,11 @@ environment):
 GENKEI_DATABASE_URL=postgresql+psycopg://<user>:<password>@<beelink-host>:5440/<db>
 ```
 
+For command-line client registration, load `GENKEI_DATABASE_URL` into the
+parent shell first from `.env` or a password manager, then pass the variable by
+reference. Do not paste the literal connection URL into a command, where it can
+land in shell history.
+
 Every snippet below launches the same blessed command
 (`uvx --from '<checkout>[mcp]' genkei-mcp`); replace `<checkout>` with the
 absolute path to your clone.
@@ -192,8 +197,9 @@ claude mcp add genkei -s local -- \
 - `-s local` (default) — stored in `~/.claude.json` under this project; private,
   not committed. **Recommended** for the secret-free, cwd-`.env` setup above.
 - `-s user` — available in every project; use if you launch `claude` from
-  outside the checkout, and then add the URL explicitly:
-  `claude mcp add genkei -s user -e GENKEI_DATABASE_URL='postgresql+psycopg://…' -- uvx --from '<checkout>[mcp]' genkei-mcp`.
+  outside the checkout. Load the URL into your shell first, then add it by
+  reference:
+  `claude mcp add genkei -s user -e GENKEI_DATABASE_URL="$GENKEI_DATABASE_URL" -- uvx --from '<checkout>[mcp]' genkei-mcp`.
 - `-s project` — writes a committed `.mcp.json` at the repo root. Only use the
   cwd-`.env` form here; **never** put a real `GENKEI_DATABASE_URL` in `.mcp.json`
   (it's committed). Equivalent JSON:
@@ -214,7 +220,7 @@ claude mcp add genkei -s local -- \
 
 ```bash
 codex mcp add genkei \
-  --env GENKEI_DATABASE_URL='postgresql+psycopg://<user>:<password>@<beelink-host>:5440/<db>' \
+  --env GENKEI_DATABASE_URL="$GENKEI_DATABASE_URL" \
   -- uvx --from '/absolute/path/to/genkei-capital-fund-research[mcp]' genkei-mcp
 ```
 
