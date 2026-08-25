@@ -33,5 +33,8 @@ venv/
 # Claude Code local settings (user-specific permissions, not shared)
 .claude/settings.local.json
 
+# Cursor MCP project config can contain database connection secrets.
+.cursor/mcp.json
+
 # Jupyter notebook checkpoints (B-054 experiments layer)
 .ipynb_checkpoints/
