@@ -44,8 +44,15 @@ notebooks = [
 # requires Python >=3.10 — so it stays optional to keep the package installable
 # under the 3.9 harness.
 # Install with: pip install -e ".[mcp]"
+# Pinned to the 1.x SDK line: `genkei.mcp.server` builds on the low-level
+# `mcp.server.Server` decorator API (`@server.list_tools()` / `@server.call_tool()`),
+# which the 2.0 SDK removed in favor of a different handler-registration shape.
+# An unpinned `mcp>=1.0` floor resolves to 2.x and crashes the server at startup
+# (`AttributeError: 'Server' object has no attribute 'list_tools'`), so the
+# one-line install path must cap below 2.0 until the server is ported (tracked
+# for a follow-up). 1.29.x is the current compatible release.
 mcp = [
-    "mcp>=1.0",
+    "mcp>=1.0,<2",
 ]
 # FastAPI read layer (B-131) — the generic HTTP read API over the lake.
 # Kept OUT of core deps on purpose (mirrors [mcp] / [notebooks]): the CLI,
