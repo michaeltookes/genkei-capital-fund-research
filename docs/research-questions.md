@@ -21,6 +21,26 @@ Newest entries on top. One entry per question:
 
 ## Log
 
+### 2026-09-02 — Ingest outage: all sources STALE since ~Aug 6-7; `defillama normalize` FAILing on hypertable FK violation
+- **status:** open
+- **context:** Surfaced by pre-flight `genkei watchlist health` in the Robinhood Chain session (`2026-09-02-robinhood-chain-tokenization-assessment`). Every source shows ~630h since last successful run; `defillama normalize` fails with `insert or update on table "_hyper_4_1684_chunk" violates foreign key constraint`; `sui_staking` / `sui_unlocks` collectors also failing upstream. The lake is dark for the exact 4 weeks in which BTC reclaimed >$72k. Needs an ops session: fix the FK failure, confirm GH Actions crons are still firing, backfill the gap.
+- **outcome:**
+
+### 2026-09-02 — Verify the 2026-07-19 broaden-trigger's stablecoin leg once ingest is repaired
+- **status:** open
+- **context:** External data (Sept 2) shows BTC ~$78-79k — the price leg ("BTC decisively reclaims >$72k") of the `2026-07-19-crypto-bottom-top50-accumulation-thesis` broaden trigger has fired. The flow leg (aggregate stablecoin supply net-positive 2+ weeks) is unverifiable while the lake is dark (Aug 1 read: Ethereum still −$6.3B/30d). After the ingest backfill, run `genkei stablecoin-flow --all-chains` over the Aug 7–Sept window and decide whether broad top-50 accumulation opens or the trigger fired on price alone into still-contracting dry powder.
+- **outcome:**
+
+### 2026-09-02 — Should Robinhood Chain (and Arbitrum) get lake coverage?
+- **status:** open
+- **context:** `defillama.chain_tvl` covers only Bitcoin/Ethereum/Solana/Sui; Robinhood Chain surfaced organically in `defillama.stablecoins` ($239M → $536M in July) but has no TVL/fees coverage, and Arbitrum has none either. If the reassessment triggers in the 2026-09-02 decision are to be machine-checkable (fee-rank durability, tokenized-equity share), the watchlist needs Robinhood Chain (and probably Arbitrum) chain TVL + fees, and possibly a tokenized-stock (RWA) series. Candidate backlog item.
+- **outcome:**
+
+### 2026-09-02 — HOOD equity-core assessment (the stock, not the chain)
+- **status:** open
+- **context:** The Robinhood Chain session established HOOD is pricing a tokenization market that barely exists (one cited analysis: a 13.7% single-day rally added ~97x quarterly crypto revenue in market cap; crypto revenue −38% YoY to $100M while prediction markets out-earn it). HOOD is in equity watchlist coverage; whether it merits an equity-core position on the diversified-fintech story (prediction markets + Gold + chain optionality) vs. narrative froth deserves its own `/research` session with `genkei filings` fundamentals — deliberately out of scope for the chain session.
+- **outcome:**
+
 ### 2026-08-05 — Mysten key-person departure + orbit-token track record (post-exit addendum to the SUI thesis file)
 - **status:** resolved
 - **context:** Hours after the `2026-08-05-sui-ecosystem-thesis-exit` decision was logged, Michael surfaced the news that **Sam Blackshear — Mysten co-founder/CTO and creator of the Move language — is leaving Mysten Labs to join Anthropic** (defensive security research). Verified via his own public posts/profiles. This is the single most technically load-bearing person in the ecosystem departing, with founding equity (2021 cohort) presumably fully vested — a legible talent-rotation-to-AI signal, not evidence of wrongdoing, but the strongest possible insider read on where he believes his next decade matters. Claim-check on the Mysten orbit-token track record Michael cited (all CoinGecko, 2026-08-05): **DEEP −95.5% from ATH** (rank 510, $38M mcap), **WAL −96.7%** ($62M), **IKA −99.2%** (rank 1274, $8M — effectively dead) — every token in the Mysten/Sui-Foundation promotional orbit left holders deeply underwater, and Grayscale wrapped two of them (WAL, DeepBook trusts) near the top. **Correction logged against overreach:** "IKA was a scam" is not the verifiable statement — no fraud finding exists; the verifiable statement is "promoted within the ecosystem orbit, −99.2%, moribund." The distinction matters for the desk's credibility. **Aptos parallel confirmed as the base-rate anchor:** APT (the other Diem-diaspora elite-pedigree chain) sits −97.0% from ATH, −86% over the trailing year — Sui is tracking the Aptos arc, not the Solana arc (per the SOL-2023 usage-inflection analysis in this session: SOL's usage floored and grew 3 quarters before price moved; Sui's is still falling). Michael's Adeniyi-leaves-next prediction is unfalsifiable speculation in this scratch log: there is no horizon, non-occurrence criterion, or reflection cycle here, so treat it as color unless it is promoted into a bounded pending decision.
