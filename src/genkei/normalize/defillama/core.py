@@ -35,6 +35,7 @@ from typing import Any
 
 from genkei.common import db
 from genkei.common.defillama import as_float, parse_history_timestamp, stablecoin_supply
+from genkei.common.watchlist import load_watchlist
 from genkei.normalize.defillama.dispatch import CHAIN_HISTORY_PREFIX, classify_blob
 
 DEFAULT_CONFIG_PATH = Path("config/defillama.sources.json")
@@ -123,6 +124,55 @@ def normalize_protocols(
                 "fetched_at": now,
                 "ingest_run_id": ingest_run_id,
             }
+        )
+    return rows
+
+
+def synthesize_protocol_stub_rows(
+    series_slugs: Iterable[str],
+    known_slugs: Iterable[str],
+    *,
+    ingest_run_id: int,
+    now: datetime,
+) -> list[JsonObject]:
+    """Stub ``defillama.protocols`` rows for slugs the ``/protocols`` payload lacks.
+
+    DeFiLlama parent slugs (e.g. ``hyperliquid``) resolve on ``/protocol/``
+    and ``/summary/fees/`` but never appear in the ``/protocols`` listing,
+    which only carries the child slugs (``hyperliquid-perps``, …). A
+    watchlist entry keyed on a parent slug therefore produces
+    ``protocol_tvl`` / ``protocol_fees`` rows whose slug → protocols FK has
+    no parent row, failing the whole normalize run. Upsert these stubs with
+    ``update_cols=[]`` (DO NOTHING) so a real payload-derived row — present
+    or future — is never overwritten by a stub.
+    """
+    missing = sorted({str(s) for s in series_slugs} - {str(s) for s in known_slugs})
+    if not missing:
+        return []
+    watchlist_entries = {entry.slug: entry for entry in load_watchlist().protocols}
+    rows: list[JsonObject] = []
+    for slug in missing:
+        entry = watchlist_entries.get(slug)
+        rows.append(
+            {
+                "slug": slug,
+                "defillama_id": None,
+                "name": entry.name if entry else slug,
+                "category": entry.category if entry else None,
+                "chains": None,
+                "url": None,
+                "description": None,
+                "parent_protocol": None,
+                "twitter": None,
+                "last_updated_at": now,
+                "source_endpoint": "watchlist:stub",
+                "fetched_at": now,
+                "ingest_run_id": ingest_run_id,
+            }
+        )
+        LOGGER.info(
+            "synthesized defillama.protocols stub for slug %r (absent from /protocols payload)",
+            slug,
         )
     return rows
 
@@ -682,10 +732,25 @@ def normalize(config_path: Path, *, source_run_id: int | None = None) -> int:
                     )
                 )
         protocol_fees_rows = merge_fee_revenue_rows(fees_rows, revenue_rows)
+        protocol_stub_rows = synthesize_protocol_stub_rows(
+            [r["slug"] for r in protocol_tvl_rows] + [r["slug"] for r in protocol_fees_rows],
+            (r["slug"] for r in protocol_rows),
+            ingest_run_id=run.id,
+            now=datetime.now(timezone.utc),
+        )
 
         with db.connection() as conn:
             run.add_rows(
                 db.bulk_upsert(conn, "defillama.protocols", protocol_rows, conflict_keys=["slug"])
+            )
+            run.add_rows(
+                db.bulk_upsert(
+                    conn,
+                    "defillama.protocols",
+                    protocol_stub_rows,
+                    conflict_keys=["slug"],
+                    update_cols=[],
+                )
             )
             run.add_rows(
                 db.bulk_upsert(
@@ -816,10 +881,28 @@ def normalize_backfill(*, source_run_id: int | None = None) -> int:
                     )
                 )
 
+        # Backfill runs carry no /protocols blob, so every backfilled slug
+        # needs the FK guarantee; DO NOTHING leaves already-known slugs alone.
+        protocol_stub_rows = synthesize_protocol_stub_rows(
+            (r["slug"] for r in protocol_tvl_rows),
+            (),
+            ingest_run_id=run.id,
+            now=datetime.now(timezone.utc),
+        )
+
         with db.connection() as conn:
             run.add_rows(
                 db.bulk_upsert(
                     conn, "defillama.prices", price_rows, conflict_keys=["asset_key", "ts"]
+                )
+            )
+            run.add_rows(
+                db.bulk_upsert(
+                    conn,
+                    "defillama.protocols",
+                    protocol_stub_rows,
+                    conflict_keys=["slug"],
+                    update_cols=[],
                 )
             )
             run.add_rows(

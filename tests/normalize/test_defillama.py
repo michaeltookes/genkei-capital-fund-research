@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from genkei.normalize.defillama import (
@@ -22,6 +23,7 @@ from genkei.normalize.defillama import (
     normalize_stablecoin_history,
     normalize_stablecoins,
     parse_history_timestamp,
+    synthesize_protocol_stub_rows,
 )
 
 NOW = datetime(2026, 5, 9, 12, 0, tzinfo=timezone.utc)
@@ -630,6 +632,51 @@ class UpsertProtocolFeeRowsTests(unittest.TestCase):
         update_cols = upsert.call_args.kwargs["update_cols"]
         self.assertIn("revenue_usd", update_cols)
         self.assertNotIn("fees_usd", update_cols)
+
+
+class SynthesizeProtocolStubRowsTests(unittest.TestCase):
+    """Parent slugs (e.g. ``hyperliquid``) never appear in /protocols; the
+    stub rows keep the protocol_tvl / protocol_fees slug FK satisfiable."""
+
+    def _fake_watchlist(self) -> SimpleNamespace:
+        return SimpleNamespace(
+            protocols=[
+                SimpleNamespace(slug="hyperliquid", name="Hyperliquid", category="Derivatives")
+            ]
+        )
+
+    def test_stubs_only_slugs_absent_from_payload(self) -> None:
+        with patch(
+            "genkei.normalize.defillama.core.load_watchlist",
+            return_value=self._fake_watchlist(),
+        ):
+            rows = synthesize_protocol_stub_rows(
+                ["hyperliquid", "aave-v3"], ["aave-v3"], ingest_run_id=7, now=NOW
+            )
+        self.assertEqual([r["slug"] for r in rows], ["hyperliquid"])
+        row = rows[0]
+        self.assertEqual(row["name"], "Hyperliquid")
+        self.assertEqual(row["category"], "Derivatives")
+        self.assertEqual(row["source_endpoint"], "watchlist:stub")
+        self.assertEqual(row["ingest_run_id"], 7)
+        self.assertEqual(row["last_updated_at"], NOW)
+
+    def test_no_missing_slugs_returns_empty_without_loading_watchlist(self) -> None:
+        with patch("genkei.normalize.defillama.core.load_watchlist") as loader:
+            rows = synthesize_protocol_stub_rows(
+                ["aave-v3"], ["aave-v3"], ingest_run_id=1, now=NOW
+            )
+        self.assertEqual(rows, [])
+        loader.assert_not_called()
+
+    def test_slug_outside_watchlist_falls_back_to_slug_name(self) -> None:
+        with patch(
+            "genkei.normalize.defillama.core.load_watchlist",
+            return_value=self._fake_watchlist(),
+        ):
+            rows = synthesize_protocol_stub_rows(["mystery-proto"], [], ingest_run_id=1, now=NOW)
+        self.assertEqual(rows[0]["name"], "mystery-proto")
+        self.assertIsNone(rows[0]["category"])
 
 
 if __name__ == "__main__":
