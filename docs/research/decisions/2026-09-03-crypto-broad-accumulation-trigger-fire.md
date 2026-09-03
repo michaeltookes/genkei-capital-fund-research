@@ -6,6 +6,7 @@ horizon: months
 action: add
 confidence: medium
 status: pending
+reflection_criteria: "Qualitative macro reflection only: do not select an ex-post coin basket. Grade whether honoring the BTC >$72k trigger improved the desk's regime posture by checking BTC held or lost the $72k/$63k levels, repaired stablecoin-flow data confirmed or refuted dry-powder rebuilding, and breadth across the existing approved watchlist/top-50 quality cohort improved without forcing weak-fundamental names into buys."
 trigger_reassessment: "Reassess if BTC falls back below the old $72k breakout line and then loses the $63k base, if repaired stablecoin-flow data shows aggregate supply stayed net-contractive for 2+ additional weeks while top-50 breadth deteriorates, or if stablecoin supply confirms net-growth for 2+ weeks and supports moving from staged broadening to fuller accumulation. Continue to avoid weak-fundamental tail names whose asset-level decisions already say sell/avoid unless their own reopen triggers fire."
 related:
   - decision: 2026-07-19-crypto-bottom-top50-accumulation-thesis
@@ -33,7 +34,7 @@ The strongest objection is that broadening on price alone buys a bear-market squ
 
 ## Conclusion
 
-**Recommendation: broaden from selective BTC/SOL scaling to staged active accumulation across the approved crypto watchlist / higher-quality top-50 set.** Do not wait for stablecoin-flow confirmation to start broadening; use the repaired flow data to decide pace and size. Keep weak-fundamental tail names governed by their own asset-level decisions — SUI-like sell/avoid calls do not become buys merely because the macro gate fired. Confidence is **medium**: the price trigger is clean, but flow confirmation remains missing while the lake is dark.
+**Recommendation: treat the broad-accumulation gate as fired and move the desk from selective-only caution to staged active broadening under existing asset-level decisions.** This is a qualitative macro-regime call, not a fixed coin-basket trade: do not wait for stablecoin-flow confirmation to acknowledge the BTC trigger, but use repaired flow data to decide pace, size, and which already-approved names deserve adds. Keep weak-fundamental tail names governed by their own asset-level decisions — SUI-like sell/avoid calls do not become buys merely because the macro gate fired. Reflect it qualitatively against the criteria in frontmatter rather than choosing ex-post names or weights. Confidence is **medium**: the price trigger is clean, but flow confirmation remains missing while the lake is dark.
 
 ---
 

@@ -21,6 +21,11 @@ Newest entries on top. One entry per question:
 
 ## Log
 
+### 2026-09-03 — Revisit inactive UNI fee-switch entry on 2027-01-31 if no entry fires
+- **status:** open
+- **context:** The `2026-09-03-uniswap-uni-fee-switch-assessment` record is `status: inactive` and expires if neither activation branch fires by 2027-01-31, but `/reflect-decisions` intentionally skips inactive files before horizon checks. On or after 2027-01-31, manually check whether the pullback or durability entry activated; if not, flip the decision to `resolved` with a no-entry note so it cannot linger as a stale open order.
+- **outcome:**
+
 ### 2026-09-03 — Should HOOD get a separate equity-core assessment after Robinhood Chain's fee spike?
 - **status:** open
 - **context:** Surfaced in the `2026-09-02-robinhood-chain-tokenization-assessment` session. The crypto decision held ETH/SOL unchanged and declined ARB while noting that HOOD sits in equity watchlist coverage; a separate equity-core session should test whether Robinhood's chain/sequencer economics, tokenized-stock optionality, and valuation after the Sept-1 fee-driven rally justify a HOOD position or watchlist action.
