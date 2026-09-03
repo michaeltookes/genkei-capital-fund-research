@@ -21,6 +21,11 @@ Newest entries on top. One entry per question:
 
 ## Log
 
+### 2026-09-03 — Should HOOD get a separate equity-core assessment after Robinhood Chain's fee spike?
+- **status:** open
+- **context:** Surfaced in the `2026-09-02-robinhood-chain-tokenization-assessment` session. The crypto decision held ETH/SOL unchanged and declined ARB while noting that HOOD sits in equity watchlist coverage; a separate equity-core session should test whether Robinhood's chain/sequencer economics, tokenized-stock optionality, and valuation after the Sept-1 fee-driven rally justify a HOOD position or watchlist action.
+- **outcome:**
+
 ### 2026-09-03 — Did Jupiter's Litterbox 50%→70% buyback-allocation proposal pass?
 - **status:** open
 - **context:** Surfaced in the `2026-09-03-uniswap-uni-fee-switch-assessment` session. A Jupiter forum proposal to raise the Litterbox buyback allocation from 50% to 70% of protocol fees exists; passage unconfirmed as of 2026-09-03. If passed, it materially raises the buyback yield on the desk's core JUP holding (Litterbox held ~142.7M JUP / ~$31.4M as of Jun 27; Aug 30 was Jupiter's best revenue day in seven months at $822K). Check discuss.jup.ag and the trust's on-chain balance trajectory.
