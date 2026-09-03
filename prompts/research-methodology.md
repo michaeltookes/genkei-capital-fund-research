@@ -159,6 +159,15 @@ action: hold                   # buy/add/hold/trim/sell/avoid/harvest_loss
 #       weight: 0.5
 #     - ticker: SOL
 #       weight: 0.5
+# For cohort decisions whose held subject is a basket, add:
+# reflection_subject:
+#   type: subject_basket
+#   label: 50/50 ETH+SOL core hold basket
+#   assets:
+#     - ticker: ETH
+#       weight: 0.5
+#     - ticker: SOL
+#       weight: 0.5
 confidence: medium
 status: pending                # pending → resolved after /reflect-decisions runs; use inactive for unfilled orders
 trigger_reassessment: "DGS10 above 5.0% OR quarterly revenue YoY < 0"

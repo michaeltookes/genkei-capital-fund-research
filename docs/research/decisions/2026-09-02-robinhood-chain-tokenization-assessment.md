@@ -4,8 +4,8 @@ asset: "cohort: tokenization — Robinhood Chain vs SOL/ETH"
 sleeve: crypto-core
 horizon: months
 action: hold
-reflection_benchmark:
-  type: destination_basket
+reflection_subject:
+  type: subject_basket
   label: 50/50 ETH+SOL core hold basket
   assets:
     - ticker: ETH
@@ -29,7 +29,7 @@ related:
 
 ## Frame
 
-Michael's prompt: Robinhood Chain is "all anyone can talk about," he believes it was built on Arbitrum (unsure), and wants to know how much of what Robinhood is doing competes with Solana and Ethereum on tokenization — against a backdrop where he reads the market as exiting the bear with liquidity returning. The cohort is the tokenization category; the sleeve informed is crypto-core (we hold ETH and SOL; ARB and HOOD are not crypto positions — HOOD sits in equity watchlist coverage only). Horizon: months. What would change the answer, written before querying: evidence that Robinhood is actually taking tokenized-equity *volume share* from Solana (not just headlines), or that its chain's fee dominance is durable rather than a memecoin episode, or a US regulatory unlock that lets Robinhood switch on its 28M-customer distribution for tokenized stocks. **Data-dependency flag:** the lake's ingest has been down since ~Aug 6-7 (all sources STALE ~26 days; `defillama normalize` FAILing on a hypertable FK violation), so every lake number below ends in early August; the September picture comes from cited external web research and must be re-verified once ingest is repaired.
+Michael's prompt: Robinhood Chain is "all anyone can talk about," he believes it was built on Arbitrum (unsure), and wants to know how much of what Robinhood is doing competes with Solana and Ethereum on tokenization — against a backdrop where he reads the market as exiting the bear with liquidity returning. The cohort is the tokenization category; the sleeve informed is crypto-core (we hold ETH and SOL; ARB and HOOD are not crypto positions — HOOD sits in equity watchlist coverage only). Reflection should grade the held core exposure as the frontmatter `reflection_subject` basket: 50% ETH and 50% SOL. Horizon: months. What would change the answer, written before querying: evidence that Robinhood is actually taking tokenized-equity *volume share* from Solana (not just headlines), or that its chain's fee dominance is durable rather than a memecoin episode, or a US regulatory unlock that lets Robinhood switch on its 28M-customer distribution for tokenized stocks. **Data-dependency flag:** the lake's ingest has been down since ~Aug 6-7 (all sources STALE ~26 days; `defillama normalize` FAILing on a hypertable FK violation), so every lake number below ends in early August; the September picture comes from cited external web research and must be re-verified once ingest is repaired.
 
 ## External source references
 

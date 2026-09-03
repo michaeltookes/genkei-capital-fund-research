@@ -68,6 +68,7 @@ If frontmatter includes `reflection_start`, treat it as the source of truth for 
 ### Crypto decisions (`asset: BTC|ETH|SOL|LINK|SUI|PYTH|RENDER` or `sleeve: crypto-*`)
 
 - Asset: `genkei prices --ticker <ASSET> --since <decision_date> --until <today> --limit 1000 --json`
+- **Subject-basket override:** if frontmatter includes `reflection_subject.type: subject_basket`, pull each `reflection_subject.assets[].ticker` over the same date window with `--limit 1000`, compute the weighted basket return from `weight`, and use that as the subject/asset return. This is for cohort decisions whose actual recommendation is a weighted held exposure such as 50/50 ETH+SOL. Label the outcome with `reflection_subject.label` and defer rather than guess if any basket component lacks price data.
 - Benchmark: BTC (the relative-to-BTC question is "did we do better than just holding BTC?" — the foundational crypto core asset). Pull BTC the same way.
 - **Rotation / destination-basket override:** if frontmatter includes `reflection_benchmark.type: destination_basket`, pull each `reflection_benchmark.assets[].ticker` over the same date window with `--limit 1000`, compute the weighted basket return from `weight`, and use that basket return instead of BTC for `benchmark_return`. This is for trim/sell rotations where proceeds were explicitly redeployed into named assets; label the outcome with `reflection_benchmark.label` and defer rather than guess if any basket component lacks price data.
 
@@ -81,7 +82,7 @@ If frontmatter includes `reflection_start`, treat it as the source of truth for 
 
 For equity / crypto decisions where you have prices:
 
-- **Asset return:** `(price_today / starting_asset_price) - 1`, where `starting_asset_price` is `reflection_start.asset_price_usd` when present, otherwise `price_at_decision_date`. Annualize if horizon > 1y by using `(1 + ret) ** (365/elapsed_days) - 1`.
+- **Asset / subject return:** `(price_today / starting_asset_price) - 1`, where `starting_asset_price` is `reflection_start.asset_price_usd` when present, otherwise `price_at_decision_date`; for `reflection_subject.type: subject_basket`, use the weighted component returns instead. Annualize if horizon > 1y by using `(1 + ret) ** (365/elapsed_days) - 1`.
 - **Benchmark return:** same calc, against SPY, BTC, or an explicit `reflection_benchmark` destination basket depending on sleeve and frontmatter. If `reflection_start.benchmark_prices` contains a matching ticker, use that explicit price as the benchmark component's starting price instead of the provider snapshot.
 - **Raw alpha:** `asset_return - benchmark_return`. This is always the asset's return minus benchmark return.
 - **Action lens:** use frontmatter `action` if present, otherwise the audited legacy `hold` default from Step 1. `buy`, `add`, and `hold` are long-exposure calls; positive raw alpha is good. `trim`, `sell`, `avoid`, and `harvest_loss` are exit/avoid calls; negative raw alpha is good because the avoided asset lagged the benchmark.
