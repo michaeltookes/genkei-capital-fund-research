@@ -5,7 +5,9 @@ sleeve: macro-aware
 horizon: months
 action: hold
 confidence: medium
-status: pending
+status: resolved
+superseded_by: 2026-09-03-crypto-broad-accumulation-trigger-fire
+trigger_fired_at: 2026-09-02
 trigger_reassessment: "BROADEN to active accumulation when aggregate stablecoin supply turns from net-contraction to net-growth for 2+ consecutive weeks (dry powder rebuilding = the missing bottom confirmation) OR BTC decisively reclaims >$72k (breaks the June–July $63k base to the upside). STAY cautious / thesis intact while aggregate stablecoin supply keeps contracting. BEAR escalation if BTC loses the $63k base and trades <$58k (the two-month floor breaks → deeper leg, not a bottom). Selective quality scaling (BTC, SOL) may proceed now regardless; the trigger governs BROAD top-50 accumulation."
 related:
   - decision: 2026-06-02-sui-rotation-into-eth-sol
@@ -73,6 +75,9 @@ The strongest case that **waiting is wrong**: the best crypto entries are made w
 
 ---
 
-## Outcome (filled in by /reflect-decisions)
+## Outcome
 
-(reserved — pending)
+- **Resolved:** 2026-09-03 (early — trigger-fired, not horizon-paired)
+- **Superseded by:** 2026-09-03-crypto-broad-accumulation-trigger-fire
+- **Trigger fired:** 2026-09-02 — the Robinhood Chain session recorded external BTC prints around $78-79k, decisively above the >$72k price leg. Because the July trigger was explicitly stablecoin growth **OR** BTC >$72k, the still-dark stablecoin-flow leg affects sizing and caution but does not block broad accumulation.
+- **Reflection:** The useful part of the July call was separating selective quality scaling from a later broadening gate. That gate has now fired through price, so the successor file carries the live staged-broadening stance and this parent should not remain in the pending queue.
