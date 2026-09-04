@@ -134,6 +134,49 @@ class NormalizerIntegrationTests(PostgresTestCase):
         self.assertEqual(price_ts, FETCHED_AT)
         self.assertEqual(price_fetched_at, FETCHED_AT)
 
+    def test_parent_slug_missing_from_protocols_payload_gets_stub_row(self) -> None:
+        """Regression (2026-08-05 outage): the watchlist's ``hyperliquid``
+        parent slug never appears in /protocols, so its protocol_tvl rows
+        died on the slug → protocols FK and failed the whole normalize run."""
+        source_run_id = self._seed_collector_run()
+        history_payload = {
+            "id": "999",
+            "name": "Hyperliquid",
+            "slug": "hyperliquid",
+            "chainTvls": {
+                "Hyperliquid L1": {
+                    "tvl": [{"date": 1_700_000_000, "totalLiquidityUSD": 500.0}]
+                },
+            },
+        }
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO meta.raw_blobs "
+                "(ingest_run_id, endpoint_name, url, payload, fetched_at) "
+                "VALUES (%s, %s, %s, %s::jsonb, %s)",
+                [
+                    source_run_id,
+                    "protocol_hyperliquid",
+                    "https://api.llama.fi/protocol/hyperliquid",
+                    json.dumps(history_payload),
+                    FETCHED_AT,
+                ],
+            )
+
+        self._run_normalizer(source_run_id)
+
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT name, source_endpoint FROM defillama.protocols WHERE slug = 'hyperliquid'"
+            )
+            name, source_endpoint = cur.fetchone()
+            cur.execute("SELECT count(*) FROM defillama.protocol_tvl WHERE slug = 'hyperliquid'")
+            tvl_count = cur.fetchone()[0]
+
+        self.assertEqual(source_endpoint, "watchlist:stub")
+        self.assertEqual(name, "Hyperliquid")  # metadata sourced from the watchlist entry
+        self.assertEqual(tvl_count, 1)
+
     def test_rerun_is_idempotent(self) -> None:
         source_run_id = self._seed_collector_run()
         first_run = self._run_normalizer(source_run_id)

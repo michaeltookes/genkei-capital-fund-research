@@ -21,25 +21,40 @@ Newest entries on top. One entry per question:
 
 ## Log
 
-### 2026-09-02 — Ingest outage: all sources STALE since ~Aug 6-7; `defillama normalize` FAILing on hypertable FK violation
+### 2026-09-03 — Revisit inactive UNI fee-switch entry on 2027-01-31 if no entry fires
 - **status:** open
-- **context:** Surfaced by pre-flight `genkei watchlist health` in the Robinhood Chain session (`2026-09-02-robinhood-chain-tokenization-assessment`). Every source shows ~630h since last successful run; `defillama normalize` fails with `insert or update on table "_hyper_4_1684_chunk" violates foreign key constraint`; `sui_staking` / `sui_unlocks` collectors also failing upstream. The lake is dark for the exact 4 weeks in which BTC reclaimed >$72k. Needs an ops session: fix the FK failure, confirm GH Actions crons are still firing, backfill the gap.
+- **context:** The `2026-09-03-uniswap-uni-fee-switch-assessment` record is `status: inactive` and expires if neither activation branch fires by 2027-01-31, but `/reflect-decisions` intentionally skips inactive files before horizon checks. On or after 2027-01-31, manually check whether the pullback or durability entry activated; if not, flip the decision to `resolved` with a no-entry note so it cannot linger as a stale open order.
 - **outcome:**
 
-### 2026-09-02 — Verify the 2026-07-19 broaden-trigger's stablecoin leg once ingest is repaired
+### 2026-09-03 — Should HOOD get a separate equity-core assessment after Robinhood Chain's fee spike?
 - **status:** open
-- **context:** External data (Sept 2) shows BTC ~$78-79k — the price leg ("BTC decisively reclaims >$72k") of the `2026-07-19-crypto-bottom-top50-accumulation-thesis` broaden trigger has fired. The flow leg (aggregate stablecoin supply net-positive 2+ weeks) is unverifiable while the lake is dark (Aug 1 read: Ethereum still −$6.3B/30d). After the ingest backfill, run `genkei stablecoin-flow --all-chains` over the Aug 7–Sept window and decide whether broad top-50 accumulation opens or the trigger fired on price alone into still-contracting dry powder.
+- **context:** Surfaced in the `2026-09-02-robinhood-chain-tokenization-assessment` session. The crypto decision held ETH/SOL unchanged and declined ARB while noting that HOOD sits in equity watchlist coverage; a separate equity-core session should test whether Robinhood's chain/sequencer economics, tokenized-stock optionality, and valuation after the Sept-1 fee-driven rally justify a HOOD position or watchlist action.
+- **outcome:**
+
+### 2026-09-03 — Did Jupiter's Litterbox 50%→70% buyback-allocation proposal pass?
+- **status:** open
+- **context:** Surfaced in the `2026-09-03-uniswap-uni-fee-switch-assessment` session. A Jupiter forum proposal to raise the Litterbox buyback allocation from 50% to 70% of protocol fees exists; passage unconfirmed as of 2026-09-03. If passed, it materially raises the buyback yield on the desk's core JUP holding (Litterbox held ~142.7M JUP / ~$31.4M as of Jun 27; Aug 30 was Jupiter's best revenue day in seven months at $822K). Check discuss.jup.ag and the trust's on-chain balance trajectory.
+- **outcome:**
+
+### 2026-09-03 — Add `uniswap` (and `jupiter`) parent slugs to the watchlist now that the FK fix landed
+- **status:** open
+- **context:** The UNI session's entire story (v4 + Robinhood Chain fee flow, the burn run-rate) lives outside the lake — coverage is `uniswap-v3` only, and the UNI decision's activation/exit triggers are manual until per-version fees land. DeFiLlama parent slugs were previously unusable (protocol_tvl FK failure — see the workaround comment at the `jupiter` section of `watchlists.yml`); the 2026-09-03 parent-slug stub fix (merged, PR #224) retires that constraint, so `uniswap` and a consolidated `jupiter` parent entry are now safe to add. Do this after the runner is restored so the new blobs actually collect.
+- **outcome:**
+
+### 2026-09-02 — Ingest outage: all sources STALE since ~Aug 6-7; runner dead on expired PAT; `defillama normalize` was FAILing on hypertable FK violation
+- **status:** open
+- **context:** Surfaced by pre-flight `genkei watchlist health` in the Robinhood Chain session (`2026-09-02-robinhood-chain-tokenization-assessment`): every source ~630h stale, the lake dark for the exact 4 weeks in which BTC reclaimed >$72k. Diagnosed 2026-09-02: (1) the `genkei-runner` container on the Beelink has been crash-looping since ~Aug 6-7 because its fine-grained GitHub PAT expired (401 on registration; GitHub auto-purged the runner after 14 days offline; the failure-alert workflow never fired because jobs hang in `queued` rather than failing — a monitoring blind spot worth its own fix); (2) independently, `defillama normalize` had failed Aug 5-7 on the `protocol_tvl` slug→protocols FK for the watchlist's `hyperliquid` parent slug — **fixed** by the parent-slug stub synthesizer (PR #224, merged 2026-09-03). Remaining: Michael mints a replacement PAT (Administration: R/W, repo-scoped) and updates the Beelink `.env`; then recreate the container per the `docs/infrastructure.md` rotation runbook, confirm registration, kick the stalled dailies, and audit the ~4-week backfill (DeFiLlama history endpoints self-heal; snapshot-style sources like CoinGecko dailies may have real holes).
 - **outcome:**
 
 ### 2026-09-02 — Should Robinhood Chain (and Arbitrum) get lake coverage?
 - **status:** open
-- **context:** `defillama.chain_tvl` covers only Bitcoin/Ethereum/Solana/Sui; Robinhood Chain surfaced organically in `defillama.stablecoins` ($239M → $536M in July) but has no TVL/fees coverage, and Arbitrum has none either. If the reassessment triggers in the 2026-09-02 decision are to be machine-checkable (fee-rank durability, tokenized-equity share), the watchlist needs Robinhood Chain (and probably Arbitrum) chain TVL + fees, and possibly a tokenized-stock (RWA) series. Candidate backlog item.
+- **context:** `defillama.chain_tvl` covers only Bitcoin/Ethereum/Solana/Sui; Robinhood Chain surfaced organically in `defillama.stablecoins` ($239M → $536M in July) but has no TVL/fees coverage, and Arbitrum has none either. If the reassessment triggers in the 2026-09-02 decision are to be machine-checkable (fee-rank durability, tokenized-equity share), the watchlist needs Robinhood Chain (and probably Arbitrum) chain TVL + fees, and possibly a tokenized-stock (RWA) series. Complements the 2026-09-03 `uniswap`/`jupiter` parent-slug entry above (protocol-level vs chain-level coverage). Candidate backlog item; do after the runner is restored.
 - **outcome:**
 
-### 2026-09-02 — HOOD equity-core assessment (the stock, not the chain)
-- **status:** open
-- **context:** The Robinhood Chain session established HOOD is pricing a tokenization market that barely exists (one cited analysis: a 13.7% single-day rally added ~97x quarterly crypto revenue in market cap; crypto revenue −38% YoY to $100M while prediction markets out-earn it). HOOD is in equity watchlist coverage; whether it merits an equity-core position on the diversified-fintech story (prediction markets + Gold + chain optionality) vs. narrative froth deserves its own `/research` session with `genkei filings` fundamentals — deliberately out of scope for the chain session.
-- **outcome:**
+### 2026-09-02 — Verify the 2026-07-19 broaden-trigger's stablecoin leg once ingest is repaired
+- **status:** resolved
+- **context:** External data (Sept 2) showed BTC ~$78-79k — the price leg of the `2026-07-19-crypto-bottom-top50-accumulation-thesis` broaden trigger fired while the flow leg (aggregate stablecoin supply net-positive 2+ weeks) was unverifiable with the lake dark (Aug 1 read: Ethereum still −$6.3B/30d).
+- **outcome:** Graduated into a full decision: `2026-09-03-crypto-broad-accumulation-trigger-fire` (supersedes the 07-19 file) treats the gate as fired on the price leg and moves the desk to staged broadening; the stablecoin-flow verification now lives in that file's `trigger_reassessment` (repaired flow data governs pace/size, and 2+ more weeks of net-contraction with deteriorating breadth forces reassessment). Backfill dependency tracked in the ingest-outage entry above.
 
 ### 2026-08-05 — Mysten key-person departure + orbit-token track record (post-exit addendum to the SUI thesis file)
 - **status:** resolved

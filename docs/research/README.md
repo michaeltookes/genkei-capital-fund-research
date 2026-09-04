@@ -74,6 +74,14 @@ Optional comparator override for rotations:
 
 Use `reflection_benchmark` when a trim/sell decision explicitly redeploys proceeds into named destinations, so `/reflect-decisions` grades the call against that destination basket instead of the generic sleeve benchmark. For example, the 2026-06-02 SUI rotation uses a 50/50 ETH+SOL basket because the recommendation was to trim SUI into those two assets.
 
+Optional subject override for cohort decisions:
+
+| key | type | values |
+|---|---|---|
+| `reflection_subject` | mapping | `type: subject_basket`, `label`, and weighted `assets` entries |
+
+Use `reflection_subject` when the decision's `asset` is a cohort label but the actual held or graded exposure is a weighted basket of tickers. `/reflect-decisions` computes the basket return from the listed tickers, then compares that subject return to the normal sleeve benchmark unless `reflection_benchmark` is also present.
+
 > **Date-valued keys must be date-only.** `tests/test_research_decisions.py` rejects any frontmatter value that parses to a `datetime` rather than a `date`. So a key like `trigger_fired_at` must be written `YYYY-MM-DD` (e.g. `2026-06-02`), never a full timestamp — PyYAML parses the bare date to `datetime.date` (passes) but a `…T00:00:00Z` string to `datetime.datetime` (fails).
 
 ## Supersession and trigger-fire (early resolution)

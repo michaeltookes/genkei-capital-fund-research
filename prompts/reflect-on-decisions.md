@@ -58,10 +58,14 @@ If frontmatter includes `reflection_start`, treat it as the source of truth for 
 - `reflection_start.benchmark_prices[].price_usd` replaces the matching SPY/BTC/destination-basket component's provider-snapshot starting price.
 - If an explicit benchmark mark is `provisional: true`, still use it for the math, but label the outcome as provisional and name the missing data that would refine it. Do not silently fall back to provider snapshots when an explicit execution baseline exists.
 
+### Subject-basket overrides
+
+Before sleeve-specific asset handling, if frontmatter includes `reflection_subject.type: subject_basket`, pull each `reflection_subject.assets[].ticker` over the same date window with `--limit 1000`, compute the weighted basket return from `weight`, and use that as the subject/asset return. This is for any cohort decision whose actual recommendation is a weighted held exposure such as 50/50 ETH+SOL. Label the outcome with `reflection_subject.label` and defer rather than guess if any basket component lacks price data.
+
 ### Equity decisions (`sleeve: equity-core` or any equity ticker)
 
 - Asset: `genkei prices --ticker <TICKER> --since <decision_date> --until <today> --limit 1000 --json` — equity tickers route to `yahoo.candles` automatically (B-092). The `price_usd` field is the split/dividend-adjusted close, which is the right input for the return calc.
-- **Cohort / sector assets** (`asset: "equity-core: SaaS sector (CRM + NOW + …)"`, `asset: "cohort: VEEV vs CRM"`) aren't always single tickers. Reflect against the **named primary anchor** the decision's Frame calls out (e.g. CRM for the SaaS thesis); when the subject ticker is now in the watchlist (VEEV after B-123), pull that subject directly and say which comparator / benchmark was used. If the current subject still has no price series at all (for example, a non-watchlist name whose pull is empty), defer — see below.
+- **Cohort / sector assets without `reflection_subject`** (`asset: "equity-core: SaaS sector (CRM + NOW + …)"`, `asset: "cohort: VEEV vs CRM"`) aren't always single tickers. Reflect against the **named primary anchor** the decision's Frame calls out (e.g. CRM for the SaaS thesis); when the subject ticker is now in the watchlist (VEEV after B-123), pull that subject directly and say which comparator / benchmark was used. If the current subject still has no price series at all (for example, a non-watchlist name whose pull is empty), defer — see below.
 - Benchmark: SPY, pulled the same way (benchmarks live in the watchlist and route to Yahoo per B-102).
 - If a pull errors or returns empty (source outage, delisted ticker, un-ingested name), mark the decision `status: deferred` with a note naming the gap — never fabricate. The reflection cycle should still RUN — the failure mode of skipping reflection is worse than the failure mode of incomplete reflection.
 
@@ -81,7 +85,7 @@ If frontmatter includes `reflection_start`, treat it as the source of truth for 
 
 For equity / crypto decisions where you have prices:
 
-- **Asset return:** `(price_today / starting_asset_price) - 1`, where `starting_asset_price` is `reflection_start.asset_price_usd` when present, otherwise `price_at_decision_date`. Annualize if horizon > 1y by using `(1 + ret) ** (365/elapsed_days) - 1`.
+- **Asset / subject return:** `(price_today / starting_asset_price) - 1`, where `starting_asset_price` is `reflection_start.asset_price_usd` when present, otherwise `price_at_decision_date`; for `reflection_subject.type: subject_basket`, use the weighted component returns instead. Annualize if horizon > 1y by using `(1 + ret) ** (365/elapsed_days) - 1`.
 - **Benchmark return:** same calc, against SPY, BTC, or an explicit `reflection_benchmark` destination basket depending on sleeve and frontmatter. If `reflection_start.benchmark_prices` contains a matching ticker, use that explicit price as the benchmark component's starting price instead of the provider snapshot.
 - **Raw alpha:** `asset_return - benchmark_return`. This is always the asset's return minus benchmark return.
 - **Action lens:** use frontmatter `action` if present, otherwise the audited legacy `hold` default from Step 1. `buy`, `add`, and `hold` are long-exposure calls; positive raw alpha is good. `trim`, `sell`, `avoid`, and `harvest_loss` are exit/avoid calls; negative raw alpha is good because the avoided asset lagged the benchmark.
