@@ -58,17 +58,20 @@ If frontmatter includes `reflection_start`, treat it as the source of truth for 
 - `reflection_start.benchmark_prices[].price_usd` replaces the matching SPY/BTC/destination-basket component's provider-snapshot starting price.
 - If an explicit benchmark mark is `provisional: true`, still use it for the math, but label the outcome as provisional and name the missing data that would refine it. Do not silently fall back to provider snapshots when an explicit execution baseline exists.
 
+### Subject-basket overrides
+
+Before sleeve-specific asset handling, if frontmatter includes `reflection_subject.type: subject_basket`, pull each `reflection_subject.assets[].ticker` over the same date window with `--limit 1000`, compute the weighted basket return from `weight`, and use that as the subject/asset return. This is for any cohort decision whose actual recommendation is a weighted held exposure such as 50/50 ETH+SOL. Label the outcome with `reflection_subject.label` and defer rather than guess if any basket component lacks price data.
+
 ### Equity decisions (`sleeve: equity-core` or any equity ticker)
 
 - Asset: `genkei prices --ticker <TICKER> --since <decision_date> --until <today> --limit 1000 --json` — equity tickers route to `yahoo.candles` automatically (B-092). The `price_usd` field is the split/dividend-adjusted close, which is the right input for the return calc.
-- **Cohort / sector assets** (`asset: "equity-core: SaaS sector (CRM + NOW + …)"`, `asset: "cohort: VEEV vs CRM"`) aren't always single tickers. Reflect against the **named primary anchor** the decision's Frame calls out (e.g. CRM for the SaaS thesis); when the subject ticker is now in the watchlist (VEEV after B-123), pull that subject directly and say which comparator / benchmark was used. If the current subject still has no price series at all (for example, a non-watchlist name whose pull is empty), defer — see below.
+- **Cohort / sector assets without `reflection_subject`** (`asset: "equity-core: SaaS sector (CRM + NOW + …)"`, `asset: "cohort: VEEV vs CRM"`) aren't always single tickers. Reflect against the **named primary anchor** the decision's Frame calls out (e.g. CRM for the SaaS thesis); when the subject ticker is now in the watchlist (VEEV after B-123), pull that subject directly and say which comparator / benchmark was used. If the current subject still has no price series at all (for example, a non-watchlist name whose pull is empty), defer — see below.
 - Benchmark: SPY, pulled the same way (benchmarks live in the watchlist and route to Yahoo per B-102).
 - If a pull errors or returns empty (source outage, delisted ticker, un-ingested name), mark the decision `status: deferred` with a note naming the gap — never fabricate. The reflection cycle should still RUN — the failure mode of skipping reflection is worse than the failure mode of incomplete reflection.
 
 ### Crypto decisions (`asset: BTC|ETH|SOL|LINK|SUI|PYTH|RENDER` or `sleeve: crypto-*`)
 
 - Asset: `genkei prices --ticker <ASSET> --since <decision_date> --until <today> --limit 1000 --json`
-- **Subject-basket override:** if frontmatter includes `reflection_subject.type: subject_basket`, pull each `reflection_subject.assets[].ticker` over the same date window with `--limit 1000`, compute the weighted basket return from `weight`, and use that as the subject/asset return. This is for cohort decisions whose actual recommendation is a weighted held exposure such as 50/50 ETH+SOL. Label the outcome with `reflection_subject.label` and defer rather than guess if any basket component lacks price data.
 - Benchmark: BTC (the relative-to-BTC question is "did we do better than just holding BTC?" — the foundational crypto core asset). Pull BTC the same way.
 - **Rotation / destination-basket override:** if frontmatter includes `reflection_benchmark.type: destination_basket`, pull each `reflection_benchmark.assets[].ticker` over the same date window with `--limit 1000`, compute the weighted basket return from `weight`, and use that basket return instead of BTC for `benchmark_return`. This is for trim/sell rotations where proceeds were explicitly redeployed into named assets; label the outcome with `reflection_benchmark.label` and defer rather than guess if any basket component lacks price data.
 
