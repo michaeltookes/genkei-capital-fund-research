@@ -285,17 +285,27 @@ class LoadProtocolsTests(unittest.TestCase):
 
     def test_packaged_jupiter_protocols_group_under_jup_token(self) -> None:
         wl = load_watchlist(DEFAULT_WATCHLIST_PATH)
-        jupiter_protocols = {
-            p.slug: p.coingecko_id for p in wl.protocols if p.slug.startswith("jupiter")
-        }
+        jupiter_protocols = {p.slug: p for p in wl.protocols if p.slug.startswith("jupiter")}
 
         self.assertEqual(
-            jupiter_protocols,
+            {slug: p.coingecko_id for slug, p in jupiter_protocols.items()},
             {
+                "jupiter": "jupiter-exchange-solana",
                 "jupiter-perpetual-exchange": "jupiter-exchange-solana",
                 "jupiter-lend": "jupiter-exchange-solana",
                 "jupiter-staked-sol": "jupiter-exchange-solana",
             },
+        )
+        self.assertFalse(jupiter_protocols["jupiter"].include_in_tvl_scoring)
+        self.assertTrue(
+            all(
+                jupiter_protocols[slug].include_in_tvl_scoring
+                for slug in {
+                    "jupiter-perpetual-exchange",
+                    "jupiter-lend",
+                    "jupiter-staked-sol",
+                }
+            )
         )
 
 

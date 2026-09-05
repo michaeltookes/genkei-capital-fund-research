@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import patch
 
-from genkei.common.watchlist import EquityEntry, Watchlist
+from genkei.common.watchlist import CryptoEntry, EquityEntry, ProtocolEntry, Watchlist
 from genkei.experiments.watchlist_scoring import (
     RUBRIC_VERSION,
     ComponentScore,
@@ -370,6 +370,70 @@ class DailyTimestampTests(unittest.TestCase):
         self.assertEqual(scores[0].ts, datetime(2026, 5, 22, tzinfo=timezone.utc))
         macro_loader.assert_called_once_with(run_ts)
         equity_loader.assert_called_once_with("AAPL", "0000320193", run_ts)
+
+    def test_compute_today_excludes_fee_only_protocols_from_tvl_slugs(self) -> None:
+        run_ts = datetime(2026, 9, 5, 16, 0, tzinfo=timezone.utc)
+        watchlist = Watchlist(
+            crypto=[
+                CryptoEntry(
+                    symbol="JUP",
+                    name="Jupiter",
+                    coingecko_id="jupiter-exchange-solana",
+                    tier="primary",
+                    sleeve="core",
+                )
+            ],
+            equities=[],
+            macro=[],
+            protocols=[
+                ProtocolEntry(
+                    slug="jupiter",
+                    name="Jupiter",
+                    category="DEX",
+                    tier="primary",
+                    coingecko_id="jupiter-exchange-solana",
+                    include_in_tvl_scoring=False,
+                ),
+                ProtocolEntry(
+                    slug="jupiter-perpetual-exchange",
+                    name="Jupiter Perpetual Exchange",
+                    category="Derivatives",
+                    tier="primary",
+                    coingecko_id="jupiter-exchange-solana",
+                ),
+            ],
+            filers=[],
+        )
+
+        with (
+            patch(
+                "genkei.experiments.watchlist_scoring._load_macro_inputs",
+                return_value={
+                    "dgs10_pct": None,
+                    "dgs10_pct_30d_ago": None,
+                    "hy_oas_pct": None,
+                    "vix": None,
+                    "usd_index": None,
+                    "usd_index_30d_ago": None,
+                },
+            ),
+            patch(
+                "genkei.experiments.watchlist_scoring._load_crypto_signals",
+                return_value={
+                    "rel_strength_pct": None,
+                    "tvl_change_30d_pct": None,
+                    "volume_7d_avg": None,
+                    "volume_30d_avg": None,
+                },
+            ) as crypto_loader,
+        ):
+            compute_today(watchlist=watchlist, ts=run_ts)
+
+        crypto_loader.assert_called_once_with(
+            "jupiter-exchange-solana",
+            run_ts,
+            protocol_slugs=["jupiter-perpetual-exchange"],
+        )
 
 
 class LakeLoaderTests(unittest.TestCase):
