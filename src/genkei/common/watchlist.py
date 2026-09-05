@@ -146,6 +146,11 @@ class ProtocolEntry:
     tier: str  # primary | secondary
     rationale: str | None = None
     coingecko_id: str | None = None
+    # Parent/umbrella slugs can be useful for fee/revenue ingestion while their
+    # TVL overlaps child entries mapped to the same token. Keep them in
+    # DefiLlama ingestion, but omit them from watchlist-score TVL aggregation
+    # when this is false.
+    include_in_tvl_scoring: bool = True
     # Source-specific news matching terms for GDELT. Optional override for
     # ambiguous display names where the bare name is too noisy.
     gdelt_terms: tuple[str, ...] = ()
@@ -687,6 +692,10 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
                         tier=str(tier_name),
                         rationale=_optional_string(entry.get("rationale")),
                         coingecko_id=_optional_string(entry.get("coingecko_id")),
+                        include_in_tvl_scoring=_optional_bool(
+                            entry.get("include_in_tvl_scoring"),
+                            default=True,
+                        ),
                         gdelt_terms=_optional_string_tuple(entry.get("gdelt_terms")),
                     )
                 )
@@ -1165,6 +1174,11 @@ def _normalize_filer_cik(raw: object) -> str | None:
 def _optional_string(value: object) -> str | None:
     """Return a non-empty string value or None for absent optional fields."""
     return value if isinstance(value, str) and value else None
+
+
+def _optional_bool(value: object, *, default: bool) -> bool:
+    """Return a YAML boolean optional field or its caller-supplied default."""
+    return value if isinstance(value, bool) else default
 
 
 def _optional_string_tuple(value: object) -> tuple[str, ...]:
