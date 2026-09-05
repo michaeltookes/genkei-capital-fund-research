@@ -591,18 +591,20 @@ protocols:
     # `/protocols` list; the normalizer synthesizes a stub protocols row
     # (PR #224) so the protocol_tvl/protocol_fees FKs hold. The all-version
     # fee series is the trigger metric for the 2026-09-03 UNI fee-switch
-    # decision (burn run-rate, >=$8M/mo durability check); keep uniswap-v3
-    # alongside for the long single-version history.
+    # decision's aggregate revenue/burn checks; keep uniswap-v3 alongside for
+    # the long single-version TVL history. The parent is fee-only for scoring so
+    # its umbrella TVL does not double-count v3.
     - slug: uniswap
       name: Uniswap
       category: DEX
       coingecko_id: uniswap
+      include_in_tvl_scoring: false
       gdelt_terms:
         - Uniswap
         - UNI token
         - UNIfication
         - Unichain
-      rationale: All-version Uniswap protocol fees fund the automatic UNI burn (UNIfication); the consolidated fee series is the machine-checkable trigger for the 2026-09-03 UNI decision's activation and exit conditions.
+      rationale: All-version Uniswap protocol fees fund the automatic UNI burn (UNIfication); the consolidated fee series supports the 2026-09-03 UNI decision's aggregate revenue and burn-rate checks, while TVL scoring stays on uniswap-v3 to avoid double-counting.
     - slug: curve-dex
       name: Curve DEX
       category: DEX
@@ -679,8 +681,9 @@ protocols:
     # the consolidated Jupiter fee view (aggregator + perps + lend + LST —
     # the Litterbox buyback denominator). The signal-bearing TVL-backed
     # children stay for per-product granularity — same pattern as the Sui
-    # bluefin-spot / bluefin-pro split. Each `coingecko_id` pairs entries
-    # with Jupiter's value-capture token (JUP) so `genkei
+    # bluefin-spot / bluefin-pro split. The parent is fee-only for scoring so
+    # its umbrella TVL does not double-count those children. Each `coingecko_id`
+    # pairs entries with Jupiter's value-capture token (JUP) so `genkei
     # revenue-divergence` joins cleanly. `gdelt_terms` kept tight and
     # child-specific to avoid matching the planet / Roman god and to stop
     # one Jupiter headline being attributed to every slug.
@@ -688,11 +691,12 @@ protocols:
       name: Jupiter
       category: DEX
       coingecko_id: jupiter-exchange-solana
+      include_in_tvl_scoring: false
       gdelt_terms:
         - Jupiter Exchange
         - JUP token
         - Litterbox Trust
-      rationale: Consolidated Jupiter protocol fees across all products — the denominator for the Litterbox 50%-of-fees JUP buyback that anchors the core JUP hold's value-accrual thesis.
+      rationale: Consolidated Jupiter protocol fees across all products — the denominator for the Litterbox 50%-of-fees JUP buyback that anchors the core JUP hold's value-accrual thesis; excluded from TVL scoring because parent TVL overlaps the product children below.
     - slug: jupiter-perpetual-exchange
       name: Jupiter Perpetual Exchange
       category: Derivatives
