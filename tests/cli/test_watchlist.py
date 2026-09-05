@@ -292,6 +292,7 @@ class LoadProtocolsTests(unittest.TestCase):
         self.assertEqual(
             jupiter_protocols,
             {
+                "jupiter": "jupiter-exchange-solana",
                 "jupiter-perpetual-exchange": "jupiter-exchange-solana",
                 "jupiter-lend": "jupiter-exchange-solana",
                 "jupiter-staked-sol": "jupiter-exchange-solana",
