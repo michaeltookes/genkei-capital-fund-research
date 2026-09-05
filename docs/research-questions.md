@@ -37,9 +37,9 @@ Newest entries on top. One entry per question:
 - **outcome:**
 
 ### 2026-09-03 — Add `uniswap` (and `jupiter`) parent slugs to the watchlist now that the FK fix landed
-- **status:** open
+- **status:** resolved
 - **context:** The UNI session's entire story (v4 + Robinhood Chain fee flow, the burn run-rate) lives outside the lake — coverage is `uniswap-v3` only, and the UNI decision's activation/exit triggers are manual until per-version fees land. DeFiLlama parent slugs were previously unusable (protocol_tvl FK failure — see the workaround comment at the `jupiter` section of `watchlists.yml`); the 2026-09-03 parent-slug stub fix (merged, PR #224) retires that constraint, so `uniswap` and a consolidated `jupiter` parent entry are now safe to add. Do this after the runner is restored so the new blobs actually collect.
-- **outcome:**
+- **outcome:** Both parent entries added to `watchlists.yml` on the `watchlist-parent-slugs` branch (2026-09-05, same day the runner was restored); the stale FK-workaround comment in the Jupiter section rewritten to match. Consolidated fee series start collecting on the first daily run after merge; the UNI decision's burn/durability triggers and the JUP Litterbox denominator become lake-checkable from then.
 
 ### 2026-09-02 — Ingest outage: all sources STALE since ~Aug 6-7; runner dead on expired PAT; `defillama normalize` was FAILing on hypertable FK violation
 - **status:** open
