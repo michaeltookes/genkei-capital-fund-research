@@ -5,7 +5,9 @@ sleeve: macro-aware
 horizon: months
 action: add
 confidence: medium
-status: pending
+status: resolved
+superseded_by: 2026-09-05-crypto-stablecoin-flow-confirmation
+trigger_fired_at: 2026-09-05
 reflection_criteria: "Qualitative macro reflection only: do not select an ex-post coin basket. Grade whether honoring the BTC >$72k trigger improved the desk's regime posture by checking BTC held or lost the $72k/$63k levels, repaired stablecoin-flow data confirmed or refuted dry-powder rebuilding, and breadth across the existing approved watchlist/top-50 quality cohort improved without forcing weak-fundamental names into buys."
 trigger_reassessment: "Reassess if BTC falls back below the old $72k breakout line and then loses the $63k base, if repaired stablecoin-flow data shows aggregate supply stayed net-contractive for 2+ additional weeks while top-50 breadth deteriorates, or if stablecoin supply confirms net-growth for 2+ weeks and supports moving from staged broadening to fuller accumulation. Continue to avoid weak-fundamental tail names whose asset-level decisions already say sell/avoid unless their own reopen triggers fire."
 related:
@@ -38,6 +40,9 @@ The strongest objection is that broadening on price alone buys a bear-market squ
 
 ---
 
-## Outcome (filled in by /reflect-decisions)
+## Outcome
 
-(reserved — pending)
+- **Resolved:** 2026-09-05 (early — stablecoin-flow reassessment trigger fired, not horizon-paired)
+- **Superseded by:** 2026-09-05-crypto-stablecoin-flow-confirmation
+- **Trigger fired:** 2026-09-05 — the outage backfill confirmed aggregate stablecoin supply bottomed the week of Aug 3 and printed four consecutive weekly gains, satisfying the file's "net-growth for 2+ weeks" reassessment clause.
+- **Reflection:** The September 3 price-trigger decision correctly moved the desk from selective-only caution to staged broadening while the lake was dark. Once repaired flow data confirmed dry-powder rebuilding, the successor file carries the live sizing question and this file should leave the pending queue.
