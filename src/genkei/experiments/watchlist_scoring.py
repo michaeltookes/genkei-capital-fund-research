@@ -678,7 +678,7 @@ def compute_today(
     scores: list[AssetScore] = []
     protocol_slugs_by_coingecko: dict[str, list[str]] = {}
     for protocol in watchlist.protocols:
-        if protocol.coingecko_id:
+        if protocol.coingecko_id and protocol.include_in_tvl_scoring:
             protocol_slugs_by_coingecko.setdefault(protocol.coingecko_id, []).append(
                 protocol.slug
             )
