@@ -147,6 +147,11 @@ crypto_price_targets:
     coingecko_id: virtual-protocol
     asset_class: crypto
     role: Price coverage for the 2026-07-26 VIRTUAL hold-vs-ETH-swap decision; not a crypto-tactical research target.
+  - symbol: XRP
+    name: XRP
+    coingecko_id: xrp
+    asset_class: crypto
+    role: Price coverage for the 2026-09-05 XRP avoid decision; not a crypto-tactical research target.
 
 # Equities watchlist.
 #
