@@ -10,6 +10,7 @@ trigger_reassessment: "Escalate beyond fuller approved-name accumulation only if
 related:
   - decision: 2026-09-03-crypto-broad-accumulation-trigger-fire
   - decision: 2026-07-19-crypto-bottom-top50-accumulation-thesis
+  - decision: 2026-06-30-bitcoin-position-assessment
   - data: defillama.stablecoins
   - data: coingecko.market_data
 supersedes: 2026-09-03-crypto-broad-accumulation-trigger-fire
@@ -23,7 +24,7 @@ This file records the action after the 2026-09-03 staged-broadening decision's r
 
 ## Flow & positioning
 
-The repaired `defillama.stablecoins` history changes the posture from price-only confirmation to price plus flow confirmation. BTC had already reclaimed the >$72k trigger line by the 2026-09-02 external read, and the backfilled stablecoin series now says dry powder rebuilt for more than the two-week threshold. The useful signal is not "buy every token"; it is that the liquidity constraint which justified small, staged additions is no longer the active blocker.
+The repaired `defillama.stablecoins` history changes the posture from price-only confirmation to price plus flow confirmation. BTC had already reclaimed the >$72k trigger line by the 2026-09-02 external read, and the backfilled stablecoin series now says dry powder rebuilt for more than the two-week threshold. That also fires the 2026-06-30 BTC add-more condition for aggregate stablecoin supply turning positive on a 30-day/read-through basis, so the BTC reserved-tranche decision is linked and resolved through this action file. The useful signal is not "buy every token"; it is that the liquidity constraint which justified small, staged additions is no longer the active blocker.
 
 ## Phase A — case for and case against
 

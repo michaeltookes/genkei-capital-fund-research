@@ -5,11 +5,13 @@ sleeve: crypto-core
 horizon: years
 action: add
 confidence: medium
-status: pending
+status: resolved
+trigger_fired_at: 2026-09-05
 trigger_reassessment: "Add-more (bull confirm): USD (DTWEXBGS) rolls below ~118 OR BTC reclaims and holds above the ~$66K March pivot OR aggregate stablecoin supply turns positive 30d (dry powder rebuilding) OR spot-BTC-ETF net flows turn cleanly positive once that data is fresh. Pause-the-reserve (bear): USD breaks above ~123 OR BTC breaks decisively below ~$55K with accelerating stablecoin outflows."
 related:
   - decision: 2026-06-02-solana-position-assessment
   - decision: 2026-06-02-ethereum-position-assessment
+  - decision: 2026-09-05-crypto-stablecoin-flow-confirmation
   - data: coinbase.candles
   - data: coingecko.market_data
   - data: defillama.stablecoins
@@ -95,6 +97,9 @@ For BTC the "fundamentals" are price structure, the cycle drawdown, and relative
 
 ---
 
-## Outcome (filled in by /reflect-decisions)
+## Outcome
 
-(reserved — pending)
+- **Resolved:** 2026-09-05 (early — add-more trigger fired, not horizon-paired)
+- **Trigger fired:** 2026-09-05 — the outage backfill confirmed aggregate stablecoin supply had turned positive on a 30-day/read-through basis, with aggregate supply bottoming the week of Aug 3 and four consecutive weekly gains. That satisfies this BTC file's add-more condition for dry-powder rebuilding.
+- **Forward link:** 2026-09-05-crypto-stablecoin-flow-confirmation records the action taken on the confirmed flow signal: move from staged broadening to fuller accumulation inside already-approved names, with BTC governed by this file's reserved-tranche discipline.
+- **Reflection:** The original June sizing discipline aged correctly: start small while USD/stablecoin conditions were hostile, then add when dry powder rebuilt. Because the add-more trigger fired before the years horizon, this file should leave the pending queue without benchmark grading; the September 5 decision carries the live sizing and guardrails.
