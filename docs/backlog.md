@@ -255,6 +255,14 @@ _B-131 (FastAPI read layer over the lake) + B-137 (cockpit deployment & exposure
   - The `<2` pin lifted; `[mcp]` extra resolves a current 2.x SDK and the blessed `uvx` install path from `docs/mcp.md` still starts the server clean.
   - Existing MCP tests (and the end-to-end stdio client check from B-142) pass against the ported server.
 
+### B-145 — Repair the three upstream-broken collectors (bitwise, sui_staking, sui_unlocks)
+- **Status:** open
+- **Priority:** medium — each is a coverage hole in an otherwise-green lake; none blocks a live decision today.
+- **Context:** Surfaced by the 2026-09-05 post-outage health audit (every other source green after the runner restoration). All three fail on *upstream* changes, unrelated to the runner/PAT outage: (1) **bitwise** — "fetch/parse failed for every covered ETF"; the ETF pages changed format sometime during the Aug outage window; `etf.fund_snapshots` still carries iShares rows, so the Bitwise leg is dark. (2) **sui_staking** — Sui RPC error on `suix_getLatestSuiSystemState`; likely an RPC endpoint/version change. (3) **sui_unlocks** — "CryptoRank vesting page is missing" the expected structure; the scrape target changed (existing B-115 notes cover *extending* coverage for the seven paywalled allocations; this item is about the v1 scrape being broken outright). SUI is exit-underway (2026-08-05 decision); these collectors still matter as source-health and future-research coverage, not as reopen-trigger inputs.
+- **Acceptance criteria:**
+  - Each collector either fixed against the new upstream shape (with a test fixture pinned to it) or explicitly retired with the source/health-contract change recorded in `docs/sources/`.
+  - `genkei watchlist health` shows no FAIL rows afterward.
+
 ### B-134 — Webull OpenAPI source evaluation (parked)
 - **Status:** deferred 2026-07-20 — evaluate-only; reopen on a concrete live-data gap (see trigger).
 - **Priority:** deferred
