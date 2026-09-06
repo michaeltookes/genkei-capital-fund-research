@@ -51,7 +51,7 @@ External source trail for non-lake and time-sensitive claims (retrieved 2026-09-
 
 ## Flow & positioning
 
-XRP ~$1.41 (mcap ~$88B, #5), rallied from below $1 mid-August (+28-37%, best month since the settlement) into the Sept 15 CLARITY procedural vote (~20% passage odds per prediction markets); ATH $3.65 (Jul 2025). Lake-fresh corroboration: XRPL stablecoin supply $1.11B, +$0.13B/7d (RLUSD growth — real, and note it accrues to *Ripple*, not XRP). GDELT (fresh from today, with an Aug 20-Sep 3 backfill hole flagged) shows XRP clusters daily — ETF/institutional headlines included — which is itself evidence against "nobody talks about XRP." Five-year point-to-point (approximate, agent-computed): XRP roughly flat, SOL ~−25%, ETH ~−37% — XRP's least-bad showing owes to a 2021 base depressed by the SEC suit, not to accrual.
+XRP ~$1.41 (mcap ~$88B, #5), rallied from a roughly $1.03-$1.10 mid-August base (+28-37%, best month since the settlement) into the Sept 15 CLARITY procedural vote (~20% passage odds per prediction markets); ATH $3.65 (Jul 2025). Lake-fresh corroboration: XRPL stablecoin supply $1.11B, +$0.13B/7d (RLUSD growth — real, and note it accrues to *Ripple*, not XRP). GDELT (fresh from today, with an Aug 20-Sep 3 backfill hole flagged) shows XRP clusters daily — ETF/institutional headlines included — which is itself evidence against "nobody talks about XRP." Five-year point-to-point (approximate, agent-computed): XRP roughly flat, SOL ~−25%, ETH ~−37% — XRP's least-bad showing owes to a 2021 base depressed by the SEC suit, not to accrual.
 
 ## Phase A — case for and case against an XRP position
 
