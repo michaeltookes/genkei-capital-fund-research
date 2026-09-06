@@ -192,6 +192,16 @@ class LoadWatchlistTests(unittest.TestCase):
         self.assertIn("Hyperliquid", hype.gdelt_terms)
         self.assertIsNone(wl.find_crypto_price_target("HYPE"))
 
+    def test_default_watchlist_has_xrp_price_only_coverage(self) -> None:
+        wl = load_watchlist(DEFAULT_WATCHLIST_PATH)
+        xrp = wl.find_crypto_price_target("xrp")
+        self.assertIsNotNone(xrp)
+        assert xrp is not None
+        self.assertEqual(xrp.coingecko_id, "xrp")
+        self.assertEqual(xrp.asset_class, "crypto")
+        self.assertIsNone(wl.find_crypto("XRP"))
+        self.assertIsNone(wl.classify("XRP"))
+
     def test_rejects_missing_file(self) -> None:
         with self.assertRaises(FileNotFoundError):
             load_watchlist(Path("/no/such/path.yml"))
