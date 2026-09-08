@@ -152,6 +152,11 @@ crypto_price_targets:
     coingecko_id: xrp
     asset_class: crypto
     role: Price coverage for the 2026-09-05 XRP avoid decision; not a crypto-tactical research target.
+  - symbol: PUMP
+    name: Pump.fun
+    coingecko_id: pump-fun
+    asset_class: crypto
+    role: Price coverage for the 2026-09-06 PUMP inactive buy decision; not a crypto-tactical research target until activation.
 
 # Equities watchlist.
 #

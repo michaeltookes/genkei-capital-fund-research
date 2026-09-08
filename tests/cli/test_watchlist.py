@@ -202,6 +202,16 @@ class LoadWatchlistTests(unittest.TestCase):
         self.assertIsNone(wl.find_crypto("XRP"))
         self.assertIsNone(wl.classify("XRP"))
 
+    def test_default_watchlist_has_pump_price_only_coverage(self) -> None:
+        wl = load_watchlist(DEFAULT_WATCHLIST_PATH)
+        pump = wl.find_crypto_price_target("pump")
+        self.assertIsNotNone(pump)
+        assert pump is not None
+        self.assertEqual(pump.coingecko_id, "pump-fun")
+        self.assertEqual(pump.asset_class, "crypto")
+        self.assertIsNone(wl.find_crypto("PUMP"))
+        self.assertIsNone(wl.classify("PUMP"))
+
     def test_rejects_missing_file(self) -> None:
         with self.assertRaises(FileNotFoundError):
             load_watchlist(Path("/no/such/path.yml"))
