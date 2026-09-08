@@ -21,6 +21,11 @@ Newest entries on top. One entry per question:
 
 ## Log
 
+### 2026-09-06 — Revisit inactive PUMP staged-buy entry on 2026-12-31 if no entry fires
+- **status:** open
+- **context:** The `2026-09-06-pump-fun-buyback-assessment` record is `status: inactive` and expires if neither activation branch fires by 2026-12-31, but `/reflect-decisions` intentionally skips inactive files before horizon checks. On or after 2026-12-31, manually check whether the Pons-absorption or washout entry activated; if not, flip the decision to `resolved` with a no-entry note so it cannot linger as a stale open order.
+- **outcome:**
+
 ### 2026-09-03 — Revisit inactive UNI fee-switch entry on 2027-01-31 if no entry fires
 - **status:** open
 - **context:** The `2026-09-03-uniswap-uni-fee-switch-assessment` record is `status: inactive` and expires if neither activation branch fires by 2027-01-31, but `/reflect-decisions` intentionally skips inactive files before horizon checks. On or after 2027-01-31, manually check whether the pullback or durability entry activated; if not, flip the decision to `resolved` with a no-entry note so it cannot linger as a stale open order.

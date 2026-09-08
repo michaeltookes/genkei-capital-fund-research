@@ -156,7 +156,7 @@ crypto_price_targets:
     name: Pump.fun
     coingecko_id: pump-fun
     asset_class: crypto
-    role: Price coverage for the 2026-09-06 PUMP inactive buy decision; not a crypto-tactical research target until activation.
+    role: Price coverage for the 2026-09-06 PUMP inactive buy decision; on activation, remove this price-only row and add PUMP to crypto.secondary for signal-scoped coverage.
 
 # Equities watchlist.
 #
