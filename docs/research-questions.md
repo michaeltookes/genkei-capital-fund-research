@@ -21,6 +21,11 @@ Newest entries on top. One entry per question:
 
 ## Log
 
+### 2026-09-06 — Revisit inactive PUMP staged-buy entry on 2026-12-31 if no entry fires
+- **status:** open
+- **context:** The `2026-09-06-pump-fun-buyback-assessment` record is `status: inactive` and expires if neither activation branch fires by 2026-12-31, but `/reflect-decisions` intentionally skips inactive files before horizon checks. On or after 2026-12-31, manually check whether the Pons-absorption or washout entry activated; if not, flip the decision to `resolved` with a no-entry note so it cannot linger as a stale open order.
+- **outcome:**
+
 ### 2026-09-03 — Revisit inactive UNI fee-switch entry on 2027-01-31 if no entry fires
 - **status:** open
 - **context:** The `2026-09-03-uniswap-uni-fee-switch-assessment` record is `status: inactive` and expires if neither activation branch fires by 2027-01-31, but `/reflect-decisions` intentionally skips inactive files before horizon checks. On or after 2027-01-31, manually check whether the pullback or durability entry activated; if not, flip the decision to `resolved` with a no-entry note so it cannot linger as a stale open order.
@@ -32,9 +37,9 @@ Newest entries on top. One entry per question:
 - **outcome:**
 
 ### 2026-09-03 — Did Jupiter's Litterbox 50%→70% buyback-allocation proposal pass?
-- **status:** open
+- **status:** resolved
 - **context:** Surfaced in the `2026-09-03-uniswap-uni-fee-switch-assessment` session. A Jupiter forum proposal to raise the Litterbox buyback allocation from 50% to 70% of protocol fees exists; passage unconfirmed as of 2026-09-03. If passed, it materially raises the buyback yield on the desk's core JUP holding (Litterbox held ~142.7M JUP / ~$31.4M as of Jun 27; Aug 30 was Jupiter's best revenue day in seven months at $822K). Check discuss.jup.ag and the trust's on-chain balance trajectory.
-- **outcome:**
+- **outcome:** NOT passed as of 2026-09-06 (verified in the PUMP session): still a forum proposal (posted May 30, discussion through late July, no DAO vote recorded). JUP's +15-24% Sep-6 move had no discrete governance catalyst — drivers were the Solana-DeFi rotation day (RAY +61%), Litterbox buybacks accelerating ~7.5x July→August on revenue growth alone, and Jupiter Lend reaching ~$1.9B deposits. Lake-confirmed context: consolidated `jupiter` parent-slug revenue $6.32M in August (~4% buyback yield on the $887M mcap at the current 50%). Re-check only if a 70% vote actually appears on the DAO vote page — treat any "70% passed" headline as unverified until then.
 
 ### 2026-09-03 — Add `uniswap` (and `jupiter`) parent slugs to the watchlist now that the FK fix landed
 - **status:** resolved

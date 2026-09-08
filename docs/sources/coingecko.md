@@ -16,7 +16,7 @@ price-only targets under `crypto_price_targets:`. v1 covers:
 - **Core hold** — BTC, ETH, SOL, LINK.
 - **Tactical primary** — SUI.
 - **Tactical secondary** — PYTH, RENDER (and any additions).
-- **Price-only reflection targets** — tokens such as LQTY that need
+- **Price-only reflection targets** — tokens such as LQTY and PUMP that need
   `genkei prices` coverage without joining signal-scoped crypto pipelines.
 - **Protocol-side companions** — sourced from `protocols:` entries
   carrying a `coingecko_id` (B-062), e.g. CRV, AAVE, MKR.
