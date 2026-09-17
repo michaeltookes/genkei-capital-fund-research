@@ -4,7 +4,8 @@ Closes the load-bearing gap from the 2026-07-06 ZEC research decision: the lake
 had ZEC price but no *usage* signal, so the privacy-*adoption* thesis was
 unmeasurable. This lands a daily snapshot of the on-chain value held in each
 Zcash value pool — transparent vs the shielded pools (sprout / sapling /
-orchard) vs the dev-fund lockbox — into ``zcash.shielded_pools``, from which the
+orchard / ironwood) vs the dev-fund lockbox — into ``zcash.shielded_pools``,
+from which the
 headline metric (**shielded share of supply**, and above all its *trend*) is
 derived at query time.
 
@@ -48,7 +49,7 @@ BLOCKCHAIN_INFO_URL = "https://mainnet.zcashexplorer.app/api/v1/blockchain-info"
 
 # The privacy pools. Everything else (transparent, lockbox) is not user-private:
 # transparent = public t-addresses; lockbox = deferred dev-fund ZEC (NU6).
-SHIELDED_POOLS = frozenset({"sprout", "sapling", "orchard"})
+SHIELDED_POOLS = frozenset({"sprout", "sapling", "orchard", "ironwood"})
 
 _BROWSER_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -140,14 +141,17 @@ def parse_value_pools(
             continue
         if entry.get("monitored") is not True:
             # A non-monitored pool's chainValue is untrusted. A brand-new pool
-            # appears pre-activation as monitored=false with chainValue 0 (e.g.
-            # `ironwood`, staged for a future network upgrade) — nothing to trust
-            # or count (a zero-value pool doesn't move the shielded ratio), so
-            # skip it rather than fail the whole daily snapshot. A non-monitored
-            # pool reporting a *nonzero* value is genuinely suspect — the case
-            # this guard was built for — so still fail loud there. (If a future
-            # pool activates as a real privacy pool — monitored, nonzero — add it
-            # to SHIELDED_POOLS then.)
+            # appears pre-activation as monitored=false with chainValue 0 —
+            # nothing to trust or count (a zero-value pool doesn't move the
+            # shielded ratio), so skip it rather than fail the whole daily
+            # snapshot. A non-monitored pool reporting a *nonzero* value is
+            # genuinely suspect — the case this guard was built for — so still
+            # fail loud there. (If a future pool activates as a real privacy
+            # pool — monitored, nonzero — add it to SHIELDED_POOLS then, and
+            # reclassify any rows landed in the interim: `ironwood` (NU6.3,
+            # activated 2026-07-28, the corrected-circuit Orchard successor)
+            # sat misclassified as non-shielded until 2026-09-17 and made the
+            # shielded-share trend read as a collapse instead of a migration.)
             if value == 0:
                 LOGGER.info(
                     "zcash_usage: pool %s is not monitored with zero value — "

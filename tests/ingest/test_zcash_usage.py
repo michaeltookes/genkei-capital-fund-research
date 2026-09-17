@@ -40,8 +40,15 @@ class ModuleConstantsTests(unittest.TestCase):
         self.assertEqual(SOURCE_NAME, "zcash_usage")
 
     def test_shielded_pools_are_the_privacy_pools(self) -> None:
-        """sprout/sapling/orchard are private; transparent + lockbox are not."""
-        self.assertEqual(SHIELDED_POOLS, frozenset({"sprout", "sapling", "orchard"}))
+        """sprout/sapling/orchard/ironwood are private; transparent + lockbox are not.
+
+        `ironwood` is the NU6.3 (2026-07-28) corrected-circuit successor to
+        orchard — funds exit orchard only via the turnstile into ironwood, so
+        omitting it makes the shielded-share trend read as a collapse.
+        """
+        self.assertEqual(
+            SHIELDED_POOLS, frozenset({"sprout", "sapling", "orchard", "ironwood"})
+        )
         self.assertNotIn("transparent", SHIELDED_POOLS)
         self.assertNotIn("lockbox", SHIELDED_POOLS)
 
@@ -86,6 +93,20 @@ class ParseValuePoolsTests(unittest.TestCase):
         self.assertTrue(snaps["sprout"].shielded)
         self.assertFalse(snaps["transparent"].shielded)
         self.assertFalse(snaps["lockbox"].shielded)
+
+    def test_active_ironwood_classified_shielded(self) -> None:
+        """Post-NU6.3 payload: monitored, nonzero ironwood parses as shielded."""
+        payload = {
+            "blocks": 3486452,
+            "valuePools": [
+                {"id": "transparent", "chainValue": 11959491.28, "monitored": True},
+                {"id": "ironwood", "chainValue": 3965902.86, "monitored": True},
+                {"id": "orchard", "chainValue": 414064.45, "monitored": True},
+            ],
+        }
+        snaps = {s.pool: s for s in parse_value_pools(payload, snapshot_date=self._SNAP)}
+        self.assertTrue(snaps["ironwood"].shielded)
+        self.assertEqual(snaps["ironwood"].chain_value_zec, Decimal("3965902.86"))
 
     def test_shielded_share_matches_expected(self) -> None:
         """(sprout+sapling+orchard) / total ≈ 26.3% for the live fragment."""
