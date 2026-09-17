@@ -118,7 +118,7 @@ def _format_trend_human(rows: list[dict[str, Any]]) -> str:
         )
     lines.append("")
     lines.append(
-        "  shielded_% = (sprout+sapling+orchard) / total supply. The TREND is the "
+        "  shielded_% = (sprout+sapling+orchard+ironwood) / total supply. The TREND is the "
         "signal: rising = privacy adoption; flat = narrative-only."
     )
     return "\n".join(lines)
