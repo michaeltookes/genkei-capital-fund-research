@@ -21,6 +21,11 @@ Newest entries on top. One entry per question:
 
 ## Log
 
+### 2026-09-17 — Pyth September monthly report (~early Oct): did buybacks inflect up with cash visibly routing to the DAO?
+- **status:** open
+- **context:** Surfaced in the `2026-09-17-pyth-checkpoint-swap-to-sol` session, which executed the swap with the paywall-enforcement caveat open (Hermes enforcement began 2026-08-26, so the decisive conversion cohort reports after the Sept 30 checkpoint). Re-entry criteria (from the decision's trigger): on-chain Reserve purchases at forum.pyth.network inflect decisively above the 0.67M-PYTH August print *because* subscription cash visibly reaches the DAO treasury, AND post-enforcement conversion holds with disclosed churn. ARR blog headlines alone do not qualify. Any re-entry from ~Dec 2026 must price the 2027-05-19 cliff (+27% of circulating).
+- **outcome:**
+
 ### 2026-09-17 — Will the EBA's AMLR technical standards allow transparent-address-only EU handling of ZEC?
 - **status:** open
 - **context:** Surfaced in the `2026-09-17-zec-position-sizing-reassessment` session. Regulation (EU) 2024/1624 bars regulated EU CASPs from handling anonymity-enhancing coins from 2027-07-10; whether ZEC survives on EU venues via t-address-only support is unresolved pending EBA technical standards. The answer is a named TRIM trigger on a core-sleeve position (full-delisting confirmation → trim toward cost), so track EBA publications through 2027-H1; the decision file also carries a hard calendar reassess at 2027-07-10.

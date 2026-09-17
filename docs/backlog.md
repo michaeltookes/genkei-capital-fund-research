@@ -114,6 +114,15 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - `genkei watchlist health` surfaces the new source; the extended ETF query paths surface ZCSH after the migration.
   - Signal hook: 2+ consecutive weeks of net outflows emits into `meta.signal_events` (the decision file's trim trigger becomes machine-checkable).
 
+### B-147 — GDELT topic matching for PYTH is 100% "python" noise
+- **Status:** open
+- **Priority:** low — surfaced 2026-09-17 during the PYTH checkpoint session (`2026-09-17-pyth-checkpoint-swap-to-sol`).
+- **Context:** `genkei news --topic pyth` returns only "python" articles (programming-course ads, Monty Python, literal snakes) — zero Pyth Network coverage — so the news leg of any PYTH session is dark and, worse, silently polluted. The PYTH watchlist entry carries no explicit `gdelt_terms`, so matching falls back to name/symbol substrings and `pyth` matches `python`.
+- **Acceptance criteria:**
+  - Explicit `gdelt_terms` on the PYTH watchlist entry (e.g. "Pyth Network", "Pyth price feed", "Pyth Pro", "Pyth DAO") and, if the matcher is substring-based, word-boundary or exclusion handling so `pyth` cannot match `python`.
+  - Audit the other short/collision-prone symbols on the watchlist for the same failure shape (e.g. terms matching common words).
+  - A unit test pinning that a "python" GKG row does not tag PYTH.
+
 ### B-141 — Market-sentiment layer: surface what we have, ingest what we lack
 - **Status:** open
 - **Priority:** medium — requested 2026-08-04 (Michael, after the Suilend/Coldcard security-fear week: "do we have any resources that tell us market sentiment?").
