@@ -21,6 +21,11 @@ Newest entries on top. One entry per question:
 
 ## Log
 
+### 2026-09-17 — Will the EBA's AMLR technical standards allow transparent-address-only EU handling of ZEC?
+- **status:** open
+- **context:** Surfaced in the `2026-09-17-zec-position-sizing-reassessment` session. Regulation (EU) 2024/1624 bars regulated EU CASPs from handling anonymity-enhancing coins from 2027-07-10; whether ZEC survives on EU venues via t-address-only support is unresolved pending EBA technical standards. The answer is a named TRIM trigger on a core-sleeve position (full-delisting confirmation → trim toward cost), so track EBA publications through 2027-H1; the decision file also carries a hard calendar reassess at 2027-07-10.
+- **outcome:**
+
 ### 2026-09-06 — Revisit inactive PUMP staged-buy entry on 2026-12-31 if no entry fires
 - **status:** open
 - **context:** The `2026-09-06-pump-fun-buyback-assessment` record is `status: inactive` and expires if neither activation branch fires by 2026-12-31, but `/reflect-decisions` intentionally skips inactive files before horizon checks. On or after 2026-12-31, manually check whether the Pons-absorption or washout entry activated; if not, flip the decision to `resolved` with a no-entry note so it cannot linger as a stale open order.

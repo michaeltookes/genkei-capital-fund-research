@@ -102,6 +102,18 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - If a free source emerges or a paid budget opens: schema + collector for cross-oracle TVS share over time, by protocol category (price feeds, randomness, CCIP-style cross-chain).
   - Pair with B-081 once both exist — would let `genkei query` join LINK's TVS share against competitors' over the same time series.
 
+### B-146 — Grayscale ZCSH spot-ETF flow/AUM ingester (ZEC flow signal)
+- **Status:** open
+- **Priority:** medium — surfaced 2026-09-17 during the ZEC position-sizing session (`2026-09-17-zec-position-sizing-reassessment`).
+- **Context:** Grayscale's ZCSH (NYSE Arca, launched 2026-08-25) is the first spot ZEC ETP and is now the marginal structural bid behind a **crypto-core position** (~$727M AUM within 3 weeks, options since 2026-09-08). The decision file names "sustained ZCSH net outflows (2+ consecutive weeks)" as a TRIM trigger, but the lake has no ZCSH surface — `etf.fund_snapshots` covers iShares + Bitwise issuers only, so the trigger is currently a manual web check. Grayscale publishes AUM/holdings on its product page; the existing spot-ETF snapshot pattern (B-113/B-129) should extend to a Grayscale collector rather than a bespoke one.
+- **Acceptance criteria:**
+  - Migration extends `etf.fund_snapshots` to accept `asset = 'ZEC'`; add the ZEC/ZCSH watchlist and ETF-query support that consumes those rows.
+  - Collector lands daily ZCSH NAV, AUM, and **fund shares outstanding** in `etf.fund_snapshots`; reconcile fund shares × NAV to AUM and derive dollar net flow from day-over-day fund-share deltas × NAV.
+  - Preserve issuer-published underlying ZEC holdings as a distinct metric or holdings surface; never use underlying-coin holdings as `shares_outstanding`.
+  - Backfill to the 2026-08-25 launch.
+  - `genkei watchlist health` surfaces the new source; the extended ETF query paths surface ZCSH after the migration.
+  - Signal hook: 2+ consecutive weeks of net outflows emits into `meta.signal_events` (the decision file's trim trigger becomes machine-checkable).
+
 ### B-141 — Market-sentiment layer: surface what we have, ingest what we lack
 - **Status:** open
 - **Priority:** medium — requested 2026-08-04 (Michael, after the Suilend/Coldcard security-fear week: "do we have any resources that tell us market sentiment?").

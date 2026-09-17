@@ -5,7 +5,9 @@ sleeve: crypto-core
 horizon: years
 action: add
 confidence: low
-status: pending
+status: resolved
+superseded_by: 2026-09-17-zec-position-sizing-reassessment
+trigger_fired_at: 2026-09-17
 trigger_reassessment: "Add-more (accumulate the reserved size) on a violent pullback toward the ~$250–300 zone (the 90-day-ago level / prior consolidation shelf) OR on the first real on-chain shielded-usage data confirming privacy *adoption* (not just price). Reassess-bear (pause/trim the lottery ticket) on: a major-exchange delisting of ZEC on privacy-coin regulatory pressure (Coinbase/Binance) OR ZEC breaking back below ~$200 (the 2026 low; the failed-narrative signal) OR 90-day relative strength vs BTC turning negative with no accompanying usage growth (narrative cooling)."
 related:
   - decision: 2026-06-30-bitcoin-position-assessment
@@ -96,4 +98,4 @@ For ZEC the "fundamentals" are its monetary design, price structure, and — cri
 
 ## Outcome (filled in by /reflect-decisions)
 
-(reserved — pending)
+Superseded by [2026-09-17-zec-position-sizing-reassessment](2026-09-17-zec-position-sizing-reassessment.md). The "add on first real shielded-usage adoption data" trigger fired: the `zcash_usage` ingester this file requested shipped 2026-07-07, and the 2026-09-17 session verified shielded supply at ~4.89M ZEC (~28.9% of supply, near all-time-high share) after the Orchard→Ironwood turnstile migration. Position grew to 6.46 ZEC (blended ~$957) against this file's $451 baseline; the successor file carries the sizing verdict (full-sized; no adds at market) and the updated trigger set — this file's $250–300 add-zone and $200 failure line never printed and are obsolete.
