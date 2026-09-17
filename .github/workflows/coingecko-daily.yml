@@ -23,7 +23,11 @@ jobs:
   pipeline:
     name: CoinGecko collect + normalize (Postgres-backed)
     runs-on: [self-hosted, beelink]
-    timeout-minutes: 15
+    # Collect time scales with the watchlist (rate-limit sleeps per coin) and
+    # has grown into the old 15-minute cap: the 2026-09-16 scheduled run and
+    # its 2026-09-17 re-dispatch both died at exactly 15m. 40 leaves headroom
+    # for further watchlist growth without masking a real hang.
+    timeout-minutes: 40
     env:
       GENKEI_DATABASE_URL: ${{ secrets.GENKEI_DATABASE_URL }}
       COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
