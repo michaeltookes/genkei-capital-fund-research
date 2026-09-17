@@ -107,9 +107,11 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
 - **Priority:** medium — surfaced 2026-09-17 during the ZEC position-sizing session (`2026-09-17-zec-position-sizing-reassessment`).
 - **Context:** Grayscale's ZCSH (NYSE Arca, launched 2026-08-25) is the first spot ZEC ETP and is now the marginal structural bid behind a **crypto-core position** (~$727M AUM within 3 weeks, options since 2026-09-08). The decision file names "sustained ZCSH net outflows (2+ consecutive weeks)" as a TRIM trigger, but the lake has no ZCSH surface — `etf.fund_snapshots` covers iShares + Bitwise issuers only, so the trigger is currently a manual web check. Grayscale publishes AUM/holdings on its product page; the existing spot-ETF snapshot pattern (B-113/B-129) should extend to a Grayscale collector rather than a bespoke one.
 - **Acceptance criteria:**
-  - Collector landing daily ZCSH AUM + ZEC holdings (share count × NAV or issuer-published holdings) into `etf.fund_snapshots` under the existing schema; derive net flows from day-over-day holdings deltas.
+  - Migration extends `etf.fund_snapshots` to accept `asset = 'ZEC'`; add the ZEC/ZCSH watchlist and ETF-query support that consumes those rows.
+  - Collector lands daily ZCSH NAV, AUM, and **fund shares outstanding** in `etf.fund_snapshots`; reconcile fund shares × NAV to AUM and derive dollar net flow from day-over-day fund-share deltas × NAV.
+  - Preserve issuer-published underlying ZEC holdings as a distinct metric or holdings surface; never use underlying-coin holdings as `shares_outstanding`.
   - Backfill to the 2026-08-25 launch.
-  - `genkei watchlist health` surfaces the new source; existing ETF query paths pick ZCSH up without schema changes.
+  - `genkei watchlist health` surfaces the new source; the extended ETF query paths surface ZCSH after the migration.
   - Signal hook: 2+ consecutive weeks of net outflows emits into `meta.signal_events` (the decision file's trim trigger becomes machine-checkable).
 
 ### B-141 — Market-sentiment layer: surface what we have, ingest what we lack
