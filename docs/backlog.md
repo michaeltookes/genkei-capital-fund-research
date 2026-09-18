@@ -103,16 +103,22 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - Pair with B-081 once both exist — would let `genkei query` join LINK's TVS share against competitors' over the same time series.
 
 ### B-146 — Grayscale ZCSH spot-ETF flow/AUM ingester (ZEC flow signal)
-- **Status:** open
+- **Status:** open — **partially blocked** (daily source walled; SEC-XBRL quarterly subset shipped 2026-09-17, branch `zcsh-etf-flows`).
 - **Priority:** medium — surfaced 2026-09-17 during the ZEC position-sizing session (`2026-09-17-zec-position-sizing-reassessment`).
 - **Context:** Grayscale's ZCSH (NYSE Arca, launched 2026-08-25) is the first spot ZEC ETP and is now the marginal structural bid behind a **crypto-core position** (~$727M AUM within 3 weeks, options since 2026-09-08). The decision file names "sustained ZCSH net outflows (2+ consecutive weeks)" as a TRIM trigger, but the lake has no ZCSH surface — `etf.fund_snapshots` covers iShares + Bitwise issuers only, so the trigger is currently a manual web check. Grayscale publishes AUM/holdings on its product page; the existing spot-ETF snapshot pattern (B-113/B-129) should extend to a Grayscale collector rather than a bespoke one.
+
+- **PROGRESS / FINDINGS (2026-09-17, branch `zcsh-etf-flows`)** — see the full write-up in `docs/sources/spot-etf-net-flow.md` ("B-146 — Grayscale ZCSH" section):
+  - **Daily source is WALLED.** Every grayscale.com path (product page, `/api/*`, `/_next/data/*`) returns HTTP 429 behind a **Vercel Security Checkpoint** JS bot-wall ("Enable JavaScript to continue"); `api.grayscale.com` 404s (no public data API). Solving the checkpoint means executing challenge JS — circumventing a bot protection, which the plan explicitly forbade. Same wall class as ARKB (Cloudflare) / GBTC (rate-limit). **There is no wall-free daily ZCSH shares/AUM source today.** The daily-flow surface and the 2-week net-outflow signal hook therefore cannot be built yet — they stay open.
+  - **Shipped the wall-free primary-source subset.** ZCSH is the uplisting of the **Grayscale Zcash Trust (ZEC)**, SEC **CIK 0001720265**, which has filed 10-Q/10-K XBRL since 2019. Extended the existing B-114 `sec_etf_shares` collector to learn Grayscale's tags (`CommonStockSharesOutstanding` / `SharesOutstanding` for shares; `AssetsNet` for net assets), so ZCSH's quarter-end AUM/shares/NAV backfill into `etf.fund_snapshots` (2021-12-31 → 2026-06-30 today; the post-launch surge lands with the Q3 10-Q ~Nov 2026). Derived NAV reconciles to the tagged `NetAssetValuePerShare` within rounding.
+  - **No DB migration needed** — `etf.fund_snapshots.asset` is unconstrained text; storing `asset='ZEC'` needs no schema change. Widened the `etf_tickers` asset guard (BTC/ETH → +ZEC) and the `genkei etf-flows` asset aliases instead. `watchlist health` already tracks `sec_etf_shares` + `etf.fund_snapshots`, so ZCSH surfaces through existing plumbing. Adding ZCSH to `etf_tickers` also brings it into the Yahoo dollar-volume path (`genkei etf-flows --asset ZEC`, an activity proxy — not signed flow).
+
 - **Acceptance criteria:**
-  - Migration extends `etf.fund_snapshots` to accept `asset = 'ZEC'`; add the ZEC/ZCSH watchlist and ETF-query support that consumes those rows.
-  - Collector lands daily ZCSH NAV, AUM, and **fund shares outstanding** in `etf.fund_snapshots`; reconcile fund shares × NAV to AUM and derive dollar net flow from day-over-day fund-share deltas × NAV.
-  - Preserve issuer-published underlying ZEC holdings as a distinct metric or holdings surface; never use underlying-coin holdings as `shares_outstanding`.
-  - Backfill to the 2026-08-25 launch.
-  - `genkei watchlist health` surfaces the new source; the extended ETF query paths surface ZCSH after the migration.
-  - Signal hook: 2+ consecutive weeks of net outflows emits into `meta.signal_events` (the decision file's trim trigger becomes machine-checkable).
+  - ~~Migration extends `etf.fund_snapshots` to accept `asset = 'ZEC'`; add the ZEC/ZCSH watchlist and ETF-query support that consumes those rows.~~ **DONE** — no migration needed (asset is free text); ZCSH wired into `watchlists.yml`, the loader guard, and the `etf-flows` ZEC alias.
+  - **BLOCKED (daily source walled):** Collector lands daily ZCSH NAV, AUM, and **fund shares outstanding**; derive dollar net flow from day-over-day fund-share deltas × NAV. *Quarterly* AUM/shares/NAV shipped via SEC XBRL; daily requires a wall-free daily source that does not exist today.
+  - **OPEN (deferred with the daily source):** Preserve issuer-published underlying ZEC holdings as a distinct metric or holdings surface; never use underlying-coin holdings as `shares_outstanding`. (The walled product page is the only source of underlying-ZEC-holdings; SEC XBRL carries fund shares + net assets, not coin counts.)
+  - ~~Backfill to the 2026-08-25 launch.~~ **DONE (exceeded)** — SEC XBRL backfills the full trust-era history (2021 → 2026-06-30), a superset of "to launch"; `launch_date` is omitted on the ZCSH entry so build_snapshots keeps it.
+  - ~~`genkei watchlist health` surfaces the new source; the extended ETF query paths surface ZCSH.~~ **DONE** — via the already-tracked `sec_etf_shares` source; `etf-flows --list-etfs` / `--asset ZEC` pick ZCSH up (quarterly SEC rows are excluded from the `--net-flow` daily LAG by design, as for all B-114 rows).
+  - **BLOCKED (needs the daily flow series):** Signal hook — 2+ consecutive weeks of net outflows emits into `meta.signal_events`. Quarterly XBRL checkpoints cannot produce a weekly-outflow signal; deferred with the daily source. Revisit if a wall-free daily source appears (NYSE Arca NAV feed, a Grayscale static CSV, or a licensed path once a private-data story exists).
 
 ### B-147 — GDELT topic matching for PYTH is 100% "python" noise
 - **Status:** open

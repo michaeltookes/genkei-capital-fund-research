@@ -360,6 +360,28 @@ class EtfTickersParserTests(unittest.TestCase):
         tickers = {e.ticker for e in w.etf_tickers}
         self.assertEqual(tickers, {"IBIT"})
 
+    def test_zec_asset_accepted(self) -> None:
+        """ZEC spot ETPs (Grayscale ZCSH, B-146) are a supported underlying."""
+        body = (
+            "version: 1\n"
+            "etf_tickers:\n"
+            "  - ticker: ZCSH\n"
+            "    name: Grayscale Zcash Trust (ZEC)\n"
+            "    asset: zec\n"  # normalizes to ZEC
+            "    issuer: Grayscale\n"
+            "    cik: '0001720265'\n"
+        )
+        w = _load(body)
+        self.assertEqual(len(w.etf_tickers), 1)
+        entry = w.etf_tickers[0]
+        self.assertEqual(entry.ticker, "ZCSH")
+        self.assertEqual(entry.asset, "ZEC")
+        self.assertEqual(entry.issuer, "Grayscale")
+        self.assertEqual(entry.cik, "0001720265")
+        # launch_date omitted so the SEC backfill keeps trust-era history.
+        self.assertIsNone(entry.launch_date)
+        self.assertEqual({e.ticker for e in w.etfs_for_asset("ZEC")}, {"ZCSH"})
+
     def test_duplicate_ticker_dedupes_first_wins(self) -> None:
         """Duplicate ETF tickers dedupe case-insensitively with first row kept."""
         body = (
@@ -419,6 +441,19 @@ class EtfTickersParserTests(unittest.TestCase):
         self.assertIsNotNone(ethb)
         self.assertEqual(ethb.issuer, "BlackRock")
         self.assertEqual(ethb.launch_date, "2026-03-12")
+
+    def test_packaged_basket_includes_zcsh_zec_etp(self) -> None:
+        """Packaged watchlist carries Grayscale ZCSH as the ZEC ETP (B-146)."""
+        w = load_watchlist(DEFAULT_WATCHLIST_PATH)
+        zcsh = w.find_etf_ticker("zcsh")
+        self.assertIsNotNone(zcsh)
+        self.assertEqual(zcsh.asset, "ZEC")
+        self.assertEqual(zcsh.issuer, "Grayscale")
+        # CIK wires the SEC-XBRL quarter-end backfill (daily source is walled).
+        self.assertEqual(zcsh.cik, "0001720265")
+        # launch_date omitted so trust-era XBRL history is not filtered out.
+        self.assertIsNone(zcsh.launch_date)
+        self.assertEqual({e.ticker for e in w.etfs_for_asset("ZEC")}, {"ZCSH"})
 
 
 class TreasuryParserTests(unittest.TestCase):

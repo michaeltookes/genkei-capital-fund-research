@@ -1061,6 +1061,30 @@ etf_tickers:
     launch_date: 2024-07-23
     sleeve: tactical
     rationale: Grayscale's lower-fee mini ETH product (distinct from ETHE).
+  # Spot ZEC ETP (B-146). ZCSH is the first spot Zcash ETP — the uplisting
+  # (NYSE Arca, 2026-08-25) of the Grayscale Zcash Trust (ZEC), the marginal
+  # structural bid behind the ZEC crypto-core position. sleeve=core because it
+  # guards a core hold, not a tactical turnover name. Grayscale's product page
+  # is Vercel-bot-walled (no wall-free daily source — see
+  # docs/sources/spot-etf-net-flow.md), so ZCSH's AUM/shares/NAV land quarterly
+  # via the B-114 SEC-XBRL path (sec_etf_shares), keyed on this CIK.
+  # launch_date is intentionally OMITTED: the trust filed 10-Q/10-K XBRL since
+  # 2019 (it existed as a private placement before the 2026-08-25 uplisting),
+  # and that trust-era AUM history is genuine — setting launch_date would make
+  # build_snapshots drop every pre-launch checkpoint. The Yahoo ticker ZCSH has
+  # no bars before 2026-08-25 either way, so the omission is harmless for the
+  # dollar-volume query path.
+  - ticker: ZCSH
+    name: Grayscale Zcash Trust (ZEC)
+    asset: ZEC
+    issuer: Grayscale
+    sleeve: core
+    cik: "0001720265"
+    rationale: >-
+      First spot ZEC ETP; NYSE Arca listing 2026-08-25 (uplisted from the
+      private Grayscale Zcash Trust). Marginal structural bid behind the ZEC
+      crypto-core position; daily source Vercel-walled, so quarterly AUM/shares
+      via SEC XBRL (B-146).
 
 
 # B-106 — curated ETH wallets we snapshot daily for whale-flow tracking.

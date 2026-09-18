@@ -45,6 +45,34 @@ def _entry(*, launch: str | None = "2024-01-11") -> EtfTickerEntry:
     )
 
 
+def _grayscale_facts(
+    *, shares: list[dict], net_assets: list[dict], share_concept: str = "CommonStockSharesOutstanding"
+) -> dict:
+    """Grayscale-taxonomy companyfacts: shares under CommonStockSharesOutstanding
+    (or SharesOutstanding) and net assets under AssetsNet — NONE of the BlackRock
+    concepts present, so extract_checkpoints must fall through to the Grayscale
+    entries appended to SHARE_CONCEPTS / NET_ASSET_CONCEPTS (B-146)."""
+    return {
+        "us-gaap": {
+            share_concept: {"units": {"shares": shares}},
+            "AssetsNet": {"units": {"USD": net_assets}},
+        }
+    }
+
+
+def _zcsh_entry() -> EtfTickerEntry:
+    # launch_date omitted (as in the packaged watchlist) so trust-era XBRL
+    # history is not filtered out.
+    return EtfTickerEntry(
+        ticker="ZCSH",
+        name="Grayscale Zcash Trust (ZEC)",
+        asset="ZEC",
+        issuer="Grayscale",
+        launch_date=None,
+        cik="0001720265",
+    )
+
+
 def _write_watchlist(case: unittest.TestCase) -> Path:
     ctx = TemporaryDirectory()
     case.addCleanup(ctx.cleanup)
@@ -190,6 +218,88 @@ class BuildSnapshotsTests(unittest.TestCase):
     def test_missing_facts_object_raises(self) -> None:
         with self.assertRaisesRegex(ValueError, "no 'facts' object"):
             build_snapshots({}, entry=_entry())
+
+
+class GrayscaleConceptTests(unittest.TestCase):
+    """B-146 — Grayscale ZCSH tags shares/net-assets under different XBRL
+    concepts than BlackRock; the appended concept candidates must pick them up
+    without disturbing the BlackRock-first priority order."""
+
+    def test_share_concepts_priority_keeps_blackrock_first(self) -> None:
+        self.assertEqual(
+            sec_etf_shares.SHARE_CONCEPTS[0],
+            ("us-gaap", "TemporaryEquitySharesOutstanding", "shares"),
+        )
+        names = [c[1] for c in sec_etf_shares.SHARE_CONCEPTS]
+        self.assertIn("CommonStockSharesOutstanding", names)
+        self.assertIn("SharesOutstanding", names)
+        # CommonStock (current tag, reaches the latest period-end) must precede
+        # the legacy SharesOutstanding so the newest data wins.
+        self.assertLess(
+            names.index("CommonStockSharesOutstanding"),
+            names.index("SharesOutstanding"),
+        )
+
+    def test_net_asset_concepts_priority_keeps_blackrock_first(self) -> None:
+        self.assertEqual(
+            sec_etf_shares.NET_ASSET_CONCEPTS[0],
+            ("us-gaap", "FairValueNetAssetLiability", "USD"),
+        )
+        self.assertIn("AssetsNet", [c[1] for c in sec_etf_shares.NET_ASSET_CONCEPTS])
+
+    def test_falls_through_to_grayscale_share_concept(self) -> None:
+        # BlackRock's TemporaryEquitySharesOutstanding absent → CommonStock used.
+        facts = {
+            "us-gaap": {
+                "CommonStockSharesOutstanding": {
+                    "units": {"shares": [_fact("2026-06-30", 4829300)]}
+                }
+            }
+        }
+        cps = extract_checkpoints(facts, sec_etf_shares.SHARE_CONCEPTS)
+        self.assertEqual(cps[date(2026, 6, 30)], Decimal("4829300"))
+
+    def test_falls_through_to_legacy_shares_outstanding(self) -> None:
+        # Older ZCSH periods only carry the legacy SharesOutstanding tag.
+        facts = {
+            "us-gaap": {
+                "SharesOutstanding": {
+                    "units": {"shares": [_fact("2021-12-31", 3000000, form="10-K")]}
+                }
+            }
+        }
+        cps = extract_checkpoints(facts, sec_etf_shares.SHARE_CONCEPTS)
+        self.assertEqual(cps[date(2021, 12, 31)], Decimal("3000000"))
+
+    def test_falls_through_to_assets_net(self) -> None:
+        facts = {"us-gaap": {"AssetsNet": {"units": {"USD": [_fact("2026-06-30", 155252000)]}}}}
+        cps = extract_checkpoints(facts, sec_etf_shares.NET_ASSET_CONCEPTS)
+        self.assertEqual(cps[date(2026, 6, 30)], Decimal("155252000"))
+
+    def test_build_snapshots_derives_grayscale_nav_and_keeps_trust_history(self) -> None:
+        # Two real ZCSH period-ends; no launch_date on the entry, so the
+        # pre-uplisting trust-era checkpoint (2025-09-30) is KEPT, not dropped.
+        facts = _grayscale_facts(
+            shares=[
+                _fact("2025-09-30", 4811500, form="10-Q", filed="2025-11-05"),
+                _fact("2026-06-30", 4829300, form="10-Q", filed="2026-08-04"),
+            ],
+            net_assets=[
+                _fact("2025-09-30", 29757000, form="10-Q", filed="2025-11-05"),
+                _fact("2026-06-30", 155252000, form="10-Q", filed="2026-08-04"),
+            ],
+        )
+        snaps = build_snapshots({"facts": facts}, entry=_zcsh_entry())
+        self.assertEqual([s.snapshot_date for s in snaps], [date(2025, 9, 30), date(2026, 6, 30)])
+        latest = snaps[-1]
+        self.assertEqual(latest.ticker, "ZCSH")
+        self.assertEqual(latest.asset, "ZEC")
+        self.assertEqual(latest.issuer, "Grayscale")
+        self.assertEqual(latest.shares_outstanding, Decimal("4829300.0000"))
+        self.assertEqual(latest.total_net_assets_usd, Decimal("155252000.00"))
+        # Derived NAV reconciles to the tagged NetAssetValuePerShare ($32.15).
+        self.assertEqual(latest.nav_per_share_usd, Decimal("32.14793034"))
+        self.assertEqual(snaps[0].nav_per_share_usd, Decimal("6.18455783"))
 
 
 class ModuleConstantsTests(unittest.TestCase):
