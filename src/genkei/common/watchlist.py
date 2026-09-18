@@ -214,11 +214,14 @@ class EtfTickerEntry:
     The Yahoo chart endpoint serves each ETF cleanly and the existing
     ``genkei.ingest.yahoo`` collector lands rows in ``yahoo.candles``.
 
-    ``asset`` is the underlying (``BTC`` or ``ETH``) used to route
-    per-asset aggregations in ``genkei etf-flows --asset BTC``.
+    ``asset`` is the underlying (``BTC``, ``ETH``, or ``ZEC``) used to
+    route per-asset aggregations in ``genkei etf-flows --asset BTC``.
     ``launch_date`` is the spot-ETF launch date used by the CLI query
     layer to ignore pre-conversion Yahoo history for tickers that existed
-    before their spot ETF wrapper.
+    before their spot ETF wrapper. It is also the floor for the B-114
+    SEC quarter-end backfill — omit it for an uplisting whose pre-launch
+    trust-era XBRL history is genuine AUM worth keeping (e.g. Grayscale
+    ZCSH, B-146), rather than seed/registration noise to drop.
     """
 
     ticker: str
@@ -835,8 +838,10 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
             if not isinstance(raw_asset, str):
                 continue
             asset = raw_asset.strip().upper()
-            if asset not in ("BTC", "ETH"):
-                # v1 only supports BTC + ETH spot ETFs; other assets get dropped.
+            if asset not in ("BTC", "ETH", "ZEC"):
+                # Supported spot-ETF underlyings: BTC + ETH (B-105) and ZEC
+                # (B-146, Grayscale ZCSH). Other assets get dropped until a
+                # collector + query path exists for them.
                 continue
             if ticker in seen_etf_tickers:
                 continue
