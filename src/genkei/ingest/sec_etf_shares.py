@@ -39,6 +39,15 @@ is sparse (only tagged from ~2026), but ``FairValueNetAssetLiability`` /
 at the same period-end instant, so ``TNA / shares`` reconstructs NAV uniformly
 and — verified against the funds that do tag it — reconciles to the published
 figure within rounding (IBIT 2024-12-31: derived $53.09 vs tagged $53.09).
+
+**Issuers covered.** v1 (B-114) is the three BlackRock trusts. B-146 extends the
+concept lists to the Grayscale grantor-trust taxonomy so ZCSH (the Grayscale
+Zcash Trust / spot ZEC ETP, whose daily issuer page is bot-walled — see
+``docs/sources/spot-etf-net-flow.md``) backfills its quarter-end AUM/shares via
+this same wall-free path. Grayscale tags shares as ``CommonStockSharesOutstanding``
+/ ``SharesOutstanding`` and net assets as ``AssetsNet`` rather than the BlackRock
+concepts; both are appended after the BlackRock entries so IBIT/ETHA/ETHB are
+untouched.
 """
 
 from __future__ import annotations
@@ -74,15 +83,28 @@ COLLECT_ENDPOINT_LABEL = "collect"
 SOURCE_ENDPOINT_MARKER = "sec_10q_xbrl"
 
 # XBRL concept candidates, in priority order. The first concept that yields any
-# period-report facts for a fund is used. BlackRock trusts (IBIT / ETHA / ETHB,
-# the B-114 v1 funds) tag shares as TemporaryEquitySharesOutstanding and net
-# assets as FairValueNetAssetLiability; the lists are the extension point when a
-# future issuer (Bitwise / Grayscale) uses a different tag.
+# period-report facts for a fund is used (extract_checkpoints does NOT merge
+# across concepts — order matters). BlackRock trusts (IBIT / ETHA / ETHB, the
+# B-114 v1 funds) tag shares as TemporaryEquitySharesOutstanding and net assets
+# as FairValueNetAssetLiability, so those stay first and their behavior is
+# unchanged. Grayscale trusts (ZCSH, B-146; and GBTC/ETHE if wired later) tag
+# shares as CommonStockSharesOutstanding (current) or SharesOutstanding (legacy,
+# pre-2025 periods) and net assets as AssetsNet — a single-asset grantor trust
+# carries ~no liabilities, so AssetsNet == net assets and the derived
+# TNA/shares NAV reconciles to the tagged NetAssetValuePerShare within rounding
+# (ZCSH 2026-06-30: derived $32.148 vs tagged $32.15). CommonStockSharesOutstanding
+# precedes SharesOutstanding because it reaches the most recent period-end
+# (SharesOutstanding stops at 2025-09-30 for ZCSH). The lists remain the
+# extension point for any future issuer that tags differently.
 SHARE_CONCEPTS: tuple[tuple[str, str, str], ...] = (
     ("us-gaap", "TemporaryEquitySharesOutstanding", "shares"),
+    ("us-gaap", "CommonStockSharesOutstanding", "shares"),
+    ("us-gaap", "SharesOutstanding", "shares"),
 )
 NET_ASSET_CONCEPTS: tuple[tuple[str, str, str], ...] = (
     ("us-gaap", "FairValueNetAssetLiability", "USD"),
+    ("us-gaap", "AssetsNet", "USD"),
+    ("us-gaap", "Assets", "USD"),
 )
 # Period reports whose balance-sheet facts are period-end checkpoints. 10-K
 # carries the year-end (Q4) checkpoint that no 10-Q covers.
