@@ -190,11 +190,89 @@ re-run inserted 0 (idempotent); the net-flow view shows 0 pre-feed rows. Daily
 cron `sec-etf-shares-daily.yml` at 13:15 UTC; `watchlist health` tracks the
 `(sec_etf_shares, collect)` heartbeat.
 
+## B-146 — Grayscale ZCSH (Zcash ETF) — daily wall, SEC-XBRL fallback (2026-09-17)
+
+Grayscale's **ZCSH** (NYSE Arca, launched 2026-08-25) is the first spot ZEC
+ETP and the marginal structural bid behind the ZEC crypto-core position
+(~$727M AUM within 3 weeks of launch). The 2026-09-17 ZEC position-sizing
+decision names "sustained ZCSH net outflows (2+ consecutive weeks)" as a TRIM
+trigger, so B-146 set out to land a daily ZCSH AUM/holdings surface into
+`etf.fund_snapshots` and wire a net-outflow signal.
+
+### Daily source — Grayscale product page: **WALLED (Vercel Security Checkpoint)**
+
+Every grayscale.com path (the fund product page, `/api/*`, and the Next.js
+`/_next/data/*` JSON route) returns **HTTP 429 with a "Vercel Security
+Checkpoint / Enable JavaScript to continue" interstitial** — a JS bot-challenge,
+not a genuine transient rate limit. A separate `api.grayscale.com` host 404s
+(no public data API). Solving the checkpoint requires executing the challenge
+JS in a headless browser, i.e. *circumventing a bot protection*. Per the B-146
+plan and the standing B-129 GBTC finding ("do not scrape through a block or
+violate TOS"), the daily issuer path is **not pursued**. This is the same class
+of wall ARKB (Cloudflare) and GBTC (rate-limit) hit in the B-107 survey.
+
+Consequence: there is **no wall-free daily ZCSH shares-outstanding / AUM
+source** today. The daily net-flow surface and the 2-week net-outflow signal
+hook the decision file wants are therefore **not buildable** without a daily
+shares series — they remain open (B-146 stays open; see backlog).
+
+### What IS achievable — SEC XBRL companyfacts: **WALL-FREE PRIMARY SOURCE**
+
+ZCSH is the uplisting of the **Grayscale Zcash Trust (ZEC)** — SEC
+**CIK 0001720265** — which has filed 10-Q / 10-K reports since 2019 (the trust
+existed as a private placement years before the 2026-08-25 ETF conversion, GBTC-
+style). Its XBRL companyfacts (`https://data.sec.gov/api/xbrl/companyfacts/CIK0001720265.json`,
+no auth) carry point-in-time period-end facts:
+
+| field | XBRL concept | coverage | notes |
+|---|---|---|---|
+| shares outstanding | `us-gaap:CommonStockSharesOutstanding` | 2021-12-31 → 2026-06-30 | current tag; older periods use `SharesOutstanding` (2019 → 2025-09-30) |
+| net assets (AUM) | `us-gaap:AssetsNet` | 2019-12-31 → 2026-06-30 | grantor trust ⇒ total ≈ net assets; `Assets` matches where both present |
+| NAV / share | *derived* = net_assets / shares | — | reconciles to the tagged `NetAssetValuePerShare` within rounding (2026-06-30: derived $32.148 vs tagged $32.15; 2025-03-31: $3.1621 vs $3.16) |
+
+This is exactly the extension B-114 anticipated ("the non-BlackRock issuers …
+Grayscale GBTC tag shares/net-assets under different XBRL concepts; extend
+`SHARE_CONCEPTS` / `NET_ASSET_CONCEPTS`"). B-146 wires it by:
+
+- Adding Grayscale's concepts to `SHARE_CONCEPTS` / `NET_ASSET_CONCEPTS` in
+  `src/genkei/ingest/sec_etf_shares.py` (appended *after* the BlackRock concepts,
+  so `extract_checkpoints`' first-nonempty rule leaves IBIT/ETHA/ETHB unchanged).
+- Adding **ZCSH** to `etf_tickers` in `watchlists.yml` with `asset: ZEC`,
+  `issuer: Grayscale`, `cik: "0001720265"`. `launch_date` is intentionally
+  **omitted** so `build_snapshots`' pre-launch filter does not drop the genuine
+  trust-era AUM history (those facts are real trust holdings, not seed/
+  registration noise). The 2026-08-25 ETF launch is recorded in the entry's
+  `rationale` and here.
+- Widening the `etf_tickers` asset guard (was BTC/ETH only) and the
+  `genkei etf-flows` asset aliases to admit **ZEC**.
+
+Result: ZCSH lands quarterly AUM/shares/NAV checkpoints into
+`etf.fund_snapshots` from a primary, wall-free source, surfaced by the already-
+health-tracked `sec_etf_shares` collector. As of 2026-09-17 the latest checkpoint
+is 2026-06-30 ($155.3M, 4.83M shares, NAV $32.15) — **pre-ETF-launch**; the
+post-launch AUM surge lands with the Q3 10-Q (~Nov 2026). Rows carry
+`source_endpoint = 'sec_10q_xbrl'`, so — as for the BlackRock quarterly rows —
+they are excluded from the `genkei etf-flows --net-flow` daily-flow `LAG`
+(quarterly deltas are not daily flows); they are an AUM-trajectory series.
+
+Adding ZCSH to `etf_tickers` also brings it into the existing Yahoo OHLCV path,
+so `genkei etf-flows --asset ZEC` (default dollar-volume proxy) works once the
+Yahoo collector runs — a daily *activity* magnitude, not signed flow.
+
+### Still open (B-146 remains open — daily flow + signal hook blocked)
+
+- **Daily ZCSH shares/AUM** — blocked by the Grayscale Vercel wall. Revisit if a
+  wall-free daily source appears (e.g. an NYSE Arca NAV feed, a Grayscale static
+  CSV, or a licensed data path once a private-data story exists).
+- **2-week net-outflow signal hook** — depends on the daily series above; cannot
+  be derived from quarterly XBRL checkpoints. Deferred with the daily source.
+
 ## Deferred (filed as separate backlog items if pursued)
 
 1. **Remaining issuers** — FBTC (Fidelity), GBTC (Grayscale), ARKB (ARK).
-   ARKB confirmed Cloudflare-walled; GBTC rate-limited; FBTC URL not yet
-   found. (Bitwise ETHW shipped 2026-07-07, B-129 — see above.)
+   ARKB confirmed Cloudflare-walled; GBTC + ZCSH Grayscale product pages
+   Vercel-walled (B-146); FBTC URL not yet found. (Bitwise ETHW shipped
+   2026-07-07, B-129 — see above.)
 2. ~~**Historical backfill** — quarterly checkpoints via SEC 10-Q shares-outstanding extraction.~~ **Shipped B-114 (2026-07-16) — see above.** Note the non-BlackRock issuers (Bitwise BITB/ETHW, Grayscale GBTC) tag shares/net-assets under different XBRL concepts; extend `SHARE_CONCEPTS` / `NET_ASSET_CONCEPTS` to cover them.
 3. **Reconciliation against Yahoo dollar-volume (B-105 v1)** — sanity-check that daily net flow direction matches the volume proxy.
 4. **Coinbase institutional product feed** — skipped in Phase 1; revisit if needed.
