@@ -45,6 +45,13 @@ class ResolveAssetTests(unittest.TestCase):
         self.assertEqual(_resolve_asset("Ethereum"), "ETH")
         self.assertEqual(_resolve_asset("ether"), "ETH")
 
+    def test_zec_aliases(self) -> None:
+        """ZEC spellings normalize to the ZEC asset code (B-146, Grayscale ZCSH)."""
+        self.assertEqual(_resolve_asset("ZEC"), "ZEC")
+        self.assertEqual(_resolve_asset("zec"), "ZEC")
+        self.assertEqual(_resolve_asset("Zcash"), "ZEC")
+        self.assertEqual(_resolve_asset("  zcash  "), "ZEC")
+
     def test_unknown_asset_raises_bad_param(self) -> None:
         """Unsupported and blank assets raise the CLI-friendly Typer error."""
         with self.assertRaises(typer.BadParameter):
@@ -53,14 +60,14 @@ class ResolveAssetTests(unittest.TestCase):
             _resolve_asset("")
 
     def test_alias_set_is_finite_and_lowercase(self) -> None:
-        """Alias table keys stay lowercase and mapped only to BTC/ETH."""
+        """Alias table keys stay lowercase and mapped only to BTC/ETH/ZEC."""
         # Defensive pin: aliases must be lowercase so _resolve_asset's
         # `.strip().lower()` lookup works. A future contributor adding
         # `"Bitcoin": "BTC"` (mixed case) would silently break.
         for key in _ASSET_ALIASES:
             self.assertEqual(key, key.lower(), f"alias key {key!r} must be lowercase")
-        # Pin the v1 supported targets
-        self.assertEqual(set(_ASSET_ALIASES.values()), {"BTC", "ETH"})
+        # Pin the supported targets (BTC/ETH from B-105; ZEC from B-146).
+        self.assertEqual(set(_ASSET_ALIASES.values()), {"BTC", "ETH", "ZEC"})
 
 
 class HorizonTagTests(unittest.TestCase):
@@ -73,6 +80,10 @@ class HorizonTagTests(unittest.TestCase):
     def test_eth_tag(self) -> None:
         """ETH maps to the ETF crypto ETH horizon tag."""
         self.assertEqual(_horizon_tag("ETH"), "etf:crypto:eth")
+
+    def test_zec_tag(self) -> None:
+        """ZEC maps to the ETF crypto ZEC horizon tag (B-146)."""
+        self.assertEqual(_horizon_tag("ZEC"), "etf:crypto:zec")
 
 
 class TagRowsTests(unittest.TestCase):

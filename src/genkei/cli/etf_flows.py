@@ -31,7 +31,8 @@ Usage:
   genkei etf-flows --asset BTC --json
   genkei etf-flows --list-etfs                           list configured ETFs
 
-Asset aliases accepted: BTC / bitcoin; ETH / ethereum / ether.
+Asset aliases accepted: BTC / bitcoin; ETH / ethereum / ether; ZEC / zcash
+(B-146 — ZCSH quarterly AUM only; daily flow blocked by the walled issuer page).
 """
 
 import json
@@ -62,6 +63,13 @@ _ASSET_ALIASES: dict[str, str] = {
     "eth": "ETH",
     "ethereum": "ETH",
     "ether": "ETH",
+    # ZEC spot ETP (B-146, Grayscale ZCSH). The daily net-flow surface is not
+    # yet populated — the issuer page is bot-walled, so ZCSH lands only quarterly
+    # SEC-XBRL AUM checkpoints (source_endpoint='sec_10q_xbrl'), which the
+    # --net-flow query excludes from its daily LAG. `--asset ZEC` (default,
+    # dollar-volume) works via the Yahoo path. See docs/sources/spot-etf-net-flow.md.
+    "zec": "ZEC",
+    "zcash": "ZEC",
 }
 TickerLaunch = tuple[str, Optional[date]]
 
@@ -72,7 +80,8 @@ def _resolve_asset(raw: str) -> str:
     if key in _ASSET_ALIASES:
         return _ASSET_ALIASES[key]
     raise typer.BadParameter(
-        f"Unknown asset {raw!r}. Valid options: BTC (or bitcoin) / ETH (or ethereum)."
+        f"Unknown asset {raw!r}. Valid options: BTC (or bitcoin) / "
+        "ETH (or ethereum) / ZEC (or zcash)."
     )
 
 
