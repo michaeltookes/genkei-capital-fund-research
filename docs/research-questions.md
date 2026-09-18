@@ -21,6 +21,11 @@ Newest entries on top. One entry per question:
 
 ## Log
 
+### 2026-09-17 — Robinhood Chain post-subsidy durability + first chain-revenue disclosure (Q3 earnings, late Oct)
+- **status:** open
+- **context:** Surfaced in the `2026-09-17-hood-equity-core-assessment` session (action: avoid, on watch). The chain's 90-day gas subsidy expires ~2026-09-29 and Q3 earnings (~late Oct) are the first report that could disclose chain/sequencer revenue at all. Re-underwrite inputs per the decision's trigger: post-subsidy stablecoin supply + tokenized-stock AUM trajectory (NOT Pons fee prints — Pons is third-party and its fees are not HOOD revenue; correction recorded in the decision file), disclosed chain revenue ≥ ~$25M/quarter, tokenized-equity restructuring under the SEC's 2026-09-17 Innovation Exemption, and prediction-market litigation milestones. Also feeds the UNI file's Robinhood-derived fee-mix veto checks and the PUMP file's Pons-duopoly activation math.
+- **outcome:**
+
 ### 2026-09-17 — Pyth September monthly report (~early Oct): did buybacks inflect up with cash visibly routing to the DAO?
 - **status:** open
 - **context:** Surfaced in the `2026-09-17-pyth-checkpoint-swap-to-sol` session, which executed the swap with the paywall-enforcement caveat open (Hermes enforcement began 2026-08-26, so the decisive conversion cohort reports after the Sept 30 checkpoint). Re-entry criteria (from the decision's trigger): on-chain Reserve purchases at forum.pyth.network inflect decisively above the 0.67M-PYTH August print *because* subscription cash visibly reaches the DAO treasury, AND post-enforcement conversion holds with disclosed churn. ARR blog headlines alone do not qualify. Any re-entry from ~Dec 2026 must price the 2027-05-19 cliff (+27% of circulating).
@@ -42,9 +47,9 @@ Newest entries on top. One entry per question:
 - **outcome:**
 
 ### 2026-09-03 — Should HOOD get a separate equity-core assessment after Robinhood Chain's fee spike?
-- **status:** open
+- **status:** resolved
 - **context:** Surfaced in the `2026-09-02-robinhood-chain-tokenization-assessment` session. The crypto decision held ETH/SOL unchanged and declined ARB while noting that HOOD sits in equity watchlist coverage; a separate equity-core session should test whether Robinhood's chain/sequencer economics, tokenized-stock optionality, and valuation after the Sept-1 fee-driven rally justify a HOOD position or watchlist action.
-- **outcome:**
+- **outcome:** Session run 2026-09-17 → `2026-09-17-hood-equity-core-assessment` (action: avoid for equity-core at ~46x fwd / ~20x sales; on watch with dated re-underwrite triggers). Material correction found: Pons launchpad fees are third-party, not HOOD revenue — HOOD's chain take is sequencer gas only (~$50M annualized on the 30-day average, ~1% of corporate revenue, undisclosed in filings). Follow-up tracked in the 2026-09-17 post-subsidy/Q3-disclosure question above.
 
 ### 2026-09-03 — Did Jupiter's Litterbox 50%→70% buyback-allocation proposal pass?
 - **status:** resolved
