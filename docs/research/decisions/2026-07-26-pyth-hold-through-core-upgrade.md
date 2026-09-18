@@ -11,7 +11,8 @@ reflection_benchmark:
     - ticker: SOL
       weight: 1.0
 confidence: medium
-status: pending
+status: resolved
+superseded_by: 2026-09-17-pyth-checkpoint-swap-to-sol
 trigger_reassessment: "SWAP TO SOL if by 2026-09-30 post-Core-upgrade subscription revenue has not materially re-rated — combined Pyth Pro + Core ARR still ≲$1M-ish (no visible conversion) or Pyth Reserve buyback spend not growing month-over-month OR PYTH 90d relative strength vs SOL drops below −15pp (post-catalyst fade confirmed). HARD DEADLINE: exit or re-log by ~2027-03-31 regardless, ahead of the final 2.13B-token cliff on 2027-05-19 (+27% of circulating supply), unless ARR growth has explicitly re-rated the story by then. BULL escalation (consider upgrade toward tactical-primary): disclosed ARR ≥$5M with Reserve buybacks scaling."
 related:
   - decision: 2026-07-25-virtuals-protocol-hold-vs-eth-swap
@@ -76,4 +77,4 @@ Unchanged from this week's sessions: `genkei macro-regime` **risk_on** (2026-07-
 
 ## Outcome (filled in by /reflect-decisions)
 
-(reserved — pending)
+Superseded on 2026-09-17 by [2026-09-17-pyth-checkpoint-swap-to-sol](2026-09-17-pyth-checkpoint-swap-to-sol.md), a **discretionary early exit** made 13 days before this file's September 30 checkpoint. The stated trigger did not fire and was not evaluated: the decisive September conversion/churn cohort will not report until early October. The later decision relied on a materially weaker Reserve buyback series — 1.80M → 1.14M → 0.67M PYTH purchased June→August — and records its own sources and receipts. It also corrects this file's stale "~$1M combined ARR" baseline (pre-upgrade July 2026 ARR was already $7.49M self-reported), a calibration miss.
