@@ -1,6 +1,69 @@
-# SUI token unlock / vesting schedule — data-source investigation (B-089)
+# SUI token unlock / vesting schedule (B-089; DeFiLlama since B-145)
 
-**Status:** Phase 1 investigation complete (2026-06-07). Outcome: **partial ingester** scoped to the one allocation category with full free coverage (Community Reserves). Six of the eight allocation categories — including the load-bearing VC unlock categories — are effectively paywalled across the surveyed free sources.
+**Status:** v2 shipped 2026-09-18 (B-145). Source: **DeFiLlama's open datasets
+bucket** — `https://defillama-datasets.llama.fi/emissions/sui`, no auth, no
+key; it is the same URL the defillama.com/unlocks frontend fetches. Full
+coverage: **all 8 allocation series**, TGE (2023-05-03) through 2030, past +
+future batches. This also **closes the B-115 gap** — Series A / Series B /
+Early Contributors are covered.
+
+## v2 source contract (current)
+
+- **URL** — `https://defillama-datasets.llama.fi/emissions/sui` (open
+  datasets bucket). Note the distinction: `api.llama.fi/emission/*` is
+  paid-tier (HTTP 402, unchanged from the Phase 1 survey below); the
+  datasets bucket is the free path DeFiLlama's own frontend uses. If the
+  bucket ever gates, this collector dies with a loud fetch error — treat
+  that as a health-contract change, not a bug.
+- **Shape** — `documentedData.data`: one series per allocation
+  (`label`, `data: [{timestamp, unlocked}]`) — *cumulative* unlocked
+  sampled daily, unix-seconds timestamps, floats present. Series finals
+  sum to exactly the 10B max supply; percent-of-supply is derived from
+  that sum, not hardcoded.
+- **Parse** — day-over-day deltas become batch rows keyed
+  `(allocation_name, unlock_date)`; a positive delta is dated at the
+  *earlier* sample (validated: TGE cliffs land exactly on 2023-05-03).
+  Mid-schedule monthly batches can land ±1 day vs the canonical vesting
+  date (daily sampling grid) — immaterial at monthly-batch granularity.
+  `vesting_type` is NULL for DeFiLlama rows (cumulative curves don't
+  distinguish cliff vs linear on the same date).
+- **Taxonomy switchover (2026-09-18)** — DeFiLlama's "Community Reserve"
+  (4.972B / 49.72%) is the full Sui reserve bucket, NOT CryptoRank's
+  "Community Reserves" sub-bucket (1.065B / 10.6%). The 85 legacy
+  CryptoRank rows were deleted at switchover (one-time
+  `DELETE FROM onchain.sui_unlocks WHERE source_endpoint =
+  'https://cryptorank.io/price/sui/vesting'`) — keeping both taxonomies
+  would double-count reserve supply in any SUM over the table.
+
+### Why v1 died
+
+CryptoRank put `/price/sui/vesting` behind a Cloudflare JS challenge
+(observed 2026-09: HTTP 403 + "Just a moment..." interstitial; the
+scheduled runner 403'd and a local fetch got the challenge HTML with no
+`__NEXT_DATA__`). Same wall class as Grayscale/ARKB (B-129). We don't
+scrape through bot walls; the DeFiLlama dataset replaced it with strictly
+better coverage.
+
+### Acceptance gates (v2)
+
+1. **Freshness** — latest `(sui_unlocks, collect)` run within 36h.
+2. **Allocation count** — exactly 8 distinct `allocation_name`s from the
+   llama source; more/fewer means upstream re-bucketed and totals need
+   re-validation.
+3. **Supply closure** — `SUM(DISTINCT allocation_total_tokens)` ≈ 10B
+   (the series must still sum to max supply).
+4. **No legacy rows** — zero rows with the CryptoRank source_endpoint.
+
+---
+
+# Phase 1 investigation (2026-06-07, historical)
+
+Everything below is the original B-089 survey, kept as the record of why
+v1 shipped CryptoRank-partial. **Path 1's conclusion is superseded**: the
+*API* is paid, but the datasets *bucket* is open — that nuance was found
+during B-145.
+
+**Status (then):** Phase 1 investigation complete (2026-06-07). Outcome: **partial ingester** scoped to the one allocation category with full free coverage (Community Reserves). Six of the eight allocation categories — including the load-bearing VC unlock categories — are effectively paywalled across the surveyed free sources.
 
 **Context:** The 2026-05-20 SUI research session named "no SUI token unlock schedule" as a load-bearing data gap. The bear thesis on SUI is that aggressive VC vesting (Series A + Series B + Early Contributors) compresses the token through scheduled unlocks; absent visibility into the schedule, "is the next dilution event known to the market" is unanswerable. B-089 surveys the available free data sources and ships whatever partial coverage exists.
 
