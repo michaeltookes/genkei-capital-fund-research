@@ -113,6 +113,16 @@ crypto:
       name: Pyth Network
       coingecko_id: pyth-network
       coinbase_product: PYTH-USD
+      # B-147. Bare name "Pyth" (4 chars) previously fell through to
+      # substring matching and, before the word-boundary matcher landed,
+      # tagged every "python" article (courses, Monty Python, snakes).
+      # Curated multi-word terms anchor the match on the actual project —
+      # GDELT normalizes the org tag to "Pyth Network".
+      gdelt_terms:
+        - Pyth Network
+        - Pyth oracle
+        - Pyth price feed
+        - PYTH token
       ecosystem: Solana
       sleeve: tactical
       rationale: Oracle competitor to LINK; relevant to the Solana stack.
@@ -120,6 +130,14 @@ crypto:
       name: Render
       coingecko_id: render-token
       coinbase_product: RENDER-USD
+      # B-147. Bare name "Render" is a common English verb — under substring
+      # matching it tagged "rendering", "rendered", "surrender" and every
+      # standalone "render" in prose. Curated terms scope the match to the
+      # actual network (old ticker RNDR still shows up in crypto coverage).
+      gdelt_terms:
+        - Render Network
+        - Render Token
+        - RNDR
       ecosystem: Solana
       sleeve: tactical
       rationale: Compute marketplace; AI-adjacent narrative; recently migrated to Solana.

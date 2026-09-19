@@ -14,9 +14,12 @@ and parse the cached CSV without re-fetching the same public URL.
 Watchlist filter:
 - An article is kept iff at least one watchlist asset name or explicit
   ``gdelt_terms`` override matches inside the article's themes / persons /
-  organizations / document_identifier (case-insensitive substring). Matches
-  per article are stored in ``matched_assets TEXT[]``. Articles with zero
-  matches are dropped at parse time and never land in the table.
+  organizations / document_identifier. Matching is case-insensitive and
+  **word-boundary** (B-147): a term hits only as a standalone token, never
+  inside a longer alphanumeric run — so "pyth" no longer tags "python",
+  "sui" no longer tags "suitable", and "render" no longer tags "surrender".
+  Matches per article are stored in ``matched_assets TEXT[]``. Articles with
+  zero matches are dropped at parse time and never land in the table.
 - Match terms: equity company names, crypto names / ``gdelt_terms``,
   protocol names / ``gdelt_terms``, 13F filer names. Macro series IDs
   (FRED) are skipped — they don't appear in news. Min term length = 4 chars
@@ -104,11 +107,16 @@ UPSERT_BATCH_SIZE = 500
 
 @dataclass(frozen=True)
 class _MatchTerm:
-    """A canonical search term + the watchlist label to record on hit."""
+    """A canonical search term + the watchlist label to record on hit.
+
+    All terms match on word boundaries (B-147) — a term hits only when it
+    sits as a standalone token in the haystack, never inside a longer
+    alphanumeric run. That is what keeps "pyth" from matching "python",
+    "sui" from "suitable", and "render" from "surrender" / "rendering".
+    """
 
     term_lower: str
     label: str
-    whole_word: bool = False
 
 
 @dataclass(frozen=True)
@@ -208,11 +216,13 @@ def build_match_terms(watchlist: Watchlist) -> list[_MatchTerm]:
     Returns a lower-cased + length-filtered list, deduped by term and label.
     Equity entries contribute company name variants labeled by ticker; crypto
     entries their ``gdelt_terms`` override or coin name labeled by symbol,
-    with short-symbol whole-word fallback; protocols their ``gdelt_terms``
+    with a short-symbol fallback (min 3 chars); protocols their ``gdelt_terms``
     override or protocol name variants labeled by slug; filers the filer name
-    labeled by CIK.
+    labeled by CIK. Every term matches on word boundaries at query time (see
+    ``match_article``), so short symbols like SUI are safe without special-
+    casing here.
     """
-    seen: set[tuple[str, str, bool]] = set()
+    seen: set[tuple[str, str]] = set()
     terms: list[_MatchTerm] = []
 
     def add(
@@ -220,15 +230,12 @@ def build_match_terms(watchlist: Watchlist) -> list[_MatchTerm]:
         label: str,
         *,
         min_length: int = MIN_TERM_LENGTH,
-        whole_word: bool = False,
     ) -> bool:
         term = candidate.strip().lower()
-        key = term, label, whole_word
+        key = term, label
         if len(term) >= min_length and key not in seen:
             seen.add(key)
-            terms.append(
-                _MatchTerm(term_lower=term, label=label, whole_word=whole_word)
-            )
+            terms.append(_MatchTerm(term_lower=term, label=label))
             return True
         return False
 
@@ -248,7 +255,7 @@ def build_match_terms(watchlist: Watchlist) -> list[_MatchTerm]:
         for candidate in candidates:
             added = add(candidate, entry.symbol.upper()) or added
         if not added:
-            add(entry.symbol, entry.symbol.upper(), min_length=3, whole_word=True)
+            add(entry.symbol, entry.symbol.upper(), min_length=3)
     for entry in watchlist.protocols:
         variants = entry.gdelt_terms or tuple(_watchlist_name_variants(entry.name))
         for variant in variants:
@@ -440,10 +447,14 @@ def match_article(
 ) -> list[str]:
     """Return the asset labels matched by an article.
 
-    Case-insensitive match over the concatenated themes / persons /
-    organizations / document_identifier text. Most watchlist names use
-    substring matching; short crypto-symbol fallback terms require a standalone
-    word match to avoid hits inside unrelated words and URLs. Results are
+    Case-insensitive, **word-boundary** match over the concatenated themes /
+    persons / organizations / document_identifier text (B-147). Every term
+    matches only where it sits as a standalone token — bounded on both sides
+    by a non-alphanumeric character (or a string edge) — so a term never hits
+    inside a longer alphanumeric run: "pyth" ∌ "python", "sui" ∌ "suitable",
+    "render" ∌ "surrender" / "rendering". Underscore counts as a boundary, so
+    GDELT theme codes like ``ECON_BITCOIN_INSTITUTIONAL`` still match
+    "bitcoin", and hyphen/slash-delimited tokens in URLs match too. Results are
     sorted for determinism so the array index column stays stable across
     re-upserts of the same row.
     """
@@ -459,13 +470,9 @@ def match_article(
         return []
     hits: set[str] = set()
     for term in terms:
-        if term.whole_word:
-            pattern = rf"(?<![a-z0-9]){re.escape(term.term_lower)}(?![a-z0-9])"
-            if not re.search(pattern, haystack):
-                continue
-        elif term.term_lower not in haystack:
-            continue
-        hits.add(term.label)
+        pattern = rf"(?<![a-z0-9]){re.escape(term.term_lower)}(?![a-z0-9])"
+        if re.search(pattern, haystack):
+            hits.add(term.label)
     return sorted(hits)
 
 

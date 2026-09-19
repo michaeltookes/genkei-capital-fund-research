@@ -120,14 +120,10 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
   - ~~`genkei watchlist health` surfaces the new source; the extended ETF query paths surface ZCSH.~~ **DONE** — via the already-tracked `sec_etf_shares` source; `etf-flows --list-etfs` / `--asset ZEC` pick ZCSH up (quarterly SEC rows are excluded from the `--net-flow` daily LAG by design, as for all B-114 rows).
   - **BLOCKED (needs the daily flow series):** Signal hook — 2+ consecutive weeks of net outflows emits into `meta.signal_events`. Quarterly XBRL checkpoints cannot produce a weekly-outflow signal; deferred with the daily source. Revisit if a wall-free daily source appears (NYSE Arca NAV feed, a Grayscale static CSV, or a licensed path once a private-data story exists).
 
-### B-147 — GDELT topic matching for PYTH is 100% "python" noise
-- **Status:** open
-- **Priority:** low — surfaced 2026-09-17 during the PYTH checkpoint session (`2026-09-17-pyth-checkpoint-swap-to-sol`).
-- **Context:** `genkei news --topic pyth` returns only "python" articles (programming-course ads, Monty Python, literal snakes) — zero Pyth Network coverage — so the news leg of any PYTH session is dark and, worse, silently polluted. The PYTH watchlist entry carries no explicit `gdelt_terms`, so matching falls back to name/symbol substrings and `pyth` matches `python`.
-- **Acceptance criteria:**
-  - Explicit `gdelt_terms` on the PYTH watchlist entry (e.g. "Pyth Network", "Pyth price feed", "Pyth Pro", "Pyth DAO") and, if the matcher is substring-based, word-boundary or exclusion handling so `pyth` cannot match `python`.
-  - Audit the other short/collision-prone symbols on the watchlist for the same failure shape (e.g. terms matching common words).
-  - A unit test pinning that a "python" GKG row does not tag PYTH.
+### B-147a — Run the one-time gdelt.gkg matched_assets repair (ops)
+- **Status:** open (ops step; blocked on lake reach — cannot run from a worktree)
+- **Priority:** low — follow-up to B-147 (matcher fix shipped, see docs/resolved.md).
+- **Action:** Once, from the repo root on a host that can see the Beelink Postgres, run `python -m scripts.repair_gdelt_matched_assets --dry-run` then (if the counts look sane) `python -m scripts.repair_gdelt_matched_assets`. It recomputes historical `matched_assets` against the fixed matcher — clears the substring-era `RENDER` false positives ("rendering"/"surrender") and other over-matches, and drops rows that now match zero terms. Idempotent; safe to re-run. Close this line once it has run against the lake.
 
 ### B-141 — Market-sentiment layer: surface what we have, ingest what we lack
 - **Status:** open
