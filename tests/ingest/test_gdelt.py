@@ -17,11 +17,13 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from genkei.common.watchlist import (
+    DEFAULT_WATCHLIST_PATH,
     CryptoEntry,
     EquityEntry,
     FilerEntry,
     ProtocolEntry,
     Watchlist,
+    load_watchlist,
 )
 from genkei.ingest.gdelt import (
     GDELT_BASE_URL,
@@ -371,7 +373,7 @@ class BuildMatchTermsTests(unittest.TestCase):
         terms = build_match_terms(wl)
         self.assertEqual(
             terms,
-            [_MatchTerm(term_lower="sui", label="SUI", whole_word=True)],
+            [_MatchTerm(term_lower="sui", label="SUI")],
         )
 
     def test_protocol_label_is_slug(self) -> None:
@@ -594,25 +596,115 @@ class MatchArticleTests(unittest.TestCase):
         )
         self.assertEqual(hits, [])
 
-    def test_whole_word_symbol_matches_delimited_token(self) -> None:
+    def test_word_boundary_symbol_matches_delimited_token(self) -> None:
+        # Underscore- and hyphen-delimited tokens count as standalone words.
         hits = match_article(
             themes=["CRYPTO_SUI_MARKET"],
             persons=[],
             organizations=[],
             document_identifier="https://example.com/sui-news",
-            terms=[_MatchTerm(term_lower="sui", label="SUI", whole_word=True)],
+            terms=[_MatchTerm(term_lower="sui", label="SUI")],
         )
         self.assertEqual(hits, ["SUI"])
 
-    def test_whole_word_symbol_does_not_match_inside_words(self) -> None:
+    def test_word_boundary_symbol_does_not_match_inside_words(self) -> None:
+        # "sui" is embedded in "lawsuit" / "pursuit" — no standalone token.
         hits = match_article(
             themes=["LEGAL_LAWSUIT"],
             persons=[],
             organizations=[],
             document_identifier="https://example.com/pursuit-of-alpha",
-            terms=[_MatchTerm(term_lower="sui", label="SUI", whole_word=True)],
+            terms=[_MatchTerm(term_lower="sui", label="SUI")],
         )
         self.assertEqual(hits, [])
+
+    def test_multiword_term_matches_across_underscore_theme(self) -> None:
+        # Regression guard for the boundary rule interacting with GDELT theme
+        # codes: "bitcoin" must still match inside ECON_BITCOIN_INSTITUTIONAL
+        # because underscore is a boundary, not an alphanumeric.
+        hits = match_article(
+            themes=["ECON_BITCOIN_INSTITUTIONAL"],
+            persons=[],
+            organizations=[],
+            document_identifier="",
+            terms=[_MatchTerm(term_lower="bitcoin", label="BTC")],
+        )
+        self.assertEqual(hits, ["BTC"])
+
+    def test_substring_only_hit_is_rejected(self) -> None:
+        # A term that appears only as a substring of a longer word no longer
+        # matches (this was the pre-B-147 substring behavior).
+        hits = match_article(
+            themes=[],
+            persons=[],
+            organizations=["Rendering Farms Inc"],
+            document_identifier="https://example.com/surrender-terms",
+            terms=[_MatchTerm(term_lower="render", label="RENDER")],
+        )
+        self.assertEqual(hits, [])
+
+
+class ShippedWatchlistCollisionTests(unittest.TestCase):
+    """B-147: pin collision-prone symbols against the real shipped watchlist.
+
+    These load ``watchlists.yml`` (offline; no DB/network) and drive
+    ``build_match_terms`` + ``match_article`` end-to-end so a regression in
+    either the ``gdelt_terms`` wiring or the word-boundary matcher is caught.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.terms = build_match_terms(load_watchlist(DEFAULT_WATCHLIST_PATH))
+
+    def _match(self, *, themes=None, persons=None, orgs=None, url="") -> list[str]:
+        return match_article(
+            themes=themes or [],
+            persons=persons or [],
+            organizations=orgs or [],
+            document_identifier=url,
+            terms=self.terms,
+        )
+
+    def test_python_row_does_not_tag_pyth(self) -> None:
+        # The bug: a "python" article (programming course, Monty Python, the
+        # snake) must never be tagged PYTH.
+        self.assertNotIn(
+            "PYTH",
+            self._match(
+                themes=["TECH_PROGRAMMING"],
+                orgs=["Python Software Foundation"],
+                url="https://example.com/learn-python-course-monty-python",
+            ),
+        )
+
+    def test_real_pyth_network_article_tags_pyth(self) -> None:
+        # Coverage must still land for the actual project via gdelt_terms.
+        self.assertIn(
+            "PYTH",
+            self._match(
+                orgs=["Pyth Network"],
+                url="https://example.com/pyth-network-oracle-launch",
+            ),
+        )
+
+    def test_common_word_prose_does_not_tag_render(self) -> None:
+        # "render" / "rendering" / "surrender" are common English — no RENDER.
+        self.assertNotIn(
+            "RENDER",
+            self._match(
+                themes=["ARTS_RENDERING"],
+                url="https://example.com/how-artists-render-and-surrender",
+            ),
+        )
+
+    def test_real_render_network_article_tags_render(self) -> None:
+        self.assertIn(
+            "RENDER",
+            self._match(
+                orgs=["Render Network"],
+                url="https://example.com/render-network-gpu-compute",
+            ),
+        )
 
 
 class FileTimestampsForWindowTests(unittest.TestCase):
