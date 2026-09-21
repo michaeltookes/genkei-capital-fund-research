@@ -1,35 +1,38 @@
-"""Sui on-chain validator + staking-flow collector (B-088).
+"""Sui on-chain validator + staking-flow collector (B-088, GraphQL since B-145).
 
 Fetches the current epoch's validator state from the public Sui mainnet
-JSON-RPC at ``https://fullnode.mainnet.sui.io`` and lands one row per
-``(epoch, validator_address)`` in ``onchain.sui_validators``. v1 captures
-the dominant institutional-flow signals the 2026-05-20 SUI research
-session named as missing: total staked SUI trajectory, per-validator
-pending stake / pending withdraw (the actual flow signal — net delta
-across all validators answers "are stakers committing more capital or
-unbonding"), voting power distribution, commission rates, and APYs.
+GraphQL API at ``https://graphql.mainnet.sui.io/graphql`` and lands one
+row per ``(epoch, validator_address)`` in ``onchain.sui_validators``.
+v1 captures the dominant institutional-flow signals the 2026-05-20 SUI
+research session named as missing: total staked SUI trajectory,
+per-validator pending stake / pending withdraw (the actual flow signal —
+net delta across all validators answers "are stakers committing more
+capital or unbonding"), voting power distribution, and commission rates.
 
-Methods used per run (two RPC POSTs, both deterministic):
+**History:** v1 (B-088) used JSON-RPC on the public fullnode
+(``suix_getLatestSuiSystemState`` + ``suix_getValidatorsApy``). Sui
+deprecated JSON-RPC on public fullnodes upstream — observed failing with
+``-32601 Method not found`` plus an explicit migration notice by
+2026-09-17 — so B-145 ported the collector to the GraphQL API. The
+per-validator data now comes from ``epoch.validatorSet.activeValidators``
+whose ``contents.json`` is the on-chain ``ValidatorV1`` Move struct
+(snake_case field names, u64s as JSON strings).
 
-  - ``suix_getLatestSuiSystemState`` — returns the full system state
-    including ``activeValidators`` (a list of ~129 validator records,
-    each with stake / pending flow / commission / lifecycle epochs)
-    plus epoch metadata (number, start timestamp, duration, totalStake).
-  - ``suix_getValidatorsApy`` — returns ``{epoch, apys: [{address, apy}]}``
-    which we join into the validator rows by ``address`` → ``suiAddress``.
+**APY is no longer available.** ``suix_getValidatorsApy`` was an
+RPC-computed convenience with no GraphQL equivalent (deriving it from
+``staking_pool.exchange_rates`` dynamic fields is possible but heavy).
+Rows written since the port carry ``apy = NULL``; pre-port rows keep
+their stored APYs (the upsert never nulls an existing APY). Recorded in
+``docs/sources/sui-staking.md``.
 
-The public RPC requires no API key, no auth, no Cloudflare token. The
-B-088 backlog spec offered Blockvision's managed RPC as the working path;
-that turned out to be unnecessary — the public fullnode serves the
-needed methods cleanly. Skipping Blockvision keeps the collector simpler
-(no key, no D-020 graceful-skip plumbing) and removes a third-party
-dependency.
+The GraphQL API requires no key or auth, but paginates
+``activeValidators`` (50 per page, ~120 validators → 3 requests/run).
+Pagination is guarded against an epoch boundary mid-fetch: if
+``epochId`` changes between pages the run fails loudly rather than
+stitching two epochs into one snapshot.
 
-**Backfill is NOT supported** by the public RPC. ``suix_getEpochs``
-returns ``Method not found`` on the public fullnode (it's an indexer-API
-method, not standard JSON-RPC), so historical epoch reconstruction would
-require a different data path. v1 is forward-only from the day of first
-run; backfill is filed as a v2 follow-up. Idempotent via the
+**Backfill is NOT supported** at this layer — same posture as v1:
+forward-only from the day of first run. Idempotent via the
 ``(epoch, validator_address)`` PK so re-runs within the same epoch are
 no-op upserts.
 
@@ -57,15 +60,31 @@ from genkei.common.http import HttpClient, RateLimit
 SOURCE_NAME = "sui_staking"
 COLLECT_ENDPOINT_LABEL = "collect"
 
-# Public Sui mainnet fullnode — no auth, no rate-limit headers observed in
-# Phase 1 probing. One req/s is a polite ceiling for a daily 2-call run.
-SUI_RPC_URL = "https://fullnode.mainnet.sui.io"
+# Public Sui mainnet GraphQL API — no auth, no key (B-145 probing,
+# 2026-09-18). One req/s is a polite ceiling for a daily ~3-page run.
+SUI_GRAPHQL_URL = "https://graphql.mainnet.sui.io/graphql"
 DEFAULT_RATE_LIMIT = RateLimit.per_second(1)
 
-# JSON-RPC method names used by the collector. Stable for the standard
-# Sui fullnode API.
-METHOD_SYSTEM_STATE = "suix_getLatestSuiSystemState"
-METHOD_VALIDATORS_APY = "suix_getValidatorsApy"
+# activeValidators page size. The server serves 50/page; ~120 mainnet
+# validators means 3 pages per run.
+VALIDATORS_PAGE_SIZE = 50
+
+# One query serves the whole run: epoch metadata rides along on every
+# page (cheap) and doubles as the epoch-boundary guard between pages.
+ACTIVE_VALIDATORS_QUERY = """
+query ($first: Int!, $after: String) {
+  epoch {
+    epochId
+    startTimestamp
+    validatorSet {
+      activeValidators(first: $first, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes { contents { json } }
+      }
+    }
+  }
+}
+""".strip()
 
 LOGGER = logging.getLogger(__name__)
 _SUI_VALIDATOR_CONFLICT_KEYS = ("epoch", "validator_address")
@@ -92,33 +111,94 @@ class _ValidatorRow:
     rewards_pool_mist: Decimal | None
 
 
-def _rpc_post(http: HttpClient, method: str, params: list[Any] | None = None) -> Any:
-    """Issue one JSON-RPC POST and return the ``result`` field on success.
+def _graphql_post(
+    http: HttpClient, query: str, variables: dict[str, Any] | None = None
+) -> Any:
+    """Issue one GraphQL POST and return the ``data`` field on success.
 
-    Raises ``httpx.HTTPStatusError`` on non-2xx HTTP, ``ValueError`` on
-    JSON-RPC application-level errors (the ``error`` field is set) or on
-    malformed responses missing both ``result`` and ``error``.
+    Raises ``httpx.HTTPStatusError`` on non-2xx HTTP, ``ValueError`` when
+    the response carries GraphQL ``errors`` or is missing ``data``.
     """
-    payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or []}
+    payload = {"query": query, "variables": variables or {}}
     response = http.request(
         "POST",
-        SUI_RPC_URL,
+        SUI_GRAPHQL_URL,
         retryable=True,
         json=payload,
         headers={"Content-Type": "application/json"},
     )
     response.raise_for_status()
     body = response.json()
-    if "error" in body:
-        err = body["error"]
+    if not isinstance(body, dict):
         raise ValueError(
-            f"Sui RPC error on {method}: code={err.get('code')} message={err.get('message')!r}"
+            f"Sui GraphQL response is not a JSON object: {type(body).__name__}"
         )
-    if "result" not in body:
-        raise ValueError(
-            f"Sui RPC response on {method} missing 'result' field: {body!r}"
+    if body.get("errors"):
+        first = body["errors"][0] if isinstance(body["errors"], list) else body["errors"]
+        message = first.get("message") if isinstance(first, dict) else first
+        raise ValueError(f"Sui GraphQL error: {message!r}")
+    if body.get("data") is None:
+        raise ValueError(f"Sui GraphQL response missing 'data' field: {body!r}")
+    return body["data"]
+
+
+def fetch_active_validators(http: HttpClient) -> tuple[Any, Any, list[Any], list[Any]]:
+    """Page through ``epoch.validatorSet.activeValidators``.
+
+    Returns ``(epoch_id_raw, start_timestamp_raw, validator_json_list,
+    page_payloads)`` where ``page_payloads`` are the raw per-page ``data``
+    dicts for blob storage. Raises ``ValueError`` on a malformed page or
+    when ``epochId`` changes between pages (epoch boundary mid-fetch —
+    the next daily run lands the new epoch cleanly instead).
+    """
+    epoch_id_raw: Any = None
+    start_ts_raw: Any = None
+    validators: list[Any] = []
+    pages: list[Any] = []
+    after: str | None = None
+    while True:
+        data = _graphql_post(
+            http,
+            ACTIVE_VALIDATORS_QUERY,
+            {"first": VALIDATORS_PAGE_SIZE, "after": after},
         )
-    return body["result"]
+        epoch = data.get("epoch") if isinstance(data, dict) else None
+        if not isinstance(epoch, dict):
+            raise ValueError(f"Sui GraphQL page missing 'epoch' object: {data!r}")
+        if not pages:
+            epoch_id_raw = epoch.get("epochId")
+            start_ts_raw = epoch.get("startTimestamp")
+        elif epoch.get("epochId") != epoch_id_raw:
+            raise ValueError(
+                f"Sui epoch changed mid-pagination "
+                f"({epoch_id_raw!r} -> {epoch.get('epochId')!r}) — aborting run"
+            )
+        try:
+            connection = epoch["validatorSet"]["activeValidators"]
+            nodes = connection["nodes"]
+            page_info = connection["pageInfo"]
+        except (KeyError, TypeError) as exc:
+            raise ValueError(
+                f"Sui GraphQL page missing activeValidators structure: {exc}"
+            ) from exc
+        if not isinstance(nodes, list):
+            raise ValueError(
+                f"Sui activeValidators nodes is not a list: {type(nodes).__name__}"
+            )
+        pages.append(data)
+        for node in nodes:
+            contents = node.get("contents") if isinstance(node, dict) else None
+            payload = contents.get("json") if isinstance(contents, dict) else None
+            if payload is not None:
+                validators.append(payload)
+        if not isinstance(page_info, dict) or not page_info.get("hasNextPage"):
+            break
+        after = page_info.get("endCursor")
+        if not after:
+            raise ValueError(
+                "Sui activeValidators hasNextPage without endCursor — aborting run"
+            )
+    return epoch_id_raw, start_ts_raw, validators, pages
 
 
 def _coerce_int(raw: Any) -> int | None:
@@ -178,124 +258,95 @@ def _coerce_decimal(raw: Any) -> Decimal | None:
     return None
 
 
-def _ms_to_utc_datetime(raw: Any) -> datetime | None:
-    """Parse a Sui ``epochStartTimestampMs`` (string-encoded u64 ms) → UTC dt."""
-    ms = _coerce_int(raw)
-    if ms is None:
+def _iso_to_utc_datetime(raw: Any) -> datetime | None:
+    """Parse a GraphQL ``startTimestamp`` (ISO-8601, e.g. ``…T00:05:39.687Z``) → UTC dt."""
+    if not isinstance(raw, str) or not raw.strip():
         return None
     try:
-        return datetime.fromtimestamp(ms / 1000.0, tz=timezone.utc)
-    except (ValueError, OSError, OverflowError):
+        parsed = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+    except ValueError:
         return None
-
-
-def _apy_payload_matches_epoch(apy_payload: Any, epoch: int) -> bool:
-    """Return true only when the APY payload can safely update same-epoch APYs."""
-    return isinstance(apy_payload, dict) and _coerce_int(apy_payload.get("epoch")) == epoch
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def parse_validator_rows(
-    system_state: Any,
-    apy_payload: Any,
+    epoch_id_raw: Any,
+    start_timestamp_raw: Any,
+    validators: list[Any],
 ) -> list[_ValidatorRow]:
-    """Decode the suix_getLatestSuiSystemState + suix_getValidatorsApy
-    payloads into a list of per-validator snapshot rows.
+    """Decode ValidatorV1 Move-struct JSON payloads (GraphQL
+    ``contents.json``) into per-validator snapshot rows.
 
-    Joins same-epoch APY into each validator row by
-    suiAddress = apys[].address. A validator missing from the APY response is
-    kept with apy=None rather than dropped — the missing APY is a soft
-    signal-quality issue, not a reason to discard the staking/flow data we
-    already have.
+    ``apy`` is always ``None`` — the GraphQL API has no equivalent of the
+    retired ``suix_getValidatorsApy`` method (see module docstring). The
+    upsert path preserves any APY already stored for the same
+    ``(epoch, validator_address)`` row.
     """
-    if not isinstance(system_state, dict):
-        raise ValueError(
-            f"suix_getLatestSuiSystemState payload is not a JSON object: "
-            f"{type(system_state).__name__}"
-        )
-    epoch = _coerce_int(system_state.get("epoch"))
-    epoch_start_ts = _ms_to_utc_datetime(system_state.get("epochStartTimestampMs"))
+    epoch = _coerce_int(epoch_id_raw)
+    epoch_start_ts = _iso_to_utc_datetime(start_timestamp_raw)
     if epoch is None or epoch_start_ts is None:
         raise ValueError(
-            f"Sui system state missing required epoch/epochStartTimestampMs "
-            f"(got epoch={system_state.get('epoch')!r}, "
-            f"epochStartTimestampMs={system_state.get('epochStartTimestampMs')!r})"
+            f"Sui GraphQL epoch missing required epochId/startTimestamp "
+            f"(got epochId={epoch_id_raw!r}, startTimestamp={start_timestamp_raw!r})"
         )
-
-    active = system_state.get("activeValidators")
-    if not isinstance(active, list):
-        raise ValueError(
-            f"Sui system state activeValidators is not a list: {type(active).__name__}"
-        )
-
-    # Build APY lookup: {validator_address: apy_decimal}. apys may legitimately
-    # be empty (e.g. if the APY method is briefly unavailable); fall through.
-    apy_by_address: dict[str, Decimal] = {}
-    if isinstance(apy_payload, dict):
-        if _apy_payload_matches_epoch(apy_payload, epoch):
-            apys_list = apy_payload.get("apys")
-            if not isinstance(apys_list, list):
-                apys_list = []
-            for entry in apys_list:
-                if not isinstance(entry, dict):
-                    continue
-                addr = entry.get("address")
-                apy_value = entry.get("apy")
-                if not isinstance(addr, str):
-                    continue
-                if isinstance(apy_value, (int, float)):
-                    # Quantize to the schema's 6 fractional digits. Sui APYs
-                    # are typically 1-5% range so 6 digits gives 1bp resolution.
-                    apy_by_address[addr] = Decimal(str(apy_value)).quantize(
-                        Decimal("0.000001")
-                    )
-        elif "apys" in apy_payload:
-            LOGGER.warning(
-                "Sui APY payload epoch %r does not match system state epoch %s; "
-                "leaving validator APY null",
-                apy_payload.get("epoch"),
-                epoch,
-            )
 
     rows: list[_ValidatorRow] = []
-    for v in active:
+    for v in validators:
         if not isinstance(v, dict):
             continue
-        addr = v.get("suiAddress")
-        if not isinstance(addr, str) or not addr:
+        metadata = v.get("metadata")
+        if not isinstance(metadata, dict):
             LOGGER.warning(
-                "Sui validator row missing suiAddress (epoch=%s) — skipping", epoch
+                "Sui validator payload missing metadata (epoch=%s) — skipping", epoch
             )
             continue
-        stake = _coerce_decimal(v.get("stakingPoolSuiBalance"))
+        addr = metadata.get("sui_address")
+        if not isinstance(addr, str) or not addr:
+            LOGGER.warning(
+                "Sui validator payload missing sui_address (epoch=%s) — skipping",
+                epoch,
+            )
+            continue
+        pool = v.get("staking_pool")
+        if not isinstance(pool, dict):
+            LOGGER.warning("Sui validator %s missing staking_pool — skipping", addr)
+            continue
+        stake = _coerce_decimal(pool.get("sui_balance"))
         if stake is None:
             LOGGER.warning(
-                "Sui validator %s missing stakingPoolSuiBalance — skipping", addr
+                "Sui validator %s missing staking_pool.sui_balance — skipping", addr
             )
             continue
 
+        name = metadata.get("name")
         rows.append(
             _ValidatorRow(
                 epoch=epoch,
                 epoch_start_ts=epoch_start_ts,
                 validator_address=addr,
-                name=v.get("name") if isinstance(v.get("name"), str) else None,
-                voting_power=_coerce_int(v.get("votingPower")),
+                name=name if isinstance(name, str) else None,
+                voting_power=_coerce_int(v.get("voting_power")),
                 stake_amount_mist=stake,
-                next_epoch_stake_mist=_coerce_decimal(v.get("nextEpochStake")),
-                pending_stake_mist=_coerce_decimal(v.get("pendingStake")) or Decimal(0),
-                pending_withdraw_mist=(
-                    _coerce_decimal(v.get("pendingTotalSuiWithdraw")) or Decimal(0)
+                next_epoch_stake_mist=_coerce_decimal(v.get("next_epoch_stake")),
+                pending_stake_mist=(
+                    _coerce_decimal(pool.get("pending_stake")) or Decimal(0)
                 ),
-                commission_rate_bps=_coerce_int(v.get("commissionRate")),
-                gas_price=_coerce_int(v.get("gasPrice")),
-                apy=apy_by_address.get(addr),
+                pending_withdraw_mist=(
+                    _coerce_decimal(pool.get("pending_total_sui_withdraw"))
+                    or Decimal(0)
+                ),
+                commission_rate_bps=_coerce_int(v.get("commission_rate")),
+                gas_price=_coerce_int(v.get("gas_price")),
+                apy=None,
                 staking_pool_activation_epoch=_coerce_int(
-                    v.get("stakingPoolActivationEpoch")
+                    pool.get("activation_epoch")
                 ),
                 staking_pool_deactivation_epoch=_coerce_int(
-                    v.get("stakingPoolDeactivationEpoch")
+                    pool.get("deactivation_epoch")
                 ),
-                rewards_pool_mist=_coerce_decimal(v.get("rewardsPool")),
+                rewards_pool_mist=_coerce_decimal(pool.get("rewards_pool")),
             )
         )
     return rows
@@ -373,11 +424,11 @@ def _bulk_upsert_sui_validator_rows(
 def collect(*, http: HttpClient | None = None) -> int:
     """Run the Sui staking collector once. Returns the meta.ingest_runs id.
 
-    The public Sui RPC publishes only the current epoch's state — there is
+    The GraphQL API publishes only the current epoch's state — there is
     no ``backfill`` mode at this layer. Re-running within the same epoch is
     an idempotent upsert on the ``(epoch, validator_address)`` PK. Same-epoch
-    reruns refresh stake/flow data and preserve existing APY values for rows
-    whose current APY signal is missing.
+    reruns refresh stake/flow data and preserve any existing APY values
+    (all newly parsed rows carry apy=None since the GraphQL port).
     """
     owns_http = http is None
     if http is None:
@@ -394,14 +445,16 @@ def collect(*, http: HttpClient | None = None) -> int:
                 partial_failures.append(
                     {
                         "name": name,
-                        "url": SUI_RPC_URL,
+                        "url": SUI_GRAPHQL_URL,
                         "error": str(error),
                     }
                 )
                 db.record_partial_endpoints(run.id, partial_failures)
 
             try:
-                system_state = _rpc_post(http, METHOD_SYSTEM_STATE)
+                epoch_id_raw, start_ts_raw, validators, pages = (
+                    fetch_active_validators(http)
+                )
             except (
                 httpx.TimeoutException,
                 httpx.NetworkError,
@@ -409,35 +462,24 @@ def collect(*, http: HttpClient | None = None) -> int:
                 json.JSONDecodeError,
                 ValueError,
             ) as exc:
-                LOGGER.error("Sui RPC fetch failed: %s", exc)
+                LOGGER.error("Sui GraphQL fetch failed: %s", exc)
                 record_partial(COLLECT_ENDPOINT_LABEL, exc)
-                raise RuntimeError(f"Sui RPC fetch failed: {exc}") from exc
-
-            try:
-                apy_payload = _rpc_post(http, METHOD_VALIDATORS_APY)
-            except (
-                httpx.TimeoutException,
-                httpx.NetworkError,
-                httpx.HTTPStatusError,
-                json.JSONDecodeError,
-                ValueError,
-            ) as exc:
-                LOGGER.warning("Sui APY RPC fetch failed: %s", exc)
-                record_partial(METHOD_VALIDATORS_APY, exc)
-                apy_payload = None
+                raise RuntimeError(f"Sui GraphQL fetch failed: {exc}") from exc
 
             fetched_at = datetime.now(timezone.utc)
 
-            db.store_raw_blob(
-                run.id, f"{METHOD_SYSTEM_STATE}", SUI_RPC_URL, system_state
-            )
-            if apy_payload is not None:
+            for page_index, page in enumerate(pages, start=1):
                 db.store_raw_blob(
-                    run.id, f"{METHOD_VALIDATORS_APY}", SUI_RPC_URL, apy_payload
+                    run.id,
+                    f"active_validators_page_{page_index}",
+                    SUI_GRAPHQL_URL,
+                    page,
                 )
 
             try:
-                validator_rows = parse_validator_rows(system_state, apy_payload)
+                validator_rows = parse_validator_rows(
+                    epoch_id_raw, start_ts_raw, validators
+                )
             except ValueError as exc:
                 LOGGER.error("Sui payload parse failed: %s", exc)
                 record_partial(COLLECT_ENDPOINT_LABEL, exc)
@@ -453,7 +495,7 @@ def collect(*, http: HttpClient | None = None) -> int:
                 _row_to_dict(
                     r,
                     ingest_run_id=run.id,
-                    source_endpoint=SUI_RPC_URL,
+                    source_endpoint=SUI_GRAPHQL_URL,
                     fetched_at=fetched_at,
                 )
                 for r in validator_rows

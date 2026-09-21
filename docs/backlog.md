@@ -78,21 +78,6 @@ One backlog item per source. Each follows the DeFiLlama-refactored pattern: coll
 - **Out of scope:**
   - 10-Q quarter-end shares-outstanding triangulation (B-114 owns that path).
 
-### B-115 — SUI unlock schedule for the 7 paywalled allocations (B-089 v2)
-- **Status:** open
-- **Priority:** low
-- **Context:** B-089 v1 (2026-06-07) shipped a CryptoRank-scraped ingester covering ONE of SUI's 8 allocation categories (Community Reserves, 10.648% of supply). The remaining 7 categories — including the load-bearing **Series A** (7.142%), **Series B** (6.956%), and **Early Contributors** (6.134%) VC tranches that actually drive the unlock-pressure bear thesis — are paywalled across all eight surveyed free sources (see `docs/sources/sui-unlocks.md`). The collector module's `KNOWN_FREE_ALLOCATIONS` tuple is the extension point: adding a name there is the entire code change once data becomes available.
-- **Unblock paths (in priority order per the survey doc):**
-  - Sui Foundation publishes a structured release schedule (JSON / CSV in a repo or stable URL). Lowest cost; highest signal.
-  - Paid-data budget opens per CLAUDE.md's "Paid APIs deferred until a private-data story exists." DefiLlama Pro at the current per-API tier would close this immediately.
-  - Tokenomist's free tier expands to cover full SUI schedules without RSC-fragility parsing.
-  - On-chain vesting-object discovery — community publishes verified canonical addresses for each allocation category. A Sui RPC-based collector would then land the same shape as the CryptoRank ingester with full coverage.
-- **Acceptance criteria:**
-  - Extend `KNOWN_FREE_ALLOCATIONS` in `src/genkei/ingest/sui_unlocks.py` (or add a parallel collector if the new data path is structurally different — on-chain vs scraped vs paid API).
-  - Per-category batch rows land in the existing `onchain.sui_unlocks` table — no schema migration needed since v1 was designed to extend cleanly.
-  - Unit tests cover the new allocation parser.
-  - Update the SUI 2026-05-20 research decision file's Backlog implications note to mark the gap fully closed.
-
 ### B-084 — Oracle market-share data source (likely paid)
 - **Status:** open
 - **Priority:** low
@@ -278,13 +263,10 @@ _B-131 (FastAPI read layer over the lake) + B-137 (cockpit deployment & exposure
   - The `<2` pin lifted; `[mcp]` extra resolves a current 2.x SDK and the blessed `uvx` install path from `docs/mcp.md` still starts the server clean.
   - Existing MCP tests (and the end-to-end stdio client check from B-142) pass against the ported server.
 
-### B-145 — Repair the three upstream-broken collectors (bitwise, sui_staking, sui_unlocks)
-- **Status:** open
-- **Priority:** medium — each is a coverage hole in an otherwise-green lake; none blocks a live decision today.
-- **Context:** Surfaced by the 2026-09-05 post-outage health audit (every other source green after the runner restoration). All three fail on *upstream* changes, unrelated to the runner/PAT outage: (1) **bitwise** — "fetch/parse failed for every covered ETF"; the ETF pages changed format sometime during the Aug outage window; `etf.fund_snapshots` still carries iShares rows, so the Bitwise leg is dark. (2) **sui_staking** — Sui RPC error on `suix_getLatestSuiSystemState`; likely an RPC endpoint/version change. (3) **sui_unlocks** — "CryptoRank vesting page is missing" the expected structure; the scrape target changed (existing B-115 notes cover *extending* coverage for the seven paywalled allocations; this item is about the v1 scrape being broken outright). SUI is exit-underway (2026-08-05 decision); these collectors still matter as source-health and future-research coverage, not as reopen-trigger inputs.
-- **Acceptance criteria:**
-  - Each collector either fixed against the new upstream shape (with a test fixture pinned to it) or explicitly retired with the source/health-contract change recorded in `docs/sources/`.
-  - `genkei watchlist health` shows no FAIL rows afterward.
+### B-145a — One-time delete of legacy CryptoRank rows from onchain.sui_unlocks
+- **Status:** open (ops step; blocked on a permission the agent doesn't hold — Michael runs it)
+- **Context:** B-145 (shipped, see resolved.md) switched `sui_unlocks` to DeFiLlama's taxonomy, whose "Community Reserve" series supersedes CryptoRank's incompatible "Community Reserves" sub-bucket. Until the 85 legacy rows are deleted, any SUM over the table double-counts reserve supply.
+- **The step:** `DELETE FROM onchain.sui_unlocks WHERE source_endpoint = 'https://cryptorank.io/price/sui/vesting';` (expect 85 rows).
 
 ### B-134 — Webull OpenAPI source evaluation (parked)
 - **Status:** deferred 2026-07-20 — evaluate-only; reopen on a concrete live-data gap (see trigger).

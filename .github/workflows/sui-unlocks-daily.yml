@@ -1,13 +1,14 @@
 name: SUI Unlocks Daily Snapshot
 
-# B-089 — fetches CryptoRank's SUI vesting page, extracts the Next.js
-# __NEXT_DATA__ JSON blob, and writes per-batch unlock rows into
-# onchain.sui_unlocks. Runs on the self-hosted Beelink runner so it can
-# reach the homelab Postgres on mission_control_net.
+# B-089 — fetches the SUI unlock schedule from DeFiLlama's open datasets
+# bucket (B-145 port: CryptoRank went behind a Cloudflare bot wall in
+# 2026-09; see docs/sources/sui-unlocks.md) and writes per-batch unlock
+# rows into onchain.sui_unlocks. Runs on the self-hosted Beelink runner
+# so it can reach the homelab Postgres on mission_control_net.
 #
-# v1 covers ONE of SUI's 8 allocation categories (Community Reserves)
-# because the other 7 are paywalled across surveyed free sources — see
-# docs/sources/sui-unlocks.md for the full investigation.
+# v2 covers ALL 8 of SUI's allocation series (the DeFiLlama dataset
+# closed the B-115 seven-paywalled-allocations gap) — see
+# docs/sources/sui-unlocks.md for the source contract + history.
 #
 # The vesting schedule is mostly static (past batches are immutable
 # once published) but we run daily anyway so any forward-looking
@@ -29,7 +30,7 @@ permissions:
 
 jobs:
   pipeline:
-    name: SUI unlocks scrape (Postgres-backed)
+    name: SUI unlocks collect (Postgres-backed)
     runs-on: [self-hosted, beelink]
     timeout-minutes: 10
     env:

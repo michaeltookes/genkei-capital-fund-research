@@ -1,37 +1,50 @@
-"""SUI token unlock / vesting schedule collector (B-089).
+"""SUI token unlock / vesting schedule collector (B-089; DeFiLlama since B-145).
 
-Scrapes the SUI vesting schedule from CryptoRank's public vesting page
-(``https://cryptorank.io/price/sui/vesting``) by extracting the Next.js
-SSR ``__NEXT_DATA__`` JSON blob embedded in the HTML. Lands one row per
-``(allocation_name, unlock_date)`` in ``onchain.sui_unlocks``.
+Fetches the SUI emission/unlock schedule from DeFiLlama's open datasets
+bucket (``https://defillama-datasets.llama.fi/emissions/sui`` — the same
+unauthenticated URL the defillama.com/unlocks frontend reads) and lands
+one row per ``(allocation_name, unlock_date)`` in ``onchain.sui_unlocks``.
 
-**v1 covers ONE of SUI's 8 allocation categories** — Community Reserves
-(10.648% of supply, 85 monthly batches from 2023-05-03 through
-2030-05-01). The remaining 7 categories (Allocated After 2030, Mysten
-Labs Treasury, Series A, Series B, Early Contributors, Community Access
-Program, Stake Subsidies) are paywalled across the surveyed free
-sources. See ``docs/sources/sui-unlocks.md`` for the Phase 1
-investigation and the specific paywall mechanism for each source.
+**History:** v1 (B-089, 2026-06-07) scraped CryptoRank's vesting page,
+which exposed only ONE of SUI's allocation categories un-gated
+("Community Reserves", 10.648% of supply — the seven signal-rich
+categories were paywalled, tracked as B-115). CryptoRank then put the
+page behind a Cloudflare JS challenge (observed 2026-09: 403 + "Just a
+moment..." interstitial), killing the scrape outright. The DeFiLlama
+dataset replaces it and **closes the B-115 gap at the same time**: all
+8 allocation series are published, they sum to exactly the 10B max
+supply, and the schedule spans TGE (2023-05-03) through 2030 — past and
+future. The Series A / Series B / Early Contributors VC tranches that
+drive the unlock-pressure thesis are all covered.
 
-**Caller-side analytics must NOT treat the resulting table as a complete
-SUI unlock picture.** The most signal-rich VC categories (Series A/B,
-Early Contributors — totaling ~20% of supply) are absent and remain a
-paid-data gap.
+**Taxonomy change at the switchover:** DeFiLlama's "Community Reserve"
+(4.972B, 49.72% of supply) is Sui's full reserve bucket, NOT the same
+series as CryptoRank's "Community Reserves" sub-bucket (1.065B, 10.6%).
+The legacy CryptoRank rows were removed from the table when this
+collector shipped (one-time delete, recorded in
+``docs/sources/sui-unlocks.md``) — keeping both taxonomies would
+double-count reserve supply in any SUM over the table.
 
-The collector is structured to extend cleanly when additional categories
-become available: ``parse_allocations`` filters the upstream payload to
-``KNOWN_FREE_ALLOCATIONS`` (currently just Community Reserves) — adding
-a category to that tuple is the entire change needed once data exists.
+**Shape:** the upstream payload is per-allocation *cumulative* unlocked
+curves sampled daily. The parser converts them to discrete batch rows by
+taking day-over-day deltas; a positive delta on day *i* is recorded as
+an unlock dated at day *i-1*'s timestamp (the cumulative figure is
+"unlocked as of start of day", so the increment belongs to the earlier
+day — validated against the TGE cliffs, which land exactly on
+2023-05-03). Mid-schedule monthly batches can land ±1 day vs the
+canonical vesting date because of the daily sampling grid; immaterial at
+the table's monthly-batch granularity. ``vesting_type`` is NULL for
+DeFiLlama-sourced rows — the cumulative curves don't distinguish cliff
+from linear tranches on the same date.
 
-CryptoRank publishes the schedule as static data (no daily-cron urgency
-to refetch); the vesting schedule for already-shipped batches is
-effectively immutable once announced. The collector still runs daily so
-that any forward-looking schedule revisions are picked up promptly.
+The schedule is effectively static for shipped batches; the collector
+still runs daily so forward-schedule revisions are picked up promptly.
 Idempotent on the ``(allocation_name, unlock_date)`` PK; the upsert
-overwrites prior rows in case a forward batch's ``unlock_percent`` is
-revised upstream.
+overwrites prior rows in case a forward batch is revised upstream.
 
-No API key required. Standard HTTP GET against the public HTML.
+No API key required. (Note: DeFiLlama's *api.llama.fi* ``/emission``
+endpoints are paid-tier (HTTP 402); the datasets bucket is the free,
+open path and is what their own frontend uses.)
 """
 
 from __future__ import annotations
@@ -39,7 +52,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import re
 import sys
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -54,33 +66,14 @@ from genkei.common.http import HttpClient, RateLimit
 SOURCE_NAME = "sui_unlocks"
 COLLECT_ENDPOINT_LABEL = "collect"
 
-CRYPTORANK_SUI_VESTING_URL = "https://cryptorank.io/price/sui/vesting"
-
-# Tuple of allocation names we ingest from CryptoRank's free public SSR data.
-# Phase 1 verified that only "Community Reserves" has its batch schedule
-# exposed un-gated. The other 7 allocations are paywalled. Adding a name to
-# this tuple is the full code change needed if/when paid-data becomes
-# available or the upstream gating loosens — the parse path already supports
-# any allocation that has a populated ``batches`` array.
-KNOWN_FREE_ALLOCATIONS: tuple[str, ...] = ("Community Reserves",)
+LLAMA_SUI_EMISSIONS_URL = "https://defillama-datasets.llama.fi/emissions/sui"
 
 DEFAULT_RATE_LIMIT = RateLimit.per_second(1)
 
-# Use a browser-like User-Agent — CryptoRank's edge has historically returned
-# variable responses to non-browser UAs; the SSR payload is consistent under
-# a standard browser UA.
-USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/605.1.15 (KHTML, like Gecko) "
-    "Version/16.0 Safari/605.1.15"
-)
-
-_NEXT_DATA_PATTERN = re.compile(
-    r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
-    re.DOTALL,
-)
-
 LOGGER = logging.getLogger(__name__)
+
+_TOKEN_QUANT = Decimal("0.0001")
+_PCT_QUANT = Decimal("0.0001")
 
 
 @dataclass(frozen=True)
@@ -95,28 +88,6 @@ class _UnlockRow:
     unlock_percent_of_allocation: Decimal
     unlock_tokens: Decimal
     vesting_type: str | None
-
-
-def extract_next_data(html: str) -> dict[str, Any]:
-    """Pull the ``__NEXT_DATA__`` JSON blob out of a Next.js SSR HTML page.
-
-    Raises ``ValueError`` if the blob is missing or unparseable. CryptoRank
-    is a Next.js Pages-Router app; the blob shape is stable across renders
-    and contains all server-rendered page data including the un-gated
-    vesting schedule.
-    """
-    m = _NEXT_DATA_PATTERN.search(html)
-    if not m:
-        raise ValueError(
-            "CryptoRank vesting page is missing the __NEXT_DATA__ script — "
-            "the upstream HTML structure may have changed."
-        )
-    try:
-        return json.loads(m.group(1))
-    except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"CryptoRank __NEXT_DATA__ payload failed to parse as JSON: {exc}"
-        ) from exc
 
 
 def _coerce_decimal(raw: Any) -> Decimal | None:
@@ -150,143 +121,127 @@ def _coerce_decimal(raw: Any) -> Decimal | None:
     return None
 
 
-def _parse_iso_date(raw: Any) -> date | None:
-    """Parse a CryptoRank ISO-8601 timestamp (e.g. ``"2023-05-03T00:00:00.000Z"``)
-    into a Python ``date``. CryptoRank stamps every batch at midnight UTC so
-    truncating to the date is correct."""
-    if not isinstance(raw, str) or not raw:
+def _ts_to_utc_date(raw: Any) -> date | None:
+    """Parse a unix-seconds timestamp (int/float/str) into a UTC date."""
+    value = _coerce_decimal(raw)
+    if value is None:
         return None
     try:
-        return datetime.fromisoformat(raw.replace("Z", "+00:00")).date()
-    except ValueError:
-        # Fallback: bare YYYY-MM-DD
-        try:
-            return date.fromisoformat(raw[:10])
-        except ValueError:
-            return None
+        return datetime.fromtimestamp(float(value), tz=timezone.utc).date()
+    except (ValueError, OSError, OverflowError):
+        return None
 
 
-def parse_allocations(
-    next_data: dict[str, Any],
-    *,
-    allowed_allocations: tuple[str, ...] = KNOWN_FREE_ALLOCATIONS,
-) -> list[_UnlockRow]:
-    """Decode the CryptoRank __NEXT_DATA__ payload into unlock rows.
+def _series_points(series: dict[str, Any]) -> list[tuple[date, Decimal]]:
+    """Extract a series' (date, cumulative_unlocked) points, sorted by date.
 
-    Walks ``next_data.props.pageProps.vestingInfo.allocations`` and lifts
-    every batch from allocations whose ``name`` matches ``allowed_allocations``
-    (after whitespace stripping — CryptoRank's "Community Reserves " has a
-    trailing space upstream that we strip for the schema).
-
-    Drops batches with no parseable ``date`` or ``unlock_percent``.
+    Malformed points (unparseable timestamp or unlocked value) are dropped
+    with a warning rather than failing the whole series.
     """
-    try:
-        allocations = (
-            next_data["props"]["pageProps"]["vestingInfo"]["allocations"]
+    raw_points = series.get("data")
+    if not isinstance(raw_points, list):
+        return []
+    points: list[tuple[date, Decimal]] = []
+    for point in raw_points:
+        if not isinstance(point, dict):
+            continue
+        point_date = _ts_to_utc_date(point.get("timestamp"))
+        unlocked = _coerce_decimal(point.get("unlocked"))
+        if point_date is None or unlocked is None:
+            LOGGER.warning(
+                "SUI emissions series %r has a malformed point — dropping it",
+                series.get("label"),
+            )
+            continue
+        points.append((point_date, unlocked))
+    points.sort(key=lambda p: p[0])
+    return points
+
+
+def parse_unlock_rows(payload: dict[str, Any]) -> list[_UnlockRow]:
+    """Decode the DeFiLlama emissions payload into per-batch unlock rows.
+
+    Walks ``documentedData.data`` (one series per allocation, cumulative
+    unlocked sampled daily) and emits one row per positive day-over-day
+    delta, dated at the earlier sample's date (see module docstring).
+
+    ``allocation_total_percent_of_supply`` is derived from the series
+    totals themselves (they sum to the 10B max supply) rather than
+    hardcoding the supply constant.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError(
+            f"DeFiLlama emissions payload is not a JSON object: "
+            f"{type(payload).__name__}"
         )
+    try:
+        series_list = payload["documentedData"]["data"]
     except (KeyError, TypeError) as exc:
         raise ValueError(
-            f"CryptoRank __NEXT_DATA__ missing "
-            f"props.pageProps.vestingInfo.allocations: {exc}"
+            f"DeFiLlama emissions payload missing documentedData.data: {exc}"
         ) from exc
-
-    if not isinstance(allocations, list):
+    if not isinstance(series_list, list) or not series_list:
         raise ValueError(
-            f"vestingInfo.allocations is not a list: {type(allocations).__name__}"
+            "DeFiLlama emissions documentedData.data is empty or not a list"
         )
 
-    allowed_lower = {n.strip().lower() for n in allowed_allocations}
+    parsed: list[tuple[str, list[tuple[date, Decimal]]]] = []
+    for series in series_list:
+        if not isinstance(series, dict):
+            continue
+        label = series.get("label")
+        if not isinstance(label, str) or not label.strip():
+            LOGGER.warning("SUI emissions series missing label — skipping")
+            continue
+        points = _series_points(series)
+        if len(points) < 2:
+            LOGGER.warning(
+                "SUI emissions series %r has <2 usable points — skipping", label
+            )
+            continue
+        parsed.append((label.strip(), points))
+
+    if not parsed:
+        raise ValueError("DeFiLlama emissions payload yielded no usable series")
+
+    supply_total = sum((points[-1][1] for _, points in parsed), Decimal(0))
+    if supply_total <= 0:
+        raise ValueError(
+            "DeFiLlama emissions series totals sum to zero — cannot derive "
+            "percent-of-supply"
+        )
+    tge_date = min(points[0][0] for _, points in parsed)
+
     rows: list[_UnlockRow] = []
-    for alloc in allocations:
-        if not isinstance(alloc, dict):
+    for label, points in parsed:
+        allocation_total = points[-1][1]
+        if allocation_total <= 0:
+            LOGGER.warning(
+                "SUI emissions series %r has a non-positive total — skipping", label
+            )
             continue
-        raw_name = alloc.get("name")
-        if not isinstance(raw_name, str):
-            continue
-        name = raw_name.strip()
-        if name.lower() not in allowed_lower:
-            continue
-
-        total_tokens = _coerce_decimal(alloc.get("tokens"))
-        total_pct = _coerce_decimal(alloc.get("tokens_percent"))
-        vesting_type_raw = alloc.get("unlock_type")
-        vesting_type = (
-            vesting_type_raw.strip().lower()
-            if isinstance(vesting_type_raw, str) and vesting_type_raw.strip()
-            else None
+        total_pct = (allocation_total / supply_total * Decimal(100)).quantize(
+            _PCT_QUANT
         )
-        if total_tokens is None or total_pct is None:
-            LOGGER.warning(
-                "SUI unlock allocation %r missing tokens / tokens_percent — skipping",
-                name,
-            )
-            continue
-
-        batches = alloc.get("batches")
-        if not isinstance(batches, list):
-            LOGGER.warning(
-                "SUI unlock allocation %r has no batches list — skipping", name
-            )
-            continue
-
-        rows_by_date: dict[date, _UnlockRow] = {}
-        for batch in batches:
-            if not isinstance(batch, dict):
+        for i in range(1, len(points)):
+            delta = points[i][1] - points[i - 1][1]
+            if delta <= 0:
                 continue
-            unlock_date = _parse_iso_date(batch.get("date"))
-            unlock_pct = _coerce_decimal(batch.get("unlock_percent"))
-            if unlock_date is None or unlock_pct is None:
-                continue
-
-            # unlock_percent is % of THIS allocation, not % of total supply.
-            # Derive absolute SUI: allocation_total * pct / 100. Quantize to
-            # 4 decimals to match the NUMERIC(20,4) column.
-            unlock_tokens = (total_tokens * unlock_pct / Decimal(100)).quantize(
-                Decimal("0.0001")
+            unlock_date = points[i - 1][0]
+            rows.append(
+                _UnlockRow(
+                    allocation_name=label,
+                    unlock_date=unlock_date,
+                    allocation_total_tokens=allocation_total.quantize(_TOKEN_QUANT),
+                    allocation_total_percent_of_supply=total_pct,
+                    is_tge=unlock_date == tge_date,
+                    unlock_percent_of_allocation=(
+                        delta / allocation_total * Decimal(100)
+                    ).quantize(_PCT_QUANT),
+                    unlock_tokens=delta.quantize(_TOKEN_QUANT),
+                    vesting_type=None,
+                )
             )
-            is_tge_raw = batch.get("is_tge")
-            is_tge = bool(is_tge_raw) if isinstance(is_tge_raw, bool) else False
-
-            candidate = _UnlockRow(
-                allocation_name=name,
-                unlock_date=unlock_date,
-                allocation_total_tokens=total_tokens,
-                allocation_total_percent_of_supply=total_pct,
-                is_tge=is_tge,
-                unlock_percent_of_allocation=unlock_pct,
-                unlock_tokens=unlock_tokens,
-                vesting_type=vesting_type,
-            )
-            # Collapse same-day rows within the same allocation. CryptoRank can
-            # publish a zero placeholder before the real row, or a monthly row
-            # plus a special-event row on the same date. The table key cannot
-            # represent both, so preserve zero-placeholders only until a real
-            # row arrives and aggregate multiple real same-day batches.
-            existing = rows_by_date.get(unlock_date)
-            if existing is None:
-                rows_by_date[unlock_date] = candidate
-                continue
-
-            aggregate_pct = existing.unlock_percent_of_allocation
-            if unlock_pct > Decimal("0"):
-                if aggregate_pct == Decimal("0"):
-                    aggregate_pct = unlock_pct
-                else:
-                    aggregate_pct += unlock_pct
-
-            rows_by_date[unlock_date] = _UnlockRow(
-                allocation_name=existing.allocation_name,
-                unlock_date=existing.unlock_date,
-                allocation_total_tokens=existing.allocation_total_tokens,
-                allocation_total_percent_of_supply=existing.allocation_total_percent_of_supply,
-                is_tge=existing.is_tge or candidate.is_tge,
-                unlock_percent_of_allocation=aggregate_pct,
-                unlock_tokens=(total_tokens * aggregate_pct / Decimal(100)).quantize(
-                    Decimal("0.0001")
-                ),
-                vesting_type=existing.vesting_type,
-            )
-        rows.extend(rows_by_date.values())
     return rows
 
 
@@ -316,83 +271,77 @@ def _row_to_dict(
 def collect(*, http: HttpClient | None = None) -> int:
     """Run the SUI unlocks collector once. Returns the meta.ingest_runs id.
 
-    No backfill mode at this layer — the CryptoRank page renders the FULL
-    schedule (past + future batches) on every request, so a single fetch
-    is the full picture. Re-runs are no-op upserts on the
+    No backfill mode at this layer — the DeFiLlama dataset carries the
+    FULL schedule (past + future batches) on every request, so a single
+    fetch is the full picture. Re-runs are no-op upserts on the
     ``(allocation_name, unlock_date)`` PK.
     """
     owns_http = http is None
     if http is None:
-        http = HttpClient(
-            SOURCE_NAME,
-            user_agent=USER_AGENT,
-            rate_limit=DEFAULT_RATE_LIMIT,
-        )
+        http = HttpClient(SOURCE_NAME, rate_limit=DEFAULT_RATE_LIMIT)
 
     try:
         with db.ingest_run(
             SOURCE_NAME,
             endpoint=COLLECT_ENDPOINT_LABEL,
-            metadata={"known_free_allocations": list(KNOWN_FREE_ALLOCATIONS)},
         ) as run:
             try:
-                response = http.get(CRYPTORANK_SUI_VESTING_URL)
+                response = http.get(LLAMA_SUI_EMISSIONS_URL)
                 response.raise_for_status()
-                html = response.text
-                next_data = extract_next_data(html)
+                payload = response.json()
                 fetched_at = datetime.now(timezone.utc)
             except (
                 httpx.TimeoutException,
                 httpx.NetworkError,
                 httpx.HTTPStatusError,
+                json.JSONDecodeError,
                 ValueError,
             ) as exc:
-                LOGGER.error("CryptoRank SUI vesting fetch failed: %s", exc)
+                LOGGER.error("DeFiLlama SUI emissions fetch failed: %s", exc)
                 db.record_partial_endpoints(
                     run.id,
                     [
                         {
                             "name": COLLECT_ENDPOINT_LABEL,
-                            "url": CRYPTORANK_SUI_VESTING_URL,
+                            "url": LLAMA_SUI_EMISSIONS_URL,
                             "error": str(exc),
                         }
                     ],
                 )
                 raise RuntimeError(
-                    f"CryptoRank SUI vesting fetch failed: {exc}"
+                    f"DeFiLlama SUI emissions fetch failed: {exc}"
                 ) from exc
 
             db.store_raw_blob(
                 run.id,
                 COLLECT_ENDPOINT_LABEL,
-                CRYPTORANK_SUI_VESTING_URL,
-                next_data,
+                LLAMA_SUI_EMISSIONS_URL,
+                payload,
             )
 
-            unlock_rows = parse_allocations(next_data)
-            if not unlock_rows:
-                error = (
-                    "SUI unlocks collector parsed 0 rows; upstream may have "
-                    "changed the allocation names or gated Community Reserves."
-                )
-                LOGGER.error(error)
+            try:
+                unlock_rows = parse_unlock_rows(payload)
+            except ValueError as exc:
+                LOGGER.error("DeFiLlama SUI emissions parse failed: %s", exc)
                 db.record_partial_endpoints(
                     run.id,
                     [
                         {
                             "name": COLLECT_ENDPOINT_LABEL,
-                            "url": CRYPTORANK_SUI_VESTING_URL,
-                            "error": error,
+                            "url": LLAMA_SUI_EMISSIONS_URL,
+                            "error": str(exc),
                         }
                     ],
                 )
-                raise RuntimeError(error)
+                raise RuntimeError(
+                    f"DeFiLlama SUI emissions parse failed: {exc}"
+                ) from exc
 
             rows = [
                 _row_to_dict(
                     r,
                     ingest_run_id=run.id,
-                    source_endpoint=CRYPTORANK_SUI_VESTING_URL,
+                    source_endpoint=LLAMA_SUI_EMISSIONS_URL,
                     fetched_at=fetched_at,
                 )
                 for r in unlock_rows
@@ -422,8 +371,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     """Parse CLI flags for the collector entry point."""
     parser = argparse.ArgumentParser(
         description=(
-            "Collect SUI token unlock schedule into onchain.sui_unlocks. v1 covers "
-            "Community Reserves only — see docs/sources/sui-unlocks.md."
+            "Collect the SUI token unlock schedule (all 8 allocations, via "
+            "DeFiLlama's open datasets bucket) into onchain.sui_unlocks."
         )
     )
     return parser.parse_args(argv)
