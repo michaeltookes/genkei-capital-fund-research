@@ -1,9 +1,12 @@
 name: Sui Staking Daily Snapshot
 
 # B-088 — pulls the current Sui mainnet epoch's per-validator state from
-# the public fullnode JSON-RPC and writes one row per validator into
-# onchain.sui_validators. Runs on the self-hosted Beelink runner so it
-# can reach the homelab Postgres on mission_control_net.
+# the public GraphQL API (B-145 port: Sui deprecated JSON-RPC on public
+# fullnodes upstream, observed 2026-09; see docs/sources/sui-staking.md
+# for the source history and the epochs 1203-1254 coverage gap) and
+# writes one row per validator into onchain.sui_validators. Runs on the
+# self-hosted Beelink runner so it can reach the homelab Postgres on
+# mission_control_net.
 #
 # Sui epoch cadence is ~24h. Daily cron at 06:00 UTC catches each epoch
 # roll-over reliably without crowding the morning ingest window used by
@@ -11,10 +14,9 @@ name: Sui Staking Daily Snapshot
 # validator_address) PK so re-runs within the same epoch are no-op
 # upserts.
 #
-# No backfill input — the public Sui RPC only returns the current epoch's
-# state (suix_getEpochs returns "Method not found" on the public fullnode).
-# Historical reconstruction would need an indexer-side path; deferred as
-# a v2 follow-up if pursued.
+# No backfill input — the GraphQL epoch query only serves the current
+# epoch's state. Historical reconstruction would need an indexer-side
+# path; deferred as a follow-up if pursued.
 
 on:
   schedule:
@@ -26,7 +28,7 @@ permissions:
 
 jobs:
   pipeline:
-    name: Sui staking RPC collect (Postgres-backed)
+    name: Sui staking GraphQL collect (Postgres-backed)
     runs-on: [self-hosted, beelink]
     timeout-minutes: 10
     env:

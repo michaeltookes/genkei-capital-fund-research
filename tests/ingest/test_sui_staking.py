@@ -1,4 +1,4 @@
-"""Unit tests for the Sui staking collector (B-088)."""
+"""Unit tests for the Sui staking collector (B-088; GraphQL port B-145)."""
 
 from __future__ import annotations
 
@@ -8,91 +8,131 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from genkei.ingest.sui_staking import (
+    ACTIVE_VALIDATORS_QUERY,
     COLLECT_ENDPOINT_LABEL,
-    METHOD_SYSTEM_STATE,
-    METHOD_VALIDATORS_APY,
     SOURCE_NAME,
-    SUI_RPC_URL,
+    SUI_GRAPHQL_URL,
+    VALIDATORS_PAGE_SIZE,
     _coerce_decimal,
     _coerce_int,
-    _ms_to_utc_datetime,
-    _rpc_post,
+    _graphql_post,
+    _iso_to_utc_datetime,
     collect,
+    fetch_active_validators,
     parse_validator_rows,
 )
 
-# Minimal-but-realistic fragment of a suix_getLatestSuiSystemState response.
-# Field shape matches what the live mainnet RPC returned on 2026-06-07
-# (epoch 1151). Includes two active validators with full field coverage
-# plus one defective row (missing suiAddress) to confirm the skip path.
-SAMPLE_SYSTEM_STATE = {
-    "epoch": "1151",
-    "epochStartTimestampMs": "1780790717256",  # Jun 6 2026 around 18:45 UTC
-    "epochDurationMs": "86400000",
-    "totalStake": "7250402731876294287",
-    "referenceGasPrice": "100",
-    "activeValidators": [
-        {
-            "suiAddress": "0xmysten01" + "a" * 56,
-            "name": "Mysten-1",
-            "votingPower": 302,
-            "stakingPoolSuiBalance": "218350824320000000",
-            "nextEpochStake": "218400000000000000",
-            "pendingStake": "5000000000000",
-            "pendingPoolTokenWithdraw": "1000000000000",
-            "pendingTotalSuiWithdraw": "1100000000000",
-            "commissionRate": "200",
-            "nextEpochCommissionRate": "200",
-            "gasPrice": "750",
-            "nextEpochGasPrice": "750",
-            "rewardsPool": "649057174720907",
-            "stakingPoolActivationEpoch": "0",
-            "stakingPoolDeactivationEpoch": None,
-        },
-        {
-            "suiAddress": "0xcoinbase" + "b" * 57,
-            "name": "Coinbase",
-            "votingPower": 215,
-            "stakingPoolSuiBalance": "155708205570000000",
-            "nextEpochStake": "155700000000000000",
-            "pendingStake": "0",
-            "pendingPoolTokenWithdraw": "9480325486",
-            "pendingTotalSuiWithdraw": "10331972598",
-            "commissionRate": "1000",
-            "nextEpochCommissionRate": "1000",
-            "gasPrice": "910",
-            "nextEpochGasPrice": "910",
-            "rewardsPool": "500000000000000",
-            "stakingPoolActivationEpoch": "10",
-            "stakingPoolDeactivationEpoch": None,
-        },
-        # Defective row — missing suiAddress — must be skipped silently
-        # without raising. Real upstream data has occasionally returned
-        # half-populated validator records during testnet upgrades.
-        {
-            "name": "Bad-Validator",
-            "votingPower": 5,
-            "stakingPoolSuiBalance": "1000000000000",
-        },
-    ],
+# Minimal-but-realistic ValidatorV1 Move-struct payloads as served by the
+# GraphQL API's activeValidators.nodes[].contents.json (live shape probed
+# 2026-09-18, epoch 1255). u64s arrive as JSON strings; field names are the
+# on-chain snake_case, unlike the retired JSON-RPC camelCase.
+SAMPLE_EPOCH_ID = 1255
+SAMPLE_START_TIMESTAMP = "2026-09-19T00:05:39.687Z"
+
+SAMPLE_VALIDATOR_MYSTEN = {
+    "metadata": {
+        "sui_address": "0xmysten01" + "a" * 56,
+        "name": "Mysten-1",
+        "description": "First-party validator",
+        "net_address": "/dns/mysten-1.example/tcp/8080/http",
+    },
+    "voting_power": "302",
+    "gas_price": "750",
+    "commission_rate": "200",
+    "next_epoch_stake": "218400000000000000",
+    "next_epoch_gas_price": "750",
+    "next_epoch_commission_rate": "200",
+    "staking_pool": {
+        "id": "0x" + "1" * 64,
+        "activation_epoch": "0",
+        "deactivation_epoch": None,
+        "sui_balance": "218350824320000000",
+        "rewards_pool": "649057174720907",
+        "pool_token_balance": "218000000000000000",
+        "pending_stake": "5000000000000",
+        "pending_total_sui_withdraw": "1100000000000",
+        "pending_pool_token_withdraw": "1000000000000",
+    },
 }
 
-SAMPLE_APY_PAYLOAD = {
-    "epoch": "1151",
-    "apys": [
-        {
-            "address": "0xmysten01" + "a" * 56,
-            "apy": 0.0156,
-        },
-        {
-            "address": "0xcoinbase" + "b" * 57,
-            "apy": 0.0143,
-        },
-        # Stale entry — references a validator no longer in the system
-        # state. Should be silently dropped by the join.
-        {"address": "0xinactive" + "c" * 57, "apy": 0.02},
-    ],
+SAMPLE_VALIDATOR_COINBASE = {
+    "metadata": {
+        "sui_address": "0xcoinbase" + "b" * 57,
+        "name": "Coinbase",
+    },
+    "voting_power": "215",
+    "gas_price": "910",
+    "commission_rate": "1000",
+    "next_epoch_stake": "155700000000000000",
+    "staking_pool": {
+        "id": "0x" + "2" * 64,
+        "activation_epoch": "10",
+        "deactivation_epoch": None,
+        "sui_balance": "155708205570000000",
+        "rewards_pool": "500000000000000",
+        "pending_stake": "0",
+        "pending_total_sui_withdraw": "10331972598",
+        "pending_pool_token_withdraw": "9480325486",
+    },
 }
+
+# Defective payload — missing metadata.sui_address — must be skipped
+# silently without raising. Real upstream data has occasionally returned
+# half-populated validator records during upgrades.
+SAMPLE_VALIDATOR_DEFECTIVE = {
+    "metadata": {"name": "Bad-Validator"},
+    "voting_power": "5",
+    "staking_pool": {"sui_balance": "1000000000000"},
+}
+
+SAMPLE_VALIDATORS = [
+    SAMPLE_VALIDATOR_MYSTEN,
+    SAMPLE_VALIDATOR_COINBASE,
+    SAMPLE_VALIDATOR_DEFECTIVE,
+]
+
+
+def _page(
+    nodes: list[dict],
+    *,
+    epoch_id: int = SAMPLE_EPOCH_ID,
+    has_next: bool = False,
+    end_cursor: str | None = None,
+) -> dict:
+    """Build one GraphQL ``data`` payload in the live response shape."""
+    return {
+        "epoch": {
+            "epochId": epoch_id,
+            "startTimestamp": SAMPLE_START_TIMESTAMP,
+            "validatorSet": {
+                "activeValidators": {
+                    "pageInfo": {"hasNextPage": has_next, "endCursor": end_cursor},
+                    "nodes": [{"contents": {"json": n}} for n in nodes],
+                }
+            },
+        }
+    }
+
+
+class _FakeGraphqlHttp:
+    """Feeds a scripted sequence of GraphQL response bodies."""
+
+    def __init__(self, bodies: list[dict]) -> None:
+        self._bodies = list(bodies)
+        self.calls: list[dict] = []
+
+    def request(self, method: str, url: str, **kwargs: object) -> object:
+        self.calls.append({"method": method, "url": url, **kwargs})
+        body = self._bodies.pop(0)
+
+        class _Resp:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict:
+                return body
+
+        return _Resp()
 
 
 # ---------------------------------------------------------------------------
@@ -111,53 +151,60 @@ class ModuleConstantsTests(unittest.TestCase):
         """'collect' matches the universal convention pinned by test_watchlist_cmd."""
         self.assertEqual(COLLECT_ENDPOINT_LABEL, "collect")
 
-    def test_rpc_url_is_public_mainnet_fullnode(self) -> None:
-        """v1 uses the public fullnode — no Blockvision dependency."""
-        self.assertEqual(SUI_RPC_URL, "https://fullnode.mainnet.sui.io")
+    def test_graphql_url_is_public_mainnet(self) -> None:
+        """B-145 port: JSON-RPC on public fullnodes is deprecated upstream."""
+        self.assertEqual(SUI_GRAPHQL_URL, "https://graphql.mainnet.sui.io/graphql")
 
-    def test_rpc_method_names_stable(self) -> None:
-        """Sui standard RPC method names — pin them so a typo doesn't go silently."""
-        self.assertEqual(METHOD_SYSTEM_STATE, "suix_getLatestSuiSystemState")
-        self.assertEqual(METHOD_VALIDATORS_APY, "suix_getValidatorsApy")
+    def test_query_covers_epoch_and_validators(self) -> None:
+        """The query must carry the epoch guard fields and the Move contents."""
+        for needle in (
+            "epochId",
+            "startTimestamp",
+            "activeValidators",
+            "pageInfo",
+            "contents",
+        ):
+            self.assertIn(needle, ACTIVE_VALIDATORS_QUERY)
+
+    def test_page_size_positive(self) -> None:
+        """Server serves 50/page; a non-positive size would loop forever."""
+        self.assertGreater(VALIDATORS_PAGE_SIZE, 0)
 
 
 # ---------------------------------------------------------------------------
-# RPC helper
+# GraphQL helper
 # ---------------------------------------------------------------------------
 
 
-class RpcPostTests(unittest.TestCase):
-    """JSON-RPC helper behavior."""
+class GraphqlPostTests(unittest.TestCase):
+    """GraphQL POST helper behavior."""
 
     def test_opts_into_retries_for_read_only_post(self) -> None:
-        """Sui JSON-RPC methods are read-only despite using POST."""
-        calls: list[tuple[str, str, dict[str, object]]] = []
+        """GraphQL reads are read-only despite using POST."""
+        http = _FakeGraphqlHttp([{"data": {"ok": True}}])
 
-        class FakeResponse:
-            def raise_for_status(self) -> None:
-                return None
+        self.assertEqual(_graphql_post(http, "query { ok }"), {"ok": True})
 
-            def json(self) -> dict[str, object]:
-                return {"result": {"ok": True}}
+        self.assertEqual(len(http.calls), 1)
+        call = http.calls[0]
+        self.assertEqual(call["method"], "POST")
+        self.assertEqual(call["url"], SUI_GRAPHQL_URL)
+        self.assertIs(call["retryable"], True)
+        self.assertEqual(call["json"], {"query": "query { ok }", "variables": {}})
 
-        class FakeHttp:
-            def request(self, method: str, url: str, **kwargs: object) -> FakeResponse:
-                calls.append((method, url, kwargs))
-                return FakeResponse()
+    def test_graphql_errors_raise(self) -> None:
+        """A 200 body carrying GraphQL errors is an application failure."""
+        http = _FakeGraphqlHttp(
+            [{"data": None, "errors": [{"message": "Unknown field"}]}]
+        )
+        with self.assertRaisesRegex(ValueError, "Unknown field"):
+            _graphql_post(http, "query { nope }")
 
-        self.assertEqual(_rpc_post(FakeHttp(), METHOD_SYSTEM_STATE), {"ok": True})
-
-        self.assertEqual(len(calls), 1)
-        method, url, kwargs = calls[0]
-        self.assertEqual(method, "POST")
-        self.assertEqual(url, SUI_RPC_URL)
-        self.assertIs(kwargs["retryable"], True)
-        self.assertEqual(kwargs["json"], {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": METHOD_SYSTEM_STATE,
-            "params": [],
-        })
+    def test_missing_data_raises(self) -> None:
+        """A body with neither data nor errors is malformed."""
+        http = _FakeGraphqlHttp([{}])
+        with self.assertRaisesRegex(ValueError, "missing 'data'"):
+            _graphql_post(http, "query { ok }")
 
 
 # ---------------------------------------------------------------------------
@@ -166,15 +213,15 @@ class RpcPostTests(unittest.TestCase):
 
 
 class CoerceIntTests(unittest.TestCase):
-    """Sui RPC returns u64s as JSON strings."""
+    """The GraphQL MoveValue JSON encodes u64s as strings."""
 
     def test_string_digits(self) -> None:
         """Plain integer strings parse."""
-        self.assertEqual(_coerce_int("1151"), 1151)
-        self.assertEqual(_coerce_int("  1151  "), 1151)
+        self.assertEqual(_coerce_int("1255"), 1255)
+        self.assertEqual(_coerce_int("  1255  "), 1255)
 
     def test_native_int(self) -> None:
-        """Native ints pass through."""
+        """Native ints pass through (epochId arrives as a JSON number)."""
         self.assertEqual(_coerce_int(302), 302)
 
     def test_none_and_blank(self) -> None:
@@ -188,8 +235,6 @@ class CoerceIntTests(unittest.TestCase):
 
     def test_bool_rejected(self) -> None:
         """Bool would silently coerce to 0/1 via int(); reject explicitly."""
-        # Defensive: stakingPoolDeactivationEpoch is sometimes None, sometimes
-        # an int; a bool sneaking in would corrupt the value.
         self.assertIsNone(_coerce_int(True))
         self.assertIsNone(_coerce_int(False))
 
@@ -203,10 +248,6 @@ class CoerceDecimalTests(unittest.TestCase):
             _coerce_decimal("7250402731876294287"),
             Decimal("7250402731876294287"),
         )
-
-    def test_string_with_decimals_for_apy(self) -> None:
-        """Decimal strings (e.g. APY floats) survive."""
-        self.assertEqual(_coerce_decimal("0.0156"), Decimal("0.0156"))
 
     def test_native_int_to_decimal(self) -> None:
         """Native ints become Decimal."""
@@ -222,31 +263,106 @@ class CoerceDecimalTests(unittest.TestCase):
         self.assertIsNone(_coerce_decimal(""))
 
 
-class MsToUtcDatetimeTests(unittest.TestCase):
-    """epochStartTimestampMs (string ms since unix epoch) → UTC datetime."""
+class IsoToUtcDatetimeTests(unittest.TestCase):
+    """GraphQL startTimestamp (ISO-8601 with Z suffix) → UTC datetime."""
 
     def test_round_trip(self) -> None:
-        """A known epoch-start ms decodes to the expected UTC moment."""
-        # 1780790717256 ms = 2026-06-06 18:45:17.256 UTC
-        out = _ms_to_utc_datetime("1780790717256")
+        """The live wire format decodes to the expected UTC moment."""
+        out = _iso_to_utc_datetime("2026-09-19T00:05:39.687Z")
         self.assertEqual(
-            out, datetime.fromtimestamp(1780790717.256, tz=timezone.utc)
+            out,
+            datetime(2026, 9, 19, 0, 5, 39, 687000, tzinfo=timezone.utc),
         )
         self.assertEqual(out.tzinfo, timezone.utc)
 
-    def test_native_int_accepted(self) -> None:
-        """Native ints (defensive — the wire uses strings) also work."""
-        out = _ms_to_utc_datetime(1780790717256)
-        self.assertIsNotNone(out)
-        self.assertEqual(out.tzinfo, timezone.utc)
+    def test_explicit_offset_normalized_to_utc(self) -> None:
+        """A non-UTC offset (defensive) is converted, not trusted verbatim."""
+        out = _iso_to_utc_datetime("2026-09-19T02:05:39+02:00")
+        self.assertEqual(out, datetime(2026, 9, 19, 0, 5, 39, tzinfo=timezone.utc))
 
     def test_none_returns_none(self) -> None:
         """Missing field yields None."""
-        self.assertIsNone(_ms_to_utc_datetime(None))
+        self.assertIsNone(_iso_to_utc_datetime(None))
 
     def test_garbage_returns_none(self) -> None:
         """Unparseable input yields None instead of raising."""
-        self.assertIsNone(_ms_to_utc_datetime("not-a-number"))
+        self.assertIsNone(_iso_to_utc_datetime("not-a-timestamp"))
+
+
+# ---------------------------------------------------------------------------
+# fetch_active_validators — pagination
+# ---------------------------------------------------------------------------
+
+
+class FetchActiveValidatorsTests(unittest.TestCase):
+    """Cursor pagination with the epoch-boundary guard."""
+
+    def test_single_page(self) -> None:
+        """A hasNextPage=false first page ends the loop after one request."""
+        http = _FakeGraphqlHttp([{"data": _page(SAMPLE_VALIDATORS)}])
+
+        epoch_id, start_ts, validators, pages = fetch_active_validators(http)
+
+        self.assertEqual(epoch_id, SAMPLE_EPOCH_ID)
+        self.assertEqual(start_ts, SAMPLE_START_TIMESTAMP)
+        self.assertEqual(len(validators), 3)
+        self.assertEqual(len(pages), 1)
+        self.assertEqual(len(http.calls), 1)
+        self.assertIsNone(http.calls[0]["json"]["variables"]["after"])
+
+    def test_two_pages_follow_cursor(self) -> None:
+        """The endCursor from page 1 is passed as `after` on page 2."""
+        http = _FakeGraphqlHttp(
+            [
+                {
+                    "data": _page(
+                        [SAMPLE_VALIDATOR_MYSTEN], has_next=True, end_cursor="c1"
+                    )
+                },
+                {"data": _page([SAMPLE_VALIDATOR_COINBASE])},
+            ]
+        )
+
+        epoch_id, _start_ts, validators, pages = fetch_active_validators(http)
+
+        self.assertEqual(epoch_id, SAMPLE_EPOCH_ID)
+        self.assertEqual(len(validators), 2)
+        self.assertEqual(len(pages), 2)
+        self.assertEqual(http.calls[1]["json"]["variables"]["after"], "c1")
+
+    def test_epoch_change_mid_pagination_raises(self) -> None:
+        """Never stitch two epochs into one snapshot — fail loudly instead."""
+        http = _FakeGraphqlHttp(
+            [
+                {
+                    "data": _page(
+                        [SAMPLE_VALIDATOR_MYSTEN], has_next=True, end_cursor="c1"
+                    )
+                },
+                {
+                    "data": _page(
+                        [SAMPLE_VALIDATOR_COINBASE],
+                        epoch_id=SAMPLE_EPOCH_ID + 1,
+                    )
+                },
+            ]
+        )
+        with self.assertRaisesRegex(ValueError, "epoch changed mid-pagination"):
+            fetch_active_validators(http)
+
+    def test_has_next_without_cursor_raises(self) -> None:
+        """A missing endCursor with hasNextPage=true would loop forever."""
+        http = _FakeGraphqlHttp(
+            [{"data": _page([SAMPLE_VALIDATOR_MYSTEN], has_next=True)}]
+        )
+        with self.assertRaisesRegex(ValueError, "without endCursor"):
+            fetch_active_validators(http)
+
+    def test_missing_epoch_object_raises(self) -> None:
+        """A page without the epoch object is malformed."""
+        http = _FakeGraphqlHttp([{"data": {"epoch": None}}])
+        with self.assertRaisesRegex(ValueError, "missing 'epoch'"):
+            fetch_active_validators(http)
 
 
 # ---------------------------------------------------------------------------
@@ -255,27 +371,32 @@ class MsToUtcDatetimeTests(unittest.TestCase):
 
 
 class ParseValidatorRowsTests(unittest.TestCase):
-    """End-to-end extractor: validator list × apy join × defensive skips."""
+    """End-to-end extractor: Move-struct payloads × defensive skips."""
 
-    def test_extracts_one_row_per_valid_active_validator(self) -> None:
-        """Two valid active validators land; defective row is skipped."""
-        rows = parse_validator_rows(SAMPLE_SYSTEM_STATE, SAMPLE_APY_PAYLOAD)
-        # 2 valid + 1 skipped (missing suiAddress)
+    def test_extracts_one_row_per_valid_validator(self) -> None:
+        """Two valid validators land; the defective payload is skipped."""
+        rows = parse_validator_rows(
+            SAMPLE_EPOCH_ID, SAMPLE_START_TIMESTAMP, SAMPLE_VALIDATORS
+        )
         self.assertEqual(len(rows), 2)
 
-    def test_epoch_and_epoch_start_carried_from_system_state(self) -> None:
+    def test_epoch_and_epoch_start_carried(self) -> None:
         """All rows from one snapshot share the same epoch + epoch_start_ts."""
-        rows = parse_validator_rows(SAMPLE_SYSTEM_STATE, SAMPLE_APY_PAYLOAD)
+        rows = parse_validator_rows(
+            SAMPLE_EPOCH_ID, SAMPLE_START_TIMESTAMP, SAMPLE_VALIDATORS
+        )
         for r in rows:
-            self.assertEqual(r.epoch, 1151)
+            self.assertEqual(r.epoch, 1255)
             self.assertEqual(
                 r.epoch_start_ts,
-                datetime.fromtimestamp(1780790717.256, tz=timezone.utc),
+                datetime(2026, 9, 19, 0, 5, 39, 687000, tzinfo=timezone.utc),
             )
 
     def test_stake_amount_preserved_as_mist(self) -> None:
         """MIST is the storage unit — no unit conversion happens at write time."""
-        rows = parse_validator_rows(SAMPLE_SYSTEM_STATE, SAMPLE_APY_PAYLOAD)
+        rows = parse_validator_rows(
+            SAMPLE_EPOCH_ID, SAMPLE_START_TIMESTAMP, SAMPLE_VALIDATORS
+        )
         by_name = {r.name: r for r in rows}
         self.assertEqual(
             by_name["Mysten-1"].stake_amount_mist,
@@ -286,143 +407,106 @@ class ParseValidatorRowsTests(unittest.TestCase):
             Decimal("155708205570000000"),
         )
 
-    def test_apy_joined_by_validator_address(self) -> None:
-        """Per-validator APY pulled from the separate suix_getValidatorsApy payload."""
-        rows = parse_validator_rows(SAMPLE_SYSTEM_STATE, SAMPLE_APY_PAYLOAD)
-        by_name = {r.name: r for r in rows}
-        self.assertEqual(by_name["Mysten-1"].apy, Decimal("0.015600"))
-        self.assertEqual(by_name["Coinbase"].apy, Decimal("0.014300"))
+    def test_apy_always_none_since_graphql_port(self) -> None:
+        """suix_getValidatorsApy has no GraphQL equivalent — apy is NULL.
 
-    def test_apy_epoch_mismatch_keeps_rows_with_null_apy(self) -> None:
-        """Do not stamp stale/next-epoch APYs onto current validator rows."""
-        apy_payload = dict(SAMPLE_APY_PAYLOAD)
-        apy_payload["epoch"] = "1150"
-
-        rows = parse_validator_rows(SAMPLE_SYSTEM_STATE, apy_payload)
-
-        self.assertEqual(len(rows), 2)
-        for r in rows:
-            self.assertIsNone(r.apy)
-
-    def test_validator_without_apy_kept_with_null(self) -> None:
-        """Missing APY is a soft signal-quality issue — keep the row, null the field.
-
-        Dropping rows would silently lose stake/flow data when only the APY
-        endpoint failed; the staking signal is more load-bearing than the
-        APY signal and the row should survive the join failure.
+        The upsert path preserves pre-port APYs; this pins that the parser
+        never fabricates one.
         """
-        # APY payload references neither validator
-        rows = parse_validator_rows(SAMPLE_SYSTEM_STATE, {"epoch": "1151", "apys": []})
+        rows = parse_validator_rows(
+            SAMPLE_EPOCH_ID, SAMPLE_START_TIMESTAMP, SAMPLE_VALIDATORS
+        )
         self.assertEqual(len(rows), 2)
         for r in rows:
             self.assertIsNone(r.apy)
+
+    def test_flow_columns_from_staking_pool(self) -> None:
+        """pending stake/withdraw + rewards come from the nested staking_pool."""
+        rows = parse_validator_rows(
+            SAMPLE_EPOCH_ID, SAMPLE_START_TIMESTAMP, [SAMPLE_VALIDATOR_MYSTEN]
+        )
+        (row,) = rows
+        self.assertEqual(row.pending_stake_mist, Decimal("5000000000000"))
+        self.assertEqual(row.pending_withdraw_mist, Decimal("1100000000000"))
+        self.assertEqual(row.rewards_pool_mist, Decimal("649057174720907"))
+        self.assertEqual(row.staking_pool_activation_epoch, 0)
+        self.assertIsNone(row.staking_pool_deactivation_epoch)
 
     def test_pending_flow_columns_default_to_zero(self) -> None:
         """pending_stake / pending_withdraw default to 0 (NOT NULL columns)."""
-        # Build a system_state with pending fields explicitly missing
-        ss = {
-            "epoch": "100",
-            "epochStartTimestampMs": "1780000000000",
-            "activeValidators": [
-                {
-                    "suiAddress": "0x" + "d" * 64,
-                    "stakingPoolSuiBalance": "1000000000",
-                    # pendingStake + pendingTotalSuiWithdraw both omitted
-                },
-            ],
+        payload = {
+            "metadata": {"sui_address": "0x" + "d" * 64},
+            "staking_pool": {
+                "sui_balance": "1000000000",
+                # pending_stake + pending_total_sui_withdraw both omitted
+            },
         }
-        rows = parse_validator_rows(ss, {"epoch": "100", "apys": []})
+        rows = parse_validator_rows(100, SAMPLE_START_TIMESTAMP, [payload])
         self.assertEqual(len(rows), 1)
         # NOT NULL columns: must be Decimal(0), not None — otherwise the
         # bulk_upsert would fail at the DB layer.
         self.assertEqual(rows[0].pending_stake_mist, Decimal(0))
         self.assertEqual(rows[0].pending_withdraw_mist, Decimal(0))
 
-    def test_skips_row_with_missing_sui_address(self) -> None:
-        """A validator entry missing suiAddress is skipped, not raised on."""
-        rows = parse_validator_rows(SAMPLE_SYSTEM_STATE, SAMPLE_APY_PAYLOAD)
-        # The third entry ("Bad-Validator") has no suiAddress → not in output.
+    def test_skips_payload_with_missing_sui_address(self) -> None:
+        """A payload missing metadata.sui_address is skipped, not raised on."""
+        rows = parse_validator_rows(
+            SAMPLE_EPOCH_ID, SAMPLE_START_TIMESTAMP, SAMPLE_VALIDATORS
+        )
         addresses = {r.validator_address for r in rows}
+        self.assertEqual(len(addresses), 2)
         for addr in addresses:
             self.assertTrue(addr.startswith("0x"))
-            self.assertGreater(len(addr), 10)
 
-    def test_skips_row_with_missing_stake(self) -> None:
-        """A validator missing stakingPoolSuiBalance is skipped (stake is NOT NULL)."""
-        ss = {
-            "epoch": "100",
-            "epochStartTimestampMs": "1780000000000",
-            "activeValidators": [
-                {
-                    "suiAddress": "0x" + "e" * 64,
-                    "name": "Stakeless",
-                    # stakingPoolSuiBalance omitted
-                },
-            ],
+    def test_skips_payload_with_missing_stake(self) -> None:
+        """A validator missing staking_pool.sui_balance is skipped (stake is NOT NULL)."""
+        payload = {
+            "metadata": {"sui_address": "0x" + "e" * 64, "name": "Stakeless"},
+            "staking_pool": {},
         }
-        rows = parse_validator_rows(ss, {"epoch": "100", "apys": []})
+        rows = parse_validator_rows(100, SAMPLE_START_TIMESTAMP, [payload])
         self.assertEqual(rows, [])
 
-    def test_apy_payload_missing_apys_list_treated_as_empty(self) -> None:
-        """A malformed APY payload doesn't break extraction — validators land sans APY."""
-        rows = parse_validator_rows(SAMPLE_SYSTEM_STATE, {"epoch": "1151"})
-        self.assertEqual(len(rows), 2)
-        for r in rows:
-            self.assertIsNone(r.apy)
-
-    def test_apy_payload_completely_missing_treated_as_empty(self) -> None:
-        """A None APY payload (network failure on the second RPC) is tolerated."""
-        rows = parse_validator_rows(SAMPLE_SYSTEM_STATE, None)
-        # Note: this is a soft path — caller is free to record a partial run.
-        # parse_validator_rows shouldn't raise on a missing APY payload.
-        self.assertEqual(len(rows), 2)
+    def test_skips_payload_with_missing_staking_pool(self) -> None:
+        """A validator without the staking_pool struct is skipped."""
+        payload = {"metadata": {"sui_address": "0x" + "f" * 64}}
+        rows = parse_validator_rows(100, SAMPLE_START_TIMESTAMP, [payload])
+        self.assertEqual(rows, [])
 
     def test_missing_epoch_raises(self) -> None:
-        """A system state without epoch is unusable — raise loudly."""
-        bad = dict(SAMPLE_SYSTEM_STATE)
-        del bad["epoch"]
+        """A snapshot without a usable epochId is unusable — raise loudly."""
         with self.assertRaises(ValueError):
-            parse_validator_rows(bad, SAMPLE_APY_PAYLOAD)
+            parse_validator_rows(None, SAMPLE_START_TIMESTAMP, SAMPLE_VALIDATORS)
 
-    def test_missing_epoch_start_ts_raises(self) -> None:
-        """A system state without epochStartTimestampMs is unusable — raise."""
-        bad = dict(SAMPLE_SYSTEM_STATE)
-        del bad["epochStartTimestampMs"]
+    def test_missing_start_timestamp_raises(self) -> None:
+        """A snapshot without startTimestamp is unusable — raise."""
         with self.assertRaises(ValueError):
-            parse_validator_rows(bad, SAMPLE_APY_PAYLOAD)
-
-    def test_non_dict_system_state_raises(self) -> None:
-        """A list payload (defensive) raises — the system state must be a JSON object."""
-        with self.assertRaises(ValueError):
-            parse_validator_rows([], SAMPLE_APY_PAYLOAD)
-
-    def test_active_validators_not_a_list_raises(self) -> None:
-        """A malformed activeValidators field raises — not silently empty."""
-        bad = dict(SAMPLE_SYSTEM_STATE)
-        bad["activeValidators"] = "string-not-list"
-        with self.assertRaises(ValueError):
-            parse_validator_rows(bad, SAMPLE_APY_PAYLOAD)
+            parse_validator_rows(SAMPLE_EPOCH_ID, None, SAMPLE_VALIDATORS)
 
     def test_commission_rate_in_basis_points(self) -> None:
-        """commissionRate is published as integer basis points (200 = 2%)."""
-        rows = parse_validator_rows(SAMPLE_SYSTEM_STATE, SAMPLE_APY_PAYLOAD)
+        """commission_rate is published as integer basis points (200 = 2%)."""
+        rows = parse_validator_rows(
+            SAMPLE_EPOCH_ID, SAMPLE_START_TIMESTAMP, SAMPLE_VALIDATORS
+        )
         by_name = {r.name: r for r in rows}
         self.assertEqual(by_name["Mysten-1"].commission_rate_bps, 200)
         self.assertEqual(by_name["Coinbase"].commission_rate_bps, 1000)
 
 
+# ---------------------------------------------------------------------------
+# collect — orchestration
+# ---------------------------------------------------------------------------
+
+
 class CollectTests(unittest.TestCase):
-    """Collector orchestration paths that are not covered by parser-only tests."""
+    """Collector orchestration paths not covered by parser-only tests."""
 
-    def test_keeps_validator_snapshots_when_apy_rpc_fails(self) -> None:
-        """APY RPC failure is partial; system-state rows still land with apy=None."""
-
-        def fake_rpc_post(_http: object, method: str, params: object = None) -> object:
-            if method == METHOD_SYSTEM_STATE:
-                return SAMPLE_SYSTEM_STATE
-            if method == METHOD_VALIDATORS_APY:
-                raise ValueError("apy rpc down")
-            raise AssertionError(f"unexpected method {method!r}")
+    def test_happy_path_stores_pages_and_preserves_apy(self) -> None:
+        """Rows land, each page blob is stored, and apy is never overwritten."""
+        pages = [
+            {"page": 1},
+            {"page": 2},
+        ]
 
         class FakeRun:
             id = 42
@@ -432,7 +516,15 @@ class CollectTests(unittest.TestCase):
 
         fake_run = FakeRun()
         with (
-            patch("genkei.ingest.sui_staking._rpc_post", side_effect=fake_rpc_post),
+            patch(
+                "genkei.ingest.sui_staking.fetch_active_validators",
+                return_value=(
+                    SAMPLE_EPOCH_ID,
+                    SAMPLE_START_TIMESTAMP,
+                    SAMPLE_VALIDATORS,
+                    pages,
+                ),
+            ),
             patch("genkei.ingest.sui_staking.db.ingest_run") as ingest_run_cm,
             patch("genkei.ingest.sui_staking.db.record_partial_endpoints") as partial,
             patch("genkei.ingest.sui_staking.db.store_raw_blob") as store_blob,
@@ -446,129 +538,27 @@ class CollectTests(unittest.TestCase):
 
             self.assertEqual(collect(http=object()), 42)
 
-        partial.assert_called_once_with(
-            42,
-            [
-                {
-                    "name": METHOD_VALIDATORS_APY,
-                    "url": SUI_RPC_URL,
-                    "error": "apy rpc down",
-                }
-            ],
+        partial.assert_not_called()
+        self.assertEqual(store_blob.call_count, 2)
+        store_blob.assert_any_call(
+            42, "active_validators_page_1", SUI_GRAPHQL_URL, {"page": 1}
         )
-        store_blob.assert_called_once_with(
-            42, METHOD_SYSTEM_STATE, SUI_RPC_URL, SAMPLE_SYSTEM_STATE
+        store_blob.assert_any_call(
+            42, "active_validators_page_2", SUI_GRAPHQL_URL, {"page": 2}
         )
         connection_cm.assert_called_once()
+        # All parsed rows carry apy=None since the GraphQL port, so the
+        # upsert must run down the preserve-apy path (apy not in update_cols)
+        # to keep pre-port APYs intact on same-epoch reruns.
+        bulk_upsert.assert_called_once()
         bulk_rows = bulk_upsert.call_args.args[2]
         self.assertEqual(len(bulk_rows), 2)
         self.assertTrue(all(row["apy"] is None for row in bulk_rows))
         self.assertNotIn("apy", bulk_upsert.call_args.kwargs["update_cols"])
         self.assertEqual(fake_run._added, 2)
 
-    def test_preserves_existing_apy_when_payload_epoch_mismatches(self) -> None:
-        """Stale APY payloads should not null prior APYs on same-epoch conflicts."""
-        stale_apy_payload = dict(SAMPLE_APY_PAYLOAD)
-        stale_apy_payload["epoch"] = "1150"
-
-        def fake_rpc_post(_http: object, method: str, params: object = None) -> object:
-            if method == METHOD_SYSTEM_STATE:
-                return SAMPLE_SYSTEM_STATE
-            if method == METHOD_VALIDATORS_APY:
-                return stale_apy_payload
-            raise AssertionError(f"unexpected method {method!r}")
-
-        class FakeRun:
-            id = 44
-
-            def add_rows(self, n: int) -> None:
-                self._added = n
-
-        fake_run = FakeRun()
-        with (
-            patch("genkei.ingest.sui_staking._rpc_post", side_effect=fake_rpc_post),
-            patch("genkei.ingest.sui_staking.db.ingest_run") as ingest_run_cm,
-            patch("genkei.ingest.sui_staking.db.record_partial_endpoints") as partial,
-            patch("genkei.ingest.sui_staking.db.store_raw_blob") as store_blob,
-            patch("genkei.ingest.sui_staking.db.connection") as connection_cm,
-            patch(
-                "genkei.ingest.sui_staking.db.bulk_upsert", return_value=2
-            ) as bulk_upsert,
-        ):
-            ingest_run_cm.return_value.__enter__.return_value = fake_run
-            ingest_run_cm.return_value.__exit__.return_value = False
-
-            self.assertEqual(collect(http=object()), 44)
-
-        partial.assert_not_called()
-        self.assertEqual(store_blob.call_count, 2)
-        connection_cm.assert_called_once()
-        bulk_rows = bulk_upsert.call_args.args[2]
-        self.assertEqual(len(bulk_rows), 2)
-        self.assertTrue(all(row["apy"] is None for row in bulk_rows))
-        self.assertNotIn("apy", bulk_upsert.call_args.kwargs["update_cols"])
-        self.assertEqual(fake_run._added, 2)
-
-    def test_preserves_existing_apy_when_validator_missing_from_apy(self) -> None:
-        """Partial same-epoch APY payloads should preserve omitted validators' APY."""
-        partial_apy_payload = {
-            "epoch": SAMPLE_APY_PAYLOAD["epoch"],
-            "apys": [SAMPLE_APY_PAYLOAD["apys"][0]],
-        }
-
-        def fake_rpc_post(_http: object, method: str, params: object = None) -> object:
-            if method == METHOD_SYSTEM_STATE:
-                return SAMPLE_SYSTEM_STATE
-            if method == METHOD_VALIDATORS_APY:
-                return partial_apy_payload
-            raise AssertionError(f"unexpected method {method!r}")
-
-        class FakeRun:
-            id = 45
-
-            def add_rows(self, n: int) -> None:
-                self._added = n
-
-        fake_run = FakeRun()
-        with (
-            patch("genkei.ingest.sui_staking._rpc_post", side_effect=fake_rpc_post),
-            patch("genkei.ingest.sui_staking.db.ingest_run") as ingest_run_cm,
-            patch("genkei.ingest.sui_staking.db.record_partial_endpoints") as partial,
-            patch("genkei.ingest.sui_staking.db.store_raw_blob") as store_blob,
-            patch("genkei.ingest.sui_staking.db.connection") as connection_cm,
-            patch(
-                "genkei.ingest.sui_staking.db.bulk_upsert", return_value=1
-            ) as bulk_upsert,
-        ):
-            ingest_run_cm.return_value.__enter__.return_value = fake_run
-            ingest_run_cm.return_value.__exit__.return_value = False
-
-            self.assertEqual(collect(http=object()), 45)
-
-        partial.assert_not_called()
-        self.assertEqual(store_blob.call_count, 2)
-        connection_cm.assert_called_once()
-        self.assertEqual(bulk_upsert.call_count, 2)
-        with_apy_call, without_apy_call = bulk_upsert.call_args_list
-        self.assertEqual(len(with_apy_call.args[2]), 1)
-        self.assertTrue(all(row["apy"] is not None for row in with_apy_call.args[2]))
-        self.assertIn("apy", with_apy_call.kwargs["update_cols"])
-        self.assertEqual(len(without_apy_call.args[2]), 1)
-        self.assertTrue(all(row["apy"] is None for row in without_apy_call.args[2]))
-        self.assertNotIn("apy", without_apy_call.kwargs["update_cols"])
-        self.assertEqual(fake_run._added, 2)
-
-    def test_records_parse_failures_before_reraising(self) -> None:
-        """Malformed system-state shapes are recorded in partial_endpoints."""
-        bad_system_state = dict(SAMPLE_SYSTEM_STATE)
-        bad_system_state["activeValidators"] = "not-a-list"
-
-        def fake_rpc_post(_http: object, method: str, params: object = None) -> object:
-            if method == METHOD_SYSTEM_STATE:
-                return bad_system_state
-            if method == METHOD_VALIDATORS_APY:
-                return SAMPLE_APY_PAYLOAD
-            raise AssertionError(f"unexpected method {method!r}")
+    def test_records_fetch_failures_before_reraising(self) -> None:
+        """A GraphQL fetch failure is recorded in partial_endpoints and raised."""
 
         class FakeRun:
             id = 43
@@ -578,7 +568,52 @@ class CollectTests(unittest.TestCase):
 
         fake_run = FakeRun()
         with (
-            patch("genkei.ingest.sui_staking._rpc_post", side_effect=fake_rpc_post),
+            patch(
+                "genkei.ingest.sui_staking.fetch_active_validators",
+                side_effect=ValueError("Sui GraphQL error: 'boom'"),
+            ),
+            patch("genkei.ingest.sui_staking.db.ingest_run") as ingest_run_cm,
+            patch("genkei.ingest.sui_staking.db.record_partial_endpoints") as partial,
+            patch("genkei.ingest.sui_staking.db.store_raw_blob") as store_blob,
+            patch("genkei.ingest.sui_staking.db.connection") as connection_cm,
+            patch("genkei.ingest.sui_staking.db.bulk_upsert") as bulk_upsert,
+        ):
+            ingest_run_cm.return_value.__enter__.return_value = fake_run
+            ingest_run_cm.return_value.__exit__.return_value = False
+
+            with self.assertRaisesRegex(RuntimeError, "Sui GraphQL fetch failed"):
+                collect(http=object())
+
+        partial.assert_called_once_with(
+            43,
+            [
+                {
+                    "name": COLLECT_ENDPOINT_LABEL,
+                    "url": SUI_GRAPHQL_URL,
+                    "error": "Sui GraphQL error: 'boom'",
+                }
+            ],
+        )
+        store_blob.assert_not_called()
+        connection_cm.assert_not_called()
+        bulk_upsert.assert_not_called()
+        self.assertFalse(hasattr(fake_run, "_added"))
+
+    def test_records_parse_failures_before_reraising(self) -> None:
+        """Malformed epoch metadata is recorded in partial_endpoints."""
+
+        class FakeRun:
+            id = 44
+
+            def add_rows(self, n: int) -> None:
+                self._added = n
+
+        fake_run = FakeRun()
+        with (
+            patch(
+                "genkei.ingest.sui_staking.fetch_active_validators",
+                return_value=(None, None, SAMPLE_VALIDATORS, [{"page": 1}]),
+            ),
             patch("genkei.ingest.sui_staking.db.ingest_run") as ingest_run_cm,
             patch("genkei.ingest.sui_staking.db.record_partial_endpoints") as partial,
             patch("genkei.ingest.sui_staking.db.store_raw_blob") as store_blob,
@@ -591,11 +626,11 @@ class CollectTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Sui payload parse failed"):
                 collect(http=object())
 
-        self.assertEqual(store_blob.call_count, 2)
+        self.assertEqual(store_blob.call_count, 1)
         partial_args = partial.call_args.args
-        self.assertEqual(partial_args[0], 43)
+        self.assertEqual(partial_args[0], 44)
         self.assertEqual(partial_args[1][0]["name"], COLLECT_ENDPOINT_LABEL)
-        self.assertIn("activeValidators", partial_args[1][0]["error"])
+        self.assertIn("epochId", partial_args[1][0]["error"])
         connection_cm.assert_not_called()
         bulk_upsert.assert_not_called()
         self.assertFalse(hasattr(fake_run, "_added"))
