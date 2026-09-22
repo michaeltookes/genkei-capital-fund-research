@@ -66,6 +66,14 @@ Recommended optional direction key:
 
 New decisions should include `action`. For legacy files without it, `/reflect-decisions` must first check the recommendation text: backfill obvious non-hold calls, treat missing action as `hold` only when the file is plainly a hold/maintain decision, and skip ambiguous cases for manual action tagging. For `sell`, `trim`, `avoid`, and `harvest_loss`, the reflection lens is inverted: asset underperformance is the intended directional outcome, not a lag.
 
+Optional scenario grading key:
+
+| key | type | values |
+|---|---|---|
+| `reflection_type` | string | `scenario_ladder` |
+
+Use `reflection_type: scenario_ladder` for a non-action research experiment whose outcome is a thesis/scenario question rather than portfolio alpha. Do not include `action` on these records. `/reflect-decisions` grades them against the ladder encoded in `trigger_reassessment` and the decision body (intraperiod targets, grade-date holds, drawdown path, terminal events) instead of computing action-aware decision alpha.
+
 Optional comparator override for rotations:
 
 | key | type | values |

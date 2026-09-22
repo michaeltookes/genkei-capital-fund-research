@@ -39,6 +39,7 @@ VALID_HORIZONS = {"weeks", "months", "years"}
 VALID_CONFIDENCES = {"low", "medium", "high"}
 VALID_STATUSES = {"pending", "inactive", "resolved", "deferred"}
 VALID_ACTIONS = {"buy", "add", "hold", "trim", "sell", "avoid", "harvest_loss"}
+VALID_REFLECTION_TYPES = {"scenario_ladder"}
 
 
 def _decision_files() -> list[Path]:
@@ -190,6 +191,31 @@ class DecisionFrontmatterContractTests(unittest.TestCase):
                     fm["action"],
                     VALID_ACTIONS,
                     f"{path.name}: `action` must be one of {sorted(VALID_ACTIONS)}",
+                )
+
+    def test_optional_reflection_type_is_valid_when_present(self) -> None:
+        for path in _decision_files():
+            with self.subTest(path=path.name):
+                fm = _parse_frontmatter(path)
+                if "reflection_type" not in fm:
+                    continue
+                self.assertIn(
+                    fm["reflection_type"],
+                    VALID_REFLECTION_TYPES,
+                    f"{path.name}: `reflection_type` must be one of "
+                    f"{sorted(VALID_REFLECTION_TYPES)}",
+                )
+
+    def test_scenario_ladder_records_do_not_carry_action(self) -> None:
+        for path in _decision_files():
+            with self.subTest(path=path.name):
+                fm = _parse_frontmatter(path)
+                if fm.get("reflection_type") != "scenario_ladder":
+                    continue
+                self.assertNotIn(
+                    "action",
+                    fm,
+                    f"{path.name}: scenario-ladder records are not position actions",
                 )
 
     def test_optional_reflection_benchmark_destination_basket_is_valid(self) -> None:

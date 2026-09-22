@@ -1,6 +1,6 @@
 # Reflect on Decisions
 
-The reflection cycle that turns the decision log from a write-only audit trail into a feedback loop. Walks `docs/research/decisions/` for entries past their horizon, pulls realized data, computes raw alpha plus action-aware decision alpha vs a benchmark, and appends an outcome + 2-3 sentence reflection to each entry.
+The reflection cycle that turns the decision log from a write-only audit trail into a feedback loop. Walks `docs/research/decisions/` for entries past their horizon, pulls realized data, computes raw alpha plus action-aware decision alpha vs a benchmark for action records, and appends an outcome + 2-3 sentence reflection to each entry. Non-action `reflection_type: scenario_ladder` records are graded against their stated scenario ladder instead of portfolio alpha.
 
 Loaded automatically by the `/reflect-decisions` skill. Run manually to start; wire to `/schedule` (weekly cadence is a reasonable starting point) once the cycle has been exercised a few times.
 
@@ -29,12 +29,13 @@ Walk `docs/research/decisions/*.md`. For each file:
 1. Parse the YAML frontmatter (between the `---` fences).
 2. Skip if `status: resolved` or `status: deferred` (terminal — already handled), or `status: inactive` (pre-execution / awaiting activation).
 3. Skip the template file `_template.md` and `README.md`.
-4. Read optional `action` frontmatter. If missing, inspect the decision's recommendation before queuing it: backfill an explicit action for any clear `buy`, `add`, `trim`, `sell`, `avoid`, or `harvest_loss` call and add the file to an `action_backfilled` list for the batch summary/commit; only treat missing action as legacy `hold` when the recommendation is plainly hold/maintain. If the direction is ambiguous, skip the file and report it for manual action tagging rather than grading it. Valid direction values are `buy`, `add`, `hold`, `trim`, `sell`, `avoid`, and `harvest_loss`.
-5. **Manual-exit P&L follow-up:** if `pnl_status: pending_missing_exit_inputs` is set, inspect the file's `exited_at` date and outcome note. If returned collateral value, final debt/carry, and realized net P&L are still missing, add the file to a `pnl_follow_up` list, leave `status: pending`, do not force a spot-price horizon grade, and skip remaining scan steps for this file. If those inputs have been supplied, resolve it with the actual leveraged-loop outcome: compute loop equity return from starting net equity to ending net equity over the actual `date` -> `exited_at` holding period, pull BTC over that same window, compute BTC benchmark return, raw alpha, and action-aware decision alpha, flip `status: resolved`, remove `pnl_status: pending_missing_exit_inputs` and `pnl_followup_reason` (or replace them with resolved P&L metadata), add it to a `pnl_resolved` list for the batch summary/commit, and skip remaining scan steps for this file.
-6. **Early-resolution check:** if `superseded_by` is set OR `trigger_fired_at` / `trigger_fired: true` is present — and the file is still `pending` — resolve it now (see "Early resolution beats the horizon math" above), add it to the `early_resolved` list for the batch summary/commit, and skip remaining steps for this file.
-7. Compute `elapsed_days = (today - frontmatter.date).days`.
-8. Skip if `elapsed_days < horizon_days` per the mapping above.
-9. Add the rest to the to-reflect queue.
+4. Read optional `reflection_type`. If it is `scenario_ladder`, treat the file as a non-action scenario record: do not require or backfill `action`, do not grade it on action-aware alpha, and queue it for scenario-ladder grading once it is horizon-eligible. If a scenario-ladder file also has `action`, stop and report the frontmatter conflict for manual repair rather than guessing.
+5. For ordinary action records, read optional `action` frontmatter. If missing, inspect the decision's recommendation before queuing it: backfill an explicit action for any clear `buy`, `add`, `trim`, `sell`, `avoid`, or `harvest_loss` call and add the file to an `action_backfilled` list for the batch summary/commit; only treat missing action as legacy `hold` when the recommendation is plainly hold/maintain. If the direction is ambiguous, skip the file and report it for manual action tagging rather than grading it. Valid direction values are `buy`, `add`, `hold`, `trim`, `sell`, `avoid`, and `harvest_loss`.
+6. **Manual-exit P&L follow-up:** if `pnl_status: pending_missing_exit_inputs` is set, inspect the file's `exited_at` date and outcome note. If returned collateral value, final debt/carry, and realized net P&L are still missing, add the file to a `pnl_follow_up` list, leave `status: pending`, do not force a spot-price horizon grade, and skip remaining scan steps for this file. If those inputs have been supplied, resolve it with the actual leveraged-loop outcome: compute loop equity return from starting net equity to ending net equity over the actual `date` -> `exited_at` holding period, pull BTC over that same window, compute BTC benchmark return, raw alpha, and action-aware decision alpha, flip `status: resolved`, remove `pnl_status: pending_missing_exit_inputs` and `pnl_followup_reason` (or replace them with resolved P&L metadata), add it to a `pnl_resolved` list for the batch summary/commit, and skip remaining scan steps for this file.
+7. **Early-resolution check:** if `superseded_by` is set OR `trigger_fired_at` / `trigger_fired: true` is present — and the file is still `pending` — resolve it now (see "Early resolution beats the horizon math" above), add it to the `early_resolved` list for the batch summary/commit, and skip remaining steps for this file.
+8. Compute `elapsed_days = (today - frontmatter.date).days`.
+9. Skip if `elapsed_days < horizon_days` per the mapping above.
+10. Add the rest to the to-reflect queue.
 
 If the queue is empty, `early_resolved` is empty, `pnl_resolved` is empty, `action_backfilled` is empty, and `pnl_follow_up` is empty, report "no decisions past their horizon" and stop. If `pnl_follow_up` has entries, report the missing P&L inputs in the batch summary so the nonterminal queue stays visible; if there are no file edits from `early_resolved`, `pnl_resolved`, or `action_backfilled`, stop without committing. If `early_resolved` or `action_backfilled` has entries, skip realized-data pulling and benchmark math for those files. If `pnl_resolved` has entries, keep the manual-exit branch's actual holding-period loop return and BTC benchmark math, but skip ordinary horizon-based outcome pairing for those files. Then continue to the summary/commit path so resolved files, P&L-resolved manual exits, and action-only frontmatter backfills are persisted.
 
@@ -62,6 +63,10 @@ If frontmatter includes `reflection_start`, treat it as the source of truth for 
 
 Before sleeve-specific asset handling, if frontmatter includes `reflection_subject.type: subject_basket`, pull each `reflection_subject.assets[].ticker` over the same date window with `--limit 1000`, compute the weighted basket return from `weight`, and use that as the subject/asset return. This is for any cohort decision whose actual recommendation is a weighted held exposure such as 50/50 ETH+SOL. Label the outcome with `reflection_subject.label` and defer rather than guess if any basket component lacks price data.
 
+### Scenario-ladder records
+
+If frontmatter includes `reflection_type: scenario_ladder`, skip the action-alpha path. Pull the asset price series from the decision date through today/grade date with `--limit 1000`, then evaluate the record against the ladder encoded in `trigger_reassessment` and the body: intraperiod high/low, grade-date close or latest close, maximum drawdown from peak, whether named thresholds printed intraperiod, whether grade-date hold conditions remained true, and whether any terminal event or thesis-failure line fired. Defer rather than invent missing market data. The outcome block should name the realized tier(s), not `Action`, `Raw alpha`, or `Decision alpha`.
+
 ### Equity decisions (`sleeve: equity-core` or any equity ticker)
 
 - Asset: `genkei prices --ticker <TICKER> --since <decision_date> --until <today> --limit 1000 --json` — equity tickers route to `yahoo.candles` automatically (B-092). The `price_usd` field is the split/dividend-adjusted close, which is the right input for the return calc.
@@ -85,6 +90,7 @@ Before sleeve-specific asset handling, if frontmatter includes `reflection_subje
 
 For equity / crypto decisions where you have prices:
 
+- **Scenario-ladder records:** compute the ladder facts directly (intraperiod high/low, latest/grade-date close, peak-to-trough drawdown, named threshold hits, hold/failure conditions) and classify the scenario as base / extension / mania tail / failure / unresolved, using the decision's own ladder language. Do not compute action-aware decision alpha.
 - **Asset / subject return:** `(price_today / starting_asset_price) - 1`, where `starting_asset_price` is `reflection_start.asset_price_usd` when present, otherwise `price_at_decision_date`; for `reflection_subject.type: subject_basket`, use the weighted component returns instead. Annualize if horizon > 1y by using `(1 + ret) ** (365/elapsed_days) - 1`.
 - **Benchmark return:** same calc, against SPY, BTC, or an explicit `reflection_benchmark` destination basket depending on sleeve and frontmatter. If `reflection_start.benchmark_prices` contains a matching ticker, use that explicit price as the benchmark component's starting price instead of the provider snapshot.
 - **Raw alpha:** `asset_return - benchmark_return`. This is always the asset's return minus benchmark return.
@@ -101,6 +107,21 @@ For macro decisions:
 ## Step 4 — Reflect (2-3 sentences)
 
 Append to the decision file's `## Outcome (filled in by /reflect-decisions)` section:
+
+For `reflection_type: scenario_ladder` records:
+
+```markdown
+## Outcome
+
+- **Resolved:** YYYY-MM-DD (reflection ran at scenario horizon)
+- **Reflection type:** scenario_ladder
+- **Realized tier:** base | extension | mania tail | ETH-flip tail | failure | unresolved/mixed
+- **Observed path:** intraperiod high/low, latest or grade-date close, peak-to-trough drawdown, and named threshold hits.
+- **Trigger-condition status:** fired on YYYY-MM-DD | not fired
+- **Reflection:** [2-3 sentences. Which scenario assumption was right or wrong? Did the ladder separate path vs terminal outcome cleanly? What should future scenario records encode better?]
+```
+
+For action records:
 
 ```markdown
 ## Outcome
