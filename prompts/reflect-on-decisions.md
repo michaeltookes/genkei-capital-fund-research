@@ -91,7 +91,7 @@ If frontmatter includes `reflection_type: scenario_ladder`, skip the action-alph
 
 For `reflection_type: scenario_ladder` records:
 
-- **Scenario-ladder records:** compute the ladder facts directly using only OHLC observations through `grade_date` or the earlier dated terminal trigger: intraperiod high/low, grade-date or trigger-date close, peak-to-trough drawdown, named threshold hits, hold/failure conditions, and required non-price evidence from the named data sources. Classify the scenario as base / extension / mania tail / ETH-flip tail / failure / unresolved using the decision's own ladder language. Do not compute action-aware decision alpha.
+- **Scenario-ladder facts:** compute the ladder facts directly using only OHLC observations through `grade_date` or the earlier dated terminal trigger: intraperiod high/low, grade-date or trigger-date close, peak-to-trough drawdown, named threshold hits, hold/failure conditions, and required non-price evidence from the named data sources. Classify the scenario as base / extension / mania tail / ETH-flip tail / failure / unresolved using the decision's own ladder language. Do not compute action returns, action-aware decision alpha, or action-record confidence calibration.
 - **Scenario confidence calibration:** compare the original confidence and stated probability ladder with the realized tier, not decision alpha. A low-probability tail realization is an underconfidence/right-tail miss; a terminal failure or base-case retrace against a high-confidence extension/mania thesis is overconfidence; a medium-confidence ladder that lands in its largest probability bucket is calibrated.
 
 For action records where you have prices:
