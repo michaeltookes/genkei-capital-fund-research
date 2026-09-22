@@ -241,6 +241,49 @@ class DecisionFrontmatterContractTests(unittest.TestCase):
                     f"{path.name}: `grade_date` must not precede `date`",
                 )
 
+    def test_optional_scenario_window_start_is_valid(self) -> None:
+        for path in _decision_files():
+            with self.subTest(path=path.name):
+                fm = _parse_frontmatter(path)
+                if "scenario_window_start" not in fm:
+                    continue
+                self.assertEqual(
+                    fm.get("reflection_type"),
+                    "scenario_ladder",
+                    f"{path.name}: `scenario_window_start` only applies to "
+                    "scenario-ladder records",
+                )
+                window_start = fm.get("scenario_window_start")
+                self.assertIsInstance(
+                    window_start,
+                    date,
+                    f"{path.name}: `scenario_window_start` must be a date",
+                )
+                self.assertNotIsInstance(
+                    window_start,
+                    datetime,
+                    f"{path.name}: `scenario_window_start` must be date-only",
+                )
+                if isinstance(window_start, date) and not isinstance(
+                    window_start, datetime
+                ):
+                    self.assertGreaterEqual(
+                        window_start,
+                        fm["date"],
+                        f"{path.name}: `scenario_window_start` must not precede "
+                        "`date`",
+                    )
+                    grade_date = fm.get("grade_date")
+                    if isinstance(grade_date, date) and not isinstance(
+                        grade_date, datetime
+                    ):
+                        self.assertLessEqual(
+                            window_start,
+                            grade_date,
+                            f"{path.name}: `scenario_window_start` must not be "
+                            "after `grade_date`",
+                        )
+
     def test_optional_reflection_benchmark_destination_basket_is_valid(self) -> None:
         for path in _decision_files():
             with self.subTest(path=path.name):
