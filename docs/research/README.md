@@ -106,7 +106,7 @@ A decision normally resolves at its horizon. Two events resolve it *early*, and 
 
 - Add `trigger_fired_at: YYYY-MM-DD` (date-only) to the old decision recording when the condition tripped.
 - File a new decision for the action taken; link the two (`supersedes:`/`superseded_by:` if it replaces the call, or `related:` if it merely refines it).
-- `/reflect-decisions` excludes a decision whose trigger fired before horizon from *horizon* outcome-pairing — the trigger path already handled it — and resolves it with a forward-link instead of grading it on a benchmark it was never held to.
+- `/reflect-decisions` excludes an ordinary action decision whose trigger fired before horizon from *horizon* outcome-pairing — the trigger path already handled it — and resolves it with a forward-link instead of grading it on a benchmark it was never held to. For `reflection_type: scenario_ladder`, a terminal trigger is different: it is graded immediately as the ladder outcome it realized, capped at `trigger_fired_at`, so the experiment records `failure` or the relevant terminal tier rather than only a forward-link.
 
 The two often co-occur: the 2026-05-20 SUI decision's bearish trigger fired on 2026-06-02 (a −20.7% move), and the 2026-06-02 rotation decision both records that fire and supersedes it.
 
