@@ -71,8 +71,9 @@ Optional scenario grading key:
 | key | type | values |
 |---|---|---|
 | `reflection_type` | string | `scenario_ladder` |
+| `grade_date` | ISO date | `2027-09-20` |
 
-Use `reflection_type: scenario_ladder` for a non-action research experiment whose outcome is a thesis/scenario question rather than portfolio alpha. Do not include `action` on these records. `/reflect-decisions` grades them against the ladder encoded in `trigger_reassessment` and the decision body (intraperiod targets, grade-date holds, drawdown path, terminal events) instead of computing action-aware decision alpha.
+Use `reflection_type: scenario_ladder` for a non-action research experiment whose outcome is a thesis/scenario question rather than portfolio alpha. Do not include `action` on these records, and include a date-only `grade_date`. `/reflect-decisions` grades them against the ladder encoded in `trigger_reassessment` and the decision body (intraperiod targets, grade-date holds, drawdown path, terminal events) instead of computing action-aware decision alpha. All market and non-price evidence is capped at `grade_date`, even if reflection runs later.
 
 Optional comparator override for rotations:
 

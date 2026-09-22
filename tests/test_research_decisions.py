@@ -218,6 +218,29 @@ class DecisionFrontmatterContractTests(unittest.TestCase):
                     f"{path.name}: scenario-ladder records are not position actions",
                 )
 
+    def test_scenario_ladder_records_have_grade_date(self) -> None:
+        for path in _decision_files():
+            with self.subTest(path=path.name):
+                fm = _parse_frontmatter(path)
+                if fm.get("reflection_type") != "scenario_ladder":
+                    continue
+                grade_date = fm.get("grade_date")
+                self.assertIsInstance(
+                    grade_date,
+                    date,
+                    f"{path.name}: scenario-ladder records need `grade_date`",
+                )
+                self.assertNotIsInstance(
+                    grade_date,
+                    datetime,
+                    f"{path.name}: `grade_date` must be date-only",
+                )
+                self.assertGreaterEqual(
+                    grade_date,
+                    fm["date"],
+                    f"{path.name}: `grade_date` must not precede `date`",
+                )
+
     def test_optional_reflection_benchmark_destination_basket_is_valid(self) -> None:
         for path in _decision_files():
             with self.subTest(path=path.name):

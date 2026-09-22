@@ -4,6 +4,7 @@ asset: ZEC
 sleeve: crypto-core
 horizon: years
 reflection_type: scenario_ladder
+grade_date: 2027-09-20
 confidence: medium
 status: pending
 trigger_reassessment: "This file grades the CYCLE-ANALOG read, not the position (sizing discipline lives in 2026-09-17-zec-position-sizing-reassessment and is unchanged by this session). Grade at 2027-09-20 (or earlier on a terminal event) against the scenario ladder: BASE (~50%) — the run tops out in the $1,600–3,500 band (launch-anomaly ATH $3,192 = the magnitude-analog completion) and gives back 50%+ from its peak within the year, per every prior ZEC cycle and the month-22 halving-clock read; EXTENSION (~30%) — ZCSH flows persist / a second issuer files a spot ZEC ETF / shielded supply grows past ~5.5M ZEC, and ZEC holds a SOL-scale market cap ($55B+, ~$3,200+) at grade date; MANIA TAIL (~15%) — ETF complex reaches multi-billion AUM and ZEC prints $10K (~$170B mcap, 2.7x SOL / half of ETH today) at any point in the window; ETH-FLIP TAIL (<5%) — $20K (~$340B+, passing today's entire ETH cap). Also record which correction path realized: BTC-2017 template implies repeated 29–40% shakeouts (at least one taking price below ~$1,000) WITHOUT breaking the run structure — a close below the ~$484 August base remains the thesis-failure line from the 9/17 file."
