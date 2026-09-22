@@ -72,8 +72,10 @@ Optional scenario grading key:
 |---|---|---|
 | `reflection_type` | string | `scenario_ladder` |
 | `grade_date` | ISO date | `2027-09-20` |
+| `scenario_status` | string | `pending_missing_evidence` |
+| `scenario_followup_reason` | string | Missing load-bearing evidence to retry |
 
-Use `reflection_type: scenario_ladder` for a non-action research experiment whose outcome is a thesis/scenario question rather than portfolio alpha. Do not include `action` on these records, and include a date-only `grade_date`. `/reflect-decisions` grades them against the ladder encoded in `trigger_reassessment` and the decision body (intraperiod targets, grade-date holds, drawdown path, terminal events) instead of computing action-aware decision alpha. Market evidence must use completed OHLC observations when thresholds or drawdowns depend on intraperiod prints, and all market and non-price evidence is capped at `grade_date`, even if reflection runs later.
+Use `reflection_type: scenario_ladder` for a non-action research experiment whose outcome is a thesis/scenario question rather than portfolio alpha. Do not include `action` on these records, and include a date-only `grade_date`. `/reflect-decisions` grades them against the ladder encoded in `trigger_reassessment` and the decision body (intraperiod targets, grade-date holds, drawdown path, terminal events) instead of computing action-aware decision alpha. Market evidence must use completed OHLC observations when thresholds or drawdowns depend on intraperiod prints, and all market and non-price evidence is capped at `grade_date`, even if reflection runs later. If load-bearing scenario evidence is expected but not yet published after `grade_date` (for example a quarterly filing), keep `status: pending` and add `scenario_status: pending_missing_evidence` plus `scenario_followup_reason`; do not use terminal `status: deferred` for evidence that should become available on a later run.
 
 Optional comparator override for rotations:
 
