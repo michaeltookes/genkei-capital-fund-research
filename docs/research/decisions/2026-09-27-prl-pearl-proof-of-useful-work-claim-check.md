@@ -7,6 +7,16 @@ action: hold
 confidence: medium
 status: pending
 trigger_reassessment: "Grade the existing small speculative stake vs BTC over the horizon. REOPEN before then if any of these fire: (a) VALIDATION — Pearl ships a compute marketplace / on-chain job contracts AND an independent measurement (not a Pearl or partner blog) shows a non-trivial share of mainnet blocks (>=10%) won on customer-supplied matrices, i.e. the 'useful' in proof-of-useful-work becomes measurable rather than optional; (b) DISTRIBUTION — a Tier-1 CEX (Coinbase, Kraken, Binance) lists PEARL RESEARCH LABS' native PRL — verify it is not Perle (the different 'PRL' already on Coinbase's roadmap) or a Base/Ethereum wrapper; (c) FAILURE — PRL closes below $0.85 (the 2026-09-21 breakout base) on daily CoinGecko close, or a >50% drawdown from the 2026-09-23 ATH of $1.76, in which case the influencer-driven rally has failed and the option is repriced — hold or harvest the loss, do not average down; (d) SECURITY — any chain reorg / 51% incident, or a third consensus hard fork in a quarter — exit the stake. Explicitly NOT reopen signals: further price appreciation, influencer posts, new 'backed by' claims without a primary source, or Pearl/partner blog posts announcing endpoints (the Together AI endpoint was announced and is now offline)."
+reflection_start:
+  date: 2026-09-27
+  asset_price_usd: 1.50
+  asset_price_source: Michael's execution fill (native PRL, $200 notional, ~133.3 PRL)
+  benchmark_prices:
+    - ticker: BTC
+      price_usd: 84872.45
+      source: lake coingecko.market_data 2026-09-27T06:43:40-05:00 snapshot
+      provisional: true
+      note: Nearest lake print to the fill; intraday fill time not recorded, so the same-day snapshot stands in.
 related:
   - decision: 2026-09-20-zec-btc-2016-analog-assessment
   - decision: 2026-09-22-sui-agentic-payments-pal-thesis
@@ -74,7 +84,7 @@ Per the methodology: both backer tips contribute **zero information**. The techn
 
 **Action: HOLD the existing small speculative stake as that option. Do NOT add at current prices.** Sleeve: crypto-tactical. Horizon: months. Confidence: **medium** — high on the claim-check (every load-bearing fact above is primary-sourced), medium on the hold-vs-sell because a Tier-1 listing or a marketplace launch could re-rate this violently and the desk cannot time either. Per Michael's standing instruction to pair a discipline size with a conviction size: **discipline size** = what is already held, capped at ≤1% of the crypto book, treated as fully-at-risk; **conviction size** = if trigger (a) fires — marketplace live *and* an independent measurement shows ≥10% of blocks on customer-supplied matrices — scale to a normal tactical-sleeve starting unit (comparable to the PYTH/RENDER initial sizes) *regardless of price*, because at that point the coin's thesis is true and the market will not have priced it. A *price*-only add (e.g. a retest of the $0.85 breakout base) is **not** a conviction add; it is a smaller lottery ticket and should be sized as such, if at all. **Top risks:** (1) the rally fails and the 88% unmined supply grinds price back toward miner breakeven (~$0.46–0.77 per the June study, lower now with hashrate 2.5× higher); (2) a consensus exploit or reorg on a five-month-old hardness assumption; (3) Michael is holding a wrapper or Base imposter rather than native PRL. **Reassessment triggers** are in frontmatter — validation (marketplace + measured usefulness), distribution (Tier-1 listing of Pearl's PRL, not Perle), failure ($0.85 daily close or −50% from ATH), security (reorg / third hard fork).
 
-**Two follow-ups for Michael, neither blocking:** (1) confirm the position is native PRL and send fill date, quantity, and price so `reflection_start` can be added to this file for an exact baseline (default baseline otherwise: 2026-09-27, PRL $1.71 CoinGecko, BTC $84,872 lake); (2) decide whether to add `pearl-2` to the CoinGecko watchlist so the reflection cycle can grade this automatically.
+**Position record (confirmed by Michael in-session):** native PRL, **$200 at $1.50 on 2026-09-27** (~133.3 PRL) — recorded in `reflection_start` as the grading baseline, with the lake's same-day BTC print ($84,872) as the benchmark mark. At $1.71 the stake is already +14% on the fill; that changes nothing above — the option is fully at risk and the failure line ($0.85 daily close) sits 43% below the fill. **One open follow-up:** decide whether to add `pearl-2` to the CoinGecko watchlist so the reflection cycle can grade this automatically (logged in `docs/research-questions.md`).
 
 ---
 
