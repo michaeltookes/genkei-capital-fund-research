@@ -21,6 +21,11 @@ Newest entries on top. One entry per question:
 
 ## Log
 
+### 2026-09-27 — Add Pearl (PRL, CoinGecko id `pearl-2`) to lake coverage so the PRL decision can be reflected automatically?
+- **status:** open
+- **context:** Surfaced in the `2026-09-27-prl-pearl-proof-of-useful-work-claim-check` session (action: hold, small speculative stake already held). PRL is off-lake — no price, news, or on-chain ingest — so every number in that file is external-cited and `/reflect-decisions` cannot pull a realized price for it. A secondary-tier crypto watchlist entry (`pearl-2`) would fix that at near-zero cost; the counter-argument is that the desk should not extend coverage to every lottery ticket Michael holds. Michael's call. Separately worth a later look: whether Pearl ships the compute marketplace (the file's validation trigger) — check `pearlresearch.ai/research` and the GitHub releases page quarterly.
+- **outcome:**
+
 ### 2026-09-17 — Robinhood Chain post-subsidy durability + first chain-revenue disclosure (Q3 earnings, late Oct)
 - **status:** open
 - **context:** Surfaced in the `2026-09-17-hood-equity-core-assessment` session (action: avoid, on watch). The chain's 90-day gas subsidy expires ~2026-09-29 and Q3 earnings (~late Oct) are the first report that could disclose chain/sequencer revenue at all. Re-underwrite inputs per the decision's trigger: post-subsidy stablecoin supply + tokenized-stock AUM trajectory (NOT Pons fee prints — Pons is third-party and its fees are not HOOD revenue; correction recorded in the decision file), disclosed chain revenue ≥ ~$25M/quarter, tokenized-equity restructuring under the SEC's 2026-09-17 Innovation Exemption, and prediction-market litigation milestones. Also feeds the UNI file's Robinhood-derived fee-mix veto checks and the PUMP file's Pons-duopoly activation math.
