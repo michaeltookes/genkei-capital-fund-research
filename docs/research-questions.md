@@ -38,7 +38,8 @@ Newest entries on top. One entry per question:
 - **outcome:**
 
 ### 2026-09-06 — Revisit inactive PUMP staged-buy entry on 2026-12-31 if no entry fires
-- **status:** open
+- **status:** resolved
+- **outcome:** Superseded 2026-10-01 by `2026-10-01-pump-vs-pyth-comparative-buy` after the 9/06 file's breakout clause fired (close > $0.0053 on 9/29 with pump.fun back in the fee lead). The successor is also `inactive` (activates on Michael's first fill) and carries its own 2026-12-31 no-entry expiry — apply this reminder to that file instead.
 - **context:** The `2026-09-06-pump-fun-buyback-assessment` record is `status: inactive` and expires if neither activation branch fires by 2026-12-31, but `/reflect-decisions` intentionally skips inactive files before horizon checks. On or after 2026-12-31, manually check whether the Pons-absorption or washout entry activated; if not, flip the decision to `resolved` with a no-entry note so it cannot linger as a stale open order.
 - **outcome:**
 
