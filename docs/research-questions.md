@@ -27,7 +27,8 @@ Newest entries on top. One entry per question:
 - **outcome:**
 
 ### 2026-09-17 — Pyth September monthly report (~early Oct): did buybacks inflect up with cash visibly routing to the DAO?
-- **status:** open
+- **status:** resolved
+- **outcome:** YES, decisively — the September purchases report (posted 2026-10-01) shows 2.58M PYTH bought on $161.7K USDC vs 0.67M / $25.7K in August, mechanically caused by Douro Labs' $433,740 August revenue remittance to the DAO treasury; Reserve V2 (OP-PIP-136, passed 9/24) now routes 100% of the DAO revenue share to monthly purchases. The churn leg (post-paywall cash, Douro's September report ~Oct 8) is still open and is carried as a trigger in `2026-10-01-pyth-reentry-trigger-fired-reserve-v2` (action: add, staged). Note the swap this question references was never executed — Michael held.
 - **context:** Surfaced in the `2026-09-17-pyth-checkpoint-swap-to-sol` session, which executed the swap with the paywall-enforcement caveat open (Hermes enforcement began 2026-08-26, so the decisive conversion cohort reports after the Sept 30 checkpoint). Re-entry criteria (from the decision's trigger): on-chain Reserve purchases at forum.pyth.network inflect decisively above the 0.67M-PYTH August print *because* subscription cash visibly reaches the DAO treasury, AND post-enforcement conversion holds with disclosed churn. ARR blog headlines alone do not qualify. Any re-entry from ~Dec 2026 must price the 2027-05-19 cliff (+27% of circulating).
 - **outcome:**
 
