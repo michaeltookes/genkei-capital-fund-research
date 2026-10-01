@@ -22,7 +22,8 @@ Newest entries on top. One entry per question:
 ## Log
 
 ### 2026-09-27 — Add Pearl (PRL, CoinGecko id `pearl-2`) to lake coverage so the PRL decision can be reflected automatically?
-- **status:** open
+- **status:** resolved
+- **outcome:** Michael said yes on 2026-10-01; PRL added to `crypto.secondary` (tactical sleeve, no coinbase_product, curated gdelt_terms) in the same branch as the decision. First rows land with the next scheduled CoinGecko run; no history backfill (the project is five months old and the decision baseline is pinned in `reflection_start`). The quarterly marketplace check remains a manual look at `pearlresearch.ai/research` + GitHub releases.
 - **context:** Surfaced in the `2026-09-27-prl-pearl-proof-of-useful-work-claim-check` session (action: hold, small speculative stake already held). PRL is off-lake — no price, news, or on-chain ingest — so every number in that file is external-cited and `/reflect-decisions` cannot pull a realized price for it. A secondary-tier crypto watchlist entry (`pearl-2`) would fix that at near-zero cost; the counter-argument is that the desk should not extend coverage to every lottery ticket Michael holds. Michael's call. Separately worth a later look: whether Pearl ships the compute marketplace (the file's validation trigger) — check `pearlresearch.ai/research` and the GitHub releases page quarterly.
 - **outcome:**
 
