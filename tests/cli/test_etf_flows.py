@@ -60,14 +60,15 @@ class ResolveAssetTests(unittest.TestCase):
             _resolve_asset("")
 
     def test_alias_set_is_finite_and_lowercase(self) -> None:
-        """Alias table keys stay lowercase and mapped only to BTC/ETH/ZEC."""
+        """Alias table keys stay lowercase and mapped only to BTC/ETH/ZEC/NEAR."""
         # Defensive pin: aliases must be lowercase so _resolve_asset's
         # `.strip().lower()` lookup works. A future contributor adding
         # `"Bitcoin": "BTC"` (mixed case) would silently break.
         for key in _ASSET_ALIASES:
             self.assertEqual(key, key.lower(), f"alias key {key!r} must be lowercase")
-        # Pin the supported targets (BTC/ETH from B-105; ZEC from B-146).
-        self.assertEqual(set(_ASSET_ALIASES.values()), {"BTC", "ETH", "ZEC"})
+        # Pin the supported targets (BTC/ETH from B-105; ZEC from B-146;
+        # NEAR from the 2026-10-06 NEAR decision file / Bitwise NRR).
+        self.assertEqual(set(_ASSET_ALIASES.values()), {"BTC", "ETH", "ZEC", "NEAR"})
 
 
 class HorizonTagTests(unittest.TestCase):

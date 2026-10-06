@@ -141,6 +141,28 @@ crypto:
       ecosystem: Solana
       sleeve: tactical
       rationale: Compute marketplace; AI-adjacent narrative; recently migrated to Solana.
+    # Added 2026-10-06 with the `2026-10-06-near-ai-chain-l1-assessment`
+    # decision (staged buy; Michael has a resting $5.00 limit). CoinGecko id
+    # is `near` (not `near-protocol`). Bare "NEAR"/"Near" is an English word
+    # ("near-term", "nearly"), so the GDELT terms are scoped to the network,
+    # its co-founder, and the Intents product that carries the revenue thesis.
+    - symbol: NEAR
+      name: NEAR Protocol
+      coingecko_id: near
+      coinbase_product: NEAR-USD
+      gdelt_terms:
+        - NEAR Protocol
+        - NEAR Intents
+        - NEAR Foundation
+        - Illia Polosukhin
+      ecosystem: NEAR
+      sleeve: tactical
+      rationale: >-
+        Intents cross-chain swap/privacy rail with a fee switch routing ~25% of
+        gross fees to NEAR buybacks; first US staked NEAR ETF (NRR) 2026-09-29.
+        Secondary-tier coverage so momentum, signals, news and reflection can
+        track the staged-entry triggers (Intents volume, capture share,
+        inflation-cut vote). Not an "AI chain" bet — see the decision file.
 
 # Price-only CoinGecko targets.
 #
@@ -1103,6 +1125,22 @@ etf_tickers:
       private Grayscale Zcash Trust). Marginal structural bid behind the ZEC
       crypto-core position; daily source Vercel-walled, so quarterly AUM/shares
       via SEC XBRL (B-146).
+  # Spot NEAR ETF — first US spot NEAR ETP, stakes in-house (~5% target
+  # yield, 0.75% fee). Added 2026-10-06 with the NEAR decision file: the
+  # ETF's flow is one of that file's reassessment inputs. Yahoo OHLCV covers
+  # dollar-volume from launch; the Bitwise daily collector soft-skips NRR
+  # until a product URL is pinned in `ingest/bitwise.py` PRODUCT_URLS; the
+  # CIK enables the quarterly SEC-XBRL shares/AUM path meanwhile.
+  - ticker: NRR
+    name: Bitwise NEAR ETF
+    asset: NEAR
+    issuer: Bitwise
+    launch_date: 2026-09-29
+    sleeve: tactical
+    cik: "0002067111"
+    rationale: >-
+      First US spot NEAR ETF (NYSE Arca 2026-09-29), staked; $35.5M day-one
+      inflow. Structural bid behind the NEAR crypto-tactical staged entry.
 
 
 # B-106 — curated ETH wallets we snapshot daily for whale-flow tracking.
