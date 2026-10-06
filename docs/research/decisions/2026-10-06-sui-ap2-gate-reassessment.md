@@ -7,7 +7,7 @@ action: avoid
 confidence: medium
 status: pending
 supersedes: 2026-09-22-sui-agentic-payments-pal-thesis
-trigger_reassessment: "Grade vs BTC over months. The original Google AP2 naming gate is satisfied and processed here; the inherited August ETF trigger is retired from this agent-payments assessment after considering the existing ETF and flow evidence below. Reassess again on material new first-party evidence of a live Sui agent-payment deployment with attributable usage and operational reliability; sustained Sui stablecoin supply above $1.5B; >=5% of adjusted economic x402 payment volume in independent data disclosing window, chain coverage, independent-payer attribution and exclusions for self-funded, test, incentive and linked-cluster traffic. Repetition of the already-assessed AP2 announcement or February ETF evidence is not new evidence."
+trigger_reassessment: "Grade vs BTC over months. The original Google AP2 naming gate is satisfied and processed here; Beep's November 2025 public-beta launch is also assessed as deployment evidence; the inherited August ETF trigger is retired from this agent-payments assessment after considering the existing ETF and flow evidence below. Reassess again on material new first-party evidence of a live Sui agent-payment deployment with attributable usage and operational reliability; sustained Sui stablecoin supply above $1.5B; >=5% of adjusted economic x402 payment volume in independent data disclosing window, chain coverage, independent-payer attribution and exclusions for self-funded, test, incentive and linked-cluster traffic. Repetition of the already-assessed AP2 announcement, Beep launch or February ETF evidence is not new evidence."
 related:
   - decision: 2026-09-22-sui-agentic-payments-pal-thesis
   - decision: 2026-08-05-sui-ecosystem-thesis-exit
@@ -21,6 +21,10 @@ related:
 The September 22 decision explicitly required reopening if Google named Mysten/Sui in its own AP2 partner materials. [Google's September 16, 2025 announcement](https://cloud.google.com/blog/products/ai-machine-learning/announcing-agents-to-payments-ap2-protocol) does so: it lists Mysten Labs as a collaborator and publishes a Mysten statement naming Sui. The condition was already satisfied when the decision was written; October 6 is the date this review recognized the error. This reassessment honors that original threshold. Production usage was not a requirement of that naming gate.
 
 The announcement strengthens the case for Sui's participation in agent-payment standards. However, a partner's statement published by Google does not quantify live Sui payments, independent payers or deployment reliability. It establishes participation without establishing the stronger thesis that agents will preferentially choose Sui.
+
+## Beep deployment evidence
+
+[Sui's November 6, 2025 Beep announcement](https://www.sui.io/blog/beep-agentic-economy-launch) reports a public beta offering consumers USDC payments, an agentic-payment SDK and a402 support, with Sui as the exclusive blockchain partner. This is stronger deployment evidence than the AP2 collaborator statement: a named commercial partner and a live application were already announced before the September decision. The announcement does not quantify independent agent payers, attributable payment volume or sustained operational reliability. It corrects the earlier deployment gap without establishing adoption at scale or comparative performance; this review has not independently tested the application.
 
 ## Inherited ETF trigger correction
 
@@ -38,7 +42,9 @@ The transfer-fee correction also narrows the economic claim: [Solana's guide](ht
 
 **Action: avoid, retained after reassessment.** The AP2 naming evidence improves the partnership case and satisfies the old reopen gate; reopening an assessment does not automatically require buying. The cited evidence still does not establish attributable production agent-payment adoption or comparative reliability sufficient to reverse the agentic-payments avoid call. The ETF evidence improves the institutional-demand case but does not fill those agent-payment evidence gaps. This is a scoped agent-payments assessment, not a fresh validation of the August portfolio exit; portfolio execution and its other ecosystem criteria have not been refreshed.
 
-The new trigger above looks for progress beyond the participation evidence already processed here. It applies prospectively and does not retroactively raise the old gate. The prior September call is closed by supersession; this reassessed call is pending over its own months horizon against BTC.
+Beep strengthens the deployment case and removes the premise that no live partner application exists. The remaining gap is measured agent usage and reliability, rather than the existence of an integration. The retained avoid assessment weighs that stronger evidence alongside the unresolved attribution and reliability concerns above.
+
+The new trigger above looks for progress beyond the AP2 participation and Beep deployment evidence already processed here. It applies prospectively and does not retroactively raise the old gate. The prior September call is closed by supersession; this reassessed call is pending over its own months horizon against BTC.
 
 ## Outcome (filled in by /reflect-decisions)
 
