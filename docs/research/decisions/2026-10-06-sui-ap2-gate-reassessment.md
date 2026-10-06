@@ -38,6 +38,8 @@ The corrected [September evidence record](2026-09-22-sui-agentic-payments-pal-th
 
 The transfer-fee correction also narrows the economic claim: [Solana's guide](https://solana.com/docs/payments/how-payments-work) estimates ~$0.0007 base fees and under $0.001 for most ordinary transfers to existing token accounts. Optional priority fees and SOL's USD price vary. New-account storage deposits are separate and [recoverable upon authorized closure](https://solana.com/docs/tokens/basics/close-account); they are not recurring fees. Zero-fee transfers may matter for frequent tiny payments, but the advantage alone does not demonstrate adoption.
 
+Zero-fee stablecoin transfers are also not unique to Sui: [Plasma's September 2025 beta announcement](https://www.plasma.org/company/blog/plasma-mainnet-beta-and-xpl) includes zero-fee USDT transfers, initially limited to its own products. That competing offering narrows Sui's differentiation without establishing equal architecture, agent access or adoption. The retained avoid call does not rely on Sui having an exclusive zero-fee capability.
+
 ## Conclusion
 
 **Action: avoid, retained after reassessment.** The AP2 naming evidence improves the partnership case and satisfies the old reopen gate; reopening an assessment does not automatically require buying. The cited evidence still does not establish attributable production agent-payment adoption or comparative reliability sufficient to reverse the agentic-payments avoid call. The ETF evidence improves the institutional-demand case but does not fill those agent-payment evidence gaps. This is a scoped agent-payments assessment, not a fresh validation of the August portfolio exit; portfolio execution and its other ecosystem criteria have not been refreshed.
