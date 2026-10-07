@@ -142,7 +142,7 @@ crypto:
       sleeve: tactical
       rationale: Compute marketplace; AI-adjacent narrative; recently migrated to Solana.
     # Added 2026-10-06 with the `2026-10-06-near-ai-chain-l1-assessment`
-    # decision (staged buy; Michael has a resting $5.00 limit). CoinGecko id
+    # decision (staged buy; quarter starter filled $5.10 2026-10-06). CoinGecko id
     # is `near` (not `near-protocol`). Bare "NEAR"/"Near" is an English word
     # ("near-term", "nearly"), so the GDELT terms are scoped to the network,
     # its co-founder, and the Intents product that carries the revenue thesis.
@@ -163,6 +163,30 @@ crypto:
         Secondary-tier coverage so momentum, signals, news and reflection can
         track the staged-entry triggers (Intents volume, capture share,
         inflation-cut vote). Not an "AI chain" bet — see the decision file.
+    # PRL (Pearl Research Labs). coingecko_id is `pearl-2` — the bare `pearl`
+    # id and the `perle` id are unrelated tokens, and Coinbase's "PRL" roadmap
+    # item is Perle, not this project. No coinbase_product: PRL trades only on
+    # SafeTrade / BigONE / CoinEx (no Tier-1 venue as of 2026-10-01), so price
+    # comes from CoinGecko only. Bare "Pearl" is a common noun (jewelry, names,
+    # "Pearl Harbor"); "Pearl Research" also names an unrelated consultancy.
+    # Curated multi-word terms anchor GDELT matching on the project.
+    # Added per the 2026-09-27 PRL decision file so /reflect-decisions
+    # can pull a realized price; small speculative position held.
+    - symbol: PRL
+      name: Pearl
+      coingecko_id: pearl-2
+      gdelt_terms:
+        - Pearl Research Labs
+        - Pearl blockchain
+      ecosystem: Pearl
+      sleeve: tactical
+      rationale: >-
+        GPU-mined, Bitcoin-lineage proof-of-useful-work L1 with real academic
+        pedigree and a documented paid inference platform (platform.pearlresearch.ai/docs);
+        its network-wide useful-mining share remains independently unverified
+        as of Oct 2026. Held as a small speculative option; secondary-tier coverage
+        so the reflection cycle and news layer can track the decision's triggers
+        (independently validated useful mining, Tier-1 listing, $0.85 failure line).
 
 # Price-only CoinGecko targets.
 #
