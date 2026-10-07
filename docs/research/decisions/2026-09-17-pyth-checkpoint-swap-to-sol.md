@@ -13,7 +13,6 @@ reflection_benchmark:
 confidence: medium
 status: resolved
 superseded_by: 2026-10-01-pyth-reentry-trigger-fired-reserve-v2
-trigger_fired_at: 2026-10-01
 supersedes: 2026-07-26-pyth-hold-through-core-upgrade
 trigger_reassessment: "RE-ENTRY (new session required, not a standing order): if the Pyth September monthly report (~early Oct 2026) or any later month shows Reserve buyback spend inflecting decisively UP (on-chain purchase reports at forum.pyth.network — the June/July/Aug run-rate was 1.80M/1.14M/0.67M PYTH) *because subscription cash is visibly routing to the DAO treasury*, AND post-enforcement (Aug 26 paywall) conversion holds with disclosed churn, re-run the assessment — the mechanism working would revive the original thesis at whatever the price then is. Do NOT re-enter on ARR blog headlines alone; the on-chain buyback series is the only acceptable evidence. Any re-entry sized after ~2026-12 must price the 2027-05-19 cliff (~2.13B tokens, +27% of circulating)."
 related:
@@ -81,7 +80,7 @@ Lake tape (2026-09-17): PYTH $0.0547, mcap $431M, +6.0%/7d, +42%/30d, +52%/90d v
 
 ## Outcome (filled in by /reflect-decisions)
 
-- **Resolved:** 2026-10-01 (early — re-entry trigger fired, not horizon-paired)
+- **Resolved:** 2026-10-01 (early discretionary supersession, not a trigger fire or horizon-paired outcome)
 - **Superseded by:** 2026-10-01-pyth-reentry-trigger-fired-reserve-v2
-- **Trigger fired:** 2026-10-01 — the September purchases report showed Reserve buybacks of 2.58M PYTH ($161.7K USDC) vs August's 0.67M ($25.7K), caused by the $433,740 August revenue remittance from Douro Labs landing in the DAO treasury; Reserve V2 (OP-PIP-136, passed 9/24) now routes 100% of the DAO revenue share to monthly purchases. The successor file carries the staged add and the reflection.
+- **Trigger status:** not fired. September purchases rebounded to 2.58M PYTH from 0.67M in August, and Douro documented a DAO remittance, but post-enforcement conversion with disclosed churn remains unobserved. The conjunctive condition is unmet. The successor records a discretionary staged-add assessment and distinguishes the initial V2 treasury conversion from optional future revenue allocations.
 - **Execution note:** the swap was **never executed** — Michael held PYTH. This is a paper call; no destination-basket alpha is computed. For the record, PYTH $0.0554 → $0.0772 (+39.4%) vs SOL +16.2% over 9/17 → 10/01, so the swap would have cost ~23 pp in two weeks. The central mechanism claim ("flywheel not visibly spinning on-chain") was wrong within fourteen days for a reason this file's own Phase B named and dismissed; the calibration lesson is logged in the successor.

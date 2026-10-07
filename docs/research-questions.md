@@ -26,11 +26,10 @@ Newest entries on top. One entry per question:
 - **context:** Surfaced in the `2026-09-17-hood-equity-core-assessment` session (action: avoid, on watch). The chain's 90-day gas subsidy expires ~2026-09-29 and Q3 earnings (~late Oct) are the first report that could disclose chain/sequencer revenue at all. Re-underwrite inputs per the decision's trigger: post-subsidy stablecoin supply + tokenized-stock AUM trajectory (NOT Pons fee prints — Pons is third-party and its fees are not HOOD revenue; correction recorded in the decision file), disclosed chain revenue ≥ ~$25M/quarter, tokenized-equity restructuring under the SEC's 2026-09-17 Innovation Exemption, and prediction-market litigation milestones. Also feeds the UNI file's Robinhood-derived fee-mix veto checks and the PUMP file's Pons-duopoly activation math.
 - **outcome:**
 
-### 2026-09-17 — Pyth September monthly report (~early Oct): did buybacks inflect up with cash visibly routing to the DAO?
-- **status:** resolved
-- **outcome:** YES, decisively — the September purchases report (posted 2026-10-01) shows 2.58M PYTH bought on $161.7K USDC vs 0.67M / $25.7K in August, mechanically caused by Douro Labs' $433,740 August revenue remittance to the DAO treasury; Reserve V2 (OP-PIP-136, passed 9/24) now routes 100% of the DAO revenue share to monthly purchases. The churn leg (post-paywall cash, Douro's September report ~Oct 8) is still open and is carried as a trigger in `2026-10-01-pyth-reentry-trigger-fired-reserve-v2` (action: add, staged). Note the swap this question references was never executed — Michael held.
-- **context:** Surfaced in the `2026-09-17-pyth-checkpoint-swap-to-sol` session, which executed the swap with the paywall-enforcement caveat open (Hermes enforcement began 2026-08-26, so the decisive conversion cohort reports after the Sept 30 checkpoint). Re-entry criteria (from the decision's trigger): on-chain Reserve purchases at forum.pyth.network inflect decisively above the 0.67M-PYTH August print *because* subscription cash visibly reaches the DAO treasury, AND post-enforcement conversion holds with disclosed churn. ARR blog headlines alone do not qualify. Any re-entry from ~Dec 2026 must price the 2027-05-19 cliff (+27% of circulating).
-- **outcome:**
+### 2026-09-17 — Pyth September monthly report: did the full re-entry condition hold?
+- **status:** open
+- **outcome:** Partial evidence as of 2026-10-01: September purchases rebounded and Douro reported a DAO distribution, but post-paywall conversion with disclosed churn remains unobserved. The full trigger has not fired. Reserve V2 requires the initial treasury conversion and permits future allocations; it does not guarantee monthly purchases. The discretionary successor `2026-10-01-pyth-reentry-trigger-fired-reserve-v2` carries both the retention/disclosure and new-revenue-purchase checks. Gross revenue is not verified customer cash. Michael never executed the swap.
+- **context:** Surfaced in the `2026-09-17-pyth-checkpoint-swap-to-sol` session, which recommended a swap before the conversion/churn evidence was available. Keep this question open until both original conditions can be evaluated; neither ARR headlines nor the initial V2 treasury sweep substitutes for the missing evidence. Any re-entry from ~Dec 2026 must price the 2027-05-19 cliff (+27% of circulating).
 
 ### 2026-09-17 — Will the EBA's AMLR technical standards allow transparent-address-only EU handling of ZEC?
 - **status:** open
@@ -39,7 +38,7 @@ Newest entries on top. One entry per question:
 
 ### 2026-09-06 — Revisit inactive PUMP staged-buy entry on 2026-12-31 if no entry fires
 - **status:** resolved
-- **outcome:** Superseded 2026-10-01 by `2026-10-01-pump-vs-pyth-comparative-buy` after the 9/06 file's breakout clause fired (close > $0.0053 on 9/29 with pump.fun back in the fee lead). The successor is also `inactive` (activates on Michael's first fill) and carries its own 2026-12-31 no-entry expiry — apply this reminder to that file instead.
+- **outcome:** Superseded 2026-10-01 by `2026-10-01-pump-vs-pyth-comparative-buy` after Michael requested a fresh comparison. The 9/06 breakout condition did not fire: Pons was no longer out-earning pump.fun when the close exceeded $0.0053 on 9/29. The successor is also `inactive` (activates on Michael's first fill) and carries its own 2026-12-31 no-entry expiry — apply this reminder to that file instead.
 - **context:** The `2026-09-06-pump-fun-buyback-assessment` record is `status: inactive` and expires if neither activation branch fires by 2026-12-31, but `/reflect-decisions` intentionally skips inactive files before horizon checks. On or after 2026-12-31, manually check whether the Pons-absorption or washout entry activated; if not, flip the decision to `resolved` with a no-entry note so it cannot linger as a stale open order.
 - **outcome:**
 
