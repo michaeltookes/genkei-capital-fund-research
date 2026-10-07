@@ -5,15 +5,24 @@ sleeve: crypto-tactical
 horizon: months
 action: buy
 confidence: medium
-status: inactive
-activation_condition: "Flips to pending on Michael's first NEAR fill. As of 2026-10-06 he has a resting Coinbase limit at $5.0000 (the conviction-size starter below); its fill date and price become `reflection_start`, with SOL's same-day lake print as the benchmark baseline. Until a fill no exposure exists and the record is a staged entry plan. NEAR and NRR were added to watchlists.yml in the same commit, so lake coverage is not gated on activation. Expires to `deferred` on 2027-01-31 if nothing has filled."
+status: pending
+reflection_start:
+  date: 2026-10-06
+  asset_price_usd: 5.10
+  asset_price_source: Michael's Coinbase limit fill (quarter-position conviction starter; limit raised from $5.00 to $5.10 intraday 2026-10-06 and filled)
+  benchmark_prices:
+    - ticker: SOL
+      price_usd: 120.31
+      source: lake coingecko.market_data 2026-10-06T06:47:50-05:00 snapshot
+      provisional: true
+      note: Nearest lake print to the fill; intraday fill time not recorded. Coinbase 2026-10-06 daily close was $117.45, so the baseline sits within a ~2.4% band either way.
 reflection_benchmark:
   type: destination_basket
   label: SOL (the L1 Michael framed NEAR against; majors are down on the year so BTC alone would flatter any alt entry)
   assets:
     - ticker: SOL
       weight: 1.0
-trigger_reassessment: "Staged entry, not a market buy. ENTRY tranches: (0) conviction starter = Michael's resting $5.00 limit (quarter position), filled or not by the tape; (1) pullback into $3.60–4.20 (the Sept 18–21 confidential-perps breakout zone and the pre-ETF base) WITH NEAR Intents trailing-30d volume still >= $3.5B on DeFiLlama `near-intents` — Michael's own read is that this zone is unlikely without a broader unwind, so it is the opportunistic leg, not the plan; (2) the ~Nov 1 October print on revenue.near.org / Phemex-style fee decomposition showing NEAR's captured share of Intents gross fees >= $2.0M for the month (Sept was $1.65M, 24.7% of $6.70M) — fill at market if (1) has not triggered. CHASE RULE: no tranche above a $5.40 daily close (the Sept 28 / Oct 1 highs) until the October capture print is in hand. INVALIDATION (cuts any filled tranche): daily close < $2.60 (the Sept 17 pre-perps level — the whole repricing undone); Intents 30d volume < $2.5B for two consecutive months; NEAR captured fee share falling back below 15% of gross; a second Intents / Omni-bridge security incident with unrecovered loss. REASSESS on: House of Stake vote on the Oct 2 proposal to cut inflation 2.5% -> 1.6% (pass = thesis tailwind, fail = issuance stays ~8x buybacks); Bitwise NRR weekly flows turning net-negative for 2+ weeks; HOT Wallet share of chain transactions (65% in Q2) — a fall below 40% with DAA holding is real-user confirmation; any first-party NEAR AI Cloud revenue disclosure. HARD CALENDAR reassess 2027-04-06 (6 months) regardless."
+trigger_reassessment: "Staged entry, not a market buy. ENTRY tranches: (0) conviction starter FILLED 2026-10-06 at $5.10 (quarter position; Michael raised the resting $5.00 limit to $5.10 to get done — below the $5.40 chase ceiling, so within plan); (1) pullback into $3.60–4.20 (the Sept 18–21 confidential-perps breakout zone and the pre-ETF base) WITH NEAR Intents trailing-30d volume still >= $3.5B on DeFiLlama `near-intents` — Michael's own read is that this zone is unlikely without a broader unwind, so it is the opportunistic leg, not the plan; (2) the ~Nov 1 October print on revenue.near.org / Phemex-style fee decomposition showing NEAR's captured share of Intents gross fees >= $2.0M for the month (Sept was $1.65M, 24.7% of $6.70M) — fill at market if (1) has not triggered. CHASE RULE: no tranche above a $5.40 daily close (the Sept 28 / Oct 1 highs) until the October capture print is in hand. INVALIDATION (cuts any filled tranche): daily close < $2.60 (the Sept 17 pre-perps level — the whole repricing undone); Intents 30d volume < $2.5B for two consecutive months; NEAR captured fee share falling back below 15% of gross; a second Intents / Omni-bridge security incident with unrecovered loss. REASSESS on: House of Stake vote on the Oct 2 proposal to cut inflation 2.5% -> 1.6% (pass = thesis tailwind, fail = issuance stays ~8x buybacks); Bitwise NRR weekly flows turning net-negative for 2+ weeks; HOT Wallet share of chain transactions (65% in Q2) — a fall below 40% with DAA holding is real-user confirmation; any first-party NEAR AI Cloud revenue disclosure. HARD CALENDAR reassess 2027-04-06 (6 months) regardless."
 related:
   - decision: 2026-09-22-sui-agentic-payments-pal-thesis
   - decision: 2026-09-17-zec-position-sizing-reassessment
@@ -109,12 +118,12 @@ The strongest case for being wrong about waiting: NEAR becomes the "privacy plus
 
 - **$5 is not a good price; it is a good business at a stretched price.** Up 112% in 30 days and 215% in 60, with OI 5.6x spot volume. The ETF bid and governance news are real but already in the tape.
 - **Discipline size:** one secondary-tier tactical position (RENDER/PYTH scale, not SUI scale). Half on a pullback into $3.60–4.20 with Intents 30d volume ≥ $3.5B; half on the ~Nov 1 October print showing NEAR's captured fee share ≥ $2.0M for the month, at market if the pullback has not come. No tranche above a $5.40 close until that print.
-- **Conviction size (per the standing sizing feedback):** a quarter-position starter at ~$5 to be in for TOKEN2049 and the ETF-flow weeks, remaining three quarters on the same two triggers. This is the version that respects the desk's early-exit base rate. **Execution note (same day):** Michael chose this path and placed a resting limit at $5.0000; his view is that the $3.60–4.20 zone would have required acting in July or August and is unlikely to print without a broader unwind, which the desk accepts. The Nov 1 capture print is therefore the operative second tranche.
+- **Conviction size (per the standing sizing feedback):** a quarter-position starter at ~$5 to be in for TOKEN2049 and the ETF-flow weeks, remaining three quarters on the same two triggers. This is the version that respects the desk's early-exit base rate. **Execution note:** Michael chose this path and placed a resting limit at $5.0000 on 2026-10-06, then raised it to $5.10 intraday and was filled the same day (recorded 2026-10-07). His view is that the $3.60–4.20 zone would have required acting in July or August and is unlikely to print without a broader unwind, which the desk accepts. The Nov 1 capture print is therefore the operative second tranche. The record is active from the $5.10 fill, benchmarked against SOL at the 2026-10-06 lake print.
 - **Invalidation:** daily close < $2.60, Intents 30d volume < $2.5B for two months, capture share < 15%, or a second unrecovered security incident. Cut the filled tranche, do not average down.
 - **Top risks:** leverage unwind in a rising-10Y, strong-dollar tape; issuance 8x buybacks for months; intermediated fee economics.
 - **Benchmark:** SOL, the L1 Michael framed this against.
 
-Reflection baseline is unpinned until the $5.00 limit (or a later tranche) fills; the comparison is NEAR vs SOL from the fill date. NEAR (secondary tier, tactical sleeve) and NRR (`etf_tickers`, CIK 0002067111) were added to the watchlist in this commit so momentum, signals, GDELT news and the reflection cycle see them from the next ingest run; the Bitwise daily collector will soft-skip NRR until its product URL is pinned.
+Reflection baseline is pinned to the $5.10 fill on 2026-10-06 (frontmatter `reflection_start`); the comparison is NEAR vs SOL from that date. NEAR (secondary tier, tactical sleeve) and NRR (`etf_tickers`, CIK 0002067111) were added to the watchlist in this commit so momentum, signals, GDELT news and the reflection cycle see them from the next ingest run; the Bitwise daily collector will soft-skip NRR until its product URL is pinned.
 
 ---
 
