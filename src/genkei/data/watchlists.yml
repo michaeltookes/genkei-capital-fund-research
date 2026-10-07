@@ -146,15 +146,15 @@ crypto:
     # item is Perle, not this project. No coinbase_product: PRL trades only on
     # SafeTrade / BigONE / CoinEx (no Tier-1 venue as of 2026-10-01), so price
     # comes from CoinGecko only. Bare "Pearl" is a common noun (jewelry, names,
-    # "Pearl Harbor"); curated multi-word terms anchor GDELT matching on the
-    # project. Added per the 2026-09-27 PRL decision file so /reflect-decisions
+    # "Pearl Harbor"); "Pearl Research" also names an unrelated consultancy.
+    # Curated multi-word terms anchor GDELT matching on the project.
+    # Added per the 2026-09-27 PRL decision file so /reflect-decisions
     # can pull a realized price; small speculative position held.
     - symbol: PRL
       name: Pearl
       coingecko_id: pearl-2
       gdelt_terms:
         - Pearl Research Labs
-        - Pearl Research
         - Pearl blockchain
       ecosystem: Pearl
       sleeve: tactical
