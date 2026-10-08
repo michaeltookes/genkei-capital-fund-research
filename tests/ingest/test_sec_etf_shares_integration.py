@@ -18,7 +18,7 @@ from typing import Any
 
 from genkei.cli.etf_flows import _query_net_flow
 from genkei.common import db
-from genkei.common.watchlist import EtfTickerEntry
+from genkei.common.watchlist import EtfTickerEntry, load_watchlist
 from genkei.ingest import sec_etf_shares
 from tests._postgres import PostgresTestCase
 
@@ -102,6 +102,41 @@ class SecEtfSharesIntegrationTests(PostgresTestCase):
             rows = cur.fetchall()
         self.assertEqual([r[0] for r in rows], [date(2024, 3, 31), date(2024, 6, 30)])
         self.assertTrue(all(r[2] == "sec_10q_xbrl" for r in rows))
+
+    def test_collect_accepts_all_configured_assets_in_one_batch(self) -> None:
+        # Synthetic post-NRR-launch facts exercise the real watchlist and
+        # migrated constraint together, including BTC, ETH, ZEC, and NEAR.
+        payload = _companyfacts()
+        for concept in payload["facts"]["us-gaap"].values():
+            for facts in concept["units"].values():
+                for fact, end in zip(facts, ("2026-09-30", "2026-12-31"), strict=True):
+                    fact.update(end=end, filed="2027-02-08")
+        funds = [entry for entry in load_watchlist().etf_tickers if entry.cik]
+        expected = {(entry.ticker, entry.asset) for entry in funds}
+        self.assertIn(("NRR", "NEAR"), expected)
+
+        run_id = sec_etf_shares.collect(http=_FakeHttp(payload))
+
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT ticker, asset, count(*) FROM etf.fund_snapshots "
+                "WHERE ingest_run_id = %s AND source_endpoint = 'sec_10q_xbrl' "
+                "GROUP BY ticker, asset",
+                [run_id],
+            )
+            rows = cur.fetchall()
+        self.assertEqual({(ticker, asset) for ticker, asset, _ in rows}, expected)
+        self.assertTrue(all(count == 2 for _, _, count in rows))
+
+    def test_asset_constraint_still_rejects_unsupported_assets(self) -> None:
+        from psycopg.errors import CheckViolation
+
+        with self._one_fund_watchlist():
+            sec_etf_shares.collect(http=_FakeHttp(_companyfacts()))
+        with self.harness.connection() as conn, conn.cursor() as cur:
+            with self.assertRaises(CheckViolation) as raised:
+                cur.execute("UPDATE etf.fund_snapshots SET asset = 'UNSUPPORTED'")
+            self.assertEqual(raised.exception.diag.constraint_name, "fund_snapshots_asset_check")
 
     def test_do_nothing_never_clobbers_daily_row(self) -> None:
         # Seed an authoritative daily-feed row on a date the 10-Q also covers.
