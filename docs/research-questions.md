@@ -37,9 +37,8 @@ Newest entries on top. One entry per question:
 - **outcome:**
 
 ### 2026-09-06 — Revisit inactive PUMP staged-buy entry on 2026-12-31 if no entry fires
-- **status:** resolved
-- **outcome:** Superseded 2026-10-01 by `2026-10-01-pump-vs-pyth-comparative-buy` after Michael requested a fresh comparison. The 9/06 breakout condition did not fire: Pons was no longer out-earning pump.fun when the close exceeded $0.0053 on 9/29. The successor is also `inactive` (activates on Michael's first fill) and carries its own 2026-12-31 no-entry expiry — apply this reminder to that file instead.
-- **context:** The `2026-09-06-pump-fun-buyback-assessment` record is `status: inactive` and expires if neither activation branch fires by 2026-12-31, but `/reflect-decisions` intentionally skips inactive files before horizon checks. On or after 2026-12-31, manually check whether the Pons-absorption or washout entry activated; if not, flip the decision to `resolved` with a no-entry note so it cannot linger as a stale open order.
+- **status:** open
+- **context:** The original `2026-09-06-pump-fun-buyback-assessment` was superseded 2026-10-01 by `2026-10-01-pump-vs-pyth-comparative-buy` after Michael requested a fresh comparison. The 9/06 breakout condition did not fire: Pons was no longer out-earning pump.fun when the close exceeded $0.0053 on 9/29. The successor remains `status: inactive` and activates on Michael's first PUMP fill (discipline half-starter or conviction full starter). Because `/reflect-decisions` skips inactive files before horizon checks, keep this manual reminder open for the successor's 2026-12-31 no-fill expiry. On or after 2026-12-31, verify whether either successor entry filled; if no fill occurred by the deadline, flip the successor to `resolved` with a no-entry note and resolve this reminder. If a fill occurred, ensure the successor is activated with the actual fill date and reflection baseline before resolving this reminder.
 - **outcome:**
 
 ### 2026-09-03 — Revisit inactive UNI fee-switch entry on 2027-01-31 if no entry fires
