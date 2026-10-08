@@ -11,7 +11,8 @@ reflection_benchmark:
     - ticker: SOL
       weight: 1.0
 confidence: medium
-status: pending
+status: resolved
+superseded_by: 2026-10-01-pyth-reentry-trigger-fired-reserve-v2
 supersedes: 2026-07-26-pyth-hold-through-core-upgrade
 trigger_reassessment: "RE-ENTRY (new session required, not a standing order): if the Pyth September monthly report (~early Oct 2026) or any later month shows Reserve buyback spend inflecting decisively UP (on-chain purchase reports at forum.pyth.network — the June/July/Aug run-rate was 1.80M/1.14M/0.67M PYTH) *because subscription cash is visibly routing to the DAO treasury*, AND post-enforcement (Aug 26 paywall) conversion holds with disclosed churn, re-run the assessment — the mechanism working would revive the original thesis at whatever the price then is. Do NOT re-enter on ARR blog headlines alone; the on-chain buyback series is the only acceptable evidence. Any re-entry sized after ~2026-12 must price the 2027-05-19 cliff (~2.13B tokens, +27% of circulating)."
 related:
@@ -79,4 +80,7 @@ Lake tape (2026-09-17): PYTH $0.0547, mcap $431M, +6.0%/7d, +42%/30d, +52%/90d v
 
 ## Outcome (filled in by /reflect-decisions)
 
-(reserved — pending)
+- **Resolved:** 2026-10-01 (early discretionary supersession, not a trigger fire or horizon-paired outcome)
+- **Superseded by:** 2026-10-01-pyth-reentry-trigger-fired-reserve-v2
+- **Trigger status:** not fired. September purchases rebounded to 2.58M PYTH from 0.67M in August, and Douro documented a DAO remittance, but post-enforcement conversion with disclosed churn remains unobserved. The conjunctive condition is unmet. The successor records a discretionary staged-add assessment and distinguishes the initial V2 treasury conversion from optional future revenue allocations.
+- **Execution note:** the swap was **never executed** — Michael held PYTH. This is a paper call; no destination-basket alpha is computed. For the record, PYTH $0.0554 → $0.0772 (+39.4%) vs SOL +16.2% over 9/17 → 10/01, so the swap would have cost ~23 pp in two weeks. The central mechanism claim ("flywheel not visibly spinning on-chain") was wrong within fourteen days for a reason this file's own Phase B named and dismissed; the calibration lesson is logged in the successor.
