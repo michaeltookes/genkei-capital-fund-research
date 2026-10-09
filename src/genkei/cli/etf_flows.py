@@ -32,7 +32,8 @@ Usage:
   genkei etf-flows --list-etfs                           list configured ETFs
 
 Asset aliases accepted: BTC / bitcoin; ETH / ethereum / ether; ZEC / zcash
-(B-146 — ZCSH quarterly AUM only; daily flow blocked by the walled issuer page).
+(B-146 — ZCSH quarterly AUM only; daily flow blocked by the walled issuer page);
+NEAR (Bitwise NRR — Yahoo dollar-volume only until its product URL is pinned).
 """
 
 import json
@@ -70,6 +71,11 @@ _ASSET_ALIASES: dict[str, str] = {
     # dollar-volume) works via the Yahoo path. See docs/sources/spot-etf-net-flow.md.
     "zec": "ZEC",
     "zcash": "ZEC",
+    # NEAR spot ETF (Bitwise NRR, NYSE Arca 2026-09-29; added 2026-10-06 with
+    # the NEAR decision file). Yahoo dollar-volume works from launch; the
+    # Bitwise daily collector soft-skips NRR until its product URL is pinned,
+    # so --net-flow stays empty for NEAR until then.
+    "near": "NEAR",
 }
 TickerLaunch = tuple[str, Optional[date]]
 
@@ -81,7 +87,7 @@ def _resolve_asset(raw: str) -> str:
         return _ASSET_ALIASES[key]
     raise typer.BadParameter(
         f"Unknown asset {raw!r}. Valid options: BTC (or bitcoin) / "
-        "ETH (or ethereum) / ZEC (or zcash)."
+        "ETH (or ethereum) / ZEC (or zcash) / NEAR."
     )
 
 
