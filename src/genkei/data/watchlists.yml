@@ -206,6 +206,11 @@ crypto_price_targets:
     coingecko_id: sushi
     asset_class: crypto
     role: Price coverage for the 2026-08-04 SUSHI avoid decision; not a crypto-tactical research target.
+  - symbol: PENGU
+    name: Pudgy Penguins
+    coingecko_id: pudgy-penguins
+    asset_class: crypto
+    role: Price coverage for the 2026-10-09 PENGU avoid decision; not a crypto-tactical research target.
   - symbol: VIRTUAL
     name: Virtuals Protocol
     coingecko_id: virtual-protocol
