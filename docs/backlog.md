@@ -226,7 +226,7 @@ A full-codebase review (source, tests/CI, agent layer) on 2026-06-12 found the e
 
 Post-pivot interface path: **B-143** (ntfy push-alert channel, carrying the alerting intent forward as native notifications and unblocking B-139) is the remaining open piece — **B-142** (installable MCP packaging + per-client setup) shipped 2026-08-24 (see `docs/resolved.md`). **B-132** (static frontend) is parked, not deleted — the API keeps it a cheap option if glanceable dashboards are ever missed. **B-133** (embedded agent panel) is obsoleted — Claude Desktop/Code *is* the agent panel (see `docs/resolved.md`). Chat-platform bridges (Discord/Slack bots) are deliberately **not** scheduled: they require hosted bot services + per-message API costs, and there's no second user who lives there yet; revisit only on concrete demand.
 
-_B-130 (the `genkei`-as-MCP server keystone) shipped 2026-07-24 — subprocess-with-`--json` adapter, `genkei.mcp` subpackage, `genkei-mcp` entry point, 13 tools; see `docs/mcp.md` and `docs/resolved.md`. Packaged, documented per-client, and registered end-to-end by **B-142** (shipped 2026-08-24) — the previously-pending Python ≥3.10 registration is closed._
+_B-130 (the `genkei`-as-MCP server keystone) shipped 2026-07-24 — subprocess-with-`--json` adapter, `genkei.mcp` subpackage, `genkei-mcp` entry point, 13 tools; see `docs/mcp.md` and `docs/resolved.md`. Packaged, documented per-client, and registered end-to-end by **B-142** (shipped 2026-08-24) — the previously-pending Python ≥3.10 registration is closed. **B-148** (open, high) is a defect in that registration's blessed `uvx` path: the cached wheel drifts silently from the checkout's `watchlists.yml`, so the server can serve a weeks-old watchlist while reporting live tickers as "not found"._
 
 _B-131 (FastAPI read layer over the lake) + B-137 (cockpit deployment & exposure spec) shipped 2026-07-25 — `genkei.api` subpackage, `genkei-api` entry point, read-only endpoints (prices / watchlist / signals / weekly digest / research decisions / lake health), the shared `db.run_readonly` guard, `docs/api-deployment.md` (LAN-only, no cloudflared route, pool ceiling), and the `/health` + B-119 alert workflow. After the E-002 pivot, this API remains the generic LAN-only HTTP surface for a possible revived dashboard or other non-MCP client; B-132 is parked, not next. See `docs/resolved.md`._
 
@@ -262,6 +262,21 @@ _B-131 (FastAPI read layer over the lake) + B-137 (cockpit deployment & exposure
   - Server ported to the 2.x handler/registration API (or `FastMCP` equivalent), all 13 tools listed and callable.
   - The `<2` pin lifted; `[mcp]` extra resolves a current 2.x SDK and the blessed `uvx` install path from `docs/mcp.md` still starts the server clean.
   - Existing MCP tests (and the end-to-end stdio client check from B-142) pass against the ported server.
+
+### B-148 — `uvx` install path serves a stale watchlist (silent data staleness)
+- **Status:** open (code/doc change here; the re-registration step is Michael's — see below)
+- **Priority:** **high** — this one silently returns wrong answers rather than failing, which is the worst failure shape for a research desk.
+- **Context (found 2026-10-22, during a PUMP research session):** the blessed `uvx --from '<checkout>[mcp]' genkei-mcp` path in `docs/mcp.md` builds a **non-editable** wheel and caches it under `~/.cache/uv/archive-v0/`. uv did not rebuild when only `src/genkei/data/watchlists.yml` changed, so two live `genkei-mcp` processes were serving a watchlist built **2026-09-02** against a repo file last changed **2026-10-09** — a 7-week drift. Five symbols were invisible to every MCP and CLI consumer on that path: **NEAR, PENGU, PRL, PUMP, XRP**. The session hit it as `genkei prices` / the `prices` MCP tool reporting `Ticker 'PUMP' not found`, which reads as "not on the watchlist" rather than "your tooling is stale". **NEAR is the sharp edge:** it is a *filled* position (quarter starter, 2026-10-06), and `/reflect-decisions` pulls realized prices through this path — a reflection run would have failed or silently skipped it. `uv cache clean genkei` does not help while a server holds the archive, and a rebuild blocks on the `~/.cache/uv/.lock` held by the running `uv tool uvx` parents.
+- **Acceptance criteria:**
+  - A launch path that cannot go stale: either register the MCP server from an **editable** install (`uv pip install --python .venv/bin/python -e ".[mcp]"`, then point the client at `<checkout>/.venv/bin/genkei-mcp`), or keep `uvx` and prove it rebuilds on a data-file-only change (e.g. `--reinstall`, or a cache key that covers package data).
+  - `docs/mcp.md` updated: the "blessed path" section must say which install mode tracks the checkout live and which caches a wheel, and warn that a cached build drifts silently when only `watchlists.yml` changes.
+  - A staleness tripwire so this fails loud next time: the server (or `genkei watchlist-health`) compares the loaded `watchlists.yml` against the checkout's copy, or reports its own build/mtime, and warns on drift. A ticker that is in the repo watchlist but absent from the loaded one must not present as "not found".
+  - Verified end-to-end: all five drifted symbols resolve through the MCP `prices` tool after the change.
+- **Michael's step (one time, after the above lands):**
+  ```
+  claude mcp remove genkei && claude mcp add genkei '/Users/michaeltookes/Desktop/Current Projects/genkei-capital-fund-research/.venv/bin/genkei-mcp'
+  ```
+  Then restart Claude Code so the old cached server process is replaced. The `[mcp]` extra is already installed into `.venv` (2026-10-22) and the server starts clean on that path with all 13 tools listed.
 
 ### B-145a — One-time delete of legacy CryptoRank rows from onchain.sui_unlocks
 - **Status:** open (ops step; blocked on a permission the agent doesn't hold — Michael runs it)
