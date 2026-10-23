@@ -49,12 +49,17 @@ crypto:
     # JUP (B-126). coingecko_id is `jupiter-exchange-solana`, NOT the bare
     # `jupiter` id — that one is an unrelated legacy Ethereum "Jupiter
     # Project" token. Verified: DefiLlama's gecko_id for the `jupiter`
-    # protocol matches `jupiter-exchange-solana`. No coinbase_product:
-    # Coinbase's JUP-USD product exists but is delisted (trading_disabled),
-    # so price comes from CoinGecko only.
+    # protocol matches `jupiter-exchange-solana`. Coinbase product is
+    # `JUPITER-USD` (Solana Jupiter, listed 2025-12-09), NOT `JUP-USD` — that
+    # id belongs to the delisted legacy Ethereum "Jupiter" token
+    # (trading_disabled, last candle 2023-09). Verified 2026-10-08 against
+    # api.exchange.coinbase.com/products; added so `genkei momentum` (which
+    # reads coinbase.candles) covers a core holding. The momentum horizon map
+    # keys on both the symbol and the product base, so JUP rows tag correctly.
     - symbol: JUP
       name: Jupiter
       coingecko_id: jupiter-exchange-solana
+      coinbase_product: JUPITER-USD
       gdelt_terms:
         - Jupiter Exchange
         - Jupiter Aggregator
