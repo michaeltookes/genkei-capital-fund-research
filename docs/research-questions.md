@@ -21,15 +21,20 @@ Newest entries on top. One entry per question:
 
 ## Log
 
+### 2026-10-29 — SUI: record the blended cost basis, the Suilend loop status, and the swap fills
+- **status:** open
+- **context:** `2026-10-29-sui-thesis-exit-into-sol` swaps SUI into SOL as a thesis exit from a provisional baseline ($0.944 / SOL $101.85). Owed: (1) Michael's blended SUI cost basis (sub-$1.50 clips plus the ~$0.82 loop entry) so the realised loss can be graded; (2) whether the Suilend loop was unwound after the 10/08 instruction, with repay/withdraw amounts so the `2026-07-21-sui-suilend-leveraged-loop-contrarian` outcome can record realised inputs; (3) the actual swap fill date(s), prices and SOL received, to re-base `reflection_start`; (4) add `gdelt_terms` for SUI (Sui Network, Sui blockchain, Mysten Labs, SUI token) so `genkei news --asset SUI` stops matching Sun Communities and Pakistani gas (B-147 pattern; code branch, not research branch).
+- **outcome:**
+
 ### 2026-10-29 — PUMP: record Michael's fill(s) and finish the activation housekeeping
 - **status:** open
 - **context:** The `2026-10-29-pump-exit-on-launchpad-parasitism-thesis` decision holds PUMP on revenue/price/share/legal lines from a provisional 2026-10-29 baseline ($0.00448 / SOL $102.41). Fills reported 2026-10-29 and recorded in the decision file (171,134 PUMP for $819.06, blended $0.004786; sizing rule does not bind). Still owed: (2) the 10/01 activation moves — PUMP from `crypto_price_targets` to `crypto.secondary` with `gdelt_terms` (pump.fun, PumpSwap, PUMP token) and the `pump` parent slug under `protocols:` so `defillama.protocol_fees` and `gdelt.gkg` carry the November exit lines (note `tests/cli/test_watchlist.py::test_default_watchlist_has_pump_price_only_coverage` must flip with it); (3) whether he executed a trim or full sale after the session — if so, flip the record's action and baseline per the file's housekeeping note.
 - **outcome:**
 
 ### 2026-10-08 — Story/DATA Foundation "rebuilding on Sui" — find Michael's source; verify or retire the claim
-- **status:** open
+- **status:** resolved
 - **context:** Surfaced in the `2026-10-08-crypto-chain-consolidation-thesis` session. Michael heard at Sui Basecamp / TOKEN2049 that Story Protocol ($IP) is shutting its chain, rebranding to the DATA Foundation and rebuilding on Sui. Verified: the rebrand (2026-06-25) and the 1:1 IP→DATA token migration (2026-10-05→07) are real; the DATA chain keeps running with an unchanged validator set; **no first-party or press source says it is moving to Sui.** DATA Foundation CEO Andrea Muttoni spoke at Sui Basecamp (Oct 7–8), the likely origin of the conflation. If a Basecamp-stage announcement exists it may not be indexed yet — Michael to send the link; if none surfaces by 2026-10-22, retire the claim in the consolidation file's next quarterly pull.
-- **outcome:**
+- **outcome:** 2026-10-29 — verified: the DATA Foundation announced the DATA Network migration to Sui with a $30M Sui Foundation commitment on 2026-10-12. Michael\'s Basecamp claim was early but right. Recorded in `2026-10-29-sui-thesis-exit-into-sol`.
 
 ### 2026-10-08 — SUI: record Michael's blended cost basis; confirm Suilend loop unwound and DCA clips stopped
 - **status:** open

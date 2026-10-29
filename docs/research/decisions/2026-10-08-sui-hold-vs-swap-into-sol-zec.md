@@ -5,7 +5,8 @@ sleeve: crypto-tactical
 horizon: months
 action: hold
 confidence: medium
-status: pending
+status: resolved
+superseded_by: 2026-10-29-sui-thesis-exit-into-sol
 supersedes: 2026-08-05-sui-ecosystem-thesis-exit
 reflection_benchmark:
   type: destination_basket
@@ -131,4 +132,7 @@ Position-sizing: SUI is a tactical position; it should not exceed the sleeve's s
 
 ## Outcome (filled in by /reflect-decisions)
 
-(reserved — pending)
+- **Resolved:** 2026-10-29 (early — superseded on a thesis change, not a line fire or horizon-paired outcome)
+- **Superseded by:** 2026-10-29-sui-thesis-exit-into-sol
+- **State at close-out:** none of the four lines fired. SUI $1.04 → $0.944 (−9.2%) vs SOL $108.68 → $101.85 (−6.3%), so the conviction hold trailed the discipline trim by ~3 pp over three weeks. Chain TVL $510M → $473M, stablecoins $503M → $443M (a single −$100M USDC exit on 10/21–22), October fees ~$1.7M pace; ~138M SUI unlocking per month in Oct and Nov. Michael reported on 10/29 that he had lost conviction; the successor swaps into SOL as a thesis exit and carries the SOL benchmark from a 2026-10-29 baseline. Cost basis and loop status were still unrecorded at close-out.
+- **Reflection:** The hold was explicitly the holder's conviction variant against the desk's own discipline trim, and it was adopted to avoid a third early sell. Three weeks later the metrics had drifted toward every line without crossing, which is the outcome the file's Phase B predicted for a hold without conviction. Lesson for the sleeve: when the desk's fundamental read and the holder's conviction diverge, size the position to the weaker of the two rather than holding full size on lines.
