@@ -48,7 +48,9 @@ Unchanged today: `genkei macro-regime` **mixed** (DGS10 4.99%, HY OAS 3.30% wide
 
 ## Flow & positioning
 
-Contributor vesting ~1%/month continues (the 7/27 file's reason to keep core OFF); the Assistance Fund buys ~97% of revenue, so net float is roughly flat to slightly shrinking at today's revenue. A CoinGabbar piece speculates ICE was the buyer of a reported $320M team-token sale; unverified and the release says ICE's stake is in Trade[XYZ] equity, so the desk records it as rumor. Today's volume $1.2B vs $0.75B yesterday: announcement flow, not accumulation evidence. No GDELT read: `genkei news` was not run because the lake's HYPE terms were added only in July and the answer is in the primary document.
+**Supply correction (2026-10-29 review):** the [7/27 initiation record](2026-07-27-hyperliquid-hype-initiation.md) specifies scheduled contributor vesting of **9.92M HYPE/month**, roughly 1% of maximum supply, not circulating supply. At this file's $94.39 mark that is **$936.35M/month**. Using the stated $780M annualized revenue and 97% Assistance Fund allocation gives $780M × 97% ÷ 12 = **$63.05M/month**, buying about **0.668M HYPE/month** at that price. That covers only **6.7%** of scheduled unlocks, leaving **9.252M HYPE/month (~$873.30M)** unabsorbed by modeled buybacks. The earlier claim of flat to shrinking net float was incorrect. This is a scheduled-unlock versus modeled-buyback comparison, not a measured change in circulating supply or a forecast that contributors sell every unlocked token. Actual circulating additions, contributor sales, and executed buybacks need supply and wallet-flow evidence; none is established here. Vesting absorption remains unproven, so core stays OFF.
+
+A CoinGabbar piece speculates ICE was the buyer of a reported $320M team-token sale; unverified and the release says ICE's stake is in Trade[XYZ] equity, so the desk records it as rumor. Today's volume $1.2B vs $0.75B yesterday: announcement flow, not accumulation evidence. No GDELT read: `genkei news` was not run because the lake's HYPE terms were added only in July and the answer is in the primary document.
 
 ## Phase A — case for and case against
 
@@ -65,6 +67,7 @@ Contributor vesting ~1%/month continues (the 7/27 file's reason to keep core OFF
 3. "Subject to regulatory approvals," no regulator named, no DCM/DCO, no date. ICE-OKX's own FCM and broker-dealer approvals are still pending. This is a 2027–2028 revenue event at best; today's +17% prices it as 2026.
 4. Buyback yield compressed to ~3.5% as price outran revenue; the "best cash-flow machine at 12x revenue" the 7/27 file bought is now ~29x.
 5. The 7/27 file's own rule: no averaging up on a rally. A +17% news candle is the definition of the setup it excluded.
+6. Scheduled contributor unlocks materially exceed modeled buybacks: 9.92M versus ~0.668M HYPE/month at the stated mark and revenue run rate. The ~9.252M monthly gap is a dilution overhang even if contributors do not immediately sell; revenue growth alone does not establish vesting absorption.
 
 ## Phase B — counter-thesis
 
@@ -76,14 +79,14 @@ Contributor vesting ~1%/month continues (the 7/27 file's reason to keep core OFF
 
 ## Conclusion
 
-**Add, on a ladder, not on the candle. Core upgrade stays off until the routing question is answered in writing.** Crypto-tactical, horizon months, confidence medium.
+**Add, on a ladder, not on the candle. Core upgrade stays off pending routing confirmation, demonstrated vesting absorption, and fees proven through a full cycle.** Crypto-tactical, horizon months, confidence medium. The tactical add rests on the usage recovery and the stated size cap; it does not rely on buybacks offsetting scheduled unlocks.
 
 - **Discipline (the desk's call):** Tranche A, half the add, on a pullback into $78–84 by 2026-11-30. Tranche B, the other half, at market on confirmation that the US venue settles on HyperCore / under HIP-3 with fees to the Assistance Fund, or on a CFTC filing naming the venue. If nothing fills by 11/30, only Tranche B remains. Total position capped at tactical-primary weight; no core funding.
 - **Conviction (Michael's side):** a quarter of the intended add at market today, the rest on the ladder. Defensible because the gate was met on usage before the news.
-- **Core upgrade:** reopen 2027-01-31 only if routing is confirmed and trailing-six-month fees average ≥ $80M. Vesting absorption remains a condition.
+- **Core upgrade:** reopen 2027-01-31 only if routing is confirmed and trailing-six-month fees average ≥ $80M. Vesting absorption remains a condition and requires supply and wallet-flow evidence; the modeled 6.7% buyback coverage does not establish it.
 - **New exit line:** a public statement that the venue clears off-chain with no HIP-3 routing. That converts the catalyst into a competitor and ends adds.
 
-Top risks: (1) the "AWS scenario," value accrues to Trade[XYZ] equity and ICE while on-chain volume migrates onshore; (2) announcement fade over a 12–18-month approval path with buyback yield already compressed to ~3.5%; (3) share loss to Lighter on Robinhood Chain and Aster if HIP-3 incumbency is not a moat once a regulated alternative exists. **Housekeeping:** fills recorded above (10.052 HYPE, blended $55.14, ~$949 today); Michael's stated regret is that he sized the starter at 10 coins when "$5–6k and 100 coins" was available at the same price — the ladder here is sized in dollars for that reason (see the 2026-10-29 research-questions entry); the 7/28 open question on share trajectory is answered (37% → 55%) and can be closed; the unverified ICE-as-token-buyer rumor is logged as rumor only.
+Top risks: (1) the "AWS scenario," value accrues to Trade[XYZ] equity and ICE while on-chain volume migrates onshore; (2) announcement fade over a 12–18-month approval path with buyback yield already compressed to ~3.5%; (3) share loss to Lighter on Robinhood Chain and Aster if HIP-3 incumbency is not a moat once a regulated alternative exists; (4) scheduled contributor unlocks exceed modeled buybacks by ~9.252M HYPE/month, with actual circulating additions and selling unverified. **Housekeeping:** fills recorded above (10.052 HYPE, blended $55.14, ~$949 today); Michael's stated regret is that he sized the starter at 10 coins when "$5–6k and 100 coins" was available at the same price — the ladder here is sized in dollars for that reason (see the 2026-10-29 research-questions entry); the 7/28 open question on share trajectory is answered (37% → 55%) and can be closed; the unverified ICE-as-token-buyer rumor is logged as rumor only.
 
 ---
 
