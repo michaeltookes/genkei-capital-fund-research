@@ -7,7 +7,7 @@ from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from genkei.common.watchlist import load_watchlist
 from genkei.experiments.emitters.relative_strength_emitter import (
@@ -18,6 +18,7 @@ from genkei.experiments.emitters.relative_strength_emitter import (
     STRENGTH_SATURATION_PP,
     WINDOW_DAYS,
     Crossing,
+    _AssetPriceHistory,
     _build_event,
     _crypto_assets,
     _date_ts,
@@ -342,12 +343,12 @@ class CryptoAssetsTests(unittest.TestCase):
 
 
 class PriceSourceWarmupTests(unittest.TestCase):
-    def test_keeps_coingecko_until_coinbase_has_return_and_prior_state(self) -> None:
+    def test_keeps_coingecko_until_coinbase_has_two_returns(self) -> None:
         target = _crypto_assets(_load_watchlist())[0]
         history = _ramped_series(date(2024, 1, 1), 60, Decimal("100"), Decimal("1"))
         until = history[-1].ts
         module = "genkei.experiments.emitters.relative_strength_emitter"
-        # 31 prices provide a 30-day return but no preceding crossing state.
+        # 31 prices provide only one 30-day return.
         for days in (0, 7, 30, 31, 32, 60):
             with self.subTest(days=days):
                 coinbase = history[-days:] if days else []
@@ -357,18 +358,40 @@ class PriceSourceWarmupTests(unittest.TestCase):
                 ):
                     actual = _load_asset_price_series(target, until=until)
                 cb.assert_called_once_with(target.price_key, until=until)
+                cg.assert_called_once_with(target.asset_id, until=until)
                 if days < 32:
-                    self.assertEqual(actual, history)
-                    cg.assert_called_once_with(target.asset_id, until=until)
+                    self.assertEqual(actual.prices, history)
+                    self.assertFalse(actual.suppress_initial_crossing)
                     # Exercise real return/crossing math: a newly configured
                     # Coinbase product must not silence existing signals.
                     daily = compute_daily_relative_strength(
-                        actual, _flat_series(date(2024, 1, 1), 60, Decimal("100"))
+                        actual.prices, _flat_series(date(2024, 1, 1), 60, Decimal("100"))
                     )
                     self.assertTrue(_detect_crossings(daily, asset=target.asset_id))
                 else:
-                    self.assertEqual(actual, coinbase)
-                    cg.assert_not_called()
+                    self.assertEqual(actual.prices, coinbase)
+                    self.assertEqual(actual.suppress_initial_crossing, days < 60)
+
+    def test_complete_coinbase_history_keeps_initial_onset(self) -> None:
+        target = _crypto_assets(_load_watchlist())[0]
+        history = _ramped_series(date(2024, 1, 1), 60, Decimal("100"), Decimal("1"))
+        module = "genkei.experiments.emitters.relative_strength_emitter"
+        for fallback in ([], history, history[10:]):
+            with (
+                self.subTest(fallback_days=len(fallback)),
+                patch(f"{module}._load_price_series", return_value=history),
+                patch(f"{module}._load_coingecko_price_series", return_value=fallback),
+            ):
+                actual = _load_asset_price_series(target)
+                daily = compute_daily_relative_strength(
+                    actual.prices, _flat_series(date(2024, 1, 1), 60, Decimal("100"))
+                )
+                crossings = _detect_crossings(
+                    daily,
+                    asset=target.asset_id,
+                    suppress_initial_crossing=actual.suppress_initial_crossing,
+                )
+                self.assertEqual([c.ts for c in crossings], [date(2024, 1, 31)])
 
     def test_retains_short_coinbase_history_when_no_fallback_exists(self) -> None:
         target = _crypto_assets(_load_watchlist())[0]
@@ -378,7 +401,63 @@ class PriceSourceWarmupTests(unittest.TestCase):
             patch(f"{module}._load_price_series", return_value=history),
             patch(f"{module}._load_coingecko_price_series", return_value=[]),
         ):
-            self.assertEqual(_load_asset_price_series(target), history)
+            self.assertEqual(_load_asset_price_series(target), _AssetPriceHistory(history))
+
+
+class SourceHandoffTests(unittest.TestCase):
+    def _emit(self, history: list[PricePoint], coinbase_days: int) -> list[dict]:
+        """Exercise loaders, return math, detector and the workflow's 90-day replay."""
+        module = "genkei.experiments.emitters.relative_strength_emitter"
+        peer = _flat_series(history[0].ts, len(history), Decimal("100"))
+        target = _crypto_assets(_load_watchlist())[0]
+        until = history[-1].ts
+        with (
+            patch(f"{module}.load_watchlist", return_value=_load_watchlist()),
+            patch(f"{module}._crypto_assets", return_value=[target]),
+            patch(f"{module}.db.ingest_run", return_value=MagicMock()),
+            patch(
+                f"{module}._load_price_series",
+                side_effect=lambda product, **_: (
+                    peer if product == PEER_PRODUCT else history[-coinbase_days:]
+                ),
+            ),
+            patch(f"{module}._load_coingecko_price_series", return_value=history),
+            patch(f"{module}.emit_signals_bulk", side_effect=lambda events, **_: len(events)) as emit,
+        ):
+            emit_recent_crossings(
+                since=date.fromordinal(until.toordinal() - 90), until=until
+            )
+        return emit.call_args.args[0]
+
+    def test_ongoing_episode_is_not_reemitted_at_handoff_or_later_replays(self) -> None:
+        for daily_pct in (Decimal("1"), Decimal("-1")):
+            history = _ramped_series(date(2024, 1, 1), 100, Decimal("100"), daily_pct)
+            warmup = self._emit(history, 31)
+            self.assertEqual([e["ts"].date() for e in warmup], [date(2024, 1, 31)])
+            for days in (32, 33, 60):
+                with self.subTest(daily_pct=daily_pct, coinbase_days=days):
+                    growing_history = _ramped_series(
+                        date(2024, 1, 1), 68 + days, Decimal("100"), daily_pct
+                    )
+                    self.assertEqual(self._emit(growing_history, days), [])
+
+    def test_real_transition_after_initial_state_still_emits(self) -> None:
+        for daily_pct, multiplier, kind in (
+            ("1", "0.5", "laggard_crossing"),
+            ("-1", "2", "leader_crossing"),
+            ("0", "2", "leader_crossing"),
+        ):
+            with self.subTest(initial_daily_pct=daily_pct):
+                history = _ramped_series(
+                    date(2024, 1, 1), 100, Decimal("100"), Decimal(daily_pct)
+                )
+                history[-1] = PricePoint(
+                    ts=history[-1].ts,
+                    price_usd=history[-2].price_usd * Decimal(multiplier),
+                )
+                events = self._emit(history, 32)
+                self.assertEqual([e["signal_kind"] for e in events], [kind])
+                self.assertEqual(events[0]["ts"].date(), history[-1].ts)
 
 
 class EmitOrchestratorTests(unittest.TestCase):
@@ -411,9 +490,11 @@ class EmitOrchestratorTests(unittest.TestCase):
             self.assertEqual(product, "BTC-USD")
             return [PricePoint(ts=date(2024, 6, 1), price_usd=Decimal("100"))]
 
-        def fake_asset_load(asset: object, *, until: object = None) -> list[PricePoint]:
+        def fake_asset_load(asset: object, *, until: object = None) -> _AssetPriceHistory:
             # Non-empty so the orchestrator routes through compute.
-            return [PricePoint(ts=date(2024, 6, 1), price_usd=Decimal("100"))]
+            return _AssetPriceHistory(
+                [PricePoint(ts=date(2024, 6, 1), price_usd=Decimal("100"))]
+            )
 
         def fake_compute(
             asset_series: object,
@@ -499,10 +580,12 @@ class EmitOrchestratorTests(unittest.TestCase):
             (date(2024, 6, 2), Decimal("25"), Decimal("0"), Decimal("25")),
         ]
 
-        def fake_asset_load(asset: object, *, until: object = None) -> list[PricePoint]:
+        def fake_asset_load(asset: object, *, until: object = None) -> _AssetPriceHistory:
             self.assertEqual(asset.price_source, "coingecko")
             self.assertEqual(asset.price_key, "jupiter-exchange-solana")
-            return [PricePoint(ts=date(2024, 6, 1), price_usd=Decimal("100"))]
+            return _AssetPriceHistory(
+                [PricePoint(ts=date(2024, 6, 1), price_usd=Decimal("100"))]
+            )
 
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "watchlists.yml"
@@ -571,7 +654,7 @@ class EmitOrchestratorTests(unittest.TestCase):
                 ),
                 patch(
                     "genkei.experiments.emitters.relative_strength_emitter._load_asset_price_series",
-                    return_value=[],
+                    return_value=_AssetPriceHistory([]),
                 ),
                 patch(
                     "genkei.experiments.emitters.relative_strength_emitter.emit_signals_bulk",

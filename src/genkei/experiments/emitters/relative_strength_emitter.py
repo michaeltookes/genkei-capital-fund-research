@@ -61,9 +61,10 @@ Field mapping per event:
 
 Loading note: loads the full available price series for each (asset, BTC)
 pair regardless of ``--since``. Assets use ``coinbase.candles`` when a
-live ``coinbase_product`` is configured with enough history for the return
-window and prior crossing state, and fall back to ``coingecko.market_data``
-otherwise; BTC remains the fixed Coinbase peer.
+live ``coinbase_product`` is configured with enough history for two returns,
+and fall back to ``coingecko.market_data`` otherwise. When Coinbase starts
+later than the CoinGecko history, its first computable state seeds the
+detector without emitting an onset; BTC remains the fixed Coinbase peer.
 The relative-strength window needs ≥30 days of trailing history and the
 crossing detector needs the prior day's state. ``--since`` is applied
 in-Python to the *emission* window after crossings are detected.
@@ -157,6 +158,12 @@ class _CryptoAssetTarget:
     sleeve: str
 
 
+@dataclass(frozen=True)
+class _AssetPriceHistory:
+    prices: list[PricePoint]
+    suppress_initial_crossing: bool = False
+
+
 def _state_for(rel_strength_pct: Decimal | None) -> str | None:
     """Classify a rel-strength value into ``"laggard" | "neutral" | "leader"``
     or ``None`` when input is None.
@@ -236,8 +243,8 @@ def _load_coingecko_price_series(
 
 def _load_asset_price_series(
     target: _CryptoAssetTarget, *, until: date | None = None
-) -> list[PricePoint]:
-    """Prefer Coinbase only after its return window and prior state exist.
+) -> _AssetPriceHistory:
+    """Prefer Coinbase after warmup without inventing an episode at handoff.
 
     Newly configured products initially have only the collector's seven-day
     window. Keep the complete CoinGecko series during that warmup; never splice
@@ -245,14 +252,20 @@ def _load_asset_price_series(
     """
     if target.price_source == "coinbase":
         series = _load_price_series(target.price_key, until=until)
+        fallback = _load_coingecko_price_series(target.asset_id, until=until)
         current_return, _, _ = compute_return_pct(series, window_days=WINDOW_DAYS)
         prior_return, _, _ = compute_return_pct(series[:-1], window_days=WINDOW_DAYS)
         if current_return is not None and prior_return is not None:
-            return series
-        fallback = _load_coingecko_price_series(target.asset_id, until=until)
-        return fallback or series
+            # Two returns allow comparisons, but cannot establish when an
+            # episode already underway at the start of this history began.
+            # Keep this flag on every replay, not just the first warm run.
+            return _AssetPriceHistory(
+                series,
+                suppress_initial_crossing=bool(fallback and fallback[0].ts < series[0].ts),
+            )
+        return _AssetPriceHistory(fallback or series)
     if target.price_source == "coingecko":
-        return _load_coingecko_price_series(target.price_key, until=until)
+        return _AssetPriceHistory(_load_coingecko_price_series(target.price_key, until=until))
     raise ValueError(f"unsupported crypto price source: {target.price_source}")
 
 
@@ -303,6 +316,7 @@ def _detect_crossings(
     *,
     asset: str,
     peer: str = PEER_SYMBOL,
+    suppress_initial_crossing: bool = False,
 ) -> list[Crossing]:
     """Walk daily rel-strength rows, return one Crossing per state-onset.
 
@@ -310,6 +324,8 @@ def _detect_crossings(
     transition INTO laggard or leader emits; transitions back into
     neutral are silent (the "stress lifted" implicit signal). Same
     episode-onset semantics as the tvl_drawdown emitter.
+    For a truncated source history, suppress the first onset but retain its
+    state so subsequent real transitions still emit.
     """
     crossings: list[Crossing] = []
     prev_state: str | None = None
@@ -317,7 +333,11 @@ def _detect_crossings(
         state = _state_for(rel)
         if state is None:
             continue
-        if state != prev_state and state in ("laggard", "leader"):
+        if (
+            state != prev_state
+            and state in ("laggard", "leader")
+            and (prev_state is not None or not suppress_initial_crossing)
+        ):
             crossings.append(
                 Crossing(
                     asset=asset,
@@ -467,7 +487,8 @@ def emit_recent_crossings(
         events: list[dict[str, Any]] = []
         assets_skipped_no_data = 0
         for asset in assets:
-            asset_series = _load_asset_price_series(asset, until=until)
+            history = _load_asset_price_series(asset, until=until)
+            asset_series = history.prices
             if not asset_series:
                 LOGGER.warning(
                     "no %s price data for %s; skipping relative-strength emission",
@@ -480,7 +501,11 @@ def emit_recent_crossings(
             daily = compute_daily_relative_strength(
                 asset_series, peer_series, window_days=WINDOW_DAYS
             )
-            crossings = _detect_crossings(daily, asset=asset.asset_id)
+            crossings = _detect_crossings(
+                daily,
+                asset=asset.asset_id,
+                suppress_initial_crossing=history.suppress_initial_crossing,
+            )
             for crossing in crossings:
                 if since is not None and crossing.ts < since:
                     continue
