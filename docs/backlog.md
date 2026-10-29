@@ -124,21 +124,6 @@ The interface the agent (and human user) uses to query the lake.
 
 _B-046 (CLI query caching) shipped 2026-07-17 — see `docs/resolved.md`._
 
-### B-149 — Daily top-30 market-cap rank snapshot (test the "chosen top 15" thesis)
-- **Status:** open
-- **Priority:** medium
-- **Context:** Michael's 2026-10-29 thesis (logged across `2026-10-29-sui-thesis-exit-into-sol` and the NEAR follow-up in `docs/research-questions.md`): the top 15 by market cap is essentially chosen; NEAR (#20) and SUI (#29) are outside it; DOGE will fall out and be replaced by "more valuable companies"; perps (HYPE) and privacy (ZEC, XMR) have already taken seats. The lake cannot grade any of that: `coingecko.market_data` holds market cap only for watchlist coins, and no table holds rank history, so the top-15 composition on 2026-10-29 (BTC, ETH, USDT, BNB, XRP, USDC, SOL, TRX, FIGR_HELOC, HYPE, ZEC, DOGE, XMR, USDS, WBT) exists only in a session transcript. Grading needs a daily snapshot of the top N with rank and market cap, kept forever, plus a query surface for "who entered / left the top 15 between two dates."
-- **Design:** one CoinGecko call per day (`/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=50&page=1`, free tier) added to the existing `genkei.ingest.coingecko` daily run as a new endpoint; raw blob via `db.store_raw_blob`; normalize into a new table `coingecko.market_rank (ts date, coingecko_id, symbol, rank smallint, market_cap_usd numeric, price_usd numeric, volume_usd numeric, fully_diluted_usd numeric, ingest_run_id)` keyed on (ts, coingecko_id), one row per coin per day, top 50 so entries at #16–30 are visible before they cross. Flag stablecoins (`peg_type` is not in this endpoint; use a small static list in `watchlists.yml`, e.g. `stablecoin_ids:`) so the CLI can show the non-stable top 15 as well as the raw one. Backfill: CoinGecko free tier has no historical rank endpoint; accept a forward-only series from first deploy and note that in `docs/storage.md`. Not a hypertable; ~50 rows/day.
-- **CLI:** `genkei top-ranks [--n 15] [--date YYYY-MM-DD] [--exclude-stables]` prints the list for a date (default latest) with rank, symbol, mcap; `genkei top-ranks --diff 2026-10-29 2027-01-08 --n 15` prints entries, exits and rank moves between two dates; `--json` on both. Add the same as an MCP tool in `genkei-mcp`. Human and JSON formatters in the same module; `_helpers.json_default` / `_parse_date` as usual.
-- **Watchlist coverage:** add the missing non-stable top-15 names (BNB, TRX, DOGE, XMR, WBT, LEO, ADA) to `crypto_price_targets` with `role:` pointing at this item, so `coingecko.market_data` carries their daily price/mcap series; do NOT add them to `crypto:` (no signal-scoped coverage, no GDELT terms). FIGR_HELOC is an RWA token and stays price-only too.
-- **Research hook:** the chain-consolidation file's quarterly metric pull (next 2027-01-08) adds "top-15 composition vs 2026-10-29" as a tracked line; Michael's named predictions to grade: DOGE exits the top 15; NEAR and SUI do not enter; the non-stable list stays within one or two changes per quarter.
-- **Acceptance criteria:**
-  - Migration creating `coingecko.market_rank`; collector + normalizer wired into `coingecko-daily.yml`; soft-fail per run if the endpoint errors so watchlist price ingest is unaffected.
-  - `genkei top-ranks` and `--diff` with `--json`; unit tests on fixtures (offline).
-  - `stablecoin_ids` in `watchlists.yml` loaded through `load_watchlist()`; `--exclude-stables` honours it.
-  - Seven price-target rows added; `genkei watchlist list` shows them under price targets.
-  - `docs/storage.md` and `docs/cli.md` (or equivalent) updated; one line in `docs/research/decisions/2026-10-08-crypto-chain-consolidation-thesis.md` is NOT edited (the hook is applied by the next quarterly session, not by this item).
-
 ### B-136 — CLI query surface for on-chain staking / SUI validators / SUI unlocks
 - **Status:** open
 - **Priority:** medium — B-130 (the MCP server) shipped 2026-07-24 and its tool registry derives from CLI subcommands, so these three domains are now the gap: they're the tools the registry will gain in a one-line append each once their subcommands land.

@@ -59,7 +59,8 @@ treasury.*     -- Treasury Fiscal Data
 cftc.*         -- CFTC Commitments of Traders
 eia.*          -- EIA energy
 gdelt.*        -- GDELT news/events
-coingecko.*    -- CoinGecko prices
+coingecko.*    -- CoinGecko prices; coingecko.market_rank = daily top-50 rank
+                  snapshot (B-149; plain table, forward-only, ~50 rows/day)
 binance.*      -- Binance public market data
 
 meta.*         -- ingest_runs, raw_blobs, alerts, anomalies, signals,

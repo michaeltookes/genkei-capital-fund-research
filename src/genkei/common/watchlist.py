@@ -388,6 +388,9 @@ class Watchlist:
     bea: list[BeaSeriesEntry] = dataclasses.field(default_factory=list)
     treasury: list[TreasurySeriesEntry] = dataclasses.field(default_factory=list)
     eia: list[EiaSeriesEntry] = dataclasses.field(default_factory=list)
+    # CoinGecko ids treated as stablecoins by ``genkei top-ranks
+    # --exclude-stables`` (B-149); the markets endpoint carries no peg type.
+    stablecoin_ids: tuple[str, ...] = ()
 
     def find_crypto(self, symbol: str) -> CryptoEntry | None:
         """Lookup a crypto entry by symbol (case-insensitive)."""
@@ -1115,6 +1118,7 @@ def load_watchlist(path: Path = DEFAULT_WATCHLIST_PATH) -> Watchlist:
         bea=bea,
         treasury=treasury,
         eia=eia,
+        stablecoin_ids=_optional_string_tuple(data.get("stablecoin_ids")),
     )
 
 

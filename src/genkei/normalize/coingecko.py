@@ -3,14 +3,16 @@
 A normalizer run is itself a row in ``meta.ingest_runs`` with
 ``endpoint='normalize'`` and ``metadata.source_run_id`` pointing at the
 collector run whose blobs were processed. Re-running is idempotent:
-every write is an ``ON CONFLICT DO UPDATE`` keyed on the table's
-natural PK.
+coin metadata and market data are upserted on their natural PKs, while
+each captured day's rank snapshot is replaced atomically.
 
-Two blob shapes dispatched by endpoint_name prefix:
+Three blob shapes dispatched by endpoint_name:
 
   - ``coin_<id>``           → coin metadata row in ``coingecko.coins``
   - ``market_chart_<id>``   → historical price/market_cap/volume rows in
                                ``coingecko.market_data``
+  - ``markets_top50``       → one day's top-N rank snapshot in
+                               ``coingecko.market_rank`` (B-149)
 
 market_chart payload shape (G-024):
   CoinGecko returns three parallel arrays — ``prices``, ``market_caps``,
@@ -36,6 +38,7 @@ NORMALIZE_ENDPOINT_LABEL = "normalize"
 COLLECT_ENDPOINT_LABEL = "collect"
 COIN_BLOB_PREFIX = "coin_"
 MARKET_CHART_BLOB_PREFIX = "market_chart_"
+MARKETS_RANK_BLOB = "markets_top50"
 RawBlob = tuple[str, Any, datetime]
 JsonObject = dict[str, Any]
 LOGGER = logging.getLogger(__name__)
@@ -167,6 +170,54 @@ def normalize_market_chart(
     return rows
 
 
+def normalize_market_rank(
+    payload: Any,
+    *,
+    source_endpoint: str,
+    ingest_run_id: int,
+    fetched_at: datetime,
+) -> list[JsonObject]:
+    """Map a ``/coins/markets`` payload to ``coingecko.market_rank`` rows.
+
+    ``ts`` is the UTC calendar date of the fetch, so re-normalizing the same
+    blob is idempotent and one run per day yields one snapshot. Entries
+    without an id, symbol, or integer rank are dropped; a duplicated id keeps
+    the first (best-ranked) occurrence.
+    """
+    if not isinstance(payload, list):
+        return []
+    ts = fetched_at.astimezone(timezone.utc).date()
+    rows: list[JsonObject] = []
+    seen: set[str] = set()
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        cgid = item.get("id")
+        symbol = item.get("symbol")
+        rank = _maybe_int(item.get("market_cap_rank"))
+        if not isinstance(cgid, str) or not cgid or cgid in seen:
+            continue
+        if not isinstance(symbol, str) or not symbol or rank is None:
+            continue
+        seen.add(cgid)
+        rows.append(
+            {
+                "ts": ts,
+                "coingecko_id": cgid,
+                "symbol": symbol.upper(),
+                "rank": rank,
+                "market_cap_usd": _as_numeric(item.get("market_cap")),
+                "price_usd": _as_numeric(item.get("current_price")),
+                "volume_usd": _as_numeric(item.get("total_volume")),
+                "fully_diluted_usd": _as_numeric(item.get("fully_diluted_valuation")),
+                "source_endpoint": source_endpoint,
+                "fetched_at": fetched_at,
+                "ingest_run_id": ingest_run_id,
+            }
+        )
+    return rows
+
+
 def _index_by_ts(series: Any) -> dict[datetime, float]:
     """Convert a list of ``[unix_ms, value]`` pairs to ``{ts: value}``."""
     if not isinstance(series, list):
@@ -237,6 +288,7 @@ def normalize(*, source_run_id: int | None = None) -> int:
     ) as run:
         coin_rows: list[JsonObject] = []
         market_rows: list[JsonObject] = []
+        rank_rows: list[JsonObject] = []
 
         for endpoint_name, (url, payload, fetched_at) in blobs.items():
             if endpoint_name.startswith(MARKET_CHART_BLOB_PREFIX):
@@ -245,6 +297,15 @@ def normalize(*, source_run_id: int | None = None) -> int:
                     normalize_market_chart(
                         payload,
                         coingecko_id=cgid,
+                        source_endpoint=url,
+                        ingest_run_id=run.id,
+                        fetched_at=fetched_at,
+                    )
+                )
+            elif endpoint_name == MARKETS_RANK_BLOB:
+                rank_rows.extend(
+                    normalize_market_rank(
+                        payload,
                         source_endpoint=url,
                         ingest_run_id=run.id,
                         fetched_at=fetched_at,
@@ -275,6 +336,25 @@ def normalize(*, source_run_id: int | None = None) -> int:
                     "coingecko.market_data",
                     market_rows,
                     conflict_keys=["coingecko_id", "ts"],
+                )
+            )
+            if rank_rows:
+                # Serialize replacements, including concurrent first writes for
+                # a date. Readers can still see the previous complete snapshot.
+                # The lock, delete, and insert share this connection's transaction
+                # so an insert failure restores the previous snapshot.
+                with conn.cursor() as cur:
+                    cur.execute("LOCK TABLE coingecko.market_rank IN SHARE ROW EXCLUSIVE MODE")
+                    cur.execute(
+                        "DELETE FROM coingecko.market_rank WHERE ts = ANY(%s)",
+                        [sorted({row["ts"] for row in rank_rows})],
+                    )
+            run.add_rows(
+                db.bulk_upsert(
+                    conn,
+                    "coingecko.market_rank",
+                    rank_rows,
+                    conflict_keys=["ts", "coingecko_id"],
                 )
             )
 
