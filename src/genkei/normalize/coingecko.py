@@ -3,10 +3,10 @@
 A normalizer run is itself a row in ``meta.ingest_runs`` with
 ``endpoint='normalize'`` and ``metadata.source_run_id`` pointing at the
 collector run whose blobs were processed. Re-running is idempotent:
-every write is an ``ON CONFLICT DO UPDATE`` keyed on the table's
-natural PK.
+coin metadata and market data are upserted on their natural PKs, while
+each captured day's rank snapshot is replaced atomically.
 
-Two blob shapes dispatched by endpoint_name prefix:
+Three blob shapes dispatched by endpoint_name:
 
   - ``coin_<id>``           → coin metadata row in ``coingecko.coins``
   - ``market_chart_<id>``   → historical price/market_cap/volume rows in
@@ -338,6 +338,17 @@ def normalize(*, source_run_id: int | None = None) -> int:
                     conflict_keys=["coingecko_id", "ts"],
                 )
             )
+            if rank_rows:
+                # Serialize replacements, including concurrent first writes for
+                # a date. Readers can still see the previous complete snapshot.
+                # The lock, delete, and insert share this connection's transaction
+                # so an insert failure restores the previous snapshot.
+                with conn.cursor() as cur:
+                    cur.execute("LOCK TABLE coingecko.market_rank IN SHARE ROW EXCLUSIVE MODE")
+                    cur.execute(
+                        "DELETE FROM coingecko.market_rank WHERE ts = ANY(%s)",
+                        [sorted({row["ts"] for row in rank_rows})],
+                    )
             run.add_rows(
                 db.bulk_upsert(
                     conn,
