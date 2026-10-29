@@ -189,17 +189,32 @@ Reliability work that grows in importance as more sources go live.
   - Per-source quota tracked in `meta.api_usage`.
   - CLI + dashboard query.
 
-### B-140 — `meta.raw_blobs` growth management (32 GB and compounding)
-- **Status:** open
-- **Priority:** medium-high — discovered 2026-08-03 during the B-138 install: the database is **34 GB, of which 32 GB is `meta.raw_blobs`** (up from 1.5 GB total at the 2026-05-22 drill). Every daily ingest appends raw vendor JSON forever; GDELT/SEC/BEA payloads dominate. At this growth rate the Beelink disk (28 GB free) becomes the binding constraint on both the lake and its backups within months.
-- **Context:** raw blobs are the *re-fetchable* tier (per `docs/backups.md`), kept for provenance + re-normalization. Nobody queries them hot. Their size now (a) inflates every nightly dump, (b) forced the backup preflight override (`DISK_FACTOR_PCT`, this branch), and (c) will eventually fill the disk. Candidate fixes, not mutually exclusive:
-  - **At-rest compression:** convert `meta.raw_blobs` to a hypertable partitioned on `fetched_at` + enable TimescaleDB native compression on chunks older than ~7 days (JSONB → columnar compressed typically 5-10×). Least invasive; keeps SQL access.
-  - **Blob tiering:** archive blobs older than N months to R2 (same bucket family as backups) and delete locally, keeping a manifest table for provenance. Changes the "restore = one dump" story — restore would need dump + archive.
-  - **Per-source retention policy:** some sources (GDELT gkg raw XML/JSON) are re-fetchable from the vendor's own archive indefinitely — their local raw copies could have a hard TTL.
+### B-140 — `meta.raw_blobs` growth management (53 GB; Beelink disk at 91%)
+- **Status:** open — split 2026-10-29 into **B-140a** (compress at rest, non-destructive, in progress) and **B-140b** (GDELT raw retention, destructive, waits for Michael's decision). Parent stays open until both land.
+- **Priority:** **critical** — 2026-10-29 system audit: database **55 GB, of which 53 GB is `meta.raw_blobs`** (34 GB / 32 GB on 2026-08-03; 1.5 GB at the 2026-05-22 drill). GDELT 15-min GKG CSV blobs are **40 GB of payload (38 GB by source join)** and add **~18 GB/month** (Sep 17.2 GB, Oct 18.1 GB, ~0.6 GB/day; one 15-min file stores 8–13 MB). The Beelink root volume is **91 % full, 8.5 GB free of 98 GB** — roughly **two weeks** of headroom. Homelab-it was dispatched the same day to reclaim ~8.2 GB of unused Docker images; that buys weeks, not a fix.
+- **Context:** raw blobs are the *re-fetchable* tier (`docs/backups.md`), kept for provenance + re-normalization; nobody queries them hot. GDELT specifics that bound the fix: the ingester reads raw blobs back **only as a cache on backfill re-runs** (`_cached_raw_blob` in `src/genkei/ingest/gdelt.py`); incremental runs fetch the trailing 24 h from GDELT directly. GDELT's own archive serves the same files for 365 days, and `gdelt.gkg` (578 k matched rows) is the queried record. `pg_column_size` already reflects TOAST pglz compression, so TimescaleDB column compression on JSONB text must be **measured, not assumed** 5–10×.
+- **Disk-space constraint for any rewrite:** converting the 53 GB table in place (`create_hypertable(migrate_data => true)`, `VACUUM FULL`, `pg_repack`) needs a full copy's worth of free space and is impossible at 8.5 GB free. The only safe shape is month-by-month migration into a new compressed hypertable, compressing each chunk as it lands, verifying row counts per batch, then `TRUNCATE` + drop of the old table so the space returns to the OS. Measure peak space on one month before touching the rest.
+
+### B-140a — Compress `meta.raw_blobs` at rest (non-destructive; GDELT first)
+- **Status:** open — branch may start now (orchestrator decision 2026-10-29). No row is deleted by this item.
 - **Acceptance criteria:**
-  - Decision recorded (compression vs tiering vs TTL, or combination) with measured before/after sizes.
-  - `meta.raw_blobs` on-disk size reduced to a level where 7-day dump retention fits the Beelink disk comfortably, OR the backup posture doc updated to a deliberately different retention shape.
-  - Provenance guarantees in CLAUDE.md still hold (audit trio intact) — whatever moves off-box must remain reachable.
+  - `meta.raw_blobs` becomes a TimescaleDB hypertable partitioned on `fetched_at` (monthly chunks) with a native compression policy on chunks older than ~7 days; `ingest_run_id` FK, `raw_blobs_endpoint_fetched_idx`, and the `ON DELETE CASCADE` semantics preserved or deliberately replaced and documented.
+  - `db.store_raw_blob`, `db.copy_raw_blob_for_run`, and the GDELT cache read keep their behaviour; existing tests pass; a migration test covers the new DDL.
+  - Batch migration script (one month per batch, row-count check per batch, resumable, dry-run flag) that never needs more free space than the compressed size of one month; peak-space measurement recorded.
+  - Measured before/after sizes for GDELT and for the whole table recorded in `docs/storage.md`; `docs/backups.md` updated (dump size, `DISK_FACTOR_PCT` note, restore runbook if the hypertable changes it).
+  - The production run on the Beelink is a separate, announced step after homelab-it's image prune lands — the branch ships code + runbook, not a silent prod rewrite.
+
+### B-140b — Retention policy for raw GDELT blobs (destructive; needs decision)
+- **Status:** open — **blocked on Michael's answer** to the 2026-10-29 needs-decision inbox line (genkei-ops `docs/inbox.md`). Nothing that drops data is pushed or merged until that line is answered.
+- **Options and what each saves** (measured 2026-10-29; "now" = uncompressed payload freed today, on-disk ≈ 1.3× payload; "steady" = raw GDELT footprint once the policy is in place, with the B-140a figure assuming ~5× compression, to be re-measured):
+  - **TTL 7 days** — frees ~36 GB now; steady ~4.5 GB raw / ~1 GB compressed. Backfill re-runs older than a week re-fetch from GDELT.
+  - **TTL 30 days** (default proposal) — frees ~21 GB now; steady ~19 GB raw / ~4 GB compressed. Keeps a month of cache for re-runs.
+  - **TTL 90 days** — frees ~0 now; steady ~55 GB raw / ~11 GB compressed. Not viable without B-140a, and even compressed exceeds today's free space.
+  - **Parse-and-discard** (never land GDELT raw; keep `gdelt.gkg` as the record) — frees ~40 GB now; steady 0. Provenance falls back to GDELT's 365-day public archive by URL plus the stored `url`/`fetched_at` in `meta.ingest_runs` metadata.
+- **Acceptance criteria:**
+  - Decision recorded here and in `docs/storage.md`; CLAUDE.md provenance statement updated to say GDELT raw is TTL'd (or discarded) and why the audit trio still holds.
+  - Implemented as a TimescaleDB retention policy on the B-140a hypertable, or, if it must land first, a scheduled sweep (`DELETE … WHERE source = 'gdelt' AND fetched_at < now() - interval …` followed by `VACUUM`) wired into an existing daily workflow with an ingest-run record.
+  - `genkei watchlist health`, the GDELT backfill cache path, and the backup preflight behave unchanged on a post-sweep database; a one-off before/after size line appended to this item on ship.
 
 ## Epic E-001 — 2026-06-12 codebase-review findings
 
