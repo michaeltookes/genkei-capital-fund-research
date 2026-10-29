@@ -103,7 +103,7 @@ Sketched here; schemas finalized in the first migrations.
 | Table | Purpose |
 |---|---|
 | `meta.ingest_runs` | One row per pipeline execution. Status, source, started_at, finished_at, rows_written, error. |
-| `meta.raw_blobs` | (Optional) Raw API responses for audit, indexed by ingest_run_id. Decide per-source whether to land here or in object storage. |
+| `meta.raw_blobs` | (Optional) Raw API responses for audit, indexed by ingest_run_id. Decide per-source whether to land here or in object storage. **Retention is per source** (B-140b, decided 2026-10-29): **GDELT 30 days, every other source 90 days**; see "Raw blob retention" below. |
 | `meta.watchlists` | Resolves B-015 — single source of truth for which assets/tickers/protocols are tracked. |
 | `meta.signals` | Cross-source correlations from B-064. |
 | `meta.alerts` | Threshold-based events from B-068. |
@@ -111,6 +111,19 @@ Sketched here; schemas finalized in the first migrations.
 | `meta.regimes` | Macro regime labels per date from B-066. |
 | `meta.api_usage` | Quota tracking per source for B-076. |
 | `public.alembic_version` | Migration tool's bookkeeping (managed by Alembic outside `meta` so fresh upgrades can create `meta` first). |
+
+### Raw blob retention (B-140b, decided 2026-10-29)
+
+The daily TimescaleDB job `meta.delete_old_raw_blobs` deletes raw blobs older than a per-source window, read from the job's `config` jsonb and joined through `meta.ingest_runs.source`:
+
+| Source | Window |
+|---|---|
+| `gdelt` | **30 days** |
+| everything else (`default`) | **90 days** |
+
+The config is `{"gdelt": "30 days", "default": "90 days"}`; a source with no key uses `default`, and a job with no config uses 90 days for everything. To change a window, `SELECT alter_job(<job_id>, config => '{...}'::jsonb)`; no migration needed. The sweep deletes in batches of 2000 ids with a `COMMIT` between batches and emits a `NOTICE` with rows deleted per source.
+
+**Why GDELT is shorter:** its 15-minute GKG CSVs (8-13 MB each, ~18 GB/month) made a 90-day window larger than the Beelink disk, and they are only a *backfill cache*. `gdelt.gkg` is the queried record, GDELT re-serves each file for 365 days, and the ingester's cache lookup (`_cached_raw_blob`) simply re-fetches when a blob is gone. Provenance for a GDELT row is the GDELT URL plus `fetched_at` in `meta.ingest_runs`, which are kept.
 
 ---
 
