@@ -294,6 +294,13 @@ class LoadCoinsTests(unittest.TestCase):
 
 
 class UrlBuilderTests(unittest.TestCase):
+    def test_markets_rank_url_asks_for_top_50_by_market_cap(self) -> None:
+        from genkei.ingest.coingecko import build_markets_rank_url
+
+        url = build_markets_rank_url()
+        self.assertIn("/coins/markets?vs_currency=usd&order=market_cap_desc", url)
+        self.assertIn("per_page=50&page=1", url)
+
     def test_coin_url_suppresses_optional_payloads(self) -> None:
         url = build_coin_url("bitcoin")
         self.assertIn("/coins/bitcoin", url)
@@ -687,6 +694,62 @@ class CollectTests(unittest.TestCase):
         self.assertEqual(failure["name"], "coin_bitcoin")
         self.assertEqual(failure["required"], "true")
         self.assertIn("missing nonempty symbol", failure["error"])
+
+
+class MarketRankCollectTests(unittest.TestCase):
+    """B-149: the top-50 listing rides the daily run and soft-fails."""
+
+    _WATCHLIST = (
+        "crypto:\n"
+        "  primary:\n"
+        "    - symbol: BTC\n"
+        "      name: Bitcoin\n"
+        "      coingecko_id: bitcoin\n"
+    )
+
+    def _run(self, markets_response: httpx.Response) -> tuple[list[str], list[dict[str, str]]]:
+        def route(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/v3/coins/bitcoin":
+                return httpx.Response(200, json={"symbol": "btc", "name": "Bitcoin"})
+            if request.url.path == "/api/v3/coins/bitcoin/market_chart":
+                return httpx.Response(
+                    200,
+                    json={"prices": [[1, 1]], "market_caps": [[1, 1]], "total_volumes": [[1, 1]]},
+                )
+            if request.url.path == "/api/v3/coins/markets":
+                self.assertIn("per_page=50", str(request.url))
+                return markets_response
+            return httpx.Response(404, text="unexpected")
+
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "watchlists.yml"
+            path.write_text(self._WATCHLIST, encoding="utf-8")
+            with (
+                HttpClient("coingecko-test", transport=httpx.MockTransport(route)) as http,
+                patch("genkei.ingest.coingecko.db.ingest_run", _fake_ingest_run),
+                patch("genkei.ingest.coingecko.db.store_raw_blob") as store_blob,
+                patch("genkei.ingest.coingecko.db.record_partial_endpoints") as partial,
+            ):
+                self.assertEqual(collect(path, http=http, api_key="demo-test-key"), 42)
+        names = [call.args[1] for call in store_blob.call_args_list]
+        failures = partial.call_args.args[1] if partial.called else []
+        return names, failures
+
+    def test_markets_blob_stored_on_success(self) -> None:
+        names, failures = self._run(httpx.Response(200, json=[{"id": "bitcoin"}]))
+        self.assertIn("markets_top50", names)
+        self.assertEqual(failures, [])
+
+    def test_markets_http_error_is_optional_failure_and_price_blobs_survive(self) -> None:
+        names, failures = self._run(httpx.Response(500, text="boom"))
+        self.assertEqual(names, ["coin_bitcoin", "market_chart_bitcoin"])
+        self.assertEqual([f["name"] for f in failures], ["markets_top50"])
+        self.assertEqual(failures[0]["required"], "false")
+
+    def test_markets_malformed_payload_is_optional_failure(self) -> None:
+        names, failures = self._run(httpx.Response(200, json={"error": "rate limited"}))
+        self.assertNotIn("markets_top50", names)
+        self.assertEqual(failures[0]["required"], "false")
 
 
 class ParseArgsTests(unittest.TestCase):

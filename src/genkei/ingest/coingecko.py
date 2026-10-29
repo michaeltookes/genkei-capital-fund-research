@@ -48,6 +48,9 @@ DEMO_COINGECKO_BASE = "https://api.coingecko.com/api/v3"
 PRO_COINGECKO_BASE = "https://pro-api.coingecko.com/api/v3"
 COIN_BLOB_PREFIX = "coin_"
 MARKET_CHART_BLOB_PREFIX = "market_chart_"
+# B-149: one /coins/markets call per run -> top-N market-cap rank snapshot.
+MARKETS_RANK_BLOB = "markets_top50"
+MARKETS_RANK_PER_PAGE = 50
 API_KEY_ENV = "COINGECKO_API_KEY"
 API_TIER_ENV = "COINGECKO_API_TIER"
 DEMO_API_TIER = "demo"
@@ -240,6 +243,14 @@ def build_coin_url(coingecko_id: str, *, base_url: str = DEMO_COINGECKO_BASE) ->
     )
 
 
+def build_markets_rank_url(*, base_url: str = DEMO_COINGECKO_BASE) -> str:
+    """Build the URL for the top-N market-cap listing (B-149)."""
+    return (
+        f"{base_url}/coins/markets?vs_currency=usd&order=market_cap_desc"
+        f"&per_page={MARKETS_RANK_PER_PAGE}&page=1"
+    )
+
+
 def build_market_chart_url(
     coingecko_id: str, *, base_url: str = DEMO_COINGECKO_BASE
 ) -> str:
@@ -331,6 +342,10 @@ def collect(
                 )
                 if index % 3 == 0:
                     LOGGER.info("CoinGecko collect progress: %s/%s", index, len(coins))
+            if not backfill:
+                written += _fetch_market_ranks(
+                    http, api_key_headers(tier, key), run.id, failures, base_url=api_base_url(tier)
+                )
             run.add_rows(written)
             if failures:
                 db.record_partial_endpoints(run.id, failures)
@@ -351,6 +366,52 @@ def collect(
     finally:
         if owns_http:
             http.close()
+
+
+def _fetch_market_ranks(
+    http: HttpClient,
+    headers: dict[str, str],
+    ingest_run_id: int,
+    failures: list[dict[str, str]],
+    *,
+    base_url: str,
+) -> int:
+    """Fetch the top-N market-cap listing as one raw blob (B-149).
+
+    Soft-fails: an error or malformed payload is recorded as an *optional*
+    partial failure (``required: false``) so the watchlist price ingest and its
+    normalization are unaffected. Returns blobs written (0 or 1).
+    """
+    url = build_markets_rank_url(base_url=base_url)
+    try:
+        payload = http.get_json(url, headers=headers)
+    except Exception as exc:
+        LOGGER.warning("CoinGecko top-rank fetch failed: %s", exc)
+        failures.append(
+            {"name": MARKETS_RANK_BLOB, "url": url, "error": str(exc), "required": "false"}
+        )
+        return 0
+    if not _valid_markets_rank(payload):
+        LOGGER.warning("CoinGecko top-rank payload invalid; skipping blob.")
+        failures.append(
+            {
+                "name": MARKETS_RANK_BLOB,
+                "url": url,
+                "error": "markets payload is not a nonempty list of objects",
+                "required": "false",
+            }
+        )
+        return 0
+    db.store_raw_blob(ingest_run_id, MARKETS_RANK_BLOB, url, payload)
+    return 1
+
+
+def _valid_markets_rank(payload: Any) -> bool:
+    return (
+        isinstance(payload, list)
+        and bool(payload)
+        and all(isinstance(item, dict) for item in payload)
+    )
 
 
 def _fetch_coin_pair(
