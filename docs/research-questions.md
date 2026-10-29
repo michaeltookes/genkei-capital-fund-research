@@ -21,6 +21,11 @@ Newest entries on top. One entry per question:
 
 ## Log
 
+### 2026-10-29 — NEAR: off-plan add on 2026-10-28 recorded; fold into the post-Nov-1 session
+- **status:** open
+- **context:** Michael reported a second NEAR fill: 2026-10-28 limit $4.6145 x 65.076 NEAR ($300.29), "buying the dip." The `2026-10-06-near-ai-chain-l1-assessment` plan allowed a tranche before the ~Nov 1 capture print only inside $3.60–4.20 with Intents 30d volume >= $3.5B, and said "do not average down," so this add is off-plan (between the pullback zone and the $5.10 starter, three days before the print). His stated reasons: the AI narrative is stronger than "just another L1," and NEAR ranking #20 above SUI (#29) supports his chosen-list thesis; the 10/06 file tested and rejected the AI-chain claim in favour of the Intents + privacy-rail + ETF thesis. Owed: (1) the size of the 10/06 quarter-position starter in NEAR and dollars, so the blended basis can be computed (only the $5.10 price is on record); (2) the Nov 1 October capture print (>= $2.0M captured share is the planned second-tranche gate; this add pre-empts part of it); (3) a post-print session that supersedes the 10/06 file, carries both fills in `reflection_start`, and answers whether NEAR survives Michael's own "outside the chosen list" lens that just moved SUI to SOL.
+- **outcome:**
+
 ### 2026-10-29 — SUI: record the blended cost basis, the Suilend loop status, and the swap fills
 - **status:** open
 - **context:** `2026-10-29-sui-thesis-exit-into-sol` swaps SUI into SOL as a thesis exit from a provisional baseline ($0.944 / SOL $101.85). Owed: (1) Michael's blended SUI cost basis (sub-$1.50 clips plus the ~$0.82 loop entry) so the realised loss can be graded; (2) whether the Suilend loop was unwound after the 10/08 instruction, with repay/withdraw amounts so the `2026-07-21-sui-suilend-leveraged-loop-contrarian` outcome can record realised inputs; (3) the actual swap fill date(s), prices and SOL received, to re-base `reflection_start`; (4) add `gdelt_terms` for SUI (Sui Network, Sui blockchain, Mysten Labs, SUI token) so `genkei news --asset SUI` stops matching Sun Communities and Pakistani gas (B-147 pattern; code branch, not research branch).
