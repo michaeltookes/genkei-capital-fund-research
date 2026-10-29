@@ -105,11 +105,36 @@ class BuildDiffTests(unittest.TestCase):
         self.assertEqual([e["symbol"] for e in diff["entries"]], ["SOL"])
         self.assertEqual([e["symbol"] for e in diff["exits"]], ["XRP"])
 
-    def test_missing_snapshot_is_reported_not_raised(self) -> None:
-        diff = build_diff(
-            SNAP_A, [], date_a=D_A, date_b=D_B, n=5, stable_ids=STABLES, exclude_stables=False
-        )
-        self.assertEqual(diff["missing_dates"], [D_B])
+    def test_missing_snapshot_does_not_report_membership_changes(self) -> None:
+        for rows_a, rows_b, missing in (
+            ([], SNAP_B, [D_A]), (SNAP_A, [], [D_B]), ([], [], [D_A, D_B])
+        ):
+            for exclude_stables in (False, True):
+                with self.subTest(missing=missing, exclude_stables=exclude_stables):
+                    diff = build_diff(
+                        rows_a, rows_b, date_a=D_A, date_b=D_B, n=5,
+                        stable_ids=STABLES, exclude_stables=exclude_stables,
+                    )
+                    self.assertEqual(diff["missing_dates"], missing)
+                    self.assertEqual(diff["entries"], [])
+                    self.assertEqual(diff["exits"], [])
+                    self.assertEqual(diff["moves"], [])
+                    self.assertEqual(diff["unchanged"], 0)
+
+    def test_snapshot_empty_after_filtering_is_not_missing(self) -> None:
+        stables_only = [_row("tether", "USDT", 1)]
+        for rows_a, rows_b, change, missing_change in (
+            (stables_only, SNAP_B, "entries", "exits"),
+            (SNAP_A, stables_only, "exits", "entries"),
+        ):
+            with self.subTest(change=change):
+                diff = build_diff(
+                    rows_a, rows_b, date_a=D_A, date_b=D_B, n=3,
+                    stable_ids=STABLES, exclude_stables=True,
+                )
+                self.assertEqual(diff["missing_dates"], [])
+                self.assertEqual(len(diff[change]), 3)
+                self.assertEqual(diff[missing_change], [])
 
 
 class TopRanksCommandTests(unittest.TestCase):
@@ -170,6 +195,22 @@ class TopRanksCommandTests(unittest.TestCase):
     def test_diff_with_missing_snapshot_says_so(self) -> None:
         text = self._run(["--diff", "2026-10-29", "2027-01-08"], {D_A: SNAP_A})
         self.assertIn("No snapshot for: 2027-01-08", text)
+
+    def test_diff_json_with_missing_snapshot_has_no_comparison(self) -> None:
+        for snaps, missing in (
+            ({D_B: SNAP_B}, [D_A]), ({D_A: SNAP_A}, [D_B]), ({}, [D_A, D_B])
+        ):
+            with self.subTest(missing=missing):
+                payload = json_mod.loads(
+                    self._run(["--diff", D_A.isoformat(), D_B.isoformat(), "--json"], snaps)
+                )
+                self.assertEqual(payload["missing_dates"], [d.isoformat() for d in missing])
+                self.assertEqual(payload["date_a"], D_A.isoformat())
+                self.assertEqual(payload["date_b"], D_B.isoformat())
+                self.assertEqual(payload["entries"], [])
+                self.assertEqual(payload["exits"], [])
+                self.assertEqual(payload["moves"], [])
+                self.assertEqual(payload["unchanged"], 0)
 
     def test_bad_date_is_rejected(self) -> None:
         result = CliRunner().invoke(app, ["top-ranks", "--date", "nope"])

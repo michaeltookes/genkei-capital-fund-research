@@ -116,7 +116,24 @@ def build_diff(
     A coin in both top-``n`` sets whose rank differs is a move. A coin that
     left the top n but is still in the stored top 50 reports its new rank;
     ``None`` means it is outside the stored top 50 that day.
+
+    Missing source snapshots make the comparison unavailable. Keep the
+    comparison lists empty and report the missing dates before filtering.
     """
+    result: dict[str, Any] = {
+        "date_a": date_a,
+        "date_b": date_b,
+        "n": n,
+        "exclude_stables": exclude_stables,
+        "entries": [],
+        "exits": [],
+        "moves": [],
+        "unchanged": 0,
+        "missing_dates": [d for d, rows in ((date_a, rows_a), (date_b, rows_b)) if not rows],
+    }
+    if result["missing_dates"]:
+        return result
+
     full_a = {
         r["coingecko_id"]: r
         for r in _rank_all(rows_a, stable_ids=stable_ids, exclude_stables=exclude_stables)
@@ -160,15 +177,11 @@ def build_diff(
         1 for c, r in top_a.items() if c in top_b and r["adj_rank"] == top_b[c]["adj_rank"]
     )
     return {
-        "date_a": date_a,
-        "date_b": date_b,
-        "n": n,
-        "exclude_stables": exclude_stables,
+        **result,
         "entries": entries,
         "exits": exits,
         "moves": moves,
         "unchanged": unchanged,
-        "missing_dates": [d for d, rows in ((date_a, rows_a), (date_b, rows_b)) if not rows],
     }
 
 
