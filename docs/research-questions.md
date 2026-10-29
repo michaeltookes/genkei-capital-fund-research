@@ -33,7 +33,7 @@ Newest entries on top. One entry per question:
 
 ### 2026-10-29 — SUI: record the blended cost basis, the Suilend loop status, and the swap fills
 - **status:** open
-- **context:** `2026-10-29-sui-thesis-exit-into-sol` swaps SUI into SOL as a thesis exit from a provisional baseline ($0.944 / SOL $101.85). Owed: (1) Michael's blended SUI cost basis (sub-$1.50 clips plus the ~$0.82 loop entry) so the realised loss can be graded; (2) DONE 2026-10-29: Michael reported he unlooped the Suilend position and withdrew everything from the platform (the second loop, reopened ~$0.82 per the 10/08 file; the first loop closed 2026-08-04). Still owed for the record: sSUI/SUI returned, suiUSDT repaid, and net cost of the second loop, plus the same inputs for the first loop so `2026-07-21-sui-suilend-leveraged-loop-contrarian` can finally resolve; (3) the actual swap fill date(s), prices and SOL received, to re-base `reflection_start`; (4) add `gdelt_terms` for SUI (Sui Network, Sui blockchain, Mysten Labs, SUI token) so `genkei news --asset SUI` stops matching Sun Communities and Pakistani gas (B-147 pattern; code branch, not research branch).
+- **context:** `2026-10-29-sui-thesis-exit-into-sol` swaps SUI into SOL as a thesis exit from a provisional baseline ($0.944 / SOL $101.85). Owed: (1) Michael's blended SUI cost basis (sub-$1.50 clips plus the ~$0.82 loop entry) so the realised loss can be graded; (2) DONE 2026-10-29: Michael reported he unlooped the Suilend position and withdrew everything from the platform (the second loop, reopened ~$0.82 per the 10/08 file; the first loop closed 2026-08-04). Repayment reported later the same day: the $200 USDC borrow was repaid at $202.47, so the second loop cost $2.47 in borrow interest. Still owed: sSUI/SUI returned and staking carry for the second loop, plus the same inputs for the first loop so `2026-07-21-sui-suilend-leveraged-loop-contrarian` can finally resolve; (3) the actual swap fill date(s), prices and SOL received, to re-base `reflection_start`; (4) add `gdelt_terms` for SUI (Sui Network, Sui blockchain, Mysten Labs, SUI token) so `genkei news --asset SUI` stops matching Sun Communities and Pakistani gas (B-147 pattern; code branch, not research branch).
 - **outcome:**
 
 ### 2026-10-29 — PUMP: record Michael's fill(s) and finish the activation housekeeping
@@ -70,6 +70,13 @@ Newest entries on top. One entry per question:
 - **status:** open
 - **context:** Surfaced in the `2026-09-17-hood-equity-core-assessment` session (action: avoid, on watch). The chain's 90-day gas subsidy expires ~2026-09-29 and Q3 earnings (~late Oct) are the first report that could disclose chain/sequencer revenue at all. Re-underwrite inputs per the decision's trigger: post-subsidy stablecoin supply + tokenized-stock AUM trajectory (NOT Pons fee prints — Pons is third-party and its fees are not HOOD revenue; correction recorded in the decision file), disclosed chain revenue ≥ ~$25M/quarter, tokenized-equity restructuring under the SEC's 2026-09-17 Innovation Exemption, and prediction-market litigation milestones. Also feeds the UNI file's Robinhood-derived fee-mix veto checks and the PUMP file's Pons-duopoly activation math.
 - **outcome:**
+
+### 2026-10-29 — PYTH: no October add; baseline defaults to 10/01
+
+- **asked_by:** research desk (housekeeping, confirmed by Michael 2026-10-29)
+- **status:** open
+- **outcome:** Michael confirmed he made no PYTH add in October, so `2026-10-01-pyth-reentry-trigger-fired-reserve-v2` keeps its default baseline (2026-10-01, PYTH $0.0772, BTC $83,959) with no added tranche to cut. PYTH was $0.0699 on 2026-10-29 (−9.5% from baseline). He asked whether he is below his cost basis and may add there; the desk has never received his PYTH fills, so cost basis is unknown. Per the 10/01 file a lower price does not bypass the second-tranche gate (~Nov 1 October purchases report ≥ $400K from new revenue, plus conversion/churn disclosure); any add on price alone is a conviction-variant entry and should be logged as such with the fill.
+- **context:** Fills still needed: every PYTH buy (date, price, quantity). Hard calendar rule unchanged: trim to tactical-secondary weight by 2027-03-31.
 
 ### 2026-09-17 — Pyth September monthly report: did the full re-entry condition hold?
 - **status:** open
