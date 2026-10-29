@@ -16,7 +16,7 @@ reflection_benchmark:
 reflection_start:
   date: 2026-10-29
   asset_price_usd: 0.00448
-  asset_price_source: CoinGecko `pump-fun` simple price at 15:38 UTC (+6.9% on the day; lake CoinGecko print at 06:48 CT was $0.00436). Position already held. Michael's fills, reported 2026-10-29 after this file was first written — 2026-08-31 limit $0.00450 x 112,721 ($501.61); 2026-09-14 limit $0.003650 x 9,473 ($34.58); 2026-10-01 limit $0.005780 x 48,940 ($282.87). Total 171,134 PUMP for $819.06, blended cost $0.004786; at this baseline the position is worth ~$767 (-$52, -6.4%). The 10/01 fill is the conviction full-starter entry the 10/01 file described, filled the same day; the 8/31 fill predates every PUMP record on the log. Lake CoinGecko SOL on the fill dates: $103.01 (8/31), $102.5 (9/14), $118.0–118.4 (10/01).
+  asset_price_source: CoinGecko `pump-fun` simple price at 15:38 UTC (+6.9% on the day; lake CoinGecko print at 06:48 CT was $0.00436). Position already held. Michael's fills, reported 2026-10-29 after this file was first written — 2026-08-31 limit $0.00450 x 112,721 ($501.61); 2026-09-14 limit $0.003650 x 9,473 ($34.58); 2026-10-01 limit $0.005780 x 48,940 ($282.87). Total 171,134 PUMP for $819.06, blended cost $0.004786; at this baseline the position is worth ~$767 (-$52, -6.4%). The 10/01 fill is the conviction full-starter entry the 10/01 file described, filled the same day; the 8/31 fill predates every PUMP record on the log. Lake CoinGecko SOL on the fill dates was $103.01 (8/31), $102.5 (9/14), $118.0–118.4 (10/01).
   benchmark_prices:
     - ticker: SOL
       price_usd: 102.41
