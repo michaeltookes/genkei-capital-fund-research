@@ -41,6 +41,13 @@ Newest entries on top. One entry per question:
 - **context:** The `2026-10-29-pump-exit-on-launchpad-parasitism-thesis` decision holds PUMP on revenue/price/share/legal lines from a provisional 2026-10-29 baseline ($0.00448 / SOL $102.41). Fills reported 2026-10-29 and recorded in the decision file (171,134 PUMP for $819.06, blended $0.004786; sizing rule does not bind). Still owed: (2) the 10/01 activation moves — PUMP from `crypto_price_targets` to `crypto.secondary` with `gdelt_terms` (pump.fun, PumpSwap, PUMP token) and the `pump` parent slug under `protocols:` so `defillama.protocol_fees` and `gdelt.gkg` carry the November exit lines (note `tests/cli/test_watchlist.py::test_default_watchlist_has_pump_price_only_coverage` must flip with it); (3) whether he executed a trim or full sale after the session — if so, flip the record's action and baseline per the file's housekeeping note.
 - **outcome:**
 
+### 2026-10-29 — PYTH: no October add; baseline defaults to 10/01
+
+- **asked_by:** research desk (housekeeping, confirmed by Michael 2026-10-29)
+- **status:** open
+- **outcome:** Michael confirmed he made no PYTH add in October, so `2026-10-01-pyth-reentry-trigger-fired-reserve-v2` keeps its default baseline (2026-10-01, PYTH $0.0772, BTC $83,959) with no added tranche to cut. PYTH was $0.0699 on 2026-10-29 (−9.5% from baseline). He asked whether he is below his cost basis and may add there; the desk has never received his PYTH fills, so cost basis is unknown. Per the 10/01 file a lower price does not bypass the second-tranche gate (~Nov 1 October purchases report ≥ $400K from new revenue, plus conversion/churn disclosure); any add on price alone is a conviction-variant entry and should be logged as such with the fill.
+- **context:** Fills still needed: every PYTH buy (date, price, quantity). Hard calendar rule unchanged: trim to tactical-secondary weight by 2027-03-31.
+
 ### 2026-10-08 — Story/DATA Foundation "rebuilding on Sui" — find Michael's source; verify or retire the claim
 - **status:** resolved
 - **context:** Surfaced in the `2026-10-08-crypto-chain-consolidation-thesis` session. Michael heard at Sui Basecamp / TOKEN2049 that Story Protocol ($IP) is shutting its chain, rebranding to the DATA Foundation and rebuilding on Sui. Verified: the rebrand (2026-06-25) and the 1:1 IP→DATA token migration (2026-10-05→07) are real; the DATA chain keeps running with an unchanged validator set; **no first-party or press source says it is moving to Sui.** DATA Foundation CEO Andrea Muttoni spoke at Sui Basecamp (Oct 7–8), the likely origin of the conflation. If a Basecamp-stage announcement exists it may not be indexed yet — Michael to send the link; if none surfaces by 2026-10-22, retire the claim in the consolidation file's next quarterly pull.
@@ -70,13 +77,6 @@ Newest entries on top. One entry per question:
 - **status:** open
 - **context:** Surfaced in the `2026-09-17-hood-equity-core-assessment` session (action: avoid, on watch). The chain's 90-day gas subsidy expires ~2026-09-29 and Q3 earnings (~late Oct) are the first report that could disclose chain/sequencer revenue at all. Re-underwrite inputs per the decision's trigger: post-subsidy stablecoin supply + tokenized-stock AUM trajectory (NOT Pons fee prints — Pons is third-party and its fees are not HOOD revenue; correction recorded in the decision file), disclosed chain revenue ≥ ~$25M/quarter, tokenized-equity restructuring under the SEC's 2026-09-17 Innovation Exemption, and prediction-market litigation milestones. Also feeds the UNI file's Robinhood-derived fee-mix veto checks and the PUMP file's Pons-duopoly activation math.
 - **outcome:**
-
-### 2026-10-29 — PYTH: no October add; baseline defaults to 10/01
-
-- **asked_by:** research desk (housekeeping, confirmed by Michael 2026-10-29)
-- **status:** open
-- **outcome:** Michael confirmed he made no PYTH add in October, so `2026-10-01-pyth-reentry-trigger-fired-reserve-v2` keeps its default baseline (2026-10-01, PYTH $0.0772, BTC $83,959) with no added tranche to cut. PYTH was $0.0699 on 2026-10-29 (−9.5% from baseline). He asked whether he is below his cost basis and may add there; the desk has never received his PYTH fills, so cost basis is unknown. Per the 10/01 file a lower price does not bypass the second-tranche gate (~Nov 1 October purchases report ≥ $400K from new revenue, plus conversion/churn disclosure); any add on price alone is a conviction-variant entry and should be logged as such with the fill.
-- **context:** Fills still needed: every PYTH buy (date, price, quantity). Hard calendar rule unchanged: trim to tactical-secondary weight by 2027-03-31.
 
 ### 2026-09-17 — Pyth September monthly report: did the full re-entry condition hold?
 - **status:** open
