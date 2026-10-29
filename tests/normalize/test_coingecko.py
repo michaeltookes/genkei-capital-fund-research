@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import unittest
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from pathlib import Path
 
 from genkei.normalize.coingecko import (
+    normalize_market_rank,
     normalize_coin,
     normalize_market_chart,
     parse_iso_date,
@@ -190,6 +193,61 @@ class NormalizeMarketChartTests(unittest.TestCase):
         )
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["price_usd"], 2.0)
+
+
+class NormalizeMarketRankTests(unittest.TestCase):
+    FIXTURE = Path(__file__).parent / "fixtures" / "coingecko_markets_top30.json"
+
+    def _rows(self) -> list[dict]:
+        payload = json.loads(self.FIXTURE.read_text(encoding="utf-8"))
+        return normalize_market_rank(
+            payload,
+            source_endpoint="https://example/coins/markets",
+            ingest_run_id=7,
+            fetched_at=datetime(2026, 10, 29, 11, 50, tzinfo=timezone.utc),
+        )
+
+    def test_maps_fixture_to_rank_rows(self) -> None:
+        rows = self._rows()
+        self.assertEqual(len(rows), 30)
+        btc = rows[0]
+        self.assertEqual(btc["coingecko_id"], "bitcoin")
+        self.assertEqual(btc["symbol"], "BTC")
+        self.assertEqual(btc["rank"], 1)
+        self.assertEqual(btc["ts"], date(2026, 10, 29))
+        self.assertEqual(btc["ingest_run_id"], 7)
+        self.assertGreater(btc["market_cap_usd"], 1e12)
+        self.assertEqual(len({r["coingecko_id"] for r in rows}), 30)
+
+    def test_drops_malformed_entries_and_duplicates(self) -> None:
+        payload = [
+            {"id": "a", "symbol": "a", "market_cap_rank": 1, "market_cap": 5},
+            {"id": "a", "symbol": "a", "market_cap_rank": 2},
+            {"id": "b", "symbol": "b", "market_cap_rank": None},
+            {"symbol": "c", "market_cap_rank": 3},
+            "junk",
+            {"id": "d", "symbol": "d", "market_cap_rank": 4, "market_cap": None},
+        ]
+        rows = normalize_market_rank(
+            payload,
+            source_endpoint="u",
+            ingest_run_id=1,
+            fetched_at=datetime(2026, 10, 29, tzinfo=timezone.utc),
+        )
+        self.assertEqual([r["coingecko_id"] for r in rows], ["a", "d"])
+        self.assertEqual(rows[0]["rank"], 1)
+        self.assertIsNone(rows[1]["market_cap_usd"])
+
+    def test_non_list_payload_yields_nothing(self) -> None:
+        self.assertEqual(
+            normalize_market_rank(
+                {"error": "x"},
+                source_endpoint="u",
+                ingest_run_id=1,
+                fetched_at=NOW,
+            ),
+            [],
+        )
 
 
 if __name__ == "__main__":
