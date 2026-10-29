@@ -63,13 +63,36 @@ def _query(
     sort_window: int,
     limit: int,
     asset_horizons: _HorizonMap,
+    asset_aliases: Optional[dict[str, str]] = None,
 ) -> list[dict[str, Any]]:
     sort_col = _WINDOW_COLUMN[sort_window]
-    sql = (
-        "SELECT asset, asset_class, ts, close, ret_3d, ret_7d, ret_30d "
-        "FROM analytics.price_momentum WHERE 1=1"
-    )
     params: list[Any] = []
+    source = "analytics.price_momentum"
+    prefix = ""
+    if asset_aliases:
+        # Normalize before filtering/sorting/limiting, and scope aliases to
+        # crypto. Suppress obsolete same-symbol products (e.g. legacy JUP-USD)
+        # so they cannot masquerade as the configured JUPITER-USD asset.
+        values = ", ".join("(%s, %s)" for _ in asset_aliases)
+        for vendor_symbol, symbol in asset_aliases.items():
+            params.extend((vendor_symbol, symbol))
+        shadowed = ", ".join("%s" for _ in asset_aliases)
+        params.extend(asset_aliases.values())
+        prefix = (
+            f"WITH aliases(vendor_symbol, symbol) AS (VALUES {values}), "
+            "canonical AS ("
+            "SELECT COALESCE(a.symbol, m.asset) AS asset, m.asset_class, "
+            "m.ts, m.close, m.ret_3d, m.ret_7d, m.ret_30d "
+            "FROM analytics.price_momentum m LEFT JOIN aliases a "
+            "ON m.asset_class = 'crypto' AND m.asset = a.vendor_symbol "
+            f"WHERE NOT (m.asset_class = 'crypto' AND m.asset IN ({shadowed}))) "
+        )
+        source = "canonical"
+    sql = (
+        prefix
+        + "SELECT asset, asset_class, ts, close, ret_3d, ret_7d, ret_30d "
+        f"FROM {source} WHERE 1=1"
+    )
     if asset is not None:
         sql += " AND asset = %s"
         params.append(asset.upper())
@@ -174,6 +197,12 @@ def momentum_cmd(
         sort_window=window,
         limit=limit,
         asset_horizons=_asset_horizons(watchlist),
+        asset_aliases={
+            entry.coinbase_product.split("-", 1)[0].upper(): entry.symbol.upper()
+            for entry in watchlist.crypto
+            if entry.coinbase_product
+            and entry.coinbase_product.split("-", 1)[0].upper() != entry.symbol.upper()
+        },
     )
     if json_out:
         typer.echo(json.dumps(rows, indent=2, default=_json_default))

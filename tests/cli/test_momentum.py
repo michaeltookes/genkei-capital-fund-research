@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import io
 import json as json_mod
+import sqlite3
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import date
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from genkei.cli import main
 from genkei.cli.momentum import _format_human
@@ -70,7 +71,15 @@ def _watchlist() -> Watchlist:
                 tier="primary",
                 sleeve="tactical",
                 coinbase_product="PYTH-USD",
-            )
+            ),
+            CryptoEntry(
+                symbol="JUP",
+                name="Jupiter",
+                coingecko_id="jupiter-exchange-solana",
+                tier="primary",
+                sleeve="core",
+                coinbase_product="JUPITER-USD",
+            ),
         ],
         equities=[
             EquityEntry(
@@ -144,6 +153,66 @@ class MomentumCommandTests(unittest.TestCase):
         self.assertEqual(parsed[0]["horizon_tag"], "crypto:tactical:primary")
         self.assertEqual(parsed[0]["ret_30d"], 27.89)
         self.assertEqual(parsed[0]["ts"], "2026-07-12")
+
+
+class CanonicalMomentumTests(unittest.TestCase):
+    """Execute the query against fixture rows, including a legacy JUP product."""
+
+    def _run(self, args: list[str]) -> list[dict]:
+        with sqlite3.connect(":memory:") as conn:
+            conn.execute("ATTACH DATABASE ':memory:' AS analytics")
+            conn.execute(
+                "CREATE TABLE analytics.price_momentum "
+                "(asset TEXT, asset_class TEXT, ts DATE, close NUMERIC, "
+                "ret_3d NUMERIC, ret_7d NUMERIC, ret_30d NUMERIC)"
+            )
+            conn.executemany(
+                "INSERT INTO analytics.price_momentum VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [
+                    ("JUPITER", "crypto", "2026-10-08", 1, 2, 15, 30),
+                    ("JUP", "crypto", "2023-09-01", 999, 999, 999, 999),
+                    ("JUPITER", "equity", "2026-10-08", 10, 1, 1, 1),
+                    ("JUP", "equity", "2026-10-08", 20, 2, 2, 2),
+                ],
+            )
+            cursor = conn.cursor()
+            connection = MagicMock()
+            mocked_cursor = connection.__enter__.return_value.cursor.return_value
+            mocked_cursor = mocked_cursor.__enter__.return_value
+            # SQLite exercises the same CTE/join/filter/order/limit semantics;
+            # only the DB-API parameter placeholder differs from psycopg.
+            mocked_cursor.execute.side_effect = lambda sql, params: cursor.execute(
+                sql.replace("%s", "?"), params
+            )
+            mocked_cursor.fetchall.side_effect = cursor.fetchall
+            out = io.StringIO()
+            with (
+                patch("genkei.cli.momentum.db.connection", return_value=connection),
+                patch("genkei.cli.momentum.load_watchlist", return_value=_watchlist()),
+                redirect_stdout(out),
+            ):
+                main(["momentum", "--json", *args])
+            return json_mod.loads(out.getvalue())
+
+    def test_canonical_asset_filter_uses_live_product(self) -> None:
+        rows = self._run(["--asset", "jup", "--asset-class", "crypto"])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["asset"], "JUP")
+        self.assertEqual(rows[0]["close"], 1)
+        self.assertEqual(rows[0]["horizon_tag"], "crypto:core:primary")
+
+    def test_unfiltered_output_keeps_equities_and_suppresses_legacy_crypto(self) -> None:
+        rows = self._run([])
+        self.assertEqual(
+            [(r["asset"], r["asset_class"]) for r in rows],
+            [("JUP", "crypto"), ("JUP", "equity"), ("JUPITER", "equity")],
+        )
+
+    def test_alias_and_legacy_removal_happen_before_limit(self) -> None:
+        rows = self._run(["--asset-class", "crypto", "--limit", "1"])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["asset"], "JUP")
+        self.assertEqual(rows[0]["ret_7d"], 15)
 
 
 class FormatHumanTests(unittest.TestCase):
