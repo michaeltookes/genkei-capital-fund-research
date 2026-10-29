@@ -176,6 +176,26 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         ),
     ),
     ToolSpec(
+        name="top_ranks",
+        subcommand=("top-ranks",),
+        description=(
+            "Daily top-N market-cap rank snapshot (B-149, forward-only). Give diff_from + "
+            "diff_to to list coins that entered/left the top N and rank moves between two dates."
+        ),
+        params=(
+            ToolParam("n", "--n", "integer", "Top N coins to show or compare (default 15)."),
+            ToolParam("date", "--date", "string", "Snapshot date (YYYY-MM-DD; default latest)."),
+            ToolParam(
+                "exclude_stables",
+                "--exclude-stables",
+                "boolean",
+                "Drop watchlist stablecoins and re-rank the rest.",
+            ),
+            ToolParam("diff_from", "--diff-from", "string", "Diff start date (YYYY-MM-DD)."),
+            ToolParam("diff_to", "--diff-to", "string", "Diff end date (YYYY-MM-DD)."),
+        ),
+    ),
+    ToolSpec(
         name="anomalies",
         subcommand=("anomalies",),
         description="Per-series return anomalies (B-069) — rolling MAD-based outlier flags.",

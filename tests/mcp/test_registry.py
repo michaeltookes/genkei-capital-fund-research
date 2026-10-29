@@ -40,6 +40,7 @@ class RegistryShapeTests(unittest.TestCase):
             "signals": ("signals",),
             "tvl": ("tvl",),
             "zcash_usage": ("zcash-usage",),
+            "top_ranks": ("top-ranks",),
             "query": ("query",),
             "watchlist_health": ("watchlist", "health"),
             "watchlist_score": ("watchlist", "score"),

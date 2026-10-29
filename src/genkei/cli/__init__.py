@@ -48,6 +48,7 @@ Subcommand surface (B-037):
                         News tone vs forward returns — correlation     [B-056 ✓]
 - ``genkei anomalies`` Per-series return-anomaly flags          [B-069 ✓]
 - ``genkei momentum``  Trailing 3/7/30-day price momentum        [B-067 ✓]
+- ``genkei top-ranks`` Daily top-N market-cap rank snapshot + diff [B-149 ✓]
 - ``genkei alerts``    Threshold-based alert log                 [B-068 ✓]
 """
 
@@ -80,6 +81,7 @@ from genkei.cli import (
     revenue_divergence,
     signals,
     stablecoin_flow,
+    top_ranks,
     tvl,
     tvl_drawdown,
     watchlist,
@@ -178,6 +180,10 @@ app.command(
     "momentum",
     help="Trailing 3/7/30-day price momentum per asset (B-067, materialized).",
 )(momentum.momentum_cmd)
+app.command(
+    "top-ranks",
+    help="Daily top-N market-cap rank snapshot and diff between dates (B-149).",
+)(top_ranks.top_ranks_cmd)
 app.command(
     "alerts",
     help="Threshold-based alert log (B-068) — stacks that cleared a configured page threshold.",
