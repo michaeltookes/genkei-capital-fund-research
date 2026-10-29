@@ -61,8 +61,9 @@ Field mapping per event:
 
 Loading note: loads the full available price series for each (asset, BTC)
 pair regardless of ``--since``. Assets use ``coinbase.candles`` when a
-live ``coinbase_product`` is configured and fall back to
-``coingecko.market_data`` otherwise; BTC remains the fixed Coinbase peer.
+live ``coinbase_product`` is configured with enough history for the return
+window and prior crossing state, and fall back to ``coingecko.market_data``
+otherwise; BTC remains the fixed Coinbase peer.
 The relative-strength window needs ≥30 days of trailing history and the
 crossing detector needs the prior day's state. ``--since`` is applied
 in-Python to the *emission* window after crossings are detected.
@@ -236,9 +237,20 @@ def _load_coingecko_price_series(
 def _load_asset_price_series(
     target: _CryptoAssetTarget, *, until: date | None = None
 ) -> list[PricePoint]:
-    """Load one asset's price history from its configured watchlist source."""
+    """Prefer Coinbase only after its return window and prior state exist.
+
+    Newly configured products initially have only the collector's seven-day
+    window. Keep the complete CoinGecko series during that warmup; never splice
+    prices from different vendors into a single return calculation.
+    """
     if target.price_source == "coinbase":
-        return _load_price_series(target.price_key, until=until)
+        series = _load_price_series(target.price_key, until=until)
+        current_return, _, _ = compute_return_pct(series, window_days=WINDOW_DAYS)
+        prior_return, _, _ = compute_return_pct(series[:-1], window_days=WINDOW_DAYS)
+        if current_return is not None and prior_return is not None:
+            return series
+        fallback = _load_coingecko_price_series(target.asset_id, until=until)
+        return fallback or series
     if target.price_source == "coingecko":
         return _load_coingecko_price_series(target.price_key, until=until)
     raise ValueError(f"unsupported crypto price source: {target.price_source}")

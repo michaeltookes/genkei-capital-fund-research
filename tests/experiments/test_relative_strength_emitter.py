@@ -22,6 +22,7 @@ from genkei.experiments.emitters.relative_strength_emitter import (
     _crypto_assets,
     _date_ts,
     _detect_crossings,
+    _load_asset_price_series,
     _state_for,
     _strength_from_rel_strength,
     compute_daily_relative_strength,
@@ -338,6 +339,46 @@ class CryptoAssetsTests(unittest.TestCase):
         self.assertEqual(jup.price_source, "coingecko")
         self.assertEqual(jup.price_key, "jupiter-exchange-solana")
         self.assertEqual(jup.sleeve, "core")
+
+
+class PriceSourceWarmupTests(unittest.TestCase):
+    def test_keeps_coingecko_until_coinbase_has_return_and_prior_state(self) -> None:
+        target = _crypto_assets(_load_watchlist())[0]
+        history = _ramped_series(date(2024, 1, 1), 60, Decimal("100"), Decimal("1"))
+        until = history[-1].ts
+        module = "genkei.experiments.emitters.relative_strength_emitter"
+        # 31 prices provide a 30-day return but no preceding crossing state.
+        for days in (0, 7, 30, 31, 32, 60):
+            with self.subTest(days=days):
+                coinbase = history[-days:] if days else []
+                with (
+                    patch(f"{module}._load_price_series", return_value=coinbase) as cb,
+                    patch(f"{module}._load_coingecko_price_series", return_value=history) as cg,
+                ):
+                    actual = _load_asset_price_series(target, until=until)
+                cb.assert_called_once_with(target.price_key, until=until)
+                if days < 32:
+                    self.assertEqual(actual, history)
+                    cg.assert_called_once_with(target.asset_id, until=until)
+                    # Exercise real return/crossing math: a newly configured
+                    # Coinbase product must not silence existing signals.
+                    daily = compute_daily_relative_strength(
+                        actual, _flat_series(date(2024, 1, 1), 60, Decimal("100"))
+                    )
+                    self.assertTrue(_detect_crossings(daily, asset=target.asset_id))
+                else:
+                    self.assertEqual(actual, coinbase)
+                    cg.assert_not_called()
+
+    def test_retains_short_coinbase_history_when_no_fallback_exists(self) -> None:
+        target = _crypto_assets(_load_watchlist())[0]
+        history = _flat_series(date(2024, 1, 1), 7, Decimal("100"))
+        module = "genkei.experiments.emitters.relative_strength_emitter"
+        with (
+            patch(f"{module}._load_price_series", return_value=history),
+            patch(f"{module}._load_coingecko_price_series", return_value=[]),
+        ):
+            self.assertEqual(_load_asset_price_series(target), history)
 
 
 class EmitOrchestratorTests(unittest.TestCase):
