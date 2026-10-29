@@ -15,6 +15,7 @@ Usage:
 """
 
 import json
+import math
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any, Optional, Union
@@ -37,6 +38,10 @@ from genkei.common.watchlist import (
     Watchlist,
     load_watchlist,
 )
+
+# Ceiling on decimal places for sub-cent prices. Keeps the widest
+# rendering ("0.000000000000") inside the 14-char price column.
+_MAX_PRICE_DECIMALS = 12
 
 
 def _fetch_all(
@@ -207,6 +212,26 @@ def _query_coinbase_latest_ts(product: str) -> Optional[datetime]:
     )
 
 
+def _format_price(value: float) -> str:
+    """Render a USD price with enough precision for sub-cent tokens.
+
+    The lake covers assets spanning six orders of magnitude, so a fixed
+    two-decimal format silently collapses every sub-cent token to
+    ``0.00`` — PUMP at $0.0048 and PENGU both printed as ``0.00``, which
+    made the human output useless for exactly the names where a price
+    check matters most. Scale the decimal places to keep four
+    significant digits below $1 while leaving normal prices at cents.
+    """
+    magnitude = abs(value)
+    if magnitude >= 1 or magnitude == 0:
+        decimals = 2
+    else:
+        # math.floor(log10(x)) is the exponent of the leading digit:
+        # -3 for 0.0048, so 3 - (-3) = 6 decimals -> "0.004790".
+        decimals = min(_MAX_PRICE_DECIMALS, 3 - math.floor(math.log10(magnitude)))
+    return f"{value:,.{decimals}f}"
+
+
 def _format_human(ticker: str, source: str, rows: list[dict[str, Any]]) -> str:
     if not rows:
         return (
@@ -217,7 +242,9 @@ def _format_human(ticker: str, source: str, rows: list[dict[str, Any]]) -> str:
     lines = [header, "-" * len(header)]
     lines.append(f"  {'timestamp':<25}  {'price (USD)':>14}  {'market cap':>16}  {'volume':>16}")
     for row in rows:
-        price = f"{row['price_usd']:,.2f}" if row["price_usd"] is not None else "n/a"
+        price = (
+            _format_price(row["price_usd"]) if row["price_usd"] is not None else "n/a"
+        )
         mcap = f"{row['market_cap_usd']:,.0f}" if row["market_cap_usd"] is not None else "n/a"
         vol = f"{row['volume_usd']:,.0f}" if row["volume_usd"] is not None else "n/a"
         lines.append(f"  {row['ts']:<25}  {price:>14}  {mcap:>16}  {vol:>16}")

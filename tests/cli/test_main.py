@@ -222,7 +222,10 @@ class PricesCommandTests(unittest.TestCase):
         self.assertIn(code, (None, 0))
         query.assert_called_once_with("liquity", since=None, until=None, limit=30)
         self.assertIn("LQTY", out.getvalue())
-        self.assertIn("0.17", out.getvalue())
+        # Sub-dollar prices render at four significant digits, not cents,
+        # so sub-cent tokens are not collapsed to "0.00"; see
+        # genkei.cli.prices._format_price and tests/cli/test_prices.py.
+        self.assertIn("0.1670", out.getvalue())
 
     def test_prices_default_config_is_independent_of_cwd(self) -> None:
         ctx = TemporaryDirectory()
