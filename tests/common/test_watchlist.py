@@ -628,5 +628,28 @@ class LoadHelperTests(unittest.TestCase):
             load_watchlist_entries(Path("/nope/watchlists.yml"), lambda w: w.crypto)
 
 
+class ShippedWatchlistB149Tests(unittest.TestCase):
+    """B-149: top-15 price targets and the stablecoin id list."""
+
+    def test_top15_price_targets_present_and_not_in_crypto(self) -> None:
+        from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist
+
+        wl = load_watchlist(DEFAULT_WATCHLIST_PATH)
+        for symbol in ("BNB", "TRX", "DOGE", "XMR", "WBT", "LEO", "ADA"):
+            target = wl.find_crypto_price_target(symbol)
+            self.assertIsNotNone(target, symbol)
+            assert target is not None
+            self.assertIn("B-149", target.role or "")
+            self.assertIsNone(wl.find_crypto(symbol), symbol)
+
+    def test_stablecoin_ids_load_through_watchlist(self) -> None:
+        from genkei.common.watchlist import DEFAULT_WATCHLIST_PATH, load_watchlist
+
+        wl = load_watchlist(DEFAULT_WATCHLIST_PATH)
+        self.assertIn("tether", wl.stablecoin_ids)
+        self.assertIn("usd1-wlfi", wl.stablecoin_ids)
+        self.assertNotIn("bitcoin", wl.stablecoin_ids)
+
+
 if __name__ == "__main__":
     unittest.main()

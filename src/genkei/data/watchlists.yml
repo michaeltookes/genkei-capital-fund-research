@@ -221,6 +221,58 @@ crypto_price_targets:
     coingecko_id: pump-fun
     asset_class: crypto
     role: Price coverage for the 2026-09-06 PUMP inactive buy decision; on activation, remove this price-only row and add PUMP to crypto.secondary for signal-scoped coverage.
+  - symbol: BNB
+    name: BNB
+    coingecko_id: binancecoin
+    asset_class: crypto
+    role: Price/market-cap series for the B-149 top-15 composition thesis; not a crypto-tactical research target.
+  - symbol: TRX
+    name: TRON
+    coingecko_id: tron
+    asset_class: crypto
+    role: Price/market-cap series for the B-149 top-15 composition thesis; not a crypto-tactical research target.
+  - symbol: DOGE
+    name: Dogecoin
+    coingecko_id: dogecoin
+    asset_class: crypto
+    role: Price/market-cap series for the B-149 top-15 composition thesis (named prediction - DOGE exits the top 15); not a crypto-tactical research target.
+  - symbol: XMR
+    name: Monero
+    coingecko_id: monero
+    asset_class: crypto
+    role: Price/market-cap series for the B-149 top-15 composition thesis (privacy seat); not a crypto-tactical research target.
+  - symbol: WBT
+    name: WhiteBIT Coin
+    coingecko_id: whitebit
+    asset_class: crypto
+    role: Price/market-cap series for the B-149 top-15 composition thesis; not a crypto-tactical research target.
+  - symbol: LEO
+    name: UNUS SED LEO
+    coingecko_id: leo-token
+    asset_class: crypto
+    role: Price/market-cap series for the B-149 top-15 composition thesis (#16-20 challenger); not a crypto-tactical research target.
+  - symbol: ADA
+    name: Cardano
+    coingecko_id: cardano
+    asset_class: crypto
+    role: Price/market-cap series for the B-149 top-15 composition thesis (#16-20 challenger); not a crypto-tactical research target.
+
+# Stablecoin CoinGecko ids (B-149). `genkei top-ranks --exclude-stables` drops
+# these so the non-stable top 15 can be read alongside the raw one. The
+# /coins/markets endpoint carries no peg type, hence a static list. Ids were
+# checked against the live top-50 response on 2026-10-29; stablecoins that were
+# not in the top 50 then (first-digital-usd, true-usd, frax, binance-usd) are
+# omitted and should be added if they ever surface.
+stablecoin_ids:
+  - tether
+  - usd-coin
+  - dai
+  - ethena-usde
+  - usds
+  - usd1-wlfi
+  - paypal-usd
+  - global-dollar
+  - ripple-usd
 
 # Equities watchlist.
 #
