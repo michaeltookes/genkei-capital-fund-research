@@ -361,7 +361,7 @@ class PriceSourceWarmupTests(unittest.TestCase):
                 cg.assert_called_once_with(target.asset_id, until=until)
                 if days < 32:
                     self.assertEqual(actual.prices, history)
-                    self.assertFalse(actual.suppress_initial_crossing)
+                    self.assertFalse(actual.prior_prices)
                     # Exercise real return/crossing math: a newly configured
                     # Coinbase product must not silence existing signals.
                     daily = compute_daily_relative_strength(
@@ -370,7 +370,7 @@ class PriceSourceWarmupTests(unittest.TestCase):
                     self.assertTrue(_detect_crossings(daily, asset=target.asset_id))
                 else:
                     self.assertEqual(actual.prices, coinbase)
-                    self.assertEqual(actual.suppress_initial_crossing, days < 60)
+                    self.assertEqual(actual.prior_prices, history)
 
     def test_complete_coinbase_history_keeps_initial_onset(self) -> None:
         target = _crypto_assets(_load_watchlist())[0]
@@ -389,7 +389,6 @@ class PriceSourceWarmupTests(unittest.TestCase):
                 crossings = _detect_crossings(
                     daily,
                     asset=target.asset_id,
-                    suppress_initial_crossing=actual.suppress_initial_crossing,
                 )
                 self.assertEqual([c.ts for c in crossings], [date(2024, 1, 31)])
 
@@ -429,7 +428,7 @@ class SourceHandoffTests(unittest.TestCase):
             )
         return emit.call_args.args[0]
 
-    def test_ongoing_episode_is_not_reemitted_at_handoff_or_later_replays(self) -> None:
+    def test_ongoing_episode_keeps_original_onset_at_handoff_and_later_replays(self) -> None:
         for daily_pct in (Decimal("1"), Decimal("-1")):
             history = _ramped_series(date(2024, 1, 1), 100, Decimal("100"), daily_pct)
             warmup = self._emit(history, 31)
@@ -439,7 +438,24 @@ class SourceHandoffTests(unittest.TestCase):
                     growing_history = _ramped_series(
                         date(2024, 1, 1), 68 + days, Decimal("100"), daily_pct
                     )
-                    self.assertEqual(self._emit(growing_history, days), [])
+                    replay = self._emit(growing_history, days)
+                    expected = warmup if days < 60 else []  # Original onset ages out of replay.
+                    self.assertEqual(replay, expected)
+
+    def test_missed_initial_coinbase_crossing_is_recovered_on_later_replays(self) -> None:
+        for multiplier, kind in (("2", "leader_crossing"), ("0.5", "laggard_crossing")):
+            for coinbase_days in (32, 33, 40):
+                with self.subTest(multiplier=multiplier, coinbase_days=coinbase_days):
+                    # Coinbase starts on observation 69. Its first return
+                    # (observation 99) is a genuine onset, but that run failed.
+                    history = _flat_series(date(2024, 1, 1), 68 + coinbase_days, Decimal("100"))
+                    for i in range(98, len(history)):
+                        history[i] = PricePoint(
+                            ts=history[i].ts, price_usd=Decimal("100") * Decimal(multiplier)
+                        )
+                    events = self._emit(history, coinbase_days)
+                    self.assertEqual([e["signal_kind"] for e in events], [kind])
+                    self.assertEqual(events[0]["ts"].date(), history[98].ts)
 
     def test_real_transition_after_initial_state_still_emits(self) -> None:
         for daily_pct, multiplier, kind in (
@@ -456,8 +472,9 @@ class SourceHandoffTests(unittest.TestCase):
                     price_usd=history[-2].price_usd * Decimal(multiplier),
                 )
                 events = self._emit(history, 32)
-                self.assertEqual([e["signal_kind"] for e in events], [kind])
-                self.assertEqual(events[0]["ts"].date(), history[-1].ts)
+                self.assertEqual(events[-1]["signal_kind"], kind)
+                self.assertEqual(events[-1]["ts"].date(), history[-1].ts)
+                self.assertEqual(len(events), 1 if daily_pct == "0" else 2)
 
 
 class EmitOrchestratorTests(unittest.TestCase):

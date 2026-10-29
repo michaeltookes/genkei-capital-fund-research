@@ -56,8 +56,8 @@ crypto:
     # api.exchange.coinbase.com/products; added so `genkei momentum` (which
     # reads coinbase.candles) covers a core holding. Momentum maps the product
     # base back to JUP before filtering. Relative-strength signals retain
-    # CoinGecko history until Coinbase has two 30-day returns, then suppress
-    # the truncated history's initial onset to avoid duplicating an episode;
+    # CoinGecko history until Coinbase has two 30-day returns, then retain
+    # earlier CoinGecko returns for crossing state and missed-run replay;
     # momentum's 30d return remains n/a until that history is collected/backfilled.
     - symbol: JUP
       name: Jupiter
