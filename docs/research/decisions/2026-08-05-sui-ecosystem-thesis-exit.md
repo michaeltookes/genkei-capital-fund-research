@@ -11,7 +11,9 @@ reflection_benchmark:
     - ticker: SOL
       weight: 1.0
 confidence: medium
-status: pending
+status: resolved
+superseded_by: 2026-10-08-sui-hold-vs-swap-into-sol-zec
+trigger_fired_at: 2026-10-08
 trigger_reassessment: "Reopen SUI only on measured ecosystem reversal: Sui chain TVL reclaims $800M (vs $416M today) with 2+ consecutive months of growth AND at least one non-TVL usage proxy is also improving, OR watchlist Sui-protocol fees reclaim $1M/month for 2+ consecutive months (vs $314K July), OR Sui stablecoin supply grows 2+ consecutive months (vs shrinking today), OR a spot SUI ETF is APPROVED (not filed) and prints positive net flows for a month as a manual external check until an approved SUI ETF ticker and signed-flow source are added to `etf_tickers`. SUI-vs-SOL relative strength alone is NOT a reopen trigger — beta bounces without usage are the pattern this exit rejects."
 supersedes: 2026-06-02-sui-rotation-into-eth-sol
 related:
@@ -88,4 +90,4 @@ Covered above where it matters: stablecoins out (−$0.03B/30d vs SOL +$1.3B), r
 
 ## Outcome (filled in by /reflect-decisions)
 
-(reserved — pending)
+Superseded 2026-10-08 by [2026-10-08-sui-hold-vs-swap-into-sol-zec](2026-10-08-sui-hold-vs-swap-into-sol-zec.md). The sell was never executed (Michael disclosed on 2026-09-23 that he held and kept adding). The fee reopen trigger fired as written: lake `defillama.protocol_fees` shows watchlist Sui-protocol fees of $1.53M (Aug) and $1.82M (Sep), both above $1M — but the same table shows July at $1.14M, not the $314K this file recorded, so the "−91% collapse" baseline was a partial-month artifact of the early-August ingest outage and the "reclaim" is a measurement correction rather than a reversal. Price grade at supersession (lake Coinbase candles, 2026-08-05 → 2026-10-08): SUI $0.69 → $1.04 (+50%), SOL $73.97 → $108.68 (+47%): the exit-into-SOL call was a wash in price terms; ZEC $512 → $1,144 (+124%) was the destination neither this file nor Michael chose. The relative-usage read (Sui at 2–8% of Solana on stablecoins, fees, DEX volume; TVL −79% y/y) is carried forward unchanged into the successor, which holds the position unlevered with mechanical exit lines instead of a third discretionary sell.
