@@ -116,7 +116,10 @@ class TopRanksCommandTests(unittest.TestCase):
     def _run(self, args: list[str], snaps: dict, latest: date | None = D_A) -> str:
         out = io.StringIO()
         with (
-            patch("genkei.cli.top_ranks._fetch_snapshots", side_effect=lambda ds: {d: snaps.get(d, []) for d in ds}),
+            patch(
+                "genkei.cli.top_ranks._fetch_snapshots",
+                side_effect=lambda ds: {d: snaps.get(d, []) for d in ds},
+            ),
             patch("genkei.cli.top_ranks._latest_date", return_value=latest),
             patch("genkei.cli.top_ranks.load_watchlist", return_value=_watchlist()),
             redirect_stdout(out),
