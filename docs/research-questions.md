@@ -21,6 +21,11 @@ Newest entries on top. One entry per question:
 
 ## Log
 
+### 2026-10-29 — PUMP: record Michael's fill(s) and finish the activation housekeeping
+- **status:** open
+- **context:** The `2026-10-29-pump-exit-on-launchpad-parasitism-thesis` decision holds PUMP on revenue/price/share/legal lines from a provisional 2026-10-29 baseline ($0.00448 / SOL $102.41). Three things are owed: (1) Michael's fill date(s), price(s), and size, to re-base `reflection_start` and the SOL benchmark and to apply the "cut to one tactical-secondary starter" rule; (2) the 10/01 activation moves — PUMP from `crypto_price_targets` to `crypto.secondary` with `gdelt_terms` (pump.fun, PumpSwap, PUMP token) and the `pump` parent slug under `protocols:` so `defillama.protocol_fees` and `gdelt.gkg` carry the November exit lines (note `tests/cli/test_watchlist.py::test_default_watchlist_has_pump_price_only_coverage` must flip with it); (3) whether he executed a trim or full sale after the session — if so, flip the record's action and baseline per the file's housekeeping note.
+- **outcome:**
+
 ### 2026-10-08 — Story/DATA Foundation "rebuilding on Sui" — find Michael's source; verify or retire the claim
 - **status:** open
 - **context:** Surfaced in the `2026-10-08-crypto-chain-consolidation-thesis` session. Michael heard at Sui Basecamp / TOKEN2049 that Story Protocol ($IP) is shutting its chain, rebranding to the DATA Foundation and rebuilding on Sui. Verified: the rebrand (2026-06-25) and the 1:1 IP→DATA token migration (2026-10-05→07) are real; the DATA chain keeps running with an unchanged validator set; **no first-party or press source says it is moving to Sui.** DATA Foundation CEO Andrea Muttoni spoke at Sui Basecamp (Oct 7–8), the likely origin of the conflation. If a Basecamp-stage announcement exists it may not be indexed yet — Michael to send the link; if none surfaces by 2026-10-22, retire the claim in the consolidation file's next quarterly pull.
@@ -62,9 +67,9 @@ Newest entries on top. One entry per question:
 - **outcome:**
 
 ### 2026-09-06 — Revisit inactive PUMP staged-buy entry on 2026-12-31 if no entry fires
-- **status:** open
+- **status:** resolved
 - **context:** The original `2026-09-06-pump-fun-buyback-assessment` was superseded 2026-10-01 by `2026-10-01-pump-vs-pyth-comparative-buy` after Michael requested a fresh comparison. The 9/06 breakout condition did not fire: Pons was no longer out-earning pump.fun when the close exceeded $0.0053 on 9/29. The successor remains `status: inactive` and activates on Michael's first PUMP fill (discipline half-starter or conviction full starter). Because `/reflect-decisions` skips inactive files before horizon checks, keep this manual reminder open for the successor's 2026-12-31 no-fill expiry. On or after 2026-12-31, verify whether either successor entry filled; if no fill occurred by the deadline, flip the successor to `resolved` with a no-entry note and resolve this reminder. If a fill occurred, ensure the successor is activated with the actual fill date and reflection baseline before resolving this reminder.
-- **outcome:**
+- **outcome:** 2026-10-29 — moot: the position was live (Michael disclosed he holds PUMP at a loss); the 10/01 record is superseded by `2026-10-29-pump-exit-on-launchpad-parasitism-thesis`, which carries the hold-with-lines call.
 
 ### 2026-09-03 — Revisit inactive UNI fee-switch entry on 2027-01-31 if no entry fires
 - **status:** open
