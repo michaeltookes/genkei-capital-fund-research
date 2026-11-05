@@ -200,6 +200,12 @@ Reliability work that grows in importance as more sources go live.
 - **Context:** measured 2026-10-29 on 6 GDELT files: 112.6 MB raw CSV → 54.0 MB under pglz; zstd -3 → 30.0 MB, zstd -9 → 24.3 MB (~2× better than pglz), zstd -19 long-window over the files concatenated → 12.4 MB (~4.4×, needs consecutive 15-min files packed per batch). Requires `store_raw_blob` / `copy_raw_blob_for_run` / `_cached_raw_blob` to write and read a `bytea` side column with a codec tag, plus a one-off recompression pass that obeys the ops hazard above.
 - **Acceptance criteria:** codec tag per row, transparent read path, measured ratio on the whole GDELT set, no payload sort/offset on prod.
 
+### B-150 — Memecoin lane storage: database for `genkei-meme-terminal`
+- **Status:** open
+- **Priority:** medium
+- **Context:** Michael brought Genkei Capital into the factory on 2026-11-05 and opened a sibling repo, `genkei-meme-terminal` (Solana launch firehose, lifecycle snapshots, wallet trade journal, scorer). It should reuse this instance of TimescaleDB and these ingester conventions rather than grow its own stack. The Beelink disk is at 90 percent, so volume comes first.
+- **Acceptance criteria:** (1) a written volume estimate for launches plus five snapshots each per day; (2) decision recorded here and in `genkei-meme-terminal/docs/plan.md`: separate `genkei_meme` database on the same instance (preferred, for backup and retention isolation) or a schema in `genkei_capital`; (3) a least-privilege role and an agreed DSN placeholder shape; (4) the homelab backlog item for the provisioning step references this ID.
+
 ### B-148 — `genkei query --json` cannot serialize `interval` columns
 - **Status:** open
 - **Priority:** low

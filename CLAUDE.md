@@ -110,6 +110,17 @@ Tracked as backlog items so they don't block forward motion:
 - ~~**B-015** — Watchlists~~ → resolved by `src/genkei/data/watchlists.yml` (2026-05-09): crypto, equities, and macro series landed.
 - **B-037** — CLI name (working: `genkei`).
 
+## Orchestration
+
+This repo is one lane of the Genkei Labs factory (Genkei Capital joined it on 2026-11-05). Priorities across repos, decisions, and the cross-repo ledger live in the private `genkei-ops` repo at `~/Desktop/Current Projects/genkei-ops` (local only).
+
+- Unit of work: a backlog item ID in `docs/backlog.md` (`B-NNN`). Work orders arrive from the orchestrator session (a peer message), from a builder prompt, or from Michael.
+- In local sessions where the `genkei-ops` checkout is available and readable, read `genkei-ops/docs/inbox.md` and `genkei-ops/docs/backlog.md` before proposing next steps; never re-propose work that is done or assigned there.
+- When a work order finishes or blocks in a local session with a readable and writable `genkei-ops` checkout: append one line to `genkei-ops/docs/inbox.md` (format in that file) and, if a peer session named `genkei-ops…` exists, message it the same line.
+- In GitHub-hosted runs, skip these local ledger operations and report completion or blockers in the task response.
+- Never open PRs unless asked. Push the branch and report; Michael merges.
+- Sibling lane: `genkei-meme-terminal` (memecoin launch data, trade journal, scorer) reuses the storage and conventions of this repo; its own IDs are `MT-NNN`.
+
 ## References
 
 - `docs/backlog.md` — open items across 8 phases.
